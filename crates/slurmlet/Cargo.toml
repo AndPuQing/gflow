@@ -1,0 +1,12 @@
+[package]
+name = "slurmlet"
+version = "0.1.0"
+edition = "2021"
+authors = ["PuQing <me@puqing.work>"]
+
+[[bin]]
+name = "slurmlet"
+path = "src/main.rs"
+
+[dependencies]
+common = { path = "../common" }

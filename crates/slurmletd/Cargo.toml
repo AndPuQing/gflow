@@ -1,0 +1,27 @@
+[package]
+name = "slurmletd"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "slurmletd"
+path = "src/main.rs"
+
+[dependencies]
+colored = "2.1.0"
+common = { path = "../common" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-appender = "0.2"
+fmt = "0.1.0"
+daemonize = "0.5.0"
+
+[build-dependencies]
+anyhow = "1.0.86"
+vergen-gix = { version = "1.0.0", features = ["build", "cargo"] }
+
+[profile.release]
+codegen-units = 1
+strip = true
+lto = true
+opt-level = "z"
