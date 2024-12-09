@@ -101,7 +101,6 @@ jobs:
           tar czvf $RELEASE_NAME.tar.gz $BINARY_NAME
           ########## create sha256 ##########
           shasum -a 256 $RELEASE_NAME.tar.gz > $RELEASE_NAME.sha256
-          fi
       - name: Releasing assets
         uses: softprops/action-gh-release@v2
         with:

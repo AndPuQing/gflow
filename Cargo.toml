@@ -1,9 +1,12 @@
 [package]
 name = "slurmone"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 license = "MIT"
+description = "A lightweight, single-node job scheduler written in Rust."
+keywords = ["slurm", "scheduler", "job", "rust"]
+default-run = "slurmone"
 
 [lib]
 name = "slurmone"
