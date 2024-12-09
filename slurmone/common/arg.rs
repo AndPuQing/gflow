@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+
 // ========================== SlurmOne ==========================
 #[derive(Debug, Parser, PartialEq)]
 #[command(name = "slurmone", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]

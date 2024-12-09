@@ -1,15 +1,15 @@
-use common::jobs::{Job, GPU};
-use num_cpus;
 use nvml_wrapper::Nvml;
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tracing::info;
 
+use crate::common::jobs::{Gpu, Job, JobStatus};
+
 #[derive(Clone)]
 pub struct ResourceManager {
     available_cpus: usize,
-    available_gpus: Vec<Arc<Mutex<GPU>>>,
+    available_gpus: Vec<Arc<Mutex<Gpu>>>,
 }
 
 impl ResourceManager {
@@ -25,7 +25,7 @@ impl ResourceManager {
                 let available_memory = device.memory_info().unwrap().free;
                 let is_busy = false;
 
-                Arc::new(Mutex::new(GPU {
+                Arc::new(Mutex::new(Gpu {
                     id: i as usize,
                     total_memory: total_memory.try_into().unwrap(),
                     available_memory: available_memory.try_into().unwrap(),
@@ -135,7 +135,7 @@ impl Slurm {
             let mut job = queue.pop_front().unwrap();
 
             let mut rm = resource_manager.lock().unwrap();
-            if rm.can_allocate(&job) && job.status == common::jobs::JobStatus::Pending {
+            if rm.can_allocate(&job) && job.status == JobStatus::Pending {
                 let gpu_ids = rm.allocate(&job);
                 info!("Job started: {:?}", job);
                 let job_copy = job.clone();

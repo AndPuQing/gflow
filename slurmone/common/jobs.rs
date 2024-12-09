@@ -21,7 +21,7 @@ pub struct ResourceRequirements {
 }
 
 #[derive(Debug)]
-pub struct GPU {
+pub struct Gpu {
     pub id: usize,
     pub total_memory: usize,
     pub available_memory: usize,

@@ -1,13 +1,20 @@
-use common::{arg::DaemonArgs, config::Config};
-use slurmoned::start_daemon;
-use std::{error::Error, path::Path};
+mod commands;
+mod common;
+mod slurm;
+mod slurmoned;
+use commands::handle_exec;
+use common::arg::JobArgs;
+use std::error::Error;
+use std::path::Path;
+
+use common::config::Config;
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let clargs = DaemonArgs::new();
-    let config: Config = Config::init(clargs.config.clone())?;
-
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let clargs = JobArgs::new();
+    let config: Config = Config::init(None)?;
     let log_path = config
         .slurmone
         .log_dir
@@ -48,6 +55,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     tracing::subscriber::set_global_default(subscriber)
         .expect("failed to set tracing default subscriber");
 
-    let _ = start_daemon(config);
-    Ok(())
+    if let Some(commands) = clargs.commands {
+        let _res = handle_exec(commands).await;
+    }
+    return Ok(());
 }

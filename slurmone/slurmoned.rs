@@ -1,10 +1,9 @@
 use std::{error::Error, fs::File};
 
-use common::config::Config;
 use daemonize::Daemonize;
 use tracing::info;
 
-pub mod slurm;
+use crate::common::config::Config;
 
 pub fn start_daemon(config: Config) -> Result<(), Box<dyn Error>> {
     let daemonize = Daemonize::new()
