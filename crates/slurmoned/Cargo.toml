@@ -1,14 +1,14 @@
 [package]
-name = "slurmletd"
+name = "slurmoned"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "slurmletd"
+name = "slurmoned"
 path = "src/lib.rs"
 
 [[bin]]
-name = "slurmletd"
+name = "slurmoned"
 path = "src/main.rs"
 
 [dependencies]

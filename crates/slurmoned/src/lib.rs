@@ -10,21 +10,21 @@ pub fn start_daemon(config: Config) -> Result<(), Box<dyn Error>> {
     let daemonize = Daemonize::new()
         .pid_file(
             config
-                .slurmlet
+                .slurmone
                 .pid
                 .clone()
-                .unwrap_or_else(|| "/tmp/slurmlet.pid".to_string()),
+                .unwrap_or_else(|| "/tmp/slurmone.pid".to_string()),
         )
         .stdout(File::create(
             config
-                .slurmlet
+                .slurmone
                 .stdout
                 .clone()
                 .unwrap_or_else(|| "./logs/stdout.log".to_string()),
         )?)
         .stderr(File::create(
             config
-                .slurmlet
+                .slurmone
                 .stderr
                 .clone()
                 .unwrap_or_else(|| "./logs/stderr.log".to_string()),
@@ -34,7 +34,7 @@ pub fn start_daemon(config: Config) -> Result<(), Box<dyn Error>> {
     match daemonize.start() {
         Ok(_) => {
             // start server
-            info!("Starting slurmletd daemon");
+            info!("Starting slurmoned daemon");
         }
         Err(e) => eprintln!("Error, {}", e),
     }

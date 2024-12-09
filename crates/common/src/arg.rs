@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-// ========================== Slurmlet ==========================
+// ========================== SlurmOne ==========================
 #[derive(Debug, Parser, PartialEq)]
-#[command(name = "slurmlet", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]
+#[command(name = "slurmone", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]
 pub struct JobArgs {
     /// Sub Commands
     #[command(subcommand)]
@@ -36,11 +36,11 @@ pub enum Commands {
     Resume(ResumeArgs),
     /// View system or job information
     Info(InfoArgs),
-    /// Start the slurmlet daemon
+    /// Start the slurmone daemon
     Start(StartArgs),
-    /// Stop the slurmlet daemon
+    /// Stop the slurmone daemon
     Stop(StopArgs),
-    /// Restart the slurmlet daemon
+    /// Restart the slurmone daemon
     Restart(RestartArgs),
 }
 
@@ -159,7 +159,7 @@ pub struct InfoArgs {
 /// Arguments for the `start` command
 #[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct StartArgs {
-    /// Run the slurmlet daemon in the background
+    /// Run the slurmone daemon in the background
     #[arg(short, long)]
     pub daemon: bool,
 }
@@ -181,7 +181,7 @@ pub struct RestartArgs {}
 #[command(author, version = version(), about)]
 pub struct DaemonArgs {
     /// Config file path.
-    /// Default: $HOME/.slurmlet/config.toml
+    /// Default: $HOME/.slurmone/config.toml
     #[arg(short, long)]
     pub config: Option<String>,
 }

@@ -1737,7 +1737,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "slurmlet"
+name = "slurmone"
 version = "0.1.0"
 dependencies = [
  "common",
@@ -1745,7 +1745,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "slurmletd",
+ "slurmoned",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -1753,7 +1753,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "slurmletd"
+name = "slurmoned"
 version = "0.1.0"
 dependencies = [
  "anyhow",
