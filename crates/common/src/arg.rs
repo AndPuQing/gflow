@@ -1,5 +1,5 @@
-use clap::{Args, Parser, Subcommand};
-
+use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 // ========================== Slurmlet ==========================
 #[derive(Debug, Parser, PartialEq)]
 #[command(name = "slurmlet", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]
@@ -16,7 +16,7 @@ impl JobArgs {
 }
 
 /// CLI commands
-#[derive(Debug, Subcommand, PartialEq)]
+#[derive(Debug, Subcommand, PartialEq, Serialize, Deserialize)]
 pub enum Commands {
     /// Submit tasks
     Submit(SubmitArgs),
@@ -45,7 +45,7 @@ pub enum Commands {
 }
 
 /// Arguments for the `submit` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct SubmitArgs {
     /// Path to the script file
     #[arg(short, long, required_unless_present = "command")]
@@ -61,7 +61,7 @@ pub struct SubmitArgs {
 }
 
 /// Arguments for the `status` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct StatusArgs {
     /// Job ID to check the status of
     #[arg(value_name = "JOB_ID", required = false)]
@@ -77,7 +77,7 @@ pub struct StatusArgs {
 }
 
 /// Arguments for the `cancel` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct CancelArgs {
     /// Job ID to cancel
     #[arg(value_name = "JOB_ID", required_unless_present = "all")]
@@ -89,7 +89,7 @@ pub struct CancelArgs {
 }
 
 /// Arguments for the `list` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct ListArgs {
     /// Show jobs for a specific user
     #[arg(short, long, value_name = "USER")]
@@ -105,7 +105,7 @@ pub struct ListArgs {
 }
 
 /// Arguments for the `log` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct LogArgs {
     /// Job ID to view logs for
     #[arg(value_name = "JOB_ID", required = true)]
@@ -117,7 +117,7 @@ pub struct LogArgs {
 }
 
 /// Arguments for the `priority` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct PriorityArgs {
     /// Job ID to change the priority of
     #[arg(value_name = "JOB_ID", required = true)]
@@ -129,7 +129,7 @@ pub struct PriorityArgs {
 }
 
 /// Arguments for the `hold` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct HoldArgs {
     /// Job ID to hold
     #[arg(value_name = "JOB_ID", required = true)]
@@ -137,7 +137,7 @@ pub struct HoldArgs {
 }
 
 /// Arguments for the `resume` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct ResumeArgs {
     /// Job ID to resume
     #[arg(value_name = "JOB_ID", required = true)]
@@ -145,7 +145,7 @@ pub struct ResumeArgs {
 }
 
 /// Arguments for the `info` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct InfoArgs {
     /// Show information about running jobs
     #[arg(short, long)]
@@ -157,7 +157,7 @@ pub struct InfoArgs {
 }
 
 /// Arguments for the `start` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct StartArgs {
     /// Run the slurmlet daemon in the background
     #[arg(short, long)]
@@ -165,7 +165,7 @@ pub struct StartArgs {
 }
 
 /// Arguments for the `stop` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct StopArgs {
     /// Force stop the daemon
     #[arg(short, long)]
@@ -173,7 +173,7 @@ pub struct StopArgs {
 }
 
 /// Arguments for the `restart` command
-#[derive(Debug, clap::Args, PartialEq)]
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct RestartArgs {}
 
 // ========================== Daemon ==========================
@@ -184,10 +184,6 @@ pub struct DaemonArgs {
     /// Default: $HOME/.slurmlet/config.toml
     #[arg(short, long)]
     pub config: Option<String>,
-
-    /// Load cached tasks
-    #[arg(short, long, default_value = "true")]
-    pub load: bool,
 }
 
 impl DaemonArgs {

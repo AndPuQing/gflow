@@ -3,6 +3,10 @@ name = "slurmletd"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "slurmletd"
+path = "src/lib.rs"
+
 [[bin]]
 name = "slurmletd"
 path = "src/main.rs"
@@ -15,6 +19,9 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing-appender = "0.2"
 fmt = "0.1.0"
 daemonize = "0.5.0"
+tokio = { version = "1.42.0", features = ["full"] }
+num_cpus = "1.16.0"
+nvml-wrapper = "0.10.0"
 
 [build-dependencies]
 anyhow = "1.0.86"

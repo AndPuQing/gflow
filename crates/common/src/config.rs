@@ -108,7 +108,6 @@ impl Config {
         }
 
         let path = get_with_home_path(&config.sock.path);
-        create_dir_if_not_exists(&path)?;
         config.sock.path = path.to_str().unwrap().to_string();
 
         Ok(config)
