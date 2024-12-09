@@ -1,9 +1,6 @@
 use std::error::Error;
 
-use common::{
-    arg::StartArgs,
-    config::Config,
-};
+use common::{arg::StartArgs, config::Config};
 use slurmoned::start_daemon;
 use tracing::info;
 

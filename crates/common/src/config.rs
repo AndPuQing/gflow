@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path::PathBuf};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 static CONFIG: &str = r#"[slurmone]
 # The log directory of the slurmone server
@@ -67,7 +70,7 @@ impl Config {
         let config_str = std::fs::read_to_string(s)?;
         let mut config: Config = toml::from_str(&config_str)?;
 
-        fn create_dir_if_not_exists(path: &PathBuf) -> Result<(), Box<dyn Error>> {
+        fn create_dir_if_not_exists(path: &Path) -> Result<(), Box<dyn Error>> {
             if let Some(parent) = path.parent() {
                 if !parent.exists() {
                     std::fs::create_dir_all(parent)?;

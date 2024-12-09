@@ -15,18 +15,18 @@ use common::arg::Commands;
 
 pub async fn handle_exec(commands: Commands) -> Result<(), Box<dyn Error>> {
     match commands {
-        Commands::Submit(submit_args) => todo!(),
-        Commands::Status(status_args) => todo!(),
-        Commands::Cancel(cancel_args) => todo!(),
-        Commands::List(list_args) => todo!(),
-        Commands::Log(log_args) => todo!(),
-        Commands::Priority(priority_args) => todo!(),
-        Commands::Hold(hold_args) => todo!(),
-        Commands::Resume(resume_args) => todo!(),
-        Commands::Info(info_args) => todo!(),
+        Commands::Submit(_submit_args) => todo!(),
+        Commands::Status(_status_args) => todo!(),
+        Commands::Cancel(_cancel_args) => todo!(),
+        Commands::List(_list_args) => todo!(),
+        Commands::Log(_log_args) => todo!(),
+        Commands::Priority(_priority_args) => todo!(),
+        Commands::Hold(_hold_args) => todo!(),
+        Commands::Resume(_resume_args) => todo!(),
+        Commands::Info(_info_args) => todo!(),
         Commands::Start(start_args) => start::start(start_args).await?,
-        Commands::Stop(stop_args) => todo!(),
-        Commands::Restart(restart_args) => todo!(),
+        Commands::Stop(_stop_args) => todo!(),
+        Commands::Restart(_restart_args) => todo!(),
     }
     Ok(())
 }

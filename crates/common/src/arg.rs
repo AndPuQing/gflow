@@ -15,6 +15,12 @@ impl JobArgs {
     }
 }
 
+impl Default for JobArgs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// CLI commands
 #[derive(Debug, Subcommand, PartialEq, Serialize, Deserialize)]
 pub enum Commands {
@@ -184,6 +190,12 @@ pub struct DaemonArgs {
     /// Default: $HOME/.slurmone/config.toml
     #[arg(short, long)]
     pub config: Option<String>,
+}
+
+impl Default for DaemonArgs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DaemonArgs {

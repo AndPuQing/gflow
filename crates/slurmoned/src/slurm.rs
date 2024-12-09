@@ -48,11 +48,7 @@ impl ResourceManager {
             let available_memory = device.memory_info().unwrap().free;
             gpu.available_memory = available_memory.try_into().unwrap();
 
-            if device.utilization_rates().unwrap().gpu > 90 {
-                gpu.is_busy = true;
-            } else {
-                gpu.is_busy = false;
-            }
+            gpu.is_busy = device.utilization_rates().unwrap().gpu > 90;
         }
     }
 
@@ -110,6 +106,12 @@ pub struct Slurm {
     resource_manager: Arc<Mutex<ResourceManager>>,
 }
 
+impl Default for Slurm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Slurm {
     pub fn new() -> Self {
         Self {
@@ -130,10 +132,10 @@ impl Slurm {
                 queue = cvar.wait(queue).unwrap();
             }
 
-            let job = queue.pop_front().unwrap();
+            let mut job = queue.pop_front().unwrap();
 
             let mut rm = resource_manager.lock().unwrap();
-            if rm.can_allocate(&job) {
+            if rm.can_allocate(&job) && job.status == common::jobs::JobStatus::Pending {
                 let gpu_ids = rm.allocate(&job);
                 info!("Job started: {:?}", job);
                 let job_copy = job.clone();

@@ -7,8 +7,9 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn execute(&self, gpu_ids: Vec<usize>) {
+    pub fn execute(&mut self, _gpu_ids: Vec<usize>) {
         // 执行任务
+        self.status = JobStatus::Running;
     }
 }
 
@@ -30,7 +31,7 @@ pub struct GPU {
 pub struct GPUManager {}
 
 #[derive(Debug, Clone, PartialEq)]
-enum JobStatus {
+pub enum JobStatus {
     Pending,
     Running,
     Completed,
