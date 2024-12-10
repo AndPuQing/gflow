@@ -1,9 +1,9 @@
 #[derive(Debug, Clone)]
 pub struct Job {
     pub id: usize,
-    pub command: String,                          // 要执行的命令
-    pub resources_required: ResourceRequirements, // 所需资源（如 CPU、内存）
-    pub status: JobStatus,                        // 任务的当前状态（等待、运行中、完成等）
+    pub command: String,
+    pub resources_required: ResourceRequirements,
+    pub status: JobStatus,
 }
 
 impl Job {
@@ -15,16 +15,12 @@ impl Job {
 
 #[derive(Debug, Clone)]
 pub struct ResourceRequirements {
-    pub cpus: usize,
     pub gpus: usize,
-    pub gpu_memory: usize, // in GB per GPU
 }
 
 #[derive(Debug)]
 pub struct Gpu {
     pub id: usize,
-    pub total_memory: usize,
-    pub available_memory: usize,
     pub is_busy: bool,
 }
 
