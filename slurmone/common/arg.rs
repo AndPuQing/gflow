@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
+use super::utils::{get_current_dir, get_current_user};
+
 // ========================== SlurmOne ==========================
 #[derive(Debug, Parser, PartialEq)]
 #[command(name = "slurmone", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]
@@ -55,7 +57,7 @@ pub enum Commands {
 #[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct SubmitArgs {
     /// Path to the script file
-    #[arg(short, long, required_unless_present = "command")]
+    #[arg(short, long, required_unless_present = "command", value_hint = clap::ValueHint::FilePath)]
     pub file: Option<String>,
 
     /// Command to submit as a task
@@ -65,6 +67,12 @@ pub struct SubmitArgs {
     /// Task priority (e.g., low, normal, high)
     #[arg(short, long, default_value = "normal")]
     pub priority: String,
+
+    #[arg(hide(true), default_value = &*Box::leak(get_current_user().into_boxed_str()))]
+    pub user: Option<String>,
+
+    #[arg(hide(true), default_value = &*Box::leak(get_current_dir().into_boxed_str()))]
+    pub work_dir: Option<String>,
 }
 
 /// Arguments for the `status` command
@@ -99,12 +107,12 @@ pub struct CancelArgs {
 #[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
 pub struct ListArgs {
     /// Show jobs for a specific user
-    #[arg(short, long, value_name = "USER")]
-    pub user: Option<String>,
+    #[arg(short, long, value_name = "USER", default_value = &*Box::leak(get_current_user().into_boxed_str()))]
+    pub user: String,
 
     /// Show jobs with a specific state
-    #[arg(short, long, value_name = "STATE")]
-    pub state: Option<String>,
+    #[arg(short, long, value_name = "STATE", default_value = "all")]
+    pub state: String,
 
     /// Show all jobs (regardless of user)
     #[arg(short, long)]
@@ -128,7 +136,7 @@ pub struct LogArgs {
 pub struct PriorityArgs {
     /// Job ID to change the priority of
     #[arg(value_name = "JOB_ID", required = true)]
-    pub job_id: u32,
+    pub job_id: usize,
 
     /// New priority level (e.g., low, normal, high)
     #[arg(value_name = "PRIORITY", required = true)]
@@ -140,7 +148,7 @@ pub struct PriorityArgs {
 pub struct HoldArgs {
     /// Job ID to hold
     #[arg(value_name = "JOB_ID", required = true)]
-    pub job_id: u32,
+    pub job_id: usize,
 }
 
 /// Arguments for the `resume` command
@@ -148,7 +156,7 @@ pub struct HoldArgs {
 pub struct ResumeArgs {
     /// Job ID to resume
     #[arg(value_name = "JOB_ID", required = true)]
-    pub job_id: u32,
+    pub job_id: usize,
 }
 
 /// Arguments for the `info` command

@@ -26,6 +26,7 @@ async fn handle_other_commands(_commands: Commands, config: &Config) -> Result<(
         return Err("SlurmOned is not running".into());
     }
     let mut sock = UnixStream::connect(sock_path).await?;
+    
     // sending the command to the server
     let command_bytes = rmp_serde::to_vec(&_commands)?;
     let _ = sock.write_all(&command_bytes).await?;

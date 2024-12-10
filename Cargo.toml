@@ -37,6 +37,7 @@ toml = "0.8.19"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+whoami = "1.5.2"
 
 [build-dependencies]
 anyhow = "1.0.86"

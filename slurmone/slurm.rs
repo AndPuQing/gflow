@@ -7,7 +7,7 @@ use tokio::net::UnixListener;
 use tracing::debug;
 
 use crate::common::arg::Commands;
-use crate::common::jobs::{Gpu, Job, JobStatus, ResourceRequirements};
+use crate::common::jobs::{Gpu, Job, JobEnvironment, JobStatus, Priority};
 
 #[derive(Clone)]
 pub struct ResourceManager {
@@ -57,10 +57,7 @@ impl ResourceManager {
                 available_gpus.push(gpu);
             }
         }
-        if resources.resources_required.gpus > available_gpus.len() {
-            return false;
-        }
-        true
+        available_gpus.len() >= resources.environment.gpus.unwrap_or(0)
     }
 
     fn allocate(&mut self, resources: &Job) -> Vec<usize> {
@@ -71,9 +68,6 @@ impl ResourceManager {
                 gpu.is_busy = true;
                 allocated_gpus.push(gpu.id);
             }
-            if allocated_gpus.len() == resources.resources_required.gpus {
-                break;
-            }
         }
         allocated_gpus
     }
@@ -82,6 +76,7 @@ impl ResourceManager {
 pub struct Slurm {
     job_queue: Arc<(Mutex<VecDeque<Job>>, Condvar)>,
     resource_manager: Arc<Mutex<ResourceManager>>,
+    job_id: Arc<Mutex<usize>>,
 }
 
 impl Default for Slurm {
@@ -95,6 +90,7 @@ impl Slurm {
         Self {
             job_queue: Arc::new((Mutex::new(VecDeque::new()), Condvar::new())),
             resource_manager: Arc::new(Mutex::new(ResourceManager::new())),
+            job_id: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -136,37 +132,82 @@ impl Slurm {
             let command: Commands = rmp_serde::from_slice(&buf[..n])?;
             debug!("Received command: {:?}", command);
             match command {
-                Commands::Submit(_args) => {
-                    // 将作业提交到队列
+                Commands::Submit(args) => {
                     let (lock, cvar) = &*self.job_queue;
                     let mut queue = lock.lock().unwrap();
-                    let random_id = rand::random::<usize>();
-                    let resources_required = ResourceRequirements { gpus: 1 };
-                    queue.push_back(Job {
-                        id: random_id,
-                        command: todo!(),
-                        resources_required: resources_required,
-                        status: JobStatus::Pending,
-                    });
-                    cvar.notify_one();
-                    socket.write_all(b"Job submitted!").await?;
+                    if let Some(ref path) = args.file {
+                        let path = std::path::Path::new(path);
+                        let env = JobEnvironment::parse_slurm_script(path)?;
+                        queue.push_back(Job {
+                            id: self.job_id.lock().unwrap().clone(),
+                            command: std::fs::read_to_string(path)?,
+                            status: JobStatus::Pending,
+                            user: args.user.unwrap_or_default(),
+                            environment: env,
+                            priority: Priority::from(args.priority),
+                        });
+                        cvar.notify_one();
+                        *self.job_id.lock().unwrap() += 1;
+                        socket.write_all(b"Job submitted!").await?;
+                        debug!("Job {} submitted", self.job_id.lock().unwrap());
+                    }
                 }
                 Commands::Status(_status_args) => todo!(),
                 Commands::Cancel(_cancel_args) => todo!(),
-                Commands::List(_list_args) => {
+                Commands::List(list_args) => {
                     let (lock, _) = &*self.job_queue;
                     let jobs: Vec<_> = {
                         let queue = lock.lock().unwrap();
-                        queue.iter().map(|job| job.id).collect()
+                        queue.iter().cloned().collect()
                     };
-                    let jobs = rmp_serde::to_vec(&jobs)?;
-                    socket.write_all(&jobs).await?;
+                    if list_args.all {
+                        let jobs = rmp_serde::to_vec(&jobs)?;
+                        socket.write_all(&jobs).await?;
+                    } else {
+                        let user = list_args.user;
+                        let mut jobs = jobs
+                            .iter()
+                            .filter(|job| job.user == user)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let status = list_args.state;
+                        if status != "all" {
+                            jobs = jobs
+                                .iter()
+                                .filter(|job| JobStatus::from(status.clone()) == job.status)
+                                .cloned()
+                                .collect::<Vec<_>>();
+                        }
+                        let jobs = rmp_serde::to_vec(&jobs)?;
+                        socket.write_all(&jobs).await?;
+                    }
                 }
                 Commands::Log(_log_args) => todo!(),
-                Commands::Priority(_priority_args) => todo!(),
-                Commands::Hold(_hold_args) => todo!(),
-                Commands::Resume(_resume_args) => todo!(),
-                Commands::Info(_info_args) => todo!(),
+                Commands::Priority(priority_args) => {
+                    let (lock, _) = &*self.job_queue;
+                    let mut queue = lock.lock().unwrap();
+                    if let Some(job) = queue.iter_mut().find(|job| job.id == priority_args.job_id) {
+                        job.priority = Priority::from(priority_args.priority);
+                    }
+                    socket.write_all(b"Job priority updated!").await?;
+                }
+                Commands::Hold(hold_args) => {
+                    let (lock, _) = &*self.job_queue;
+                    let mut queue = lock.lock().unwrap();
+                    if let Some(job) = queue.iter_mut().find(|job| job.id == hold_args.job_id) {
+                        job.status = JobStatus::Hold;
+                    }
+                    socket.write_all(b"Job paused!").await?;
+                }
+                Commands::Resume(resume_args) => {
+                    let (lock, _) = &*self.job_queue;
+                    let mut queue = lock.lock().unwrap();
+                    if let Some(job) = queue.iter_mut().find(|job| job.id == resume_args.job_id) {
+                        job.status = JobStatus::Pending;
+                    }
+                    socket.write_all(b"Job resumed!").await?;
+                }
+                Commands::Info(_info_args) => {}
                 _ => {}
             }
         }
