@@ -13,7 +13,7 @@ impl Job {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResourceRequirements {
     pub gpus: usize,
 }

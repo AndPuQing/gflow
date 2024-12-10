@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .expect("failed to set tracing default subscriber");
 
     if let Some(commands) = clargs.commands {
-        let _res = handle_exec(commands).await;
+        let _res = handle_exec(commands, config).await;
     }
     return Ok(());
 }

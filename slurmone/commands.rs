@@ -1,33 +1,33 @@
-use std::error::Error;
+use restart::handle_restart;
+use rmp_serde;
+use start::handle_start;
+use std::{error::Error, path::Path};
+use stop::handle_stop;
+use tokio::{io::AsyncWriteExt, net::UnixStream};
 
-use crate::common::arg::Commands;
-pub mod cancel;
-pub mod hold;
-pub mod info;
-pub mod list;
-pub mod log;
-pub mod priority;
-pub mod restart;
-pub mod resume;
-pub mod start;
-pub mod status;
-pub mod stop;
-pub mod submit;
+use crate::common::{arg::Commands, config::Config};
+mod restart;
+mod start;
+mod stop;
 
-pub async fn handle_exec(commands: Commands) -> Result<(), Box<dyn Error>> {
+pub async fn handle_exec(commands: Commands, config: Config) -> Result<(), Box<dyn Error>> {
     match commands {
-        Commands::Submit(_submit_args) => todo!(),
-        Commands::Status(_status_args) => todo!(),
-        Commands::Cancel(_cancel_args) => todo!(),
-        Commands::List(_list_args) => todo!(),
-        Commands::Log(_log_args) => todo!(),
-        Commands::Priority(_priority_args) => todo!(),
-        Commands::Hold(_hold_args) => todo!(),
-        Commands::Resume(_resume_args) => todo!(),
-        Commands::Info(_info_args) => todo!(),
-        Commands::Start(start_args) => start::start(start_args).await?,
-        Commands::Stop(_stop_args) => todo!(),
-        Commands::Restart(_restart_args) => todo!(),
+        Commands::Start(start_args) => handle_start(start_args, &config).await?,
+        Commands::Stop(stop_args) => handle_stop(stop_args, &config).await?,
+        Commands::Restart(restart_args) => handle_restart(restart_args, &config).await?,
+        _ => handle_other_commands(commands, &config).await?,
     }
+    Ok(())
+}
+
+async fn handle_other_commands(_commands: Commands, config: &Config) -> Result<(), Box<dyn Error>> {
+    let sock_path = Path::new(&config.sock.path);
+    if !sock_path.exists() {
+        return Err("SlurmOned is not running".into());
+    }
+    let mut sock = UnixStream::connect(sock_path).await?;
+    // sending the command to the server
+    let command_bytes = rmp_serde::to_vec(&_commands)?;
+    let _ = sock.write_all(&command_bytes).await?;
     Ok(())
 }
