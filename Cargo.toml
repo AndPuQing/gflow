@@ -1,24 +1,22 @@
 [package]
-name = "slurmone"
-version = "0.1.2"
+name = "gflow"
+version = "0.1.0"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 license = "MIT"
 description = "A lightweight, single-node job scheduler written in Rust."
 keywords = ["slurm", "scheduler", "job", "rust"]
 
-[[bin]]
-name = "slurmone/main.rs"
-
 [dependencies]
-clap = { version = "4.5.23", features = ["cargo", "derive"] }
+clap = { version = "4.5.28", features = ["cargo", "derive"] }
+clap-verbosity-flag = { version = "3.0.2", features = ["log"] }
+clap_complete = "4.5.44"
+env_logger = "0.11.6"
+log = "0.4.25"
 
 [build-dependencies]
-anyhow = "1.0.86"
-vergen-gix = { version = "1.0.0", features = ["build", "cargo"] }
+anyhow = "1.0.95"
+vergen-gix = { version = "1.0.6", features = ["build", "cargo"] }
 
-[profile.release]
-codegen-units = 1
-strip = true
-lto = true
-opt-level = "z"
+[dev-dependencies]
+mockall = "0.13.1"
