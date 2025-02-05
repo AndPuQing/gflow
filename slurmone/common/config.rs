@@ -27,15 +27,15 @@ pid = "$HOME/.slurmone/slurmone.pid"
 # Tasks cache file, json format
 cache = "$HOME/.slurmone/cache.json"
 
-[sock]
-# The unix socket path of the slurmone server
-path = "/tmp/slurmone.sock"
+[http]
+host = "0.0.0.0"
+port = 62000
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub slurmone: SlurmOne,
-    pub sock: Sock,
+    pub http: Http,
 }
 
 impl Config {
@@ -110,9 +110,6 @@ impl Config {
             config.slurmone.pid = Some(pid.to_str().unwrap().to_string());
         }
 
-        let path = get_with_home_path(&config.sock.path);
-        config.sock.path = path.to_str().unwrap().to_string();
-
         Ok(config)
     }
 }
@@ -129,6 +126,7 @@ pub struct SlurmOne {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Sock {
-    pub path: String,
+pub struct Http {
+    pub host: String,
+    pub port: u16,
 }

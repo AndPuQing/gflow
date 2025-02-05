@@ -35,6 +35,8 @@ pub enum Commands {
     Cancel(CancelArgs),
     /// List jobs
     List(ListArgs),
+    /// Init the job script
+    Init(InitArgs),
     /// View job logs
     Log(LogArgs),
     /// Update job priority
@@ -129,6 +131,20 @@ pub struct LogArgs {
     /// Follow logs (like `tail -f`)
     #[arg(short, long)]
     pub follow: bool,
+}
+
+/// Arguments for the `init` command
+#[derive(Debug, clap::Args, PartialEq, Serialize, Deserialize)]
+pub struct InitArgs {
+    /// Path to the script file
+    #[arg(value_name = "FILE")]
+    pub file: Option<String>,
+
+    #[arg(hide(true), default_value = &*Box::leak(get_current_user().into_boxed_str()))]
+    pub user: Option<String>,
+
+    #[arg(hide(true), default_value = &*Box::leak(get_current_dir().into_boxed_str()))]
+    pub work_dir: Option<String>,
 }
 
 /// Arguments for the `priority` command
