@@ -1,12 +1,10 @@
-use axum::{routing::get, Router};
 use clap::Parser;
 use config::load_config;
-use scheduler::Scheduler;
-use std::sync::Arc;
 mod cli;
 mod config;
 mod job;
 mod scheduler;
+mod server;
 
 #[tokio::main]
 async fn main() {
@@ -19,14 +17,5 @@ async fn main() {
         log::error!("Failed to load config: {}", e);
         std::process::exit(1);
     }
-    let scheduler = Arc::new(Scheduler::new());
-
-    let app = Router::new().route("/", get(|| async { "Hello, World!" }));
-    let listener = tokio::net::TcpListener::bind(format!(
-        "0.0.0.0:{}",
-        config.unwrap().get_int("PORT").unwrap()
-    ))
-    .await
-    .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    server::run(config.unwrap()).await;
 }
