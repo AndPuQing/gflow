@@ -2,6 +2,7 @@ use clap::Parser;
 use cli::GFlow;
 use commands::handle_commands;
 mod cli;
+mod client;
 mod commands;
 mod help;
 

@@ -9,6 +9,10 @@ pub struct GFlowd {
     #[arg(short, long)]
     pub config: Option<PathBuf>,
 
+    /// Clean up the configuration file
+    #[arg(long)]
+    pub cleanup: bool,
+
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,
 }

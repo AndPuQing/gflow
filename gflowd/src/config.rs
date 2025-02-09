@@ -43,6 +43,7 @@ mod tests {
         let args = GFlowd {
             config: Some(temp_file.path().to_path_buf()),
             verbose: Default::default(),
+            cleanup: false,
         };
         let config = load_config(args).unwrap();
         assert_eq!(config.get_string("app.name").unwrap(), "gflowd");
@@ -53,6 +54,7 @@ mod tests {
         let args = GFlowd {
             config: Some(PathBuf::from("/tmp/does-not-exist.toml")),
             verbose: Default::default(),
+            cleanup: false,
         };
         let config = load_config(args);
         assert!(config.is_err());
@@ -63,6 +65,7 @@ mod tests {
         let args = GFlowd {
             config: None,
             verbose: Default::default(),
+            cleanup: false,
         };
         let config = load_config(args).unwrap();
         assert_eq!(config.get_int("PORT").unwrap(), 59000);

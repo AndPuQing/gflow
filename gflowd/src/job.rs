@@ -1,33 +1,27 @@
-use shared::random_run_name;
-use std::path::PathBuf;
-use tmux_interface::{HasSession, NewSession, SendKeys, Tmux, WaitFor};
+use shared::{random_run_name, Job, JobState};
+use tmux_interface::{NewSession, SendKeys, Tmux};
 
-// pub struct Job {
-//     pub script: PathBuf,
-//     pub gpus: Option<u32>,
-//     worker_name: Option<String>,
-// }
+pub fn execute_job(job: &mut Job, gpu_slots: &[u32]) {
+    let worker_name = random_run_name();
+    job.run_name = Some(worker_name.clone());
 
-// impl Job {
-//     pub fn new(script: PathBuf, gpus: Option<u32>) -> Self {
-//         Self {
-//             script,
-//             gpus,
-//             worker_name: None,
-//         }
-//     }
-
-//     pub fn run(&mut self) {
-//         let worker_name = random_run_name();
-//         self.worker_name = Some(worker_name.clone());
-//         Tmux::new()
-//             .add_command(NewSession::new().detached().session_name(&worker_name))
-//             .add_command(
-//                 SendKeys::new()
-//                     .target_client(&worker_name)
-//                     .key(format!("sh {}", self.script.display())),
-//             )
-//             .output()
-//             .unwrap();
-//     }
-// }
+    let cuda_visible_devices = gpu_slots
+        .iter()
+        .map(|gpu_id| gpu_id.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
+    Tmux::new()
+        .add_command(NewSession::new().detached().session_name(&worker_name))
+        .add_command(SendKeys::new().target_client(&worker_name).key(format!(
+            "export CUDA_VISIBLE_DEVICES={}",
+            cuda_visible_devices
+        )))
+        .add_command(
+            SendKeys::new()
+                .target_client(&worker_name)
+                .key(format!("sh {}", job.script.display())),
+        )
+        .output()
+        .unwrap();
+    job.state = JobState::Running;
+}

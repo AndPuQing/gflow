@@ -1,13 +1,47 @@
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+pub enum JobState {
+    Queued,
+    Running,
+    Finished,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Job {
+    /// Required fields at submission time
     pub script: PathBuf,
-    pub gpus: Option<u32>,
-    worker_name: Option<String>,
+    pub gpus: u32,
+
+    /// Optional fields that get populated by gflowd
+    pub run_name: Option<String>, // tmux session name
+    pub state: JobState,
+    pub gpu_ids: Option<Vec<u32>>, // GPU IDs assigned to this job
+}
+
+impl Job {
+    pub fn new(script: PathBuf, gpus: u32) -> Self {
+        Self {
+            script,
+            gpus,
+            run_name: None,
+            state: JobState::Queued,
+            gpu_ids: None,
+        }
+    }
 }
 
 pub trait GPU {
     fn get_gpu_count() -> u32;
+}
+
+pub fn get_config_temp_dir() -> PathBuf {
+    dirs::config_dir().unwrap().join("gflowd")
+}
+
+pub fn get_config_temp_file() -> PathBuf {
+    get_config_temp_dir().join("gflowdrc")
 }
 
 pub fn random_run_name() -> String {
