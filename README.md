@@ -70,6 +70,10 @@ gflow add test.sh --gpu 1
 3. Background tasks are executed using `tmux`, and the scheduler monitors task status in real-time.
 4. The scheduler ensures each task is executed on suitable resources and allocates GPUs in priority order.
 
+> [!WARNING]
+> The `gflow` does not save task snapshots, meaning that if the associated files are deleted, the task will fail.
+
+
 ## Configuration
 
 `gflow` and `gflowd` provide several configuration options that you can adjust as needed:
@@ -83,10 +87,10 @@ If you find any bugs or have feature requests, feel free to create an [Issue](ht
 
 ## TODO
 
-- Support GPU task scheduling in a multi-node environment.
-- Add task prioritization and resource quota management.
-- Improve task retry mechanism on failure.
-- Implement task result feedback and log management.
+- [ ] Support GPU task scheduling in a multi-node environment.
+- [ ] Add task prioritization and resource quota management.
+- [ ] Improve task retry mechanism on failure.
+- [ ] Implement task result feedback and log management.
 
 ## License
 
