@@ -1,6 +1,6 @@
 use clap::Parser;
 use config::load_config;
-use shared::get_config_temp_file;
+use gflow::get_config_temp_file;
 mod cli;
 mod config;
 mod job;

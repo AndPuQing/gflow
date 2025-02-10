@@ -1,4 +1,4 @@
-use shared::{random_run_name, Job, JobState};
+use gflow::{random_run_name, Job, JobState};
 use tmux_interface::{NewSession, SendKeys, Tmux};
 
 pub fn execute_job(job: &mut Job, gpu_slots: &[u32]) {

@@ -827,30 +827,18 @@ name = "gflow"
 version = "0.1.3"
 dependencies = [
  "anyhow",
- "clap",
- "clap-verbosity-flag",
- "clap_complete",
- "env_logger",
- "log",
- "mockall",
- "reqwest",
- "shared",
- "tokio",
- "vergen-gix",
-]
-
-[[package]]
-name = "gflowd"
-version = "0.1.3"
-dependencies = [
- "anyhow",
  "axum",
  "clap",
  "clap-verbosity-flag",
+ "clap_complete",
  "config",
+ "dirs",
  "env_logger",
  "log",
- "shared",
+ "mockall",
+ "rand",
+ "reqwest",
+ "serde",
  "tempfile",
  "tmux_interface",
  "tokio",
@@ -2626,15 +2614,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "shared"
-version = "0.1.3"
-dependencies = [
- "dirs",
- "rand",
- "serde",
 ]
 
 [[package]]

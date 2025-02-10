@@ -1,4 +1,4 @@
-use shared::{Job, JobState, GPU};
+use gflow::{Job, JobState, GPU};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 

@@ -1,5 +1,5 @@
+use gflow::get_config_temp_file;
 use reqwest::{Error, Response};
-use shared::get_config_temp_file;
 
 pub struct Client {
     re_client: reqwest::Client,
@@ -21,26 +21,9 @@ impl Client {
         }
     }
 
-    pub async fn add_job(&self, job: shared::Job) -> Result<Response, Error> {
+    pub async fn add_job(&self, job: gflow::Job) -> Result<Response, Error> {
         log::debug!("Client added job: {:?}", job);
         let url = format!("http://localhost:{}/job", self.port);
         self.re_client.post(&url).json(&job).send().await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::File;
-    use std::io::Write;
-
-    #[test]
-    fn test_build() {
-        let gflowd_file = get_config_temp_file();
-        let port = 1234;
-        let mut file = File::create(gflowd_file).unwrap();
-        file.write_all(port.to_string().as_bytes()).unwrap();
-        let client = Client::build().unwrap();
-        assert_eq!(client.port, port);
     }
 }

@@ -1,5 +1,5 @@
 use crate::{cli, client::Client};
-use shared::Job;
+use gflow::Job;
 
 pub(crate) async fn handle_add(add_args: cli::AddArgs) {
     log::debug!("{:?}", add_args);

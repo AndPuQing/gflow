@@ -1,6 +1,45 @@
-[workspace]
-resolver = "2"
-members = ["gflowd", "gflow", "shared"]
+[package]
+name = "gflow"
+version = "0.1.3"
+edition = "2021"
+authors = ["PuQing <me@puqing.work>"]
+license = "MIT"
+description = "A lightweight, single-node job scheduler written in Rust."
+keywords = ["slurm", "scheduler", "job", "rust"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "gflow"
+path = "src/main.rs"
+
+[[bin]]
+name = "gflowd"
+path = "src/bin/gflowd/main.rs"
+
+[dependencies]
+tokio = { version = "1.43.0", features = ["full"] }
+clap = { version = "4.5.28", features = ["cargo", "derive"] }
+clap-verbosity-flag = { version = "3.0.2", features = ["log"] }
+clap_complete = "4.5.44"
+env_logger = "0.11.6"
+log = "0.4.25"
+reqwest = { version = "0.12.12", features = ["json"] }
+axum = { version = "0.8.1", features = ["macros"] }
+tmux_interface = "0.3.2"
+config = { version = "0.15.7", features = ["toml"] }
+dirs = "6.0.0"
+rand = "0.9.0"
+serde = { version = "1.0.217", features = ["derive", "serde_derive"] }
+
+[build-dependencies]
+anyhow = "1.0.95"
+vergen-gix = { version = "1.0.6", features = ["build", "cargo"] }
+
+[dev-dependencies]
+mockall = "0.13.1"
+tempfile = "3.16.0"
 
 [profile.release]
 strip = true

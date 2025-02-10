@@ -1,6 +1,6 @@
 use crate::scheduler::{self, SharedState};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use shared::{get_config_temp_dir, get_config_temp_file, Job};
+use gflow::{get_config_temp_dir, get_config_temp_file, Job};
 use std::sync::Arc;
 
 pub async fn run(config: config::Config) {
