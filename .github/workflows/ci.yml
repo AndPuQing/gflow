@@ -1,4 +1,4 @@
-name: CI # Continuous Integration
+name: Continuous Integration
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
   pull_request:
 
 jobs:
-
   test:
     name: Test Suite
     runs-on: ubuntu-latest
