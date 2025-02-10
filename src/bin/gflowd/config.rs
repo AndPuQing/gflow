@@ -1,14 +1,7 @@
-use std::path::PathBuf;
-
 use crate::cli::GFlowd;
 
-static DEFAULT_CONFIG: &str = "/etc/default/gflowd";
-
 pub fn load_config(args: GFlowd) -> Result<config::Config, config::ConfigError> {
-    let mut config_vec = vec![PathBuf::from(DEFAULT_CONFIG)];
-    if !config_vec[0].exists() {
-        config_vec.clear();
-    }
+    let mut config_vec = vec![];
     if let Some(config) = args.config {
         if config.exists() {
             config_vec.push(config);
@@ -33,7 +26,7 @@ pub fn load_config(args: GFlowd) -> Result<config::Config, config::ConfigError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::{io::Write, path::PathBuf};
     use tempfile::NamedTempFile;
 
     #[test]

@@ -1,21 +1,33 @@
 use clap::Parser;
-use cli::GFlow;
-use commands::handle_commands;
+use config::load_config;
+use gflow::get_config_temp_file;
 mod cli;
-mod client;
-mod commands;
-mod help;
+mod config;
+mod job;
+mod scheduler;
+mod server;
 
 #[tokio::main]
 async fn main() {
-    let gflow = GFlow::parse();
+    let gflowd = cli::GFlowd::parse();
     env_logger::Builder::new()
-        .filter_level(gflow.verbose.log_level_filter())
+        .filter_level(gflowd.verbose.log_level_filter())
         .init();
+    log::debug!("Parsed CLI arguments: {:?}", gflowd);
 
-    log::debug!("{:?}", gflow);
-
-    if let Some(commands) = gflow.commands {
-        handle_commands(commands).await;
+    if gflowd.cleanup {
+        let gflowd_file = get_config_temp_file();
+        if gflowd_file.exists() {
+            std::fs::remove_file(gflowd_file).unwrap();
+        }
+        std::process::exit(0);
     }
+
+    let config = load_config(gflowd);
+    if let Err(e) = config {
+        log::error!("Failed to load config: {}", e);
+        std::process::exit(1);
+    }
+
+    server::run(config.unwrap()).await;
 }
