@@ -18,7 +18,7 @@ pub enum Commands {
     /// Add a new job to the scheduler
     Add(AddArgs),
     /// Start the system service
-    Start,
+    Up,
     /// Stop the system service
     Stop,
     /// Generate tab-completion scripts for your shell

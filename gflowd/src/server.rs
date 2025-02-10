@@ -17,7 +17,7 @@ pub async fn run(config: config::Config) {
         .route("/job", get(job_index).post(job_create))
         .with_state(scheduler);
     let listener =
-        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.get_int("PORT").unwrap()))
+        tokio::net::TcpListener::bind(format!("localhost:{}", config.get_int("PORT").unwrap()))
             .await
             .unwrap();
 
@@ -30,7 +30,7 @@ pub async fn run(config: config::Config) {
     std::fs::write(gflowd_file, config.get_int("PORT").unwrap().to_string()).unwrap();
     // ------------------------------------------
 
-    log::info!("Starting server...");
+    log::info!("Listening on: {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -44,6 +44,7 @@ async fn job_index(State(state): State<SharedState>) -> impl IntoResponse {
 #[axum::debug_handler]
 async fn job_create(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.lock().await;
+    log::info!("Received job: {:?}", input);
     state.submit_job(input);
     (StatusCode::CREATED, Json(()))
 }

@@ -48,12 +48,7 @@ impl Scheduler {
     }
 
     pub fn refresh(&mut self) {
-        self.refresh_jobs();
         self.refresh_gpu_slots();
-    }
-
-    fn refresh_jobs(&mut self) {
-        self.jobs.retain(|job| job.state != JobState::Finished);
     }
 
     fn refresh_gpu_slots(&mut self) {
@@ -101,12 +96,16 @@ pub async fn run(shared_state: SharedState) {
         state.refresh();
 
         // Best fit algorithm
-        let available_gpus = state.get_available_gpu_slots();
-        let job = state
-            .jobs
-            .iter_mut()
-            .find(|job| !available_gpus.is_empty() && job.gpus <= available_gpus.len() as u32);
+        let mut available_gpus = state.get_available_gpu_slots();
+        let job = state.jobs.iter_mut().find(|job| {
+            job.state == JobState::Queued
+                && !available_gpus.is_empty()
+                && job.gpus <= available_gpus.len() as u32
+        });
+
         if let Some(job) = job {
+            log::info!("Executing job: {:?}", job);
+            available_gpus.truncate(job.gpus as usize);
             execute_job(job, &available_gpus);
         }
     }

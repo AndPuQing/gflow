@@ -6,7 +6,8 @@ mod client;
 mod commands;
 mod help;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let gflow = GFlow::parse();
     env_logger::Builder::new()
         .filter_level(gflow.verbose.log_level_filter())
@@ -15,6 +16,6 @@ fn main() {
     log::debug!("{:?}", gflow);
 
     if let Some(commands) = gflow.commands {
-        handle_commands(commands);
+        handle_commands(commands).await;
     }
 }
