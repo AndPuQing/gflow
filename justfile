@@ -12,3 +12,6 @@ test:
 
 release:
     cargo build --release
+
+package version target:
+    cd target/release && tar -czf gflow-{{version}}-{{target}}.tar.gz gflow gflowd
