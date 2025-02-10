@@ -2,6 +2,8 @@
 name = "gflowd"
 version = "0.1.0"
 edition = "2021"
+authors = ["PuQing <me@puqing.work>"]
+license = "MIT"
 
 [dependencies]
 axum = { version = "0.8.1", features = ["macros"] }
