@@ -53,6 +53,12 @@ Start the GPU task scheduler using `gflow`:
 sudo -E gflow up
 ```
 
+> [!TIP]
+> **Ubuntu Users:**
+> ```bash
+> sudo -E ~/.cargo/bin/gflow up
+> ```
+
 ### Submit a Task
 
 Submit GPU tasks using the `gflow` command-line tool:
