@@ -20,20 +20,38 @@ name = "gflow"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1.43.0", features = ["full"] }
-clap = { version = "4.5.28", features = ["cargo", "derive"] }
-clap-verbosity-flag = { version = "3.0.2", features = ["log"] }
+tmux_interface = { version = "0.3.2" }
+tokio = { version = "1.43.0", default-features = false, features = [
+    "rt-multi-thread",
+] }
+clap = { version = "4.5.28", features = [
+    "cargo",
+    "derive",
+], default-features = false }
+clap-verbosity-flag = { version = "3.0.2", features = [
+    "log",
+], default-features = false }
 clap_complete = "4.5.44"
 env_logger = "0.11.6"
 log = "0.4.25"
-reqwest = { version = "0.12.12", features = ["json"] }
-axum = { version = "0.8.1", features = ["macros"] }
-tmux_interface = "0.3.2"
-config = { version = "0.15.7", features = ["toml"] }
+reqwest = { version = "0.12.12", features = ["json"], default-features = false }
+axum = { version = "0.8.1", features = [
+    "http1",
+    "json",
+    "macros",
+    "tokio",
+], default-features = false }
+config = { version = "0.15.7", features = ["toml"], default-features = false }
 dirs = "6.0.0"
 rand = "0.9.0"
-serde = { version = "1.0.217", features = ["derive", "serde_derive"] }
-shellexpand = "3.1.0"
+serde = { version = "1.0.217", default-features = false, features = [
+    "derive",
+    "serde_derive",
+] }
+shellexpand = { version = "3.1.0", features = [
+    "tilde",
+    "base-0",
+], default-features = false }
 
 [build-dependencies]
 anyhow = "1.0.95"
