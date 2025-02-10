@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
+
+pub type UUID = String;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub enum JobState {
@@ -32,8 +34,14 @@ impl Job {
     }
 }
 
+#[derive(Debug)]
+pub struct GPUSlot {
+    pub index: u32,
+    pub available: bool,
+}
+
 pub trait GPU {
-    fn get_gpu_count() -> u32;
+    fn get_gpus() -> HashMap<UUID, GPUSlot>;
 }
 
 pub fn get_config_temp_dir() -> PathBuf {

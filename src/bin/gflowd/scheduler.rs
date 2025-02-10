@@ -1,20 +1,14 @@
-use gflow::{Job, JobState, GPU};
+use crate::job::execute_job;
+use gflow::{GPUSlot, Job, JobState, GPU, UUID};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
-
-use crate::job::execute_job;
 
 pub type SharedState = Arc<Mutex<Scheduler>>;
 
 #[derive(Debug)]
-pub struct GPUSlot {
-    available: bool,
-}
-
-#[derive(Debug)]
 pub struct Scheduler {
     pub jobs: Vec<Job>,
-    gpu_slots: HashMap<u32, GPUSlot>,
+    gpu_slots: HashMap<UUID, GPUSlot>,
 }
 
 impl Default for Scheduler {
@@ -25,11 +19,7 @@ impl Default for Scheduler {
 
 impl Scheduler {
     pub fn new() -> Self {
-        let gpu_count = Self::get_gpu_count();
-        let mut gpu_slots = HashMap::new();
-        for i in 0..gpu_count {
-            gpu_slots.insert(i, GPUSlot { available: true });
-        }
+        let gpu_slots = Self::get_gpus();
         Self {
             jobs: Vec::new(),
             gpu_slots,
@@ -39,7 +29,13 @@ impl Scheduler {
     pub fn get_available_gpu_slots(&self) -> Vec<u32> {
         self.gpu_slots
             .iter()
-            .filter_map(|(gpu_id, slot)| if slot.available { Some(*gpu_id) } else { None })
+            .filter_map(|(_uuid, slot)| {
+                if slot.available {
+                    Some(slot.index)
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
@@ -56,34 +52,53 @@ impl Scheduler {
             .args(["--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader"])
             .output();
 
-        let mut gpu_processes: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut gpu_processes: HashMap<String, Vec<u32>> = HashMap::new();
 
         if let Ok(output) = output {
             let output = String::from_utf8_lossy(&output.stdout);
             for line in output.lines() {
                 let parts: Vec<&str> = line.split(", ").collect();
                 if parts.len() == 2 {
-                    let gpu_id = parts[0].parse::<u32>().unwrap_or(0);
+                    let uuid = parts[0].to_string();
                     let pid = parts[1].parse::<u32>().unwrap_or(0);
-                    gpu_processes.entry(gpu_id).or_default().push(pid);
+                    gpu_processes.entry(uuid).or_default().push(pid);
                 }
             }
         }
         // Update the availability of each GPU slot
-        for (gpu_id, slot) in self.gpu_slots.iter_mut() {
-            slot.available = !gpu_processes.contains_key(gpu_id)
+        for (uuid, slot) in self.gpu_slots.iter_mut() {
+            slot.available = !gpu_processes.contains_key(uuid);
         }
     }
 }
 
 impl GPU for Scheduler {
-    fn get_gpu_count() -> u32 {
+    fn get_gpus() -> HashMap<UUID, GPUSlot> {
         match std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=gpu_name", "--format=csv,noheader"])
+            .args(["--query-gpu=gpu_uuid,index", "--format=csv,noheader"])
             .output()
         {
-            Ok(output) => String::from_utf8_lossy(&output.stdout).lines().count() as u32,
-            Err(_) => 0, // Return 0 if nvidia-smi fails or is not available
+            Ok(output) => {
+                let output = String::from_utf8_lossy(&output.stdout);
+                let mut gpu_slots = HashMap::new();
+                for line in output.lines() {
+                    let parts: Vec<&str> = line.split(", ").collect();
+                    if parts.len() == 2 {
+                        let gpu_uuid = parts[0].to_string();
+                        let index = parts[1].parse::<u32>().unwrap_or(0);
+
+                        gpu_slots.insert(
+                            gpu_uuid,
+                            GPUSlot {
+                                available: true,
+                                index,
+                            },
+                        );
+                    }
+                }
+                gpu_slots
+            }
+            Err(_) => HashMap::new(),
         }
     }
 }
