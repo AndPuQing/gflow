@@ -1,29 +1,49 @@
-use gflow::get_config_temp_file;
-use reqwest::{Error, Response};
+use anyhow::{Context, Result};
+use gflow::{get_config_temp_file, Job};
+use reqwest::Response;
+use std::fs;
 
+const DEFAULT_PORT: u32 = 59000;
+
+#[derive(Debug)]
 pub struct Client {
-    re_client: reqwest::Client,
+    client: reqwest::Client,
     port: u32,
 }
 
 impl Client {
-    pub fn build() -> Result<Self, &'static str> {
-        let gflowd_file = get_config_temp_file();
-        if !gflowd_file.exists() {
-            Err("gflowd file does not exist")
-        } else {
-            let port = std::fs::read_to_string(gflowd_file)
-                .unwrap()
-                .parse::<u32>()
-                .unwrap();
-            let re_client = reqwest::Client::new();
-            Ok(Self { re_client, port })
-        }
+    pub fn build() -> Result<Self> {
+        let port = Self::get_port()?;
+        Ok(Self {
+            client: reqwest::Client::new(),
+            port,
+        })
     }
 
-    pub async fn add_job(&self, job: gflow::Job) -> Result<Response, Error> {
-        log::debug!("Client added job: {:?}", job);
+    fn get_port() -> Result<u32> {
+        let config_file = get_config_temp_file();
+
+        if !config_file.exists() {
+            log::warn!("Config file not found, using default port {}", DEFAULT_PORT);
+            return Ok(DEFAULT_PORT);
+        }
+
+        fs::read_to_string(&config_file)
+            .context("Failed to read config file")?
+            .trim()
+            .parse::<u32>()
+            .context("Failed to parse port number")
+    }
+
+    pub async fn add_job(&self, job: Job) -> Result<Response> {
+        log::debug!("Adding job: {:?}", job);
+
         let url = format!("http://localhost:{}/job", self.port);
-        self.re_client.post(&url).json(&job).send().await
+        self.client
+            .post(&url)
+            .json(&job)
+            .send()
+            .await
+            .context("Failed to send job request")
     }
 }

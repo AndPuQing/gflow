@@ -1,15 +1,19 @@
 use crate::cli::{self, GFlow};
+use anyhow::Result;
 use clap::CommandFactory;
-use clap_complete::{generate, shells::*};
+use clap_complete::generate;
 use std::io;
 
-pub(crate) fn handle_completions(completions_args: cli::CompletionsArgs) {
+pub(crate) fn handle_completions(args: cli::CompletionsArgs) -> Result<()> {
     let mut cmd = GFlow::command();
-    match completions_args.shell {
-        cli::Shell::Bash => generate(Bash, &mut cmd, "gflow", &mut io::stdout()),
-        cli::Shell::Elvish => generate(Elvish, &mut cmd, "gflow", &mut io::stdout()),
-        cli::Shell::Fish => generate(Fish, &mut cmd, "gflow", &mut io::stdout()),
-        cli::Shell::Powershell => generate(PowerShell, &mut cmd, "gflow", &mut io::stdout()),
-        cli::Shell::Zsh => generate(Zsh, &mut cmd, "gflow", &mut io::stdout()),
-    }
+    let shell = args.shell;
+
+    generate::<clap_complete::Shell, _>(
+        shell.into(),
+        &mut cmd,
+        env!("CARGO_PKG_NAME"),
+        &mut io::stdout(),
+    );
+
+    Ok(())
 }

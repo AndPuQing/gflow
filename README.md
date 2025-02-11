@@ -61,13 +61,24 @@ sudo -E gflow up
 
 ### Submit a Task
 
+#### Submit scripts using the `gflow` CLI
+
 Submit GPU tasks using the `gflow` command-line tool:
 
 ```bash
-gflow add test.sh --gpu 1
+gflow submit test.sh --gpu 1 --conda-env myenv
 ```
 
 - `--gpu`: The number of GPUs to allocate for the task.
+- `--conda-env`: The Conda environment to activate before running the task.
+
+#### Submit commands using the `gflow` CLI
+
+Submit GPU tasks using the `gflow` command-line tool:
+
+```bash
+gflow submit "python test.py" --gpu 1 --conda-env myenv
+```
 
 ### Task Scheduling Flow
 

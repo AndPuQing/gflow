@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cli::GFlow;
 use commands::handle_commands;
 mod cli;
@@ -8,14 +8,21 @@ mod help;
 
 #[tokio::main]
 async fn main() {
+    // Parse command line arguments
     let gflow = GFlow::parse();
+
+    // Initialize logger
     env_logger::Builder::new()
         .filter_level(gflow.verbose.log_level_filter())
         .init();
 
-    log::debug!("{:?}", gflow);
+    log::debug!("Starting gflow with args: {:?}", gflow);
 
+    // Handle commands if present
     if let Some(commands) = gflow.commands {
-        handle_commands(commands).await;
+        let _ = handle_commands(commands).await;
+    } else {
+        // Show help when no command is provided
+        let _ = GFlow::command().print_help();
     }
 }

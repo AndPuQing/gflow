@@ -1,5 +1,7 @@
 use crate::help::COMPLETIONS_HELP;
 use clap::{Parser, ValueEnum};
+use clap_complete::Shell as CompleteShell;
+use gflow::version;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -16,7 +18,7 @@ pub struct GFlow {
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Add a new job to the scheduler
-    Add(AddArgs),
+    Submit(SubmitArgs),
     /// Start the system service
     Up,
     /// Stop the system service
@@ -30,11 +32,21 @@ pub enum Commands {
 }
 
 #[derive(Debug, Parser)]
-pub struct AddArgs {
+pub struct SubmitArgs {
     /// The script to run
-    pub script: PathBuf,
+    #[arg(required_unless_present = "command")]
+    pub script: Option<PathBuf>,
+
+    /// The command to run
+    #[arg(long, conflicts_with = "script")]
+    pub command: Option<String>,
+
+    #[arg(short, long)]
+    /// The conda environment to use
+    pub conda_env: Option<String>,
+
     /// The GPU count to request
-    #[clap(short, long, name = "NUMS", default_value = "0")]
+    #[arg(short, long, name = "NUMS", default_value = "0")]
     pub gpus: Option<u32>,
 }
 
@@ -53,22 +65,14 @@ pub struct CompletionsArgs {
     pub shell: Shell,
 }
 
-const VERSION_MESSAGE: &str = concat!(
-    env!("CARGO_PKG_VERSION"),
-    "-",
-    env!("VERGEN_GIT_DESCRIBE"),
-    " (",
-    env!("VERGEN_BUILD_DATE"),
-    ")"
-);
-
-pub fn version() -> &'static str {
-    let author = clap::crate_authors!();
-
-    Box::leak(Box::new(format!(
-        "\
-{VERSION_MESSAGE}
-
-Authors: {author}"
-    )))
+impl From<Shell> for CompleteShell {
+    fn from(shell: Shell) -> Self {
+        match shell {
+            Shell::Bash => CompleteShell::Bash,
+            Shell::Elvish => CompleteShell::Elvish,
+            Shell::Fish => CompleteShell::Fish,
+            Shell::Powershell => CompleteShell::PowerShell,
+            Shell::Zsh => CompleteShell::Zsh,
+        }
+    }
 }
