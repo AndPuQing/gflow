@@ -1,6 +1,6 @@
 use crate::{cli, client::Client};
 use anyhow::{Context, Result};
-use gflow::Job;
+use gflow::job::Job;
 use std::path::PathBuf;
 
 pub(crate) async fn handle_submit(submit_args: cli::SubmitArgs) -> Result<()> {
@@ -18,7 +18,8 @@ pub(crate) async fn handle_submit(submit_args: cli::SubmitArgs) -> Result<()> {
 fn build_job(args: cli::SubmitArgs) -> Result<Job> {
     let mut builder = Job::builder()
         .conda_env(&args.conda_env)
-        .gpus(args.gpus.unwrap_or(0));
+        .gpus(args.gpus.unwrap_or(0))
+        .run_dir(std::env::current_dir().context("Failed to get current directory")?);
 
     if let Some(script) = args.script {
         let script_path = make_absolute_path(script)?;

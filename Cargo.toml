@@ -17,7 +17,7 @@ path = "src/bin/gflowd/main.rs"
 
 [[bin]]
 name = "gflow"
-path = "src/main.rs"
+path = "src/bin/gflow/main.rs"
 
 [dependencies]
 tmux_interface = { version = "0.3.2" }

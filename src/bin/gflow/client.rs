@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use gflow::{get_config_temp_file, Job};
+use gflow::{get_config_temp_file, job::Job};
 use reqwest::Response;
 use std::fs;
 

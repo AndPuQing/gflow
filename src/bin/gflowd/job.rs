@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use gflow::{random_run_name, Job};
+use gflow::{job::Job, random_run_name};
 use tmux_interface::{NewSession, SendKeys, Tmux};
 
 struct TmuxSession {
@@ -35,6 +35,11 @@ pub fn execute_job(job: &mut Job, gpu_slots: &[u32]) -> Result<()> {
     let session = TmuxSession::new(random_run_name()).context("Failed to create tmux session")?;
 
     job.run_name = Some(session.name.clone());
+
+    // Set run directory
+    session
+        .send_command(&format!("cd {}", job.run_dir.display()))
+        .context("Failed to set run directory")?;
 
     // Set GPU environment if needed
     if !gpu_slots.is_empty() {

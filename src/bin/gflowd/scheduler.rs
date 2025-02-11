@@ -1,5 +1,8 @@
 use crate::job::execute_job;
-use gflow::{GPUSlot, Job, JobState, GPU, UUID};
+use gflow::{
+    job::{Job, JobState},
+    GPUSlot, GPU, UUID,
+};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
