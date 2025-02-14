@@ -29,6 +29,14 @@ pub enum Commands {
         arg_required_else_help = true
     )]
     Completions(CompletionsArgs),
+    /// Send finish signal to a running job
+    Finish(FinishArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct FinishArgs {
+    /// The name of the job to finish
+    pub name: String,
 }
 
 #[derive(Debug, Parser)]

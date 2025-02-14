@@ -122,11 +122,12 @@ pub async fn run(shared_state: SharedState) {
         });
 
         if let Some(job) = job {
-            log::info!("Executing job: {:?}", job);
             available_gpus.truncate(job.gpus as usize);
-            match execute_job(job, &available_gpus) {
+            job.gpu_ids = Some(available_gpus.clone());
+            match execute_job(job) {
                 Ok(_) => {
                     job.state = JobState::Running;
+                    log::info!("Executing job: {:?}", job);
                 }
                 Err(e) => {
                     log::error!("Failed to execute job: {:?}", e);

@@ -1,6 +1,9 @@
 use crate::scheduler::{self, SharedState};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use gflow::{get_config_temp_dir, get_config_temp_file, job::Job};
+use gflow::{
+    get_config_temp_dir, get_config_temp_file,
+    job::{Job, JobState},
+};
 use std::sync::Arc;
 
 pub async fn run(config: config::Config) {
@@ -14,7 +17,7 @@ pub async fn run(config: config::Config) {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .route("/job", get(job_index).post(job_create))
+        .route("/job", get(job_index).post(job_create).put(job_finish))
         .with_state(scheduler);
     let listener =
         tokio::net::TcpListener::bind(format!("localhost:{}", config.get_int("PORT").unwrap()))
@@ -47,4 +50,22 @@ async fn job_create(State(state): State<SharedState>, Json(input): Json<Job>) ->
     log::info!("Received job: {:?}", input);
     state.submit_job(input);
     (StatusCode::CREATED, Json(()))
+}
+
+#[axum::debug_handler]
+async fn job_finish(
+    State(state): State<SharedState>,
+    Json(input): Json<String>,
+) -> impl IntoResponse {
+    let mut state = state.lock().await;
+
+    let job = state
+        .jobs
+        .iter_mut()
+        .find(|j| j.run_name == Some(input.clone()));
+    if let Some(j) = job {
+        j.state = JobState::Finished;
+    }
+    log::info!("Finished job: {:?}", input);
+    (StatusCode::OK, Json(()))
 }

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use gflow::{job::Job, random_run_name};
 use tmux_interface::{NewSession, SendKeys, Tmux};
 
@@ -7,39 +7,36 @@ struct TmuxSession {
 }
 
 impl TmuxSession {
-    fn new(name: String) -> Result<Self> {
+    fn new(name: String) -> Self {
         Tmux::new()
             .add_command(NewSession::new().detached().session_name(&name))
             .output()
-            .context("Failed to create tmux session")?;
+            .unwrap();
 
         // Allow tmux session to initialize
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        Ok(Self { name })
+        Self { name }
     }
 
-    fn send_command(&self, command: &str) -> Result<()> {
+    fn send_command(&self, command: &str) {
         Tmux::new()
             .add_command(SendKeys::new().target_client(&self.name).key(command))
             .add_command(SendKeys::new().target_client(&self.name).key("Enter"))
             .output()
-            .context(format!("Failed to send command: {}", command))?;
-
-        Ok(())
+            .unwrap();
     }
 }
 
-pub fn execute_job(job: &mut Job, gpu_slots: &[u32]) -> Result<()> {
+pub fn execute_job(job: &mut Job) -> Result<()> {
     // Create tmux session
-    let session = TmuxSession::new(random_run_name()).context("Failed to create tmux session")?;
+    let session = TmuxSession::new(random_run_name());
 
     job.run_name = Some(session.name.clone());
+    let gpu_slots = job.gpu_ids.clone().unwrap();
 
     // Set run directory
-    session
-        .send_command(&format!("cd {}", job.run_dir.display()))
-        .context("Failed to set run directory")?;
+    session.send_command(&format!("cd {}", job.run_dir.display()));
 
     // Set GPU environment if needed
     if !gpu_slots.is_empty() {
@@ -49,30 +46,24 @@ pub fn execute_job(job: &mut Job, gpu_slots: &[u32]) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",");
 
-        session
-            .send_command(&format!("export CUDA_VISIBLE_DEVICES={}", cuda_devices))
-            .context("Failed to set CUDA_VISIBLE_DEVICES")?;
+        session.send_command(&format!("export CUDA_VISIBLE_DEVICES={}", cuda_devices));
     }
 
     // Activate conda environment if specified
     if let Some(env) = &job.conda_env {
-        session
-            .send_command(&format!("conda activate {}", env))
-            .context("Failed to activate conda environment")?;
+        session.send_command(&format!("conda activate {}", env));
     }
 
     // Execute the job command
     let command = if let Some(script) = &job.script {
-        format!("sh {}", script.display())
+        format!("sh {} && gflow finish {}", script.display(), session.name)
     } else if let Some(cmd) = &job.command {
-        cmd.clone()
+        format!("{} && gflow finish {}", cmd, session.name)
     } else {
         anyhow::bail!("No command or script specified");
     };
 
-    session
-        .send_command(&command)
-        .context("Failed to execute job command")?;
+    session.send_command(&command);
 
     Ok(())
 }

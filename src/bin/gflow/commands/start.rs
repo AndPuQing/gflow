@@ -61,7 +61,7 @@ impl ServiceManager {
 
     fn start_service(&self) -> Result<()> {
         let output = std::process::Command::new("systemctl")
-            .arg("start")
+            .arg("restart")
             .arg("gflowd")
             .output()
             .context("Failed to execute systemctl command")?;
