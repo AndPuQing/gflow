@@ -1,11 +1,13 @@
 [package]
 name = "gflow"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
+repository = "https://github.com/AndPuQing/gflow.git"
 license = "MIT"
 description = "A lightweight, single-node job scheduler written in Rust."
 keywords = ["slurm", "scheduler", "job", "rust"]
+categories = ["system", "parallelism", "scheduling", "job", "GPU"]
 readme = "README.md"
 
 [lib]
