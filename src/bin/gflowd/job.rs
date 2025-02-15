@@ -1,32 +1,5 @@
 use anyhow::Result;
-use gflow::{job::Job, random_run_name};
-use tmux_interface::{NewSession, SendKeys, Tmux};
-
-struct TmuxSession {
-    name: String,
-}
-
-impl TmuxSession {
-    fn new(name: String) -> Self {
-        Tmux::new()
-            .add_command(NewSession::new().detached().session_name(&name))
-            .output()
-            .unwrap();
-
-        // Allow tmux session to initialize
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
-        Self { name }
-    }
-
-    fn send_command(&self, command: &str) {
-        Tmux::new()
-            .add_command(SendKeys::new().target_client(&self.name).key(command))
-            .add_command(SendKeys::new().target_client(&self.name).key("Enter"))
-            .output()
-            .unwrap();
-    }
-}
+use gflow::{job::Job, random_run_name, tmux::TmuxSession};
 
 pub fn execute_job(job: &mut Job) -> Result<()> {
     // Create tmux session

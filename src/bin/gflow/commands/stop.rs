@@ -1,20 +1,12 @@
-use anyhow::{Context, Result};
-use std::process::Command;
+use anyhow::Result;
+use tmux_interface::{KillSession, Tmux};
+
+use crate::commands::start::TMUX_SESSION_NAME;
 
 pub(crate) fn handle_stop() -> Result<()> {
     log::debug!("Stopping the system service");
-
-    let output = Command::new("systemctl")
-        .arg("stop")
-        .arg("gflowd")
+    Tmux::with_command(KillSession::new().target_session(TMUX_SESSION_NAME))
         .output()
-        .context("Failed to execute systemctl command")?;
-
-    if output.status.success() {
-        log::info!("Service stopped successfully");
-        Ok(())
-    } else {
-        let error = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Failed to stop service: {}", error)
-    }
+        .unwrap();
+    Ok(())
 }

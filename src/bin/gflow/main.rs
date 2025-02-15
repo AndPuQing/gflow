@@ -20,7 +20,11 @@ async fn main() {
 
     // Handle commands if present
     if let Some(commands) = gflow.commands {
-        let _ = handle_commands(commands).await;
+        let output = handle_commands(commands).await;
+        if let Err(e) = output {
+            log::error!("Error: {}", e);
+            std::process::exit(1);
+        }
     } else {
         // Show help when no command is provided
         let _ = GFlow::command().print_help();

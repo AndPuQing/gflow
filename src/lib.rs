@@ -1,4 +1,5 @@
 pub mod job;
+pub mod tmux;
 use std::{collections::HashMap, path::PathBuf};
 pub type UUID = String;
 
