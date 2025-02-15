@@ -42,6 +42,13 @@ impl Scheduler {
             .collect()
     }
 
+    pub fn info(&self) -> HashMap<String, Vec<u32>> {
+        self.gpu_slots
+            .iter()
+            .map(|(uuid, slot)| (uuid.clone(), vec![slot.index]))
+            .collect()
+    }
+
     pub fn submit_job(&mut self, job: Job) {
         self.jobs.push(job);
     }

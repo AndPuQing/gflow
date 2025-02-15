@@ -2,6 +2,7 @@ use crate::cli::Commands;
 mod add;
 mod completions;
 mod finish;
+mod list;
 mod start;
 mod stop;
 
@@ -14,5 +15,6 @@ pub async fn handle_commands(commands: Commands) -> anyhow::Result<()> {
         Commands::Up => start::handle_start(),
         Commands::Stop => stop::handle_stop(),
         Commands::Finish(finish_args) => finish::handle_finish(finish_args).await,
+        Commands::List => list::handle_list().await,
     }
 }

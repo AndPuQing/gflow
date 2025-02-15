@@ -35,6 +35,15 @@ impl Client {
             .context("Failed to parse port number")
     }
 
+    pub async fn list_jobs(&self) -> Result<Response> {
+        let url = format!("http://localhost:{}/job", self.port);
+        self.client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to send list jobs request")
+    }
+
     pub async fn add_job(&self, job: Job) -> Result<Response> {
         log::debug!("Adding job: {:?}", job);
 

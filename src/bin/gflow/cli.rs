@@ -19,6 +19,8 @@ pub struct GFlow {
 pub enum Commands {
     /// Add a new job to the scheduler
     Submit(SubmitArgs),
+    /// List all jobs in the scheduler
+    List,
     /// Start the system service
     Up,
     /// Stop the system service

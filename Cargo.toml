@@ -52,6 +52,10 @@ shellexpand = { version = "3.1.0", features = [
     "base-0",
 ], default-features = false }
 anyhow = "1.0.95"
+color-eyre = "0.6.3"
+ratatui = "0.29.0"
+crossterm = "0.28.1"
+strum = { version = "0.27.0", features = ["derive"] }
 
 [build-dependencies]
 anyhow = "1.0.95"

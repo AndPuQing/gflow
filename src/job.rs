@@ -1,11 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use strum::{Display, EnumIter, FromRepr};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr)]
 pub enum JobState {
+    #[strum(to_string = "Queued")]
     Queued,
+    #[strum(to_string = "Running")]
     Running,
+    #[strum(to_string = "Finished")]
     Finished,
+    #[strum(to_string = "Failed")]
     Failed,
 }
 

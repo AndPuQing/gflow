@@ -5,6 +5,7 @@ mod cli;
 mod client;
 mod commands;
 mod help;
+mod tui;
 
 #[tokio::main]
 async fn main() {

@@ -18,6 +18,7 @@ pub async fn run(config: config::Config) {
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/job", get(job_index).post(job_create).put(job_finish))
+        .route("/info", get(info))
         .with_state(scheduler);
     let listener =
         tokio::net::TcpListener::bind(format!("localhost:{}", config.get_int("PORT").unwrap()))
@@ -35,6 +36,13 @@ pub async fn run(config: config::Config) {
 
     log::info!("Listening on: {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
+}
+
+#[axum::debug_handler]
+async fn info(State(state): State<SharedState>) -> impl IntoResponse {
+    let state = state.lock().await;
+    let info = state.info();
+    (StatusCode::OK, Json(info))
 }
 
 #[axum::debug_handler]
