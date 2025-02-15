@@ -8,6 +8,10 @@
 
 `gflow` is an efficient tool for scheduling and managing GPU tasks, supporting task submission from the command line and running tasks in the background. Built in Rust, it provides a simple and easy-to-use interface for single-node or ~~distributed~~ GPU task scheduling.
 
+## Snapshot
+
+![gflow](./assets/Sniapaste.png)
+
 ## Key Features
 
 - **GPU Task Scheduling:** Supports queuing, scheduling, and management of GPU tasks.
