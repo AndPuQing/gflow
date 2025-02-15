@@ -5,7 +5,7 @@ use std::fs;
 
 const DEFAULT_PORT: u32 = 59000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     client: reqwest::Client,
     port: u32,

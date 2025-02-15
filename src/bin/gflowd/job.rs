@@ -1,11 +1,10 @@
 use anyhow::Result;
-use gflow::{job::Job, random_run_name, tmux::TmuxSession};
+use gflow::{job::Job, tmux::TmuxSession};
 
-pub fn execute_job(job: &mut Job) -> Result<()> {
+pub fn execute_job(job: &Job) -> Result<()> {
     // Create tmux session
-    let session = TmuxSession::new(random_run_name());
+    let session = TmuxSession::new(job.run_name.as_ref().unwrap().to_string());
 
-    job.run_name = Some(session.name.clone());
     let gpu_slots = job.gpu_ids.clone().unwrap();
 
     // Set run directory

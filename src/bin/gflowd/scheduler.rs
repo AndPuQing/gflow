@@ -50,7 +50,13 @@ impl Scheduler {
     }
 
     pub fn submit_job(&mut self, job: Job) {
-        self.jobs.push(job);
+        let job_ = Job {
+            state: JobState::Queued,
+            gpu_ids: None,
+            run_name: Some(gflow::random_run_name()),
+            ..job
+        };
+        self.jobs.push(job_);
     }
 
     pub fn refresh(&mut self) {

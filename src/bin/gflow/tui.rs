@@ -1,22 +1,42 @@
+use std::time::Duration;
+
 use color_eyre::Result;
 use gflow::job::{Job, JobState};
+use ratatui::widgets::{Block, Borders};
 use ratatui::{
+    border,
     buffer::Buffer,
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Layout, Rect},
     style::{palette::tailwind, Color, Stylize},
-    symbols,
+    symbols::{self},
     text::Line,
-    widgets::{Block, Padding, Paragraph, Tabs, Widget},
+    widgets::{Tabs, Widget},
     DefaultTerminal,
 };
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
+use tokio::sync::mpsc;
+use tokio::time::interval;
 
-#[derive(Default)]
+use crate::client::Client;
+
 struct App {
     state: AppState,
     selected_tab: SelectedTab,
+    client: Client,
     jobs: Vec<Job>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let client = Client::build().expect("Failed to build client");
+        Self {
+            state: AppState::default(),
+            selected_tab: SelectedTab::default(),
+            client,
+            jobs: vec![],
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +59,17 @@ enum SelectedTab {
     Failed,
 }
 
+impl SelectedTab {
+    const fn palette(self) -> tailwind::Palette {
+        match self {
+            Self::Queued => tailwind::YELLOW,
+            Self::Running => tailwind::BLUE,
+            Self::Finished => tailwind::GREEN,
+            Self::Failed => tailwind::RED,
+        }
+    }
+}
+
 impl From<JobState> for SelectedTab {
     fn from(state: JobState) -> Self {
         match state {
@@ -50,47 +81,98 @@ impl From<JobState> for SelectedTab {
     }
 }
 
-pub fn show_tui(jobs: &[Job]) -> Result<()> {
+pub fn show_tui() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let app = App {
-        jobs: jobs.to_owned(),
-        ..Default::default()
-    }
-    .run(terminal);
+    let app = App::default().run(terminal);
     ratatui::restore();
     app
 }
 
+enum TuiEvent {
+    Key(event::KeyEvent),
+    Tick,
+    Jobs(Vec<Job>),
+}
+
 impl App {
     fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        let (tx, mut rx) = mpsc::channel(32);
+        let tick_tx = tx.clone();
+        let jobs_tx = tx.clone();
+        let client = self.client.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+            loop {
+                interval.tick().await;
+                if let Ok(Event::Key(key)) = event::read() {
+                    if tx.send(TuiEvent::Key(key)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(250));
+            loop {
+                interval.tick().await;
+                if tick_tx.send(TuiEvent::Tick).await.is_err() {
+                    break;
+                }
+            }
+        });
+        tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(2));
+            loop {
+                interval.tick().await;
+                if let Ok(jobs) = client.list_jobs().await {
+                    if jobs_tx
+                        .send(TuiEvent::Jobs(jobs.json::<Vec<Job>>().await.unwrap()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
         while self.state == AppState::Running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
-            self.handle_events()?;
-        }
-        Ok(())
-    }
 
-    fn handle_events(&mut self) -> std::io::Result<()> {
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
-                    KeyCode::Char('h') | KeyCode::Left => self.previous_tab(),
-                    KeyCode::Char('q') | KeyCode::Esc => self.quit(),
-                    _ => {}
+            if let Ok(event) = rx.try_recv() {
+                match event {
+                    TuiEvent::Key(key) => {
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
+                                KeyCode::Char('h') | KeyCode::Left => self.previous_tab(),
+                                KeyCode::Char('q') | KeyCode::Esc => self.quit(),
+                                _ => {}
+                            }
+                        }
+                    }
+                    TuiEvent::Tick => {
+                        // Handle UI updates if needed
+                    }
+                    TuiEvent::Jobs(jobs) => {
+                        self.jobs = jobs;
+                    }
                 }
             }
         }
+
         Ok(())
     }
 
-    pub fn next_tab(&mut self) {
-        self.selected_tab = self.selected_tab.next();
+    fn next_tab(&mut self) {
+        let current = self.selected_tab as usize;
+        self.selected_tab = SelectedTab::from_repr(current.saturating_add(1)).unwrap_or_default();
     }
 
-    pub fn previous_tab(&mut self) {
-        self.selected_tab = self.selected_tab.previous();
+    fn previous_tab(&mut self) {
+        let current = self.selected_tab as usize;
+        self.selected_tab = SelectedTab::from_repr(current.saturating_sub(1)).unwrap_or_default();
     }
 
     pub fn quit(&mut self) {
@@ -98,115 +180,141 @@ impl App {
     }
 }
 
-impl SelectedTab {
-    /// Get the previous tab, if there is no previous tab return the current tab.
-    fn previous(self) -> Self {
-        let current_index: usize = self as usize;
-        let previous_index = current_index.saturating_sub(1);
-        Self::from_repr(previous_index).unwrap_or(self)
-    }
-
-    /// Get the next tab, if there is no next tab return the current tab.
-    fn next(self) -> Self {
-        let current_index = self as usize;
-        let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or(self)
-    }
-}
-
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         use Constraint::{Length, Min};
-        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
-        let [header_area, inner_area, footer_area] = vertical.areas(area);
+        let vertical = Layout::vertical([Length(3), Min(0), Length(1)]);
+        let [header_area, content_area, footer_area] = vertical.areas(area);
 
-        let horizontal = Layout::horizontal([Min(0), Length(20)]);
-        let [tabs_area, title_area] = horizontal.areas(header_area);
-
-        render_title(title_area, buf);
-        self.render_tabs(tabs_area, buf);
-        let selected_jobs = self
-            .jobs
-            .iter()
-            .filter(|job| SelectedTab::from(job.state.clone()) == self.selected_tab);
-        self.selected_tab
-            .render_with_jobs(inner_area, buf, &selected_jobs.collect::<Vec<_>>());
-        render_footer(footer_area, buf);
+        self.render_tabs(header_area, buf);
+        self.render_content(content_area, buf);
+        self.render_footer(footer_area, buf);
     }
 }
 
 impl App {
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let titles = SelectedTab::iter().map(SelectedTab::title);
-        let highlight_style = (Color::default(), self.selected_tab.palette().c400);
-        let selected_tab_index = self.selected_tab as usize;
+        let titles: Vec<String> = SelectedTab::iter()
+            .map(|tab| {
+                let count = self
+                    .jobs
+                    .iter()
+                    .filter(|job| SelectedTab::from(job.state.clone()) == tab)
+                    .count();
+                format!("{} ({})", tab, count)
+            })
+            .collect();
+        let highlight_style = self.selected_tab.palette().c700;
         Tabs::new(titles)
+            .block(
+                Block::default()
+                    .borders(border!(ALL))
+                    .border_type(ratatui::widgets::BorderType::Rounded),
+            )
+            .select(self.selected_tab as usize)
             .highlight_style(highlight_style)
-            .select(selected_tab_index)
-            .padding("", "")
-            .divider(" ")
+            .divider(symbols::line::VERTICAL)
             .render(area, buf);
     }
-}
 
-fn render_title(area: Rect, buf: &mut Buffer) {
-    "Gflow Job Status".bold().render(area, buf);
-}
+    fn render_content(&self, area: Rect, buf: &mut Buffer) {
+        let block = Block::default()
+            .borders(border!(ALL))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .title(self.selected_tab.to_string());
 
-fn render_footer(area: Rect, buf: &mut Buffer) {
-    Line::raw("◄ ► to change tab | Press q to quit")
+        let inner_area = block.inner(area);
+        block.render(area, buf);
+
+        let constraints = vec![
+            Constraint::Length(20), // Name
+            Constraint::Length(1),  // Separator
+            Constraint::Length(30), // Command
+            Constraint::Length(1),  // Separator
+            Constraint::Length(5),  // GPUs
+            Constraint::Length(1),  // Separator
+            Constraint::Min(10),    // Status
+        ];
+
+        let horizontal = Layout::horizontal(constraints);
+        let columns: [Rect; 7] = horizontal.areas(inner_area);
+        // Render header
+        let headers = [
+            ("RunName", columns[0]),
+            ("│", columns[1]),
+            ("Command", columns[2]),
+            ("│", columns[3]),
+            ("GPUs", columns[4]),
+            ("│", columns[5]),
+            ("Status", columns[6]),
+        ];
+
+        for (text, area) in headers {
+            let style = if text == "│" {
+                tailwind::ZINC.c500
+            } else {
+                Color::default()
+            };
+            Line::from(text).style(style).render(area, buf);
+        }
+
+        let separator_y = inner_area.y + 1;
+        let separator = "─".repeat(inner_area.width as usize);
+        Line::from(separator).dark_gray().render(
+            Rect::new(inner_area.x, separator_y, inner_area.width, 1),
+            buf,
+        );
+        let filtered_jobs: Vec<&Job> = self
+            .jobs
+            .iter()
+            .filter(|job| SelectedTab::from(job.state.clone()) == self.selected_tab)
+            .collect();
+
+        if filtered_jobs.is_empty() {
+            let empty_msg = "No jobs in this state";
+            Line::from(empty_msg).dark_gray().centered().render(
+                Rect::new(inner_area.x, separator_y + 1, inner_area.width, 1),
+                buf,
+            );
+            return;
+        }
+        for (idx, job) in filtered_jobs.iter().enumerate() {
+            let y = separator_y + 1 + idx as u16;
+            if y >= inner_area.bottom() {
+                break;
+            }
+
+            let row_areas: [Rect; 7] =
+                horizontal.areas(Rect::new(inner_area.x, y, inner_area.width, 1));
+
+            let gpu_count = job.gpu_ids.as_ref().map_or(0, |ids| ids.len());
+            let status_style = SelectedTab::from(job.state.clone()).palette().c700;
+
+            // Render each column of the row
+            let columns = [
+                (job.run_name.as_deref().unwrap_or("-"), tailwind::ZINC.c100),
+                ("│", tailwind::ZINC.c500),
+                (job.command.as_deref().unwrap_or("-"), tailwind::ZINC.c400),
+                ("│", tailwind::ZINC.c500),
+                (&format!("{:>3}", gpu_count), tailwind::YELLOW.c500),
+                ("│", tailwind::ZINC.c500),
+                (&job.state.to_string(), status_style),
+            ];
+
+            for ((text, style), area) in columns.iter().zip(row_areas.iter()) {
+                Line::from(*text).style(*style).render(*area, buf);
+            }
+        }
+    }
+
+    fn render_footer(&self, area: Rect, buf: &mut Buffer) {
+        Line::from(vec![
+            "←/→".yellow(),
+            " Change Tab │ ".dark_gray(),
+            "q".yellow(),
+            " Quit".dark_gray(),
+        ])
         .centered()
         .render(area, buf);
-}
-
-// Add this implementation for SelectedTab
-impl SelectedTab {
-    fn render_with_jobs(&self, area: Rect, buf: &mut Buffer, jobs: &[&Job]) {
-        let content = jobs
-            .iter()
-            .map(|job| {
-                format!(
-                    "Name: {} | Command: {}",
-                    job.run_name.as_ref().unwrap(),
-                    job.command.as_ref().unwrap()
-                )
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        let paragraph = if jobs.is_empty() {
-            Paragraph::new("No jobs in this state")
-        } else {
-            Paragraph::new(content)
-        };
-
-        paragraph.block(self.block()).render(area, buf);
-    }
-}
-
-impl SelectedTab {
-    /// Return tab's name as a styled `Line`
-    fn title(self) -> Line<'static> {
-        format!("  {self}  ")
-            .fg(tailwind::SLATE.c600)
-            // .bg(self.palette().c900)
-            .into()
-    }
-
-    /// A block surrounding the tab's content
-    fn block(self) -> Block<'static> {
-        Block::bordered()
-            .border_set(symbols::border::PROPORTIONAL_TALL)
-            .padding(Padding::horizontal(1))
-            .border_style(self.palette().c400)
-    }
-
-    const fn palette(self) -> tailwind::Palette {
-        match self {
-            Self::Queued => tailwind::BLUE,
-            Self::Running => tailwind::EMERALD,
-            Self::Finished => tailwind::INDIGO,
-            Self::Failed => tailwind::RED,
-        }
     }
 }
