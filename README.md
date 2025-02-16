@@ -54,14 +54,8 @@ cargo install gflow
 Start the GPU task scheduler using `gflow`:
 
 ```bash
-sudo -E gflow up
+gflow up
 ```
-
-> [!TIP]
-> **Ubuntu Users:**
-> ```bash
-> sudo -E ~/.cargo/bin/gflow up
-> ```
 
 ### Submit a Task
 
