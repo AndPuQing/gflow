@@ -1,10 +1,12 @@
 use tmux_interface::{NewSession, SendKeys, Tmux};
 
+/// A tmux session
 pub struct TmuxSession {
-    pub name: String,
+    pub name: String, // Name of the tmux session
 }
 
 impl TmuxSession {
+    /// Create a new tmux session with the given name
     pub fn new(name: String) -> Self {
         Tmux::new()
             .add_command(NewSession::new().detached().session_name(&name))
@@ -17,6 +19,7 @@ impl TmuxSession {
         Self { name }
     }
 
+    /// Send a command to the tmux session
     pub fn send_command(&self, command: &str) {
         Tmux::new()
             .add_command(SendKeys::new().target_pane(&self.name).key(command))

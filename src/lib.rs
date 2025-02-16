@@ -1,5 +1,6 @@
 pub mod job;
 pub mod tmux;
+use rand::Rng;
 use std::{collections::HashMap, path::PathBuf};
 pub type UUID = String;
 
@@ -43,17 +44,18 @@ pub fn get_config_temp_file() -> PathBuf {
 }
 
 pub fn random_run_name() -> String {
-    let words = vec![
+    const WORDS: &[&str] = &[
         "Lion", "Tiger", "Elephant", "Giraffe", "Bear", "Monkey", "Zebra", "Kangaroo", "Panda",
         "Penguin", "Happy", "Sad", "Angry", "Sleepy", "Hungry", "Thirsty", "Silly", "Crazy",
         "Funny", "Grumpy",
     ];
 
-    use rand::Rng;
     let mut rng = rand::rng();
-    let word = words[rng.random_range(0..words.len())].to_lowercase();
-    let number = rng.random_range(0..10);
-    format!("{}-{}", word, number)
+    format!(
+        "{}-{}",
+        WORDS[rng.random_range(0..WORDS.len())].to_lowercase(),
+        rng.random_range(0..10)
+    )
 }
 
 #[cfg(test)]
