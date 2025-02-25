@@ -28,9 +28,18 @@ pub fn execute_job(job: &Job) -> Result<()> {
 
     // Execute the job command
     let command = if let Some(script) = &job.script {
-        format!("sh {} && gflow finish {}", script.display(), session.name)
+        // if script if failed send fail command to tmux
+        format!(
+            "bash {} && gflow finish {} || gflow fail {}",
+            script.display(),
+            session.name,
+            session.name
+        )
     } else if let Some(cmd) = &job.command {
-        format!("{} && gflow finish {}", cmd, session.name)
+        format!(
+            "{} && gflow finish {} || gflow fail {}",
+            cmd, session.name, session.name
+        )
     } else {
         anyhow::bail!("No command or script specified");
     };

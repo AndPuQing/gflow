@@ -67,4 +67,16 @@ impl Client {
             .await
             .context("Failed to send finish job request")
     }
+
+    pub async fn fail_job(&self, job_id: String) -> Result<Response> {
+        log::debug!("Job failed: {}", job_id);
+
+        let url = format!("http://localhost:{}/job", self.port);
+        self.client
+            .delete(&url)
+            .json(&job_id)
+            .send()
+            .await
+            .context("Failed to send finish job request")
+    }
 }

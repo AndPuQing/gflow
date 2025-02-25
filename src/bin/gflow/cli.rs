@@ -33,11 +33,19 @@ pub enum Commands {
     Completions(CompletionsArgs),
     /// Send finish signal to a running job
     Finish(FinishArgs),
+    /// Send Fail signal to a running job
+    Fail(FailArgs),
 }
 
 #[derive(Debug, Parser)]
 pub struct FinishArgs {
     /// The name of the job to finish
+    pub name: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct FailArgs {
+    /// The name of the job to fail
     pub name: String,
 }
 

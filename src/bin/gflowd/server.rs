@@ -17,7 +17,13 @@ pub async fn run(config: config::Config) {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .route("/job", get(job_index).post(job_create).put(job_finish))
+        .route(
+            "/job",
+            get(job_index)
+                .post(job_create)
+                .put(job_finish)
+                .delete(job_fail),
+        )
         .route("/info", get(info))
         .with_state(scheduler);
     let listener =
@@ -75,5 +81,23 @@ async fn job_finish(
         j.state = JobState::Finished;
     }
     log::info!("Finished job: {:?}", input);
+    (StatusCode::OK, Json(()))
+}
+
+#[axum::debug_handler]
+async fn job_fail(
+    State(state): State<SharedState>,
+    Json(input): Json<String>,
+) -> impl IntoResponse {
+    let mut state = state.lock().await;
+
+    let job = state
+        .jobs
+        .iter_mut()
+        .find(|j| j.run_name == Some(input.clone()));
+    if let Some(j) = job {
+        j.state = JobState::Failed;
+    }
+    log::info!("Failed job: {:?}", input);
     (StatusCode::OK, Json(()))
 }

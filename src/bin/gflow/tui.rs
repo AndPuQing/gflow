@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use color_eyre::Result;
 use gflow::job::{Job, JobState};
 use ratatui::widgets::{Block, Borders};
@@ -14,6 +12,7 @@ use ratatui::{
     widgets::{Tabs, Widget},
     DefaultTerminal,
 };
+use std::time::Duration;
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use tokio::sync::mpsc;
 use tokio::time::interval;
