@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use gflow::job::{Job, JobState};
+use gflow_core::job::{Job, JobState};
 use ratatui::widgets::{Block, Borders};
 use ratatui::{
     border,

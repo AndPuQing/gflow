@@ -1,6 +1,6 @@
 use crate::{cli, client::Client};
 use anyhow::{Context, Result};
-use gflow::job::Job;
+use gflow_core::job::Job;
 use std::path::PathBuf;
 
 pub(crate) async fn handle_submit(submit_args: cli::SubmitArgs) -> Result<()> {

@@ -11,7 +11,7 @@ impl TmuxSession {
         Tmux::new()
             .add_command(NewSession::new().detached().session_name(&name))
             .output()
-            .unwrap();
+            .ok();
 
         // Allow tmux session to initialize
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -25,7 +25,7 @@ impl TmuxSession {
             .add_command(SendKeys::new().target_pane(&self.name).key(command))
             .add_command(SendKeys::new().target_pane(&self.name).key("Enter"))
             .output()
-            .unwrap();
+            .ok();
     }
 }
 

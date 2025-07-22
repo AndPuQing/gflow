@@ -1,6 +1,6 @@
 use crate::scheduler::{self, SharedState};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use gflow::{
+use gflow_core::{
     get_config_temp_dir, get_config_temp_file,
     job::{Job, JobState},
 };
@@ -17,31 +17,28 @@ pub async fn run(config: config::Config) {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .route(
-            "/job",
-            get(job_index)
-                .post(job_create)
-                .put(job_finish)
-                .delete(job_fail),
-        )
+        .route("/jobs", get(list_jobs).post(create_job))
+        .route("/jobs/:id", get(get_job).patch(update_job))
         .route("/info", get(info))
         .with_state(scheduler);
-    let listener =
-        tokio::net::TcpListener::bind(format!("localhost:{}", config.get_int("PORT").unwrap()))
-            .await
-            .unwrap();
+    let port = config.get_int("PORT").unwrap_or(59000);
+    let listener = tokio::net::TcpListener::bind(format!("localhost:{}", port))
+        .await
+        .expect("Failed to bind to port");
 
     // --------clean by gflowd --cleanup --------
     let config_dir = get_config_temp_dir();
     if !config_dir.exists() {
-        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&config_dir).ok();
     }
     let gflowd_file = get_config_temp_file();
-    std::fs::write(gflowd_file, config.get_int("PORT").unwrap().to_string()).unwrap();
+    std::fs::write(gflowd_file, port.to_string()).ok();
     // ------------------------------------------
 
-    log::info!("Listening on: {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
+    if let Ok(addr) = listener.local_addr() {
+        log::info!("Listening on: {}", addr);
+    }
+    axum::serve(listener, app).await.ok();
 }
 
 #[axum::debug_handler]
@@ -52,14 +49,14 @@ async fn info(State(state): State<SharedState>) -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-async fn job_index(State(state): State<SharedState>) -> impl IntoResponse {
+async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
     let state = state.lock().await;
     let jobs = state.jobs.clone();
     (StatusCode::OK, Json(jobs))
 }
 
 #[axum::debug_handler]
-async fn job_create(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
+async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.lock().await;
     log::info!("Received job: {:?}", input);
     state.submit_job(input);
@@ -67,37 +64,34 @@ async fn job_create(State(state): State<SharedState>, Json(input): Json<Job>) ->
 }
 
 #[axum::debug_handler]
-async fn job_finish(
+async fn get_job(
     State(state): State<SharedState>,
-    Json(input): Json<String>,
+    axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    let mut state = state.lock().await;
-
-    let job = state
-        .jobs
-        .iter_mut()
-        .find(|j| j.run_name == Some(input.clone()));
-    if let Some(j) = job {
-        j.state = JobState::Finished;
+    let state = state.lock().await;
+    if let Some(job) = state.jobs.iter().find(|j| j.run_name == Some(id.clone())) {
+        (StatusCode::OK, Json(Some(job.clone())))
+    } else {
+        (StatusCode::NOT_FOUND, Json(None))
     }
-    log::info!("Finished job: {:?}", input);
-    (StatusCode::OK, Json(()))
 }
 
 #[axum::debug_handler]
-async fn job_fail(
+async fn update_job(
     State(state): State<SharedState>,
-    Json(input): Json<String>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(input): Json<JobState>,
 ) -> impl IntoResponse {
     let mut state = state.lock().await;
-
-    let job = state
+    if let Some(job) = state
         .jobs
         .iter_mut()
-        .find(|j| j.run_name == Some(input.clone()));
-    if let Some(j) = job {
-        j.state = JobState::Failed;
+        .find(|j| j.run_name == Some(id.clone()))
+    {
+        job.state = input;
+        state.save_state();
+        (StatusCode::OK, Json(()))
+    } else {
+        (StatusCode::NOT_FOUND, Json(()))
     }
-    log::info!("Failed job: {:?}", input);
-    (StatusCode::OK, Json(()))
 }

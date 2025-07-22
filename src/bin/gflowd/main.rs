@@ -1,9 +1,9 @@
 use clap::Parser;
 use config::load_config;
-use gflow::get_config_temp_file;
+use gflow_core::get_config_temp_file;
 mod cli;
 mod config;
-mod job;
+mod executor;
 mod scheduler;
 mod server;
 
@@ -18,16 +18,16 @@ async fn main() {
     if gflowd.cleanup {
         let gflowd_file = get_config_temp_file();
         if gflowd_file.exists() {
-            std::fs::remove_file(gflowd_file).unwrap();
+            std::fs::remove_file(gflowd_file).ok();
         }
         std::process::exit(0);
     }
 
-    let config = load_config(gflowd);
-    if let Err(e) = config {
-        log::error!("Failed to load config: {}", e);
-        std::process::exit(1);
+    match load_config(gflowd) {
+        Ok(config) => server::run(config).await,
+        Err(e) => {
+            log::error!("Failed to load config: {}", e);
+            std::process::exit(1);
+        }
     }
-
-    server::run(config.unwrap()).await;
 }

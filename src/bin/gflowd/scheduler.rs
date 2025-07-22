@@ -1,9 +1,12 @@
-use crate::job::execute_job;
-use gflow::{
+use crate::executor::TmuxExecutor;
+use gflow_core::executor::Executor;
+use gflow_core::get_config_temp_dir;
+use gflow_core::{
     job::{Job, JobState},
     GPUSlot, GPU, UUID,
 };
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use nvml_wrapper::Nvml;
+use std::{collections::HashMap, fs::File, io::Write, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
 pub type SharedState = Arc<Mutex<Scheduler>>;
@@ -12,6 +15,7 @@ pub type SharedState = Arc<Mutex<Scheduler>>;
 pub struct Scheduler {
     pub jobs: Vec<Job>,
     gpu_slots: HashMap<UUID, GPUSlot>,
+    nvml: Nvml,
 }
 
 impl Default for Scheduler {
@@ -22,11 +26,15 @@ impl Default for Scheduler {
 
 impl Scheduler {
     pub fn new() -> Self {
-        let gpu_slots = Self::get_gpus();
-        Self {
+        let nvml = Nvml::init().expect("Failed to initialize NVML");
+        let gpu_slots = Self::get_gpus(&nvml);
+        let mut scheduler = Self {
             jobs: Vec::new(),
             gpu_slots,
-        }
+            nvml,
+        };
+        scheduler.load_state();
+        scheduler
     }
 
     pub fn get_available_gpu_slots(&self) -> Vec<u32> {
@@ -53,10 +61,29 @@ impl Scheduler {
         let job_ = Job {
             state: JobState::Queued,
             gpu_ids: None,
-            run_name: Some(gflow::random_run_name()),
+            run_name: Some(gflow_core::random_run_name()),
             ..job
         };
         self.jobs.push(job_);
+        self.save_state();
+    }
+
+    pub fn save_state(&self) {
+        let path = get_config_temp_dir().join("state.json");
+        if let Ok(json) = serde_json::to_string_pretty(&self.jobs) {
+            if let Ok(mut file) = File::create(path) {
+                file.write_all(json.as_bytes()).ok();
+            }
+        }
+    }
+
+    pub fn load_state(&mut self) {
+        let path = get_config_temp_dir().join("state.json");
+        if path.exists() {
+            if let Ok(json) = std::fs::read_to_string(path) {
+                self.jobs = serde_json::from_str(&json).unwrap_or_default();
+            }
+        }
     }
 
     pub fn refresh(&mut self) {
@@ -64,58 +91,40 @@ impl Scheduler {
     }
 
     fn refresh_gpu_slots(&mut self) {
-        let output = std::process::Command::new("nvidia-smi")
-            .args(["--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader"])
-            .output();
-
-        let mut gpu_processes: HashMap<String, Vec<u32>> = HashMap::new();
-
-        if let Ok(output) = output {
-            let output = String::from_utf8_lossy(&output.stdout);
-            for line in output.lines() {
-                let parts: Vec<&str> = line.split(", ").collect();
-                if parts.len() == 2 {
-                    let uuid = parts[0].to_string();
-                    let pid = parts[1].parse::<u32>().unwrap_or(0);
-                    gpu_processes.entry(uuid).or_default().push(pid);
+        if let Ok(device_count) = self.nvml.device_count() {
+            for i in 0..device_count {
+                if let Ok(device) = self.nvml.device_by_index(i) {
+                    if let Ok(uuid) = device.uuid() {
+                        if let Some(slot) = self.gpu_slots.get_mut(&uuid) {
+                            slot.available = device
+                                .running_compute_processes()
+                                .is_ok_and(|procs| procs.is_empty());
+                        }
+                    }
                 }
             }
-        }
-        // Update the availability of each GPU slot
-        for (uuid, slot) in self.gpu_slots.iter_mut() {
-            slot.available = !gpu_processes.contains_key(uuid);
         }
     }
 }
 
 impl GPU for Scheduler {
-    fn get_gpus() -> HashMap<UUID, GPUSlot> {
-        match std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=gpu_uuid,index", "--format=csv,noheader"])
-            .output()
-        {
-            Ok(output) => {
-                let output = String::from_utf8_lossy(&output.stdout);
-                let mut gpu_slots = HashMap::new();
-                for line in output.lines() {
-                    let parts: Vec<&str> = line.split(", ").collect();
-                    if parts.len() == 2 {
-                        let gpu_uuid = parts[0].to_string();
-                        let index = parts[1].parse::<u32>().unwrap_or(0);
-
-                        gpu_slots.insert(
-                            gpu_uuid,
-                            GPUSlot {
-                                available: true,
-                                index,
-                            },
-                        );
-                    }
+    fn get_gpus(nvml: &Nvml) -> HashMap<UUID, GPUSlot> {
+        let mut gpu_slots = HashMap::new();
+        let device_count = nvml.device_count().unwrap_or(0);
+        for i in 0..device_count {
+            if let Ok(device) = nvml.device_by_index(i) {
+                if let Ok(uuid) = device.uuid() {
+                    gpu_slots.insert(
+                        uuid,
+                        GPUSlot {
+                            available: true,
+                            index: i,
+                        },
+                    );
                 }
-                gpu_slots
             }
-            Err(_) => HashMap::new(),
         }
+        gpu_slots
     }
 }
 
@@ -137,7 +146,8 @@ pub async fn run(shared_state: SharedState) {
         if let Some(job) = job {
             available_gpus.truncate(job.gpus as usize);
             job.gpu_ids = Some(available_gpus.clone());
-            match execute_job(job) {
+            let executor = TmuxExecutor;
+            match executor.execute(job) {
                 Ok(_) => {
                     job.state = JobState::Running;
                     log::info!("Executing job: {:?}", job);

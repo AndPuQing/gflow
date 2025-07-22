@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use gflow::{get_config_temp_file, job::Job};
+use gflow_core::{get_config_temp_file, job::Job};
 use reqwest::Response;
 use std::fs;
 
@@ -32,11 +32,11 @@ impl Client {
             .context("Failed to read config file")?
             .trim()
             .parse::<u32>()
-            .context("Failed to parse port number")
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn list_jobs(&self) -> Result<Response> {
-        let url = format!("http://localhost:{}/job", self.port);
+        let url = format!("http://localhost:{}/jobs", self.port);
         self.client
             .get(&url)
             .send()
@@ -47,7 +47,7 @@ impl Client {
     pub async fn add_job(&self, job: Job) -> Result<Response> {
         log::debug!("Adding job: {:?}", job);
 
-        let url = format!("http://localhost:{}/job", self.port);
+        let url = format!("http://localhost:{}/jobs", self.port);
         self.client
             .post(&url)
             .json(&job)
@@ -56,27 +56,19 @@ impl Client {
             .context("Failed to send job request")
     }
 
-    pub async fn finish_job(&self, job_id: String) -> Result<Response> {
-        log::debug!("Finishing job: {}", job_id);
+    pub async fn update_job_state(
+        &self,
+        job_id: String,
+        state: gflow_core::job::JobState,
+    ) -> Result<Response> {
+        log::debug!("Updating job {} to state {:?}", job_id, state);
 
-        let url = format!("http://localhost:{}/job", self.port);
+        let url = format!("http://localhost:{}/jobs/{}", self.port, job_id);
         self.client
-            .put(&url)
-            .json(&job_id)
+            .patch(&url)
+            .json(&state)
             .send()
             .await
-            .context("Failed to send finish job request")
-    }
-
-    pub async fn fail_job(&self, job_id: String) -> Result<Response> {
-        log::debug!("Job failed: {}", job_id);
-
-        let url = format!("http://localhost:{}/job", self.port);
-        self.client
-            .delete(&url)
-            .json(&job_id)
-            .send()
-            .await
-            .context("Failed to send finish job request")
+            .context("Failed to send update job state request")
     }
 }

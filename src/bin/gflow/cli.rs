@@ -1,7 +1,7 @@
 use crate::help::COMPLETIONS_HELP;
 use clap::{Parser, ValueEnum};
 use clap_complete::Shell as CompleteShell;
-use gflow::version;
+use gflow_core::version;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
