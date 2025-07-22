@@ -1,6 +1,6 @@
 [package]
 name = "gflow"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 repository = "https://github.com/AndPuQing/gflow.git"
@@ -11,9 +11,7 @@ categories = ["command-line-interface"]
 readme = "README.md"
 
 [workspace]
-members = [
-    "gflow-core",
-]
+members = ["gflow-core"]
 
 [lib]
 path = "src/lib.rs"
