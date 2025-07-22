@@ -6,7 +6,7 @@ use gflow_core::{
     GPUSlot, GPU, UUID,
 };
 use nvml_wrapper::Nvml;
-use std::{collections::HashMap, fs::File, io::Write, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
 pub type SharedState = Arc<Mutex<Scheduler>>;
@@ -16,6 +16,7 @@ pub struct Scheduler {
     pub jobs: Vec<Job>,
     gpu_slots: HashMap<UUID, GPUSlot>,
     nvml: Nvml,
+    state_path: PathBuf,
 }
 
 impl Default for Scheduler {
@@ -26,12 +27,18 @@ impl Default for Scheduler {
 
 impl Scheduler {
     pub fn new() -> Self {
+        let state_path = get_config_temp_dir().join("state.json");
+        Self::with_state_path(state_path)
+    }
+
+    pub fn with_state_path(state_path: PathBuf) -> Self {
         let nvml = Nvml::init().expect("Failed to initialize NVML");
         let gpu_slots = Self::get_gpus(&nvml);
         let mut scheduler = Self {
             jobs: Vec::new(),
             gpu_slots,
             nvml,
+            state_path,
         };
         scheduler.load_state();
         scheduler
@@ -69,7 +76,7 @@ impl Scheduler {
     }
 
     pub fn save_state(&self) {
-        let path = get_config_temp_dir().join("state.json");
+        let path = &self.state_path;
         if let Ok(json) = serde_json::to_string_pretty(&self.jobs) {
             if let Ok(mut file) = File::create(path) {
                 file.write_all(json.as_bytes()).ok();
@@ -78,7 +85,7 @@ impl Scheduler {
     }
 
     pub fn load_state(&mut self) {
-        let path = get_config_temp_dir().join("state.json");
+        let path = &self.state_path;
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(path) {
                 self.jobs = serde_json::from_str(&json).unwrap_or_default();
@@ -158,5 +165,40 @@ pub async fn run(shared_state: SharedState) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow_core::job::JobBuilder;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_submit_job() {
+        let dir = tempdir().unwrap();
+        let state_path = dir.path().join("state.json");
+        let mut scheduler = Scheduler::with_state_path(state_path);
+        let job = JobBuilder::new().script(PathBuf::from("test.sh")).build();
+        scheduler.submit_job(job);
+        assert_eq!(scheduler.jobs.len(), 1);
+        assert_eq!(scheduler.jobs[0].state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_save_and_load_state() {
+        let dir = tempdir().unwrap();
+        let state_path = dir.path().join("state.json");
+        let mut scheduler = Scheduler::with_state_path(state_path.clone());
+
+        let job = JobBuilder::new().script(PathBuf::from("test.sh")).build();
+        scheduler.submit_job(job);
+
+        scheduler.save_state();
+
+        let new_scheduler = Scheduler::with_state_path(state_path);
+        assert_eq!(new_scheduler.jobs.len(), 1);
+        assert_eq!(new_scheduler.jobs[0].script, Some(PathBuf::from("test.sh")));
     }
 }

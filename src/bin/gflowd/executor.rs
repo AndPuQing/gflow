@@ -26,3 +26,31 @@ impl Executor for TmuxExecutor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use gflow_core::job::JobBuilder;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_command_generation() {
+        let job = JobBuilder::new()
+            .script(PathBuf::from("test.sh"))
+            .conda_env(&Some("myenv".to_string()))
+            .build();
+
+        let mut command = String::new();
+        if let Some(conda_env) = &job.conda_env {
+            command.push_str(&format!("conda activate {}; ", conda_env));
+        }
+        if let Some(script) = &job.script {
+            if let Some(script_str) = script.to_str() {
+                command.push_str(&format!("sh {}", script_str));
+            }
+        } else if let Some(cmd) = &job.command {
+            command.push_str(cmd);
+        }
+
+        assert_eq!(command, "conda activate myenv; sh test.sh");
+    }
+}

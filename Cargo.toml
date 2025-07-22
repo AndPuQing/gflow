@@ -40,7 +40,7 @@ clap_complete = "4.5.44"
 env_logger = "0.11.6"
 log = "0.4.25"
 reqwest = { version = "0.12.12", features = ["json"], default-features = false }
-axum = { version = "0.8.1", features = [
+axum = { version = "0.7.5", features = [
     "http1",
     "json",
     "macros",
@@ -74,6 +74,9 @@ vergen-gix = { version = "1.0.6", features = ["build", "cargo"] }
 [dev-dependencies]
 mockall = "0.13.1"
 tempfile = "3.16.0"
+nvml-wrapper = "0.11.0"
+tower = "0.4"
+hyper = { version = "0.14", features = ["full"] }
 
 [profile.release]
 strip = true
