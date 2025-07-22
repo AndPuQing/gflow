@@ -804,7 +804,6 @@ dependencies = [
  "crossterm",
  "dirs 6.0.0",
  "env_logger",
- "gflow-core",
  "hyper 0.14.32",
  "log",
  "mockall",
@@ -820,20 +819,6 @@ dependencies = [
  "tmux_interface",
  "tokio",
  "tower 0.4.13",
- "vergen-gix",
-]
-
-[[package]]
-name = "gflow-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "dirs 6.0.0",
- "nvml-wrapper",
- "rand",
- "serde",
- "strum 0.27.0",
  "vergen-gix",
 ]
 

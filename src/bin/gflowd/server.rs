@@ -1,6 +1,6 @@
 use crate::scheduler::{self, SharedState};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use gflow_core::{
+use gflow::core::{
     get_config_temp_dir, get_config_temp_file,
     job::{Job, JobState},
 };

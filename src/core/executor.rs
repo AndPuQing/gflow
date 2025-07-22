@@ -1,4 +1,4 @@
-use crate::job::Job;
+use crate::core::job::Job;
 use anyhow::Result;
 
 pub trait Executor {

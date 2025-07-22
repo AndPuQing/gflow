@@ -1,6 +1,6 @@
 use anyhow::Result;
+use gflow::core::{executor::Executor, job::Job};
 use gflow::tmux::TmuxSession;
-use gflow_core::{executor::Executor, job::Job};
 
 pub struct TmuxExecutor;
 
@@ -29,7 +29,7 @@ impl Executor for TmuxExecutor {
 
 #[cfg(test)]
 mod tests {
-    use gflow_core::job::JobBuilder;
+    use gflow::core::job::JobBuilder;
     use std::path::PathBuf;
 
     #[test]

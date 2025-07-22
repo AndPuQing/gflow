@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(name = "gflowd", author, version = gflow_core::version(), about = "GFlow Daemon")]
+#[command(name = "gflowd", author, version = gflow::core::version(), about = "GFlow Daemon")]
 pub struct GFlowd {
     /// The configuration file to use]
     #[arg(short, long)]

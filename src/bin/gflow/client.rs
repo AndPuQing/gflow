@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use gflow_core::{get_config_temp_file, job::Job};
+use gflow::core::{get_config_temp_file, job::Job};
 use reqwest::Response;
 use std::fs;
 
@@ -59,7 +59,7 @@ impl Client {
     pub async fn update_job_state(
         &self,
         job_id: String,
-        state: gflow_core::job::JobState,
+        state: gflow::core::job::JobState,
     ) -> Result<Response> {
         log::debug!("Updating job {} to state {:?}", job_id, state);
 

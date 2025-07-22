@@ -1,7 +1,7 @@
 use crate::executor::TmuxExecutor;
-use gflow_core::executor::Executor;
-use gflow_core::get_config_temp_dir;
-use gflow_core::{
+use gflow::core::executor::Executor;
+use gflow::core::get_config_temp_dir;
+use gflow::core::{
     job::{Job, JobState},
     GPUSlot, GPU, UUID,
 };
@@ -68,7 +68,7 @@ impl Scheduler {
         let job_ = Job {
             state: JobState::Queued,
             gpu_ids: None,
-            run_name: Some(gflow_core::random_run_name()),
+            run_name: Some(gflow::core::random_run_name()),
             ..job
         };
         self.jobs.push(job_);
@@ -171,7 +171,7 @@ pub async fn run(shared_state: SharedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gflow_core::job::JobBuilder;
+    use gflow::core::job::JobBuilder;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
