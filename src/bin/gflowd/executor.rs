@@ -41,11 +41,11 @@ mod tests {
 
         let mut command = String::new();
         if let Some(conda_env) = &job.conda_env {
-            command.push_str(&format!("conda activate {}; ", conda_env));
+            command.push_str(&format!("conda activate {conda_env}; "));
         }
         if let Some(script) = &job.script {
             if let Some(script_str) = script.to_str() {
-                command.push_str(&format!("sh {}", script_str));
+                command.push_str(&format!("sh {script_str}"));
             }
         } else if let Some(cmd) = &job.command {
             command.push_str(cmd);

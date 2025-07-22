@@ -7,8 +7,7 @@ pub fn load_config(args: GFlowd) -> Result<config::Config, config::ConfigError> 
             config_vec.push(config);
         } else {
             return Err(config::ConfigError::NotFound(format!(
-                "Config file {:?} does not exist",
-                config
+                "Config file {config:?} does not exist",
             )));
         }
     }

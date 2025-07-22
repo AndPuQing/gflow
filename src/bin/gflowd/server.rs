@@ -22,7 +22,7 @@ pub async fn run(config: config::Config) {
         .route("/info", get(info))
         .with_state(scheduler);
     let port = config.get_int("PORT").unwrap_or(59000);
-    let listener = tokio::net::TcpListener::bind(format!("localhost:{}", port))
+    let listener = tokio::net::TcpListener::bind(format!("localhost:{port}"))
         .await
         .expect("Failed to bind to port");
 

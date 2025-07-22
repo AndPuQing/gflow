@@ -200,7 +200,7 @@ impl App {
                     .iter()
                     .filter(|job| SelectedTab::from(job.state.clone()) == tab)
                     .count();
-                format!("{} ({})", tab, count)
+                format!("{tab} ({count})")
             })
             .collect();
         let highlight_style = self.selected_tab.palette().c700;
@@ -295,7 +295,7 @@ impl App {
                 ("│", tailwind::ZINC.c500),
                 (job.command.as_deref().unwrap_or("-"), tailwind::ZINC.c400),
                 ("│", tailwind::ZINC.c500),
-                (&format!("{:>3}", gpu_count), tailwind::YELLOW.c500),
+                (&format!("{gpu_count:>3}"), tailwind::YELLOW.c500),
                 ("│", tailwind::ZINC.c500),
                 (&job.state.to_string(), status_style),
             ];

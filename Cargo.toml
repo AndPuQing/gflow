@@ -1,6 +1,6 @@
 [package]
 name = "gflow"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 repository = "https://github.com/AndPuQing/gflow.git"
@@ -25,7 +25,7 @@ name = "gflow"
 path = "src/bin/gflow/main.rs"
 
 [dependencies]
-gflow-core = { path = "gflow-core" }
+gflow-core = { path = "gflow-core", version = "0.1.0" }
 tmux_interface = { version = "0.3.2" }
 tokio = { version = "1.43.0", default-features = false, features = [
     "rt-multi-thread",
