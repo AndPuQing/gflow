@@ -6,10 +6,10 @@
   customManagers: [
     {
       customType: 'regex',
-      fileMatch: [
-        'Cargo.toml$',
-        '^\\.github/workflows/ci.yml$',
-        '^\\.github/workflows/cd.yml$',
+      managerFilePatterns: [
+        '/Cargo.toml$/',
+        '/^\\.github/workflows/ci.yml$/',
+        '/^\\.github/workflows/cd.yml$/',
       ],
       matchStrings: [
         'STABLE.*?(?<currentValue>\\d+\\.\\d+(\\.\\d+)?)',
@@ -29,18 +29,12 @@
       matchPackageNames: [
         'STABLE',
       ],
-      extractVersion: '^(?<version>\\d+\\.\\d+)',  // Drop the patch version
+      extractVersion: '^(?<version>\\d+\\.\\d+)',
       schedule: [
         '* * * * *',
       ],
       automerge: true,
     },
-    // Goals:
-    // - Keep version reqs low, ignoring compatible normal/build dependencies
-    // - Take advantage of latest dev-dependencies
-    // - Rollup safe upgrades to reduce CI runner load
-    // - Help keep number of versions down by always using latest breaking change
-    // - Have lockfile and manifest in-sync
     {
       matchManagers: [
         'cargo',
