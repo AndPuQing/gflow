@@ -21,25 +21,43 @@ pub struct GFlow {
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Add a new job to the scheduler
-    Submit(SubmitArgs),
+    #[command(alias = "submit")]
+    Add(AddArgs),
     /// List all jobs in the scheduler
+    #[command(alias = "ls")]
     List(ListArgs),
-    /// Start the system service
-    Up,
-    /// Stop the system service
-    Stop,
+    /// Manage the system service
+    #[command(subcommand)]
+    Daemon(DaemonCommands),
     /// Generate tab-completion scripts for your shell
     #[command(
         after_help = COMPLETIONS_HELP,
         arg_required_else_help = true
     )]
     Completions(CompletionsArgs),
+    /// Manage jobs
+    #[command(subcommand)]
+    Job(JobCommands),
+}
+
+#[derive(Debug, Parser)]
+pub enum JobCommands {
     /// Send finish signal to a running job
     Finish(FinishArgs),
     /// Send Fail signal to a running job
     Fail(FailArgs),
     /// Show the logs of a job
     Logs(LogsArgs),
+}
+
+#[derive(Debug, Parser)]
+pub enum DaemonCommands {
+    /// Start the system service
+    Start,
+    /// Stop the system service
+    Stop,
+    /// Show the system service status
+    Status,
 }
 
 #[derive(Debug, Parser)]
@@ -68,7 +86,7 @@ pub struct LogsArgs {
 }
 
 #[derive(Debug, Parser)]
-pub struct SubmitArgs {
+pub struct AddArgs {
     /// The script to run
     #[arg(required_unless_present = "command")]
     pub script: Option<PathBuf>,
@@ -83,7 +101,7 @@ pub struct SubmitArgs {
 
     /// The GPU count to request
     #[arg(short, long, name = "NUMS", default_value = "0")]
-    pub gpus: Option<u32>,
+    pub gpus: u32,
 
     /// The priority of the job
     #[arg(long, default_value = "10")]

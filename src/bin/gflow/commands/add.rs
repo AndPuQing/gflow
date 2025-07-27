@@ -3,13 +3,10 @@ use anyhow::{Context, Result};
 use gflow::core::job::Job;
 use std::path::PathBuf;
 
-pub(crate) async fn handle_submit(
-    config: &config::Config,
-    submit_args: cli::SubmitArgs,
-) -> Result<()> {
-    log::debug!("{:?}", submit_args);
+pub(crate) async fn handle_add(config: &config::Config, add_args: cli::AddArgs) -> Result<()> {
+    log::debug!("{:?}", add_args);
 
-    let job = build_job(submit_args)?;
+    let job = build_job(add_args)?;
     let client = Client::build(config).context("Failed to build client")?;
 
     client.add_job(job).await.context("Failed to add job")?;
@@ -18,10 +15,10 @@ pub(crate) async fn handle_submit(
     Ok(())
 }
 
-fn build_job(args: cli::SubmitArgs) -> Result<Job> {
+fn build_job(args: cli::AddArgs) -> Result<Job> {
     let mut builder = Job::builder()
         .conda_env(&args.conda_env)
-        .gpus(args.gpus.unwrap_or(0))
+        .gpus(args.gpus)
         .run_dir(std::env::current_dir().context("Failed to get current directory")?)
         .priority(args.priority)
         .gpu_mem(args.gpu_mem)
