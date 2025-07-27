@@ -1,7 +1,7 @@
-use crate::cli::GFlow;
+use crate::cli::GBatch;
 use gflow::core::get_config_dir;
 
-pub fn load_config(args: &GFlow) -> Result<config::Config, config::ConfigError> {
+pub fn load_config(args: &GBatch) -> Result<config::Config, config::ConfigError> {
     let mut config_vec = vec![];
 
     // User-provided config file

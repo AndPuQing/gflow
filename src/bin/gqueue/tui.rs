@@ -17,7 +17,7 @@ use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 
-use crate::client::Client;
+use gflow::client::Client;
 
 struct App {
     state: AppState,
@@ -26,11 +26,12 @@ struct App {
     jobs: Vec<Job>,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    fn new() -> Self {
         use clap::Parser;
-        let config = crate::config::load_config(&crate::cli::GFlow::parse()).unwrap();
-        let client = Client::build(&config).expect("Failed to build client");
+        let args = crate::cli::GQueue::parse();
+        let config = gflow::config::load_config(args.config.as_ref()).unwrap();
+        let client = gflow::client::Client::build(&config).expect("Failed to build client");
         Self {
             state: AppState::default(),
             selected_tab: SelectedTab::default(),
@@ -85,7 +86,7 @@ impl From<JobState> for SelectedTab {
 pub fn show_tui() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let app = App::default().run(terminal);
+    let app = App::new().run(terminal);
     ratatui::restore();
     app
 }

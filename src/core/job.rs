@@ -25,6 +25,7 @@ pub struct Job {
     pub run_dir: PathBuf,
     pub priority: u8,
     pub depends_on: Option<u32>,
+    pub task_id: Option<u32>,
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -41,6 +42,7 @@ pub struct JobBuilder {
     run_dir: PathBuf,
     priority: u8,
     depends_on: Option<u32>,
+    task_id: Option<u32>,
 }
 
 impl JobBuilder {
@@ -48,6 +50,7 @@ impl JobBuilder {
         Self {
             priority: 10, // Default priority
             depends_on: None,
+            task_id: None,
             ..Default::default()
         }
     }
@@ -87,6 +90,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn task_id(mut self, task_id: Option<u32>) -> Self {
+        self.task_id = task_id;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -96,6 +104,7 @@ impl JobBuilder {
             conda_env: self.conda_env,
             priority: self.priority,
             depends_on: self.depends_on,
+            task_id: self.task_id,
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,

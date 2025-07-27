@@ -7,6 +7,9 @@ pub struct TmuxExecutor;
 impl TmuxExecutor {
     fn generate_wrapped_command(&self, job: &Job) -> Result<String> {
         let mut user_command = String::new();
+        if let Some(task_id) = job.task_id {
+            user_command.push_str(&format!("export GFLOW_ARRAY_TASK_ID={task_id}; "));
+        }
         if let Some(conda_env) = &job.conda_env {
             user_command.push_str(&format!("conda activate {conda_env}; "));
         }
@@ -51,6 +54,7 @@ mod tests {
         let mut job = JobBuilder::new()
             .script(PathBuf::from("test.sh"))
             .conda_env(&Some("myenv".to_string()))
+            .task_id(Some(42))
             .build();
         job.id = 123;
 
@@ -59,7 +63,7 @@ mod tests {
 
         let log_path = gflow::core::get_log_file_path(123).unwrap();
         let expected_command = format!(
-            "{{ conda activate myenv; sh test.sh; gflow finish 123; }} || gflow fail 123 &> {}",
+            "{{ export GFLOW_ARRAY_TASK_ID=42; conda activate myenv; sh test.sh; gflow finish 123; }} || gflow fail 123 &> {}",
             log_path.to_str().unwrap()
         );
 

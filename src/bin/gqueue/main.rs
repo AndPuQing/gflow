@@ -1,13 +1,19 @@
+mod cli;
+mod tui;
+
 use anyhow::Result;
-use gflow::core::job::Job;
+use clap::Parser;
+use gflow::{client::Client, config::load_config, core::job::Job};
 
-use crate::{cli::ListArgs, client::Client};
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = cli::GQueue::parse();
+    let config = load_config(args.config.as_ref())?;
 
-pub(crate) async fn handle_list(config: &config::Config, list_args: ListArgs) -> Result<()> {
-    if list_args.tui {
-        let _ = crate::tui::show_tui();
+    if args.tui {
+        tui::show_tui().map_err(|e| anyhow::anyhow!(e.to_string()))?;
     } else {
-        let client = Client::build(config)?;
+        let client = Client::build(&config)?;
         let jobs = client
             .list_jobs()
             .await?
@@ -33,5 +39,6 @@ pub(crate) async fn handle_list(config: &config::Config, list_args: ListArgs) ->
             );
         }
     }
+
     Ok(())
 }

@@ -1,11 +1,11 @@
-use crate::cli::{self, GFlow};
+use crate::cli::{self, GBatch};
 use anyhow::Result;
 use clap::CommandFactory;
 use clap_complete::generate;
 use std::io;
 
 pub(crate) fn handle_completions(args: cli::CompletionsArgs) -> Result<()> {
-    let mut cmd = GFlow::command();
+    let mut cmd = GBatch::command();
     let shell = args.shell;
 
     generate::<clap_complete::Shell, _>(

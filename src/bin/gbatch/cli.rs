@@ -5,8 +5,8 @@ use gflow::core::version;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "gflow", author, version = version(), about = "A tiny job scheduler inspired by Slurm.")]
-pub struct GFlow {
+#[command(name = "gbatch", author, version = version(), about = "Submits jobs to the gflow scheduler. Inspired by sbatch.")]
+pub struct GBatch {
     /// Sub Commands
     #[command(subcommand)]
     pub commands: Option<Commands>,
@@ -23,12 +23,6 @@ pub enum Commands {
     /// Add a new job to the scheduler
     #[command(alias = "submit")]
     Add(AddArgs),
-    /// List all jobs in the scheduler
-    #[command(alias = "ls")]
-    List(ListArgs),
-    /// Manage the system service
-    #[command(subcommand)]
-    Daemon(DaemonCommands),
     /// Generate tab-completion scripts for your shell
     #[command(
         after_help = COMPLETIONS_HELP,
@@ -43,14 +37,7 @@ pub enum Commands {
 }
 
 #[derive(Debug, Parser)]
-pub enum JobCommands {
-    /// Send finish signal to a running job
-    Finish(FinishArgs),
-    /// Send Fail signal to a running job
-    Fail(FailArgs),
-    /// Show the logs of a job
-    Logs(LogsArgs),
-}
+pub enum JobCommands {}
 
 #[derive(Debug, Parser)]
 pub enum DaemonCommands {
@@ -85,6 +72,10 @@ pub struct FailArgs {
 pub struct LogsArgs {
     /// The ID of the job to show logs for
     pub id: u32,
+
+    /// Follow the log output
+    #[arg(short, long)]
+    pub follow: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -118,6 +109,10 @@ pub struct AddArgs {
     /// The ID of the job this job depends on
     #[arg(long)]
     pub depends_on: Option<u32>,
+
+    /// The job array specification (e.g., "1-10")
+    #[arg(long)]
+    pub array: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]

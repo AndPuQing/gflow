@@ -1,17 +1,15 @@
 use clap::{CommandFactory, Parser};
-use cli::GFlow;
+use cli::GBatch;
 use commands::handle_commands;
 mod cli;
-mod client;
 mod commands;
 mod config;
 mod help;
-mod tui;
 
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
-    let gflow = GFlow::parse();
+    let gflow = GBatch::parse();
 
     // Initialize logger
     env_logger::Builder::new()
@@ -52,6 +50,6 @@ async fn main() {
         }
     } else {
         // Show help when no command is provided
-        let _ = GFlow::command().print_help();
+        let _ = GBatch::command().print_help();
     }
 }

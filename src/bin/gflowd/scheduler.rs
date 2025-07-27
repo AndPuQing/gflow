@@ -200,7 +200,6 @@ pub async fn run(shared_state: SharedState) {
 
         let mut available_gpus = state.get_available_gpu_slots();
 
-        // Find the highest priority job that can be run
         let finished_jobs: std::collections::HashSet<u32> = state
             .jobs
             .iter()
@@ -208,33 +207,46 @@ pub async fn run(shared_state: SharedState) {
             .map(|j| j.id)
             .collect();
 
-        let job_to_run = state
+        // Sort all queued jobs by priority
+        let mut runnable_jobs_indices: Vec<_> = state
             .jobs
-            .iter_mut()
-            .filter(|j| j.state == JobState::Queued)
-            .filter(|j| {
+            .iter()
+            .enumerate()
+            .filter(|(_, j)| j.state == JobState::Queued)
+            .filter(|(_, j)| {
                 // Check for dependencies
                 if let Some(dependency_id) = j.depends_on {
-                    if !finished_jobs.contains(&dependency_id) {
-                        return false; // Dependency not met
-                    }
+                    return finished_jobs.contains(&dependency_id);
                 }
-                j.gpus <= available_gpus.len() as u32
+                true
             })
-            .max_by_key(|j| j.priority);
+            .map(|(i, _)| i)
+            .collect();
 
-        if let Some(job) = job_to_run {
-            available_gpus.truncate(job.gpus as usize);
-            job.gpu_ids = Some(available_gpus);
-            let executor = TmuxExecutor;
-            match executor.execute(job) {
-                Ok(_) => {
-                    job.state = JobState::Running;
-                    log::info!("Executing job: {:?}", job);
-                }
-                Err(e) => {
-                    log::error!("Failed to execute job: {:?}", e);
-                    job.state = JobState::Failed;
+        // Sort indices by job priority in descending order
+        runnable_jobs_indices.sort_by_key(|&i| std::cmp::Reverse(state.jobs[i].priority));
+
+        // Easy backfilling loop
+        for index in runnable_jobs_indices {
+            if let Some(job) = state.jobs.get_mut(index) {
+                if job.gpus as usize <= available_gpus.len() {
+                    // This job can run
+                    let gpus_for_job = available_gpus
+                        .drain(..job.gpus as usize)
+                        .collect::<Vec<_>>();
+                    job.gpu_ids = Some(gpus_for_job);
+
+                    let executor = TmuxExecutor;
+                    match executor.execute(job) {
+                        Ok(_) => {
+                            job.state = JobState::Running;
+                            log::info!("Executing job: {:?}", job);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to execute job: {:?}", e);
+                            job.state = JobState::Failed;
+                        }
+                    }
                 }
             }
         }

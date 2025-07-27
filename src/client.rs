@@ -1,5 +1,5 @@
+use crate::core::job::Job;
 use anyhow::Context;
-use gflow::core::job::Job;
 use reqwest::{Client as ReqwestClient, Response};
 
 #[derive(Debug, Clone)]
@@ -53,5 +53,13 @@ impl Client {
             .send()
             .await
             .context("Failed to send fail job request")
+    }
+    pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Response> {
+        log::debug!("Getting log path for job {}", job_id);
+        self.client
+            .get(format!("{}/jobs/{}/log", self.base_url, job_id))
+            .send()
+            .await
+            .context("Failed to send get log path request")
     }
 }

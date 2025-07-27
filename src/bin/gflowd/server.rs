@@ -24,6 +24,7 @@ pub async fn run(config: config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id", get(get_job))
         .route("/jobs/:id/finish", post(finish_job))
         .route("/jobs/:id/fail", post(fail_job))
+        .route("/jobs/:id/log", get(get_job_log))
         .route("/info", get(info))
         .with_state(scheduler);
     let host = config
@@ -77,6 +78,25 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
+    }
+}
+
+#[axum::debug_handler]
+async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+    let state = state.lock().await;
+    if state.jobs.iter().any(|j| j.id == id) {
+        match gflow::core::get_log_file_path(id) {
+            Ok(path) => {
+                if path.exists() {
+                    (StatusCode::OK, Json(Some(path)))
+                } else {
+                    (StatusCode::NOT_FOUND, Json(None))
+                }
+            }
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(None)),
+        }
+    } else {
+        (StatusCode::NOT_FOUND, Json(None))
     }
 }
 
