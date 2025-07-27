@@ -115,10 +115,6 @@ pub struct AddArgs {
     #[arg(long)]
     pub priority: Option<u8>,
 
-    /// The GPU memory required for the job in MB
-    #[arg(long)]
-    pub gpu_mem: Option<u64>,
-
     /// The ID of the job this job depends on
     #[arg(long)]
     pub depends_on: Option<u32>,

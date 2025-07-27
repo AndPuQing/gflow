@@ -28,14 +28,12 @@ fn build_job(args: cli::AddArgs) -> Result<Job> {
         builder = builder.script(script_path);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.gpu_mem(args.gpu_mem.or(script_args.gpu_mem).unwrap_or(0));
         builder = builder.conda_env(&args.conda_env.or(script_args.conda_env));
         builder = builder.depends_on(args.depends_on.or(script_args.depends_on));
     } else if let Some(command) = args.command {
         builder = builder.command(command);
         builder = builder.gpus(args.gpus.unwrap_or(0));
         builder = builder.priority(args.priority.unwrap_or(10));
-        builder = builder.gpu_mem(args.gpu_mem.unwrap_or(0));
         builder = builder.conda_env(&args.conda_env);
         builder = builder.depends_on(args.depends_on);
     }
@@ -63,7 +61,6 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
             conda_env: None,
             gpus: None,
             priority: None,
-            gpu_mem: None,
             depends_on: None,
         })
     }

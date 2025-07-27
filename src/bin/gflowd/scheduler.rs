@@ -50,21 +50,17 @@ impl Scheduler {
         scheduler
     }
 
-    pub fn get_available_gpu_slots(&self) -> Vec<(u32, u64)> {
-        let mut slots = Vec::new();
-        if let Some(nvml) = &self.nvml {
-            for (uuid, slot) in &self.gpu_slots {
+    pub fn get_available_gpu_slots(&self) -> Vec<u32> {
+        self.gpu_slots
+            .iter()
+            .filter_map(|(_uuid, slot)| {
                 if slot.available {
-                    if let Ok(device) = nvml.device_by_uuid(uuid.clone()) {
-                        if let Ok(mem_info) = device.memory_info() {
-                            // a bit of a hack to get the free memory in MB
-                            slots.push((slot.index, mem_info.free / 1024 / 1024));
-                        }
-                    }
+                    Some(slot.index)
+                } else {
+                    None
                 }
-            }
-        }
-        slots
+            })
+            .collect()
     }
 
     pub fn info(&self) -> HashMap<String, Vec<u32>> {
@@ -202,7 +198,7 @@ pub async fn run(shared_state: SharedState) {
             state.save_state();
         }
 
-        let available_gpus_with_mem = state.get_available_gpu_slots();
+        let mut available_gpus = state.get_available_gpu_slots();
 
         // Find the highest priority job that can be run
         let finished_jobs: std::collections::HashSet<u32> = state
@@ -223,24 +219,13 @@ pub async fn run(shared_state: SharedState) {
                         return false; // Dependency not met
                     }
                 }
-
-                let suitable_gpus: Vec<_> = available_gpus_with_mem
-                    .iter()
-                    .filter(|(_, free_mem)| *free_mem >= j.gpu_mem)
-                    .collect();
-                j.gpus <= suitable_gpus.len() as u32
+                j.gpus <= available_gpus.len() as u32
             })
             .max_by_key(|j| j.priority);
 
         if let Some(job) = job_to_run {
-            let mut suitable_gpus: Vec<_> = available_gpus_with_mem
-                .iter()
-                .filter(|(_, free_mem)| *free_mem >= job.gpu_mem)
-                .map(|(index, _)| *index)
-                .collect();
-
-            suitable_gpus.truncate(job.gpus as usize);
-            job.gpu_ids = Some(suitable_gpus);
+            available_gpus.truncate(job.gpus as usize);
+            job.gpu_ids = Some(available_gpus);
             let executor = TmuxExecutor;
             match executor.execute(job) {
                 Ok(_) => {

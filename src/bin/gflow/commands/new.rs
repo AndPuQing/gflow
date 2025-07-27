@@ -15,7 +15,6 @@ const SCRIPT_TEMPLATE: &str = r#"#!/bin/bash
 # GFLOW --gpus=1
 # GFLOW --priority=10
 # GFLOW --conda-env=your-env-name
-# GFLOW --gpu-mem=4096
 # GFLOW --depends-on=123
 
 # --- Your script starts here ---

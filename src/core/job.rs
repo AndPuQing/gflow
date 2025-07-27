@@ -24,7 +24,6 @@ pub struct Job {
     pub conda_env: Option<String>,
     pub run_dir: PathBuf,
     pub priority: u8,
-    pub gpu_mem: u64, // in MB
     pub depends_on: Option<u32>,
 
     /// Optional fields that get populated by gflowd
@@ -41,7 +40,6 @@ pub struct JobBuilder {
     conda_env: Option<String>,
     run_dir: PathBuf,
     priority: u8,
-    gpu_mem: u64,
     depends_on: Option<u32>,
 }
 
@@ -49,7 +47,6 @@ impl JobBuilder {
     pub fn new() -> Self {
         Self {
             priority: 10, // Default priority
-            gpu_mem: 0,   // Default no specific memory requirement
             depends_on: None,
             ..Default::default()
         }
@@ -85,11 +82,6 @@ impl JobBuilder {
         self
     }
 
-    pub fn gpu_mem(mut self, gpu_mem: u64) -> Self {
-        self.gpu_mem = gpu_mem;
-        self
-    }
-
     pub fn depends_on(mut self, depends_on: Option<u32>) -> Self {
         self.depends_on = depends_on;
         self
@@ -103,7 +95,6 @@ impl JobBuilder {
             gpus: self.gpus,
             conda_env: self.conda_env,
             priority: self.priority,
-            gpu_mem: self.gpu_mem,
             depends_on: self.depends_on,
             run_name: None,
             state: JobState::Queued,
