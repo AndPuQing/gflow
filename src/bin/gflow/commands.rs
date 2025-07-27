@@ -7,6 +7,7 @@ mod fail;
 mod finish;
 mod list;
 mod logs;
+mod new;
 mod start;
 mod status;
 mod stop;
@@ -28,5 +29,6 @@ pub async fn handle_commands(config: &config::Config, commands: Commands) -> any
             JobCommands::Fail(fail_args) => handle_fail(config, fail_args).await,
             JobCommands::Logs(logs_args) => logs::handle_logs(logs_args).await,
         },
+        Commands::New(new_args) => new::handle_new(new_args),
     }
 }

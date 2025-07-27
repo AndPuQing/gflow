@@ -38,6 +38,8 @@ pub enum Commands {
     /// Manage jobs
     #[command(subcommand)]
     Job(JobCommands),
+    /// Create a new job script template
+    New(NewArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -86,6 +88,12 @@ pub struct LogsArgs {
 }
 
 #[derive(Debug, Parser)]
+pub struct NewArgs {
+    /// The name of the new job
+    pub name: String,
+}
+
+#[derive(Debug, Parser, Clone)]
 pub struct AddArgs {
     /// The script to run
     #[arg(required_unless_present = "command")]
@@ -100,16 +108,16 @@ pub struct AddArgs {
     pub conda_env: Option<String>,
 
     /// The GPU count to request
-    #[arg(short, long, name = "NUMS", default_value = "0")]
-    pub gpus: u32,
+    #[arg(short, long, name = "NUMS")]
+    pub gpus: Option<u32>,
 
     /// The priority of the job
-    #[arg(long, default_value = "10")]
-    pub priority: u8,
+    #[arg(long)]
+    pub priority: Option<u8>,
 
     /// The GPU memory required for the job in MB
-    #[arg(long, default_value = "0")]
-    pub gpu_mem: u64,
+    #[arg(long)]
+    pub gpu_mem: Option<u64>,
 
     /// The ID of the job this job depends on
     #[arg(long)]
