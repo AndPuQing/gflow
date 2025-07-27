@@ -1,6 +1,6 @@
 [package]
 name = "gflow"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 repository = "https://github.com/AndPuQing/gflow.git"
