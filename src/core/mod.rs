@@ -57,6 +57,6 @@ pub fn random_run_name() -> String {
     format!(
         "{}-{}",
         WORDS[rng.random_range(0..WORDS.len())].to_lowercase(),
-        rng.random_range(0..10)
+        &uuid::Uuid::new_v4().to_string()[..8]
     )
 }
