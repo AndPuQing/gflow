@@ -62,6 +62,6 @@ mod tests {
             cleanup: false,
         };
         let config = load_config(args).unwrap();
-        assert_eq!(config.get_int("PORT").unwrap(), 59000);
+        assert_eq!(config.get_int("port").unwrap(), 59000);
     }
 }
