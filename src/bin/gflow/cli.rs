@@ -13,6 +13,9 @@ pub struct GFlow {
 
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,
+
+    #[arg(long, global = true, help = "Path to the config file")]
+    pub config: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Parser)]

@@ -28,7 +28,9 @@ struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let client = Client::build().expect("Failed to build client");
+        use clap::Parser;
+        let config = crate::config::load_config(&crate::cli::GFlow::parse()).unwrap();
+        let client = Client::build(&config).expect("Failed to build client");
         Self {
             state: AppState::default(),
             selected_tab: SelectedTab::default(),
@@ -127,7 +129,9 @@ impl App {
                 interval.tick().await;
                 if let Ok(jobs) = client.list_jobs().await {
                     if jobs_tx
-                        .send(TuiEvent::Jobs(jobs.json::<Vec<Job>>().await.unwrap()))
+                        .send(TuiEvent::Jobs(
+                            jobs.json::<Vec<Job>>().await.unwrap_or_default(),
+                        ))
                         .await
                         .is_err()
                     {

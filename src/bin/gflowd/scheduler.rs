@@ -1,6 +1,6 @@
 use crate::executor::TmuxExecutor;
 use gflow::core::executor::Executor;
-use gflow::core::get_config_temp_dir;
+use gflow::core::get_data_dir;
 use gflow::core::{
     job::{Job, JobState},
     GPUSlot, GPU, UUID,
@@ -32,7 +32,7 @@ impl Default for Scheduler {
 impl Scheduler {
     pub fn new() -> Self {
         // This is not ideal, but for now we will panic if we can't get the config dir
-        let state_path = get_config_temp_dir().unwrap().join("state.json");
+        let state_path = get_data_dir().unwrap().join("state.json");
         Self::with_state_path(state_path)
     }
 

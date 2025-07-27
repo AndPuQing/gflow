@@ -21,7 +21,7 @@ impl Executor for TmuxExecutor {
                 user_command.push_str(cmd);
             }
 
-            let log_path = gflow::core::get_config_log_file(job.id)?;
+            let log_path = gflow::core::get_log_file_path(job.id)?;
             let wrapped_command = format!(
                 "{{ {user_command}; gflow finish {job_id}; }} || gflow fail {job_id} &> {log_path}",
                 user_command = user_command,

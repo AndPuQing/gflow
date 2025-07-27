@@ -3,11 +3,11 @@ use gflow::core::job::Job;
 
 use crate::{cli::ListArgs, client::Client};
 
-pub(crate) async fn handle_list(list_args: ListArgs) -> Result<()> {
+pub(crate) async fn handle_list(config: &config::Config, list_args: ListArgs) -> Result<()> {
     if list_args.tui {
         let _ = crate::tui::show_tui();
     } else {
-        let client = Client::build()?;
+        let client = Client::build(config)?;
         let jobs = client
             .list_jobs()
             .await?

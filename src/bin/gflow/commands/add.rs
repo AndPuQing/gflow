@@ -3,11 +3,14 @@ use anyhow::{Context, Result};
 use gflow::core::job::Job;
 use std::path::PathBuf;
 
-pub(crate) async fn handle_submit(submit_args: cli::SubmitArgs) -> Result<()> {
+pub(crate) async fn handle_submit(
+    config: &config::Config,
+    submit_args: cli::SubmitArgs,
+) -> Result<()> {
     log::debug!("{:?}", submit_args);
 
     let job = build_job(submit_args)?;
-    let client = Client::build().context("Failed to build client")?;
+    let client = Client::build(config).context("Failed to build client")?;
 
     client.add_job(job).await.context("Failed to add job")?;
 

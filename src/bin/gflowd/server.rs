@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use gflow::core::{get_config_temp_dir, get_config_temp_file, job::Job};
+use gflow::core::job::Job;
 use std::sync::Arc;
 
 pub async fn run(config: config::Config) -> anyhow::Result<()> {
@@ -26,25 +26,13 @@ pub async fn run(config: config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id/fail", post(fail_job))
         .route("/info", get(info))
         .with_state(scheduler);
-    let port = config.get_int("PORT").unwrap_or(59000);
-    let listener = tokio::net::TcpListener::bind(format!("localhost:{port}"))
-        .await
-        .expect("Failed to bind to port");
-
-    // --------clean by gflowd --cleanup --------
-    if let Ok(config_dir) = get_config_temp_dir() {
-        if !config_dir.exists() {
-            std::fs::create_dir_all(&config_dir).ok();
-        }
-        if let Ok(gflowd_file) = get_config_temp_file() {
-            std::fs::write(gflowd_file, port.to_string()).ok();
-        }
-    }
-    // ------------------------------------------
-
-    if let Ok(addr) = listener.local_addr() {
-        log::info!("Listening on: {}", addr);
-    }
+    let host = config
+        .get_string("host")
+        .unwrap_or_else(|_| "localhost".to_string());
+    let port = config.get_int("port").unwrap_or(59000);
+    let addr = format!("{host}:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    log::info!("Listening on: {}", addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -84,6 +72,7 @@ async fn get_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl 
 #[axum::debug_handler]
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.lock().await;
+    log::info!("Finishing job with ID: {}", id);
     if state.finish_job(id) {
         (StatusCode::OK, Json(()))
     } else {
@@ -94,6 +83,7 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 #[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.lock().await;
+    log::info!("Failing job with ID: {}", id);
     if state.fail_job(id) {
         (StatusCode::OK, Json(()))
     } else {

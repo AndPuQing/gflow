@@ -1,6 +1,5 @@
 use clap::Parser;
 use config::load_config;
-use gflow::core::get_config_temp_file;
 mod cli;
 mod config;
 mod executor;
@@ -16,9 +15,10 @@ async fn main() {
     log::debug!("Parsed CLI arguments: {:?}", gflowd);
 
     if gflowd.cleanup {
-        if let Ok(gflowd_file) = get_config_temp_file() {
-            if gflowd_file.exists() {
-                std::fs::remove_file(gflowd_file).ok();
+        if let Ok(socket_path) = gflow::core::get_daemon_socket_path() {
+            if socket_path.exists() {
+                log::info!("Cleaning up old socket file");
+                std::fs::remove_file(socket_path).ok();
             }
         }
         std::process::exit(0);

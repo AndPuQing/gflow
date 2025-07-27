@@ -38,22 +38,39 @@ pub trait GPU {
     fn get_gpus(nvml: &Nvml) -> HashMap<UUID, GPUSlot>;
 }
 
-pub fn get_config_temp_dir() -> anyhow::Result<PathBuf> {
+pub fn get_config_dir() -> anyhow::Result<PathBuf> {
     dirs::config_dir()
         .ok_or_else(|| anyhow::anyhow!("Failed to get config directory"))
-        .map(|p| p.join("gflowd"))
+        .map(|p| p.join("gflow"))
 }
 
-pub fn get_config_temp_file() -> anyhow::Result<PathBuf> {
-    get_config_temp_dir().map(|p| p.join("gflowdrc"))
+pub fn get_data_dir() -> anyhow::Result<PathBuf> {
+    dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get data directory"))
+        .map(|p| p.join("gflow"))
 }
 
-pub fn get_config_log_file(job_id: u32) -> anyhow::Result<PathBuf> {
-    let log_dir = get_config_temp_dir()?.join("logs");
+pub fn get_runtime_dir() -> anyhow::Result<PathBuf> {
+    dirs::runtime_dir()
+        .or_else(dirs::cache_dir)
+        .ok_or_else(|| anyhow::anyhow!("Failed to get runtime or cache directory"))
+        .map(|p| p.join("gflow"))
+}
+
+pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
+    let log_dir = get_data_dir()?.join("logs");
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir)?;
     }
     Ok(log_dir.join(format!("{job_id}.log")))
+}
+
+pub fn get_daemon_socket_path() -> anyhow::Result<PathBuf> {
+    let runtime_dir = get_runtime_dir()?;
+    if !runtime_dir.exists() {
+        std::fs::create_dir_all(&runtime_dir)?;
+    }
+    Ok(runtime_dir.join("gflowd.sock"))
 }
 
 pub fn random_run_name() -> String {

@@ -1,81 +1,55 @@
-use anyhow::{Context, Result};
-use gflow::core::{get_config_temp_file, job::Job};
-use reqwest::Response;
-use std::fs;
-
-const DEFAULT_PORT: u32 = 59000;
+use anyhow::Context;
+use gflow::core::job::Job;
+use reqwest::{Client as ReqwestClient, Response};
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    client: reqwest::Client,
-    port: u32,
+    client: ReqwestClient,
+    base_url: String,
 }
 
 impl Client {
-    pub fn build() -> Result<Self> {
-        let port = Self::get_port()?;
-        Ok(Self {
-            client: reqwest::Client::new(),
-            port,
-        })
+    pub fn build(config: &config::Config) -> anyhow::Result<Self> {
+        let host = config
+            .get_string("host")
+            .unwrap_or_else(|_| "localhost".to_string());
+        let port = config.get_int("port").unwrap_or(59000);
+        let base_url = format!("http://{host}:{port}");
+        let client = ReqwestClient::new();
+        Ok(Self { client, base_url })
     }
 
-    fn get_port() -> Result<u32> {
-        let config_file = match get_config_temp_file() {
-            Ok(file) => file,
-            Err(_) => return Ok(DEFAULT_PORT),
-        };
-
-        if !config_file.exists() {
-            log::warn!("Config file not found, using default port {}", DEFAULT_PORT);
-            return Ok(DEFAULT_PORT);
-        }
-
-        fs::read_to_string(&config_file)
-            .context("Failed to read config file")?
-            .trim()
-            .parse::<u32>()
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    pub async fn list_jobs(&self) -> Result<Response> {
-        let url = format!("http://localhost:{}/jobs", self.port);
+    pub async fn list_jobs(&self) -> anyhow::Result<Response> {
         self.client
-            .get(&url)
+            .get(format!("{}/jobs", self.base_url))
             .send()
             .await
             .context("Failed to send list jobs request")
     }
 
-    pub async fn add_job(&self, job: Job) -> Result<Response> {
+    pub async fn add_job(&self, job: Job) -> anyhow::Result<Response> {
         log::debug!("Adding job: {:?}", job);
-
-        let url = format!("http://localhost:{}/jobs", self.port);
         self.client
-            .post(&url)
+            .post(format!("{}/jobs", self.base_url))
             .json(&job)
             .send()
             .await
             .context("Failed to send job request")
     }
 
-    pub async fn finish_job(&self, job_id: u32) -> Result<Response> {
+    pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<Response> {
         log::debug!("Finishing job {}", job_id);
-
-        let url = format!("http://localhost:{}/jobs/{}/finish", self.port, job_id);
         self.client
-            .post(&url)
+            .post(format!("{}/jobs/{}/finish", self.base_url, job_id))
             .send()
             .await
             .context("Failed to send finish job request")
     }
 
-    pub async fn fail_job(&self, job_id: u32) -> Result<Response> {
+    pub async fn fail_job(&self, job_id: u32) -> anyhow::Result<Response> {
         log::debug!("Failing job {}", job_id);
-
-        let url = format!("http://localhost:{}/jobs/{}/fail", self.port, job_id);
         self.client
-            .post(&url)
+            .post(format!("{}/jobs/{}/fail", self.base_url, job_id))
             .send()
             .await
             .context("Failed to send fail job request")

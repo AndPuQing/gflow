@@ -17,7 +17,9 @@ pub fn load_config(args: GFlowd) -> Result<config::Config, config::ConfigError> 
     });
     settings
         .add_source(config::Environment::with_prefix("GFLOW"))
-        .set_default("PORT", 59000)
+        .set_default("port", 59000)
+        .unwrap()
+        .set_default("host", "localhost")
         .unwrap()
         .build()
 }
