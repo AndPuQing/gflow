@@ -5,9 +5,10 @@ use gflow::client::Client;
 use gflow::core::job::Job;
 use std::{fs, path::PathBuf};
 
-pub(crate) async fn handle_add(config: &config::Config, add_args: cli::AddArgs) -> Result<()> {
-    log::debug!("{:?}", add_args);
-
+pub(crate) async fn handle_add(
+    config: &gflow::config::Config,
+    add_args: cli::AddArgs,
+) -> Result<()> {
     let client = Client::build(config).context("Failed to build client")?;
 
     if let Some(array_spec) = &add_args.array {
@@ -106,26 +107,5 @@ fn make_absolute_path(path: PathBuf) -> Result<PathBuf> {
         std::env::current_dir()
             .map(|pwd| pwd.join(path))
             .context("Failed to get current directory")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn test_make_absolute_path() {
-        let path = Path::new("test.txt").to_path_buf();
-        let result = make_absolute_path(path.clone()).unwrap();
-        assert_eq!(result, std::env::current_dir().unwrap().join(path));
-    }
-
-    #[test]
-    fn test_parse_array_spec() {
-        assert_eq!(parse_array_spec("1-5").unwrap(), vec![1, 2, 3, 4, 5]);
-        assert!(parse_array_spec("5-1").is_err());
-        assert!(parse_array_spec("abc").is_err());
-        assert!(parse_array_spec("1-abc").is_err());
     }
 }

@@ -9,11 +9,9 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn build(config: &config::Config) -> anyhow::Result<Self> {
-        let host = config
-            .get_string("host")
-            .unwrap_or_else(|_| "localhost".to_string());
-        let port = config.get_int("port").unwrap_or(59000);
+    pub fn build(config: &crate::config::Config) -> anyhow::Result<Self> {
+        let host = &config.daemon.host;
+        let port = config.daemon.port;
         let base_url = format!("http://{host}:{port}");
         let client = ReqwestClient::new();
         Ok(Self { client, base_url })

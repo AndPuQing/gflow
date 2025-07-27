@@ -1,7 +1,39 @@
 use crate::core::get_config_dir;
+use serde::Deserialize;
 use std::path::PathBuf;
 
-pub fn load_config(config_path: Option<&PathBuf>) -> Result<config::Config, config::ConfigError> {
+#[derive(Deserialize, Debug, Default)]
+pub struct Config {
+    #[serde(default)]
+    pub daemon: DaemonConfig,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DaemonConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+fn default_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_port() -> u16 {
+    59000
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
+    }
+}
+
+pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::ConfigError> {
     let mut config_vec = vec![];
 
     // User-provided config file
@@ -29,9 +61,6 @@ pub fn load_config(config_path: Option<&PathBuf>) -> Result<config::Config, conf
 
     settings
         .add_source(config::Environment::with_prefix("GFLOW"))
-        .set_default("port", 59000)
-        .unwrap()
-        .set_default("host", "localhost")
-        .unwrap()
-        .build()
+        .build()?
+        .try_deserialize()
 }

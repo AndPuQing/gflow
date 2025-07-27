@@ -1,6 +1,4 @@
-use crate::help::COMPLETIONS_HELP;
-use clap::{Parser, ValueEnum};
-use clap_complete::Shell as CompleteShell;
+use clap::Parser;
 use gflow::core::version;
 use std::path::PathBuf;
 
@@ -13,21 +11,12 @@ pub struct GBatch {
     #[command(flatten)]
     pub add_args: AddArgs,
 
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity,
-
     #[arg(long, global = true, help = "Path to the config file")]
     pub config: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Parser)]
 pub enum Commands {
-    /// Generate tab-completion scripts for your shell
-    #[command(
-        after_help = COMPLETIONS_HELP,
-        arg_required_else_help = true
-    )]
-    Completions(CompletionsArgs),
     /// Create a new job script template
     New(NewArgs),
 }
@@ -67,31 +56,4 @@ pub struct AddArgs {
     /// The job array specification (e.g., "1-10")
     #[arg(long)]
     pub array: Option<String>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum Shell {
-    Bash,
-    Zsh,
-    Fish,
-    Powershell,
-    Elvish,
-}
-
-#[derive(Debug, Parser)]
-pub struct CompletionsArgs {
-    /// The shell to generate the completions for
-    pub shell: Shell,
-}
-
-impl From<Shell> for CompleteShell {
-    fn from(shell: Shell) -> Self {
-        match shell {
-            Shell::Bash => CompleteShell::Bash,
-            Shell::Elvish => CompleteShell::Elvish,
-            Shell::Fish => CompleteShell::Fish,
-            Shell::Powershell => CompleteShell::PowerShell,
-            Shell::Zsh => CompleteShell::Zsh,
-        }
-    }
 }

@@ -65,14 +65,6 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
     Ok(log_dir.join(format!("{job_id}.log")))
 }
 
-pub fn get_daemon_socket_path() -> anyhow::Result<PathBuf> {
-    let runtime_dir = get_runtime_dir()?;
-    if !runtime_dir.exists() {
-        std::fs::create_dir_all(&runtime_dir)?;
-    }
-    Ok(runtime_dir.join("gflowd.sock"))
-}
-
 pub fn random_run_name() -> String {
     const WORDS: &[&str] = &[
         "Lion", "Tiger", "Elephant", "Giraffe", "Bear", "Monkey", "Zebra", "Kangaroo", "Panda",

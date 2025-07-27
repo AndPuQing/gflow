@@ -8,9 +8,6 @@ use clap::Parser;
     about = "Sends a signal to a job in the gflow scheduler."
 )]
 pub struct GSignal {
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity,
-
     #[arg(long, global = true, help = "Path to the config file")]
     pub config: Option<std::path::PathBuf>,
 

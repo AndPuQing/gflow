@@ -9,7 +9,7 @@ use axum::{
 use gflow::core::job::Job;
 use std::sync::Arc;
 
-pub async fn run(config: config::Config) -> anyhow::Result<()> {
+pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let scheduler = SharedState::default();
     let scheduler_clone = Arc::clone(&scheduler);
 
@@ -27,10 +27,8 @@ pub async fn run(config: config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id/log", get(get_job_log))
         .route("/info", get(info))
         .with_state(scheduler);
-    let host = config
-        .get_string("host")
-        .unwrap_or_else(|_| "localhost".to_string());
-    let port = config.get_int("port").unwrap_or(59000);
+    let host = &config.daemon.host;
+    let port = config.daemon.port;
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::info!("Listening on: {}", addr);

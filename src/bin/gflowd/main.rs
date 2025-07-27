@@ -1,7 +1,5 @@
 use clap::Parser;
-use config::load_config;
 mod cli;
-mod config;
 mod executor;
 mod scheduler;
 mod server;
@@ -12,19 +10,8 @@ async fn main() {
     env_logger::Builder::new()
         .filter_level(gflowd.verbose.log_level_filter())
         .init();
-    log::debug!("Parsed CLI arguments: {:?}", gflowd);
 
-    if gflowd.cleanup {
-        if let Ok(socket_path) = gflow::core::get_daemon_socket_path() {
-            if socket_path.exists() {
-                log::info!("Cleaning up old socket file");
-                std::fs::remove_file(socket_path).ok();
-            }
-        }
-        std::process::exit(0);
-    }
-
-    match load_config(gflowd) {
+    match gflow::config::load_config(gflowd.config.as_ref()) {
         Ok(config) => {
             if let Err(e) = server::run(config).await {
                 log::error!("Server failed: {}", e);

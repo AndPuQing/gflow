@@ -1,58 +1,18 @@
+use anyhow::Result;
 use clap::Parser;
-use cli::GBatch;
 use commands::handle_commands;
+use gflow::config::load_config;
 mod cli;
 mod commands;
-mod config;
-mod help;
 
 #[tokio::main]
-async fn main() {
-    // Parse command line arguments
-    let gflow = GBatch::parse();
+async fn main() -> Result<()> {
+    let args = cli::GBatch::parse();
+    let config = load_config(args.config.as_ref())?;
 
-    // Initialize logger
-    env_logger::Builder::new()
-        .filter_level(gflow.verbose.log_level_filter())
-        .init();
-
-    log::debug!("Starting gflow with args: {:?}", gflow);
-
-    // Handle commands if present
-    let config = config::load_config(&gflow).unwrap_or_else(|err| {
-        log::error!("Failed to load config: {}", err);
-        std::process::exit(1);
-    });
-
-    // Create default config file if it doesn't exist
-    if let Ok(config_path) = gflow::core::get_config_dir().map(|d| d.join("gflow.toml")) {
-        if !config_path.exists() {
-            let default_config = r#"# gflow configuration
-
-# Host and port for the gflowd daemon.
-# host = "127.0.0.1"
-# port = 59000
-"#;
-            if let Some(parent) = config_path.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).ok();
-                }
-            }
-            std::fs::write(config_path, default_config).ok();
-        }
-    }
-
-    if let Some(commands) = gflow.commands {
-        let output = handle_commands(&config, commands).await;
-        if let Err(e) = output {
-            log::error!("Error: {}", e);
-            std::process::exit(1);
-        }
+    if let Some(commands) = args.commands {
+        handle_commands(&config, commands).await
     } else {
-        let output = commands::add::handle_add(&config, gflow.add_args).await;
-        if let Err(e) = output {
-            log::error!("Error: {}", e);
-            std::process::exit(1);
-        }
+        commands::add::handle_add(&config, args.add_args).await
     }
 }
