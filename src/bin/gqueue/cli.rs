@@ -8,7 +8,7 @@ use clap::Parser;
     about = "Lists jobs in the gflow scheduler."
 )]
 pub struct GQueue {
-    #[arg(long, global = true, help = "Path to the config file")]
+    #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
 
     #[arg(

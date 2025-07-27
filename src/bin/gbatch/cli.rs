@@ -11,7 +11,7 @@ pub struct GBatch {
     #[command(flatten)]
     pub add_args: AddArgs,
 
-    #[arg(long, global = true, help = "Path to the config file")]
+    #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
 }
 

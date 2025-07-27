@@ -8,7 +8,7 @@ use clap::Parser;
     about = "Sends a signal to a job in the gflow scheduler."
 )]
 pub struct GSignal {
-    #[arg(long, global = true, help = "Path to the config file")]
+    #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
 
     #[command(subcommand)]

@@ -6,7 +6,7 @@ pub struct GCtl {
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,
 
-    #[arg(long, global = true, help = "Path to the config file")]
+    #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
 
     #[command(subcommand)]
