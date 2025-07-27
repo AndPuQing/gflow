@@ -81,22 +81,22 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
         .map(|line| line.trim_start_matches("# GFLOW").trim())
         .collect();
 
-    let args_str = gflow_lines.join(" ");
-    let full_args = format!("gflow add {args_str}");
-    let parsed = cli::GBatch::try_parse_from(full_args.split_whitespace())?;
-    if let Some(cli::Commands::Add(add_args)) = parsed.commands {
-        Ok(add_args)
-    } else {
-        Ok(cli::AddArgs {
+    if gflow_lines.is_empty() {
+        return Ok(cli::AddArgs {
             script: None,
             command: None,
             conda_env: None,
             gpus: None,
             priority: None,
             depends_on: None,
-            array: None, // Fix compiler error
-        })
+            array: None,
+        });
     }
+
+    let args_str = gflow_lines.join(" ");
+    let full_args = format!("gbatch {args_str}");
+    let parsed = cli::GBatch::try_parse_from(full_args.split_whitespace())?;
+    Ok(parsed.add_args)
 }
 
 fn make_absolute_path(path: PathBuf) -> Result<PathBuf> {

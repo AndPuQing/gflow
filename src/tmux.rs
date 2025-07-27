@@ -9,12 +9,7 @@ impl TmuxSession {
     /// Create a new tmux session with the given name
     pub fn new(name: String) -> Self {
         Tmux::new()
-            .add_command(
-                NewSession::new()
-                    .detached()
-                    .session_name(&name)
-                    .shell_command("bash"),
-            )
+            .add_command(NewSession::new().detached().session_name(&name))
             .output()
             .ok();
 

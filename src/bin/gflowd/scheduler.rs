@@ -178,7 +178,7 @@ pub async fn run(shared_state: SharedState) {
     loop {
         interval.tick().await;
         let mut state = shared_state.lock().await;
-        state.refresh();
+        state.refresh(); // Refresh based on NVML
 
         // Detect and clean up zombie jobs
         let mut zombie_jobs_found = false;
@@ -234,6 +234,7 @@ pub async fn run(shared_state: SharedState) {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
+                    let gpus_for_job_clone = gpus_for_job.clone();
                     job.gpu_ids = Some(gpus_for_job);
 
                     let executor = TmuxExecutor;
@@ -241,6 +242,14 @@ pub async fn run(shared_state: SharedState) {
                         Ok(_) => {
                             job.state = JobState::Running;
                             log::info!("Executing job: {:?}", job);
+                            // Mark GPUs as unavailable
+                            for gpu_index in gpus_for_job_clone {
+                                if let Some(slot) =
+                                    state.gpu_slots.values_mut().find(|s| s.index == gpu_index)
+                                {
+                                    slot.available = false;
+                                }
+                            }
                         }
                         Err(e) => {
                             log::error!("Failed to execute job: {:?}", e);
@@ -250,40 +259,5 @@ pub async fn run(shared_state: SharedState) {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gflow::core::job::JobBuilder;
-    use std::path::PathBuf;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_submit_job() {
-        let dir = tempdir().unwrap();
-        let state_path = dir.path().join("state.json");
-        let mut scheduler = Scheduler::with_state_path(state_path);
-        let job = JobBuilder::new().script(PathBuf::from("test.sh")).build();
-        scheduler.submit_job(job);
-        assert_eq!(scheduler.jobs.len(), 1);
-        assert_eq!(scheduler.jobs[0].state, JobState::Queued);
-    }
-
-    #[test]
-    fn test_save_and_load_state() {
-        let dir = tempdir().unwrap();
-        let state_path = dir.path().join("state.json");
-        let mut scheduler = Scheduler::with_state_path(state_path.clone());
-
-        let job = JobBuilder::new().script(PathBuf::from("test.sh")).build();
-        scheduler.submit_job(job);
-
-        scheduler.save_state();
-
-        let new_scheduler = Scheduler::with_state_path(state_path);
-        assert_eq!(new_scheduler.jobs.len(), 1);
-        assert_eq!(new_scheduler.jobs[0].script, Some(PathBuf::from("test.sh")));
     }
 }

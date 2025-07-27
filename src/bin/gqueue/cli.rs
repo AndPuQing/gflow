@@ -13,8 +13,4 @@ pub struct GQueue {
 
     #[arg(long, global = true, help = "Path to the config file")]
     pub config: Option<std::path::PathBuf>,
-
-    /// Show the TUI
-    #[arg(long)]
-    pub tui: bool,
 }

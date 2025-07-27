@@ -1,4 +1,4 @@
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use cli::GBatch;
 use commands::handle_commands;
 mod cli;
@@ -49,7 +49,10 @@ async fn main() {
             std::process::exit(1);
         }
     } else {
-        // Show help when no command is provided
-        let _ = GBatch::command().print_help();
+        let output = commands::add::handle_add(&config, gflow.add_args).await;
+        if let Err(e) = output {
+            log::error!("Error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
