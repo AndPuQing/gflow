@@ -31,7 +31,8 @@ impl Default for Scheduler {
 
 impl Scheduler {
     pub fn new() -> Self {
-        let state_path = get_config_temp_dir().join("state.json");
+        // This is not ideal, but for now we will panic if we can't get the config dir
+        let state_path = get_config_temp_dir().unwrap().join("state.json");
         Self::with_state_path(state_path)
     }
 
@@ -49,17 +50,21 @@ impl Scheduler {
         scheduler
     }
 
-    pub fn get_available_gpu_slots(&self) -> Vec<u32> {
-        self.gpu_slots
-            .iter()
-            .filter_map(|(_uuid, slot)| {
+    pub fn get_available_gpu_slots(&self) -> Vec<(u32, u64)> {
+        let mut slots = Vec::new();
+        if let Some(nvml) = &self.nvml {
+            for (uuid, slot) in &self.gpu_slots {
                 if slot.available {
-                    Some(slot.index)
-                } else {
-                    None
+                    if let Ok(device) = nvml.device_by_uuid(uuid.clone()) {
+                        if let Ok(mem_info) = device.memory_info() {
+                            // a bit of a hack to get the free memory in MB
+                            slots.push((slot.index, mem_info.free / 1024 / 1024));
+                        }
+                    }
                 }
-            })
-            .collect()
+            }
+        }
+        slots
     }
 
     pub fn info(&self) -> HashMap<String, Vec<u32>> {
@@ -84,9 +89,14 @@ impl Scheduler {
 
     pub fn save_state(&self) {
         let path = &self.state_path;
+        let tmp_path = path.with_extension("json.tmp");
+
         if let Ok(json) = serde_json::to_string_pretty(&self) {
-            if let Ok(mut file) = File::create(path) {
-                file.write_all(json.as_bytes()).ok();
+            if let Ok(mut file) = File::create(&tmp_path) {
+                if file.write_all(json.as_bytes()).is_ok() {
+                    // Atomic rename
+                    std::fs::rename(&tmp_path, path).ok();
+                }
             }
         }
     }
@@ -125,6 +135,25 @@ impl Scheduler {
             }
         }
     }
+    pub fn finish_job(&mut self, job_id: u32) -> bool {
+        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+            job.state = JobState::Finished;
+            self.save_state();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn fail_job(&mut self, job_id: u32) -> bool {
+        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+            job.state = JobState::Failed;
+            self.save_state();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl GPU for Scheduler {
@@ -155,17 +184,63 @@ pub async fn run(shared_state: SharedState) {
         let mut state = shared_state.lock().await;
         state.refresh();
 
-        // Best fit algorithm
-        let mut available_gpus = state.get_available_gpu_slots();
-        let job = state.jobs.iter_mut().find(|job| {
-            job.state == JobState::Queued
-                && !available_gpus.is_empty()
-                && job.gpus <= available_gpus.len() as u32
-        });
+        // Detect and clean up zombie jobs
+        let mut zombie_jobs_found = false;
+        for job in &mut state.jobs {
+            if job.state == JobState::Running {
+                if let Some(run_name) = &job.run_name {
+                    let session_exists = gflow::tmux::is_session_exist(run_name);
+                    if !session_exists {
+                        log::warn!("Found zombie job (id: {}), marking as Failed.", job.id);
+                        job.state = JobState::Failed;
+                        zombie_jobs_found = true;
+                    }
+                }
+            }
+        }
+        if zombie_jobs_found {
+            state.save_state();
+        }
 
-        if let Some(job) = job {
-            available_gpus.truncate(job.gpus as usize);
-            job.gpu_ids = Some(available_gpus.clone());
+        let available_gpus_with_mem = state.get_available_gpu_slots();
+
+        // Find the highest priority job that can be run
+        let finished_jobs: std::collections::HashSet<u32> = state
+            .jobs
+            .iter()
+            .filter(|j| j.state == JobState::Finished)
+            .map(|j| j.id)
+            .collect();
+
+        let job_to_run = state
+            .jobs
+            .iter_mut()
+            .filter(|j| j.state == JobState::Queued)
+            .filter(|j| {
+                // Check for dependencies
+                if let Some(dependency_id) = j.depends_on {
+                    if !finished_jobs.contains(&dependency_id) {
+                        return false; // Dependency not met
+                    }
+                }
+
+                let suitable_gpus: Vec<_> = available_gpus_with_mem
+                    .iter()
+                    .filter(|(_, free_mem)| *free_mem >= j.gpu_mem)
+                    .collect();
+                j.gpus <= suitable_gpus.len() as u32
+            })
+            .max_by_key(|j| j.priority);
+
+        if let Some(job) = job_to_run {
+            let mut suitable_gpus: Vec<_> = available_gpus_with_mem
+                .iter()
+                .filter(|(_, free_mem)| *free_mem >= job.gpu_mem)
+                .map(|(index, _)| *index)
+                .collect();
+
+            suitable_gpus.truncate(job.gpus as usize);
+            job.gpu_ids = Some(suitable_gpus);
             let executor = TmuxExecutor;
             match executor.execute(job) {
                 Ok(_) => {

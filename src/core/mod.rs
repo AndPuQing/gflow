@@ -38,12 +38,22 @@ pub trait GPU {
     fn get_gpus(nvml: &Nvml) -> HashMap<UUID, GPUSlot>;
 }
 
-pub fn get_config_temp_dir() -> PathBuf {
-    dirs::config_dir().unwrap().join("gflowd")
+pub fn get_config_temp_dir() -> anyhow::Result<PathBuf> {
+    dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get config directory"))
+        .map(|p| p.join("gflowd"))
 }
 
-pub fn get_config_temp_file() -> PathBuf {
-    get_config_temp_dir().join("gflowdrc")
+pub fn get_config_temp_file() -> anyhow::Result<PathBuf> {
+    get_config_temp_dir().map(|p| p.join("gflowdrc"))
+}
+
+pub fn get_config_log_file(job_id: u32) -> anyhow::Result<PathBuf> {
+    let log_dir = get_config_temp_dir()?.join("logs");
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir)?;
+    }
+    Ok(log_dir.join(format!("{job_id}.log")))
 }
 
 pub fn random_run_name() -> String {

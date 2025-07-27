@@ -21,7 +21,10 @@ impl Client {
     }
 
     fn get_port() -> Result<u32> {
-        let config_file = get_config_temp_file();
+        let config_file = match get_config_temp_file() {
+            Ok(file) => file,
+            Err(_) => return Ok(DEFAULT_PORT),
+        };
 
         if !config_file.exists() {
             log::warn!("Config file not found, using default port {}", DEFAULT_PORT);
@@ -56,19 +59,25 @@ impl Client {
             .context("Failed to send job request")
     }
 
-    pub async fn update_job_state(
-        &self,
-        job_id: String,
-        state: gflow::core::job::JobState,
-    ) -> Result<Response> {
-        log::debug!("Updating job {} to state {:?}", job_id, state);
+    pub async fn finish_job(&self, job_id: u32) -> Result<Response> {
+        log::debug!("Finishing job {}", job_id);
 
-        let url = format!("http://localhost:{}/jobs/{}", self.port, job_id);
+        let url = format!("http://localhost:{}/jobs/{}/finish", self.port, job_id);
         self.client
-            .patch(&url)
-            .json(&state)
+            .post(&url)
             .send()
             .await
-            .context("Failed to send update job state request")
+            .context("Failed to send finish job request")
+    }
+
+    pub async fn fail_job(&self, job_id: u32) -> Result<Response> {
+        log::debug!("Failing job {}", job_id);
+
+        let url = format!("http://localhost:{}/jobs/{}/fail", self.port, job_id);
+        self.client
+            .post(&url)
+            .send()
+            .await
+            .context("Failed to send fail job request")
     }
 }

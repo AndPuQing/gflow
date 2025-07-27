@@ -29,6 +29,13 @@ impl TmuxSession {
     }
 }
 
+pub fn is_session_exist(name: &str) -> bool {
+    Tmux::with_command(tmux_interface::HasSession::new().target_session(name))
+        .output()
+        .map(|output| output.success())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use tmux_interface::{HasSession, KillSession, Tmux};

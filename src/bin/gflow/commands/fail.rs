@@ -5,7 +5,7 @@ pub(crate) async fn handle_fail(fail_args: cli::FailArgs) -> Result<()> {
     let client = Client::build().context("Failed to build client")?;
 
     client
-        .update_job_state(fail_args.name, gflow::core::job::JobState::Failed)
+        .fail_job(fail_args.id)
         .await
         .context("Failed to finish job")?;
     Ok(())

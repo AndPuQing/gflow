@@ -6,6 +6,7 @@ mod completions;
 mod fail;
 mod finish;
 mod list;
+mod logs;
 mod start;
 mod stop;
 
@@ -20,5 +21,6 @@ pub async fn handle_commands(commands: Commands) -> anyhow::Result<()> {
         Commands::Finish(finish_args) => finish::handle_finish(finish_args).await,
         Commands::List(list_args) => list::handle_list(list_args).await,
         Commands::Fail(fail_args) => handle_fail(fail_args).await,
+        Commands::Logs(logs_args) => logs::handle_logs(logs_args).await,
     }
 }

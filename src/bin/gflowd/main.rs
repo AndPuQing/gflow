@@ -16,15 +16,21 @@ async fn main() {
     log::debug!("Parsed CLI arguments: {:?}", gflowd);
 
     if gflowd.cleanup {
-        let gflowd_file = get_config_temp_file();
-        if gflowd_file.exists() {
-            std::fs::remove_file(gflowd_file).ok();
+        if let Ok(gflowd_file) = get_config_temp_file() {
+            if gflowd_file.exists() {
+                std::fs::remove_file(gflowd_file).ok();
+            }
         }
         std::process::exit(0);
     }
 
     match load_config(gflowd) {
-        Ok(config) => server::run(config).await,
+        Ok(config) => {
+            if let Err(e) = server::run(config).await {
+                log::error!("Server failed: {}", e);
+                std::process::exit(1);
+            }
+        }
         Err(e) => {
             log::error!("Failed to load config: {}", e);
             std::process::exit(1);

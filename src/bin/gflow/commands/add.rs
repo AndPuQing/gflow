@@ -19,7 +19,10 @@ fn build_job(args: cli::SubmitArgs) -> Result<Job> {
     let mut builder = Job::builder()
         .conda_env(&args.conda_env)
         .gpus(args.gpus.unwrap_or(0))
-        .run_dir(std::env::current_dir().context("Failed to get current directory")?);
+        .run_dir(std::env::current_dir().context("Failed to get current directory")?)
+        .priority(args.priority)
+        .gpu_mem(args.gpu_mem)
+        .depends_on(args.depends_on);
 
     if let Some(script) = args.script {
         let script_path = make_absolute_path(script)?;

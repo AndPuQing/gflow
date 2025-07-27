@@ -23,6 +23,9 @@ pub struct Job {
     pub gpus: u32,
     pub conda_env: Option<String>,
     pub run_dir: PathBuf,
+    pub priority: u8,
+    pub gpu_mem: u64, // in MB
+    pub depends_on: Option<u32>,
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -37,11 +40,19 @@ pub struct JobBuilder {
     gpus: u32,
     conda_env: Option<String>,
     run_dir: PathBuf,
+    priority: u8,
+    gpu_mem: u64,
+    depends_on: Option<u32>,
 }
 
 impl JobBuilder {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            priority: 10, // Default priority
+            gpu_mem: 0,   // Default no specific memory requirement
+            depends_on: None,
+            ..Default::default()
+        }
     }
 
     pub fn script(mut self, script: PathBuf) -> Self {
@@ -69,6 +80,21 @@ impl JobBuilder {
         self
     }
 
+    pub fn priority(mut self, priority: u8) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn gpu_mem(mut self, gpu_mem: u64) -> Self {
+        self.gpu_mem = gpu_mem;
+        self
+    }
+
+    pub fn depends_on(mut self, depends_on: Option<u32>) -> Self {
+        self.depends_on = depends_on;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -76,6 +102,9 @@ impl JobBuilder {
             command: self.command,
             gpus: self.gpus,
             conda_env: self.conda_env,
+            priority: self.priority,
+            gpu_mem: self.gpu_mem,
+            depends_on: self.depends_on,
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,

@@ -9,19 +9,27 @@ impl Executor for TmuxExecutor {
         if let Some(session_name) = job.run_name.as_ref() {
             let session = TmuxSession::new(session_name.clone());
 
-            let mut command = String::new();
+            let mut user_command = String::new();
             if let Some(conda_env) = &job.conda_env {
-                command.push_str(&format!("conda activate {conda_env}; "));
+                user_command.push_str(&format!("conda activate {conda_env}; "));
             }
             if let Some(script) = &job.script {
                 if let Some(script_str) = script.to_str() {
-                    command.push_str(&format!("sh {script_str}"));
+                    user_command.push_str(&format!("sh {script_str}"));
                 }
             } else if let Some(cmd) = &job.command {
-                command.push_str(cmd);
+                user_command.push_str(cmd);
             }
 
-            session.send_command(&command);
+            let log_path = gflow::core::get_config_log_file(job.id)?;
+            let wrapped_command = format!(
+                "{{ {user_command}; gflow finish {job_id}; }} || gflow fail {job_id} &> {log_path}",
+                user_command = user_command,
+                job_id = job.id,
+                log_path = log_path.to_str().unwrap_or("/dev/null")
+            );
+
+            session.send_command(&wrapped_command);
         }
         Ok(())
     }
@@ -39,18 +47,25 @@ mod tests {
             .conda_env(&Some("myenv".to_string()))
             .build();
 
-        let mut command = String::new();
+        let mut user_command = String::new();
         if let Some(conda_env) = &job.conda_env {
-            command.push_str(&format!("conda activate {conda_env}; "));
+            user_command.push_str(&format!("conda activate {conda_env}; "));
         }
         if let Some(script) = &job.script {
             if let Some(script_str) = script.to_str() {
-                command.push_str(&format!("sh {script_str}"));
+                user_command.push_str(&format!("sh {script_str}"));
             }
         } else if let Some(cmd) = &job.command {
-            command.push_str(cmd);
+            user_command.push_str(cmd);
         }
 
-        assert_eq!(command, "conda activate myenv; sh test.sh");
+        let job_id = 123;
+        let wrapped_command =
+            format!("{{ {user_command}; gflow finish {job_id}; }} || gflow fail {job_id}");
+
+        assert_eq!(
+            wrapped_command,
+            "{ conda activate myenv; sh test.sh; gflow finish 123; } || gflow fail 123"
+        );
     }
 }

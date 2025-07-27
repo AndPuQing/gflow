@@ -35,6 +35,8 @@ pub enum Commands {
     Finish(FinishArgs),
     /// Send Fail signal to a running job
     Fail(FailArgs),
+    /// Show the logs of a job
+    Logs(LogsArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -46,14 +48,20 @@ pub struct ListArgs {
 
 #[derive(Debug, Parser)]
 pub struct FinishArgs {
-    /// The name of the job to finish
-    pub name: String,
+    /// The ID of the job to finish
+    pub id: u32,
 }
 
 #[derive(Debug, Parser)]
 pub struct FailArgs {
-    /// The name of the job to fail
-    pub name: String,
+    /// The ID of the job to fail
+    pub id: u32,
+}
+
+#[derive(Debug, Parser)]
+pub struct LogsArgs {
+    /// The ID of the job to show logs for
+    pub id: u32,
 }
 
 #[derive(Debug, Parser)]
@@ -73,6 +81,18 @@ pub struct SubmitArgs {
     /// The GPU count to request
     #[arg(short, long, name = "NUMS", default_value = "0")]
     pub gpus: Option<u32>,
+
+    /// The priority of the job
+    #[arg(long, default_value = "10")]
+    pub priority: u8,
+
+    /// The GPU memory required for the job in MB
+    #[arg(long, default_value = "0")]
+    pub gpu_mem: u64,
+
+    /// The ID of the job this job depends on
+    #[arg(long)]
+    pub depends_on: Option<u32>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]

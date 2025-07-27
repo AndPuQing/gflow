@@ -5,7 +5,7 @@ pub(crate) async fn handle_finish(finish_args: cli::FinishArgs) -> Result<()> {
     let client = Client::build().context("Failed to build client")?;
 
     client
-        .update_job_state(finish_args.name, gflow::core::job::JobState::Finished)
+        .finish_job(finish_args.id)
         .await
         .context("Failed to finish job")?;
     Ok(())
