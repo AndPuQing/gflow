@@ -226,6 +226,8 @@ impl App {
         block.render(area, buf);
 
         let constraints = vec![
+            Constraint::Length(5),  // ID
+            Constraint::Length(1),  // Separator
             Constraint::Length(20), // Name
             Constraint::Length(1),  // Separator
             Constraint::Length(30), // Command
@@ -236,16 +238,18 @@ impl App {
         ];
 
         let horizontal = Layout::horizontal(constraints);
-        let columns: [Rect; 7] = horizontal.areas(inner_area);
+        let columns: [Rect; 9] = horizontal.areas(inner_area);
         // Render header
         let headers = [
-            ("RunName", columns[0]),
+            ("ID", columns[0]),
             ("│", columns[1]),
-            ("Command", columns[2]),
+            ("RunName", columns[2]),
             ("│", columns[3]),
-            ("GPUs", columns[4]),
+            ("Command", columns[4]),
             ("│", columns[5]),
-            ("Status", columns[6]),
+            ("GPUs", columns[6]),
+            ("│", columns[7]),
+            ("Status", columns[8]),
         ];
 
         for (text, area) in headers {
@@ -283,21 +287,26 @@ impl App {
                 break;
             }
 
-            let row_areas: [Rect; 7] =
+            let row_areas: [Rect; 9] =
                 horizontal.areas(Rect::new(inner_area.x, y, inner_area.width, 1));
 
             let gpu_count = job.gpu_ids.as_ref().map_or(0, |ids| ids.len());
             let status_style = SelectedTab::from(job.state.clone()).palette().c700;
 
             // Render each column of the row
-            let columns = [
+            let id_str = job.id.to_string();
+            let gpu_count_str = format!("{gpu_count:>3}");
+            let state_str = job.state.to_string();
+            let columns: [(&str, Color); 9] = [
+                (&id_str, tailwind::ZINC.c100),
+                ("│", tailwind::ZINC.c500),
                 (job.run_name.as_deref().unwrap_or("-"), tailwind::ZINC.c100),
                 ("│", tailwind::ZINC.c500),
                 (job.command.as_deref().unwrap_or("-"), tailwind::ZINC.c400),
                 ("│", tailwind::ZINC.c500),
-                (&format!("{gpu_count:>3}"), tailwind::YELLOW.c500),
+                (&gpu_count_str, tailwind::YELLOW.c500),
                 ("│", tailwind::ZINC.c500),
-                (&job.state.to_string(), status_style),
+                (&state_str, status_style),
             ];
 
             for ((text, style), area) in columns.iter().zip(row_areas.iter()) {

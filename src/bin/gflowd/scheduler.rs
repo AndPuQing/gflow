@@ -11,12 +11,16 @@ use tokio::sync::Mutex;
 
 pub type SharedState = Arc<Mutex<Scheduler>>;
 
-#[derive(Debug)]
+use serde::{Deserialize, Serialize};
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Scheduler {
     pub jobs: Vec<Job>,
+    #[serde(skip)]
     gpu_slots: HashMap<UUID, GPUSlot>,
-    nvml: Nvml,
+    #[serde(skip)]
+    nvml: Option<Nvml>,
     state_path: PathBuf,
+    next_job_id: u32,
 }
 
 impl Default for Scheduler {
@@ -37,8 +41,9 @@ impl Scheduler {
         let mut scheduler = Self {
             jobs: Vec::new(),
             gpu_slots,
-            nvml,
+            nvml: Some(nvml),
             state_path,
+            next_job_id: 1,
         };
         scheduler.load_state();
         scheduler
@@ -64,7 +69,9 @@ impl Scheduler {
             .collect()
     }
 
-    pub fn submit_job(&mut self, job: Job) {
+    pub fn submit_job(&mut self, mut job: Job) {
+        job.id = self.next_job_id;
+        self.next_job_id += 1;
         let job_ = Job {
             state: JobState::Queued,
             gpu_ids: None,
@@ -77,7 +84,7 @@ impl Scheduler {
 
     pub fn save_state(&self) {
         let path = &self.state_path;
-        if let Ok(json) = serde_json::to_string_pretty(&self.jobs) {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
             if let Ok(mut file) = File::create(path) {
                 file.write_all(json.as_bytes()).ok();
             }
@@ -88,7 +95,11 @@ impl Scheduler {
         let path = &self.state_path;
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(path) {
-                self.jobs = serde_json::from_str(&json).unwrap_or_default();
+                if let Ok(mut scheduler) = serde_json::from_str::<Scheduler>(&json) {
+                    scheduler.nvml = Some(Nvml::init().expect("Failed to initialize NVML"));
+                    scheduler.gpu_slots = Self::get_gpus(scheduler.nvml.as_ref().unwrap());
+                    *self = scheduler;
+                }
             }
         }
     }
@@ -98,14 +109,16 @@ impl Scheduler {
     }
 
     fn refresh_gpu_slots(&mut self) {
-        if let Ok(device_count) = self.nvml.device_count() {
-            for i in 0..device_count {
-                if let Ok(device) = self.nvml.device_by_index(i) {
-                    if let Ok(uuid) = device.uuid() {
-                        if let Some(slot) = self.gpu_slots.get_mut(&uuid) {
-                            slot.available = device
-                                .running_compute_processes()
-                                .is_ok_and(|procs| procs.is_empty());
+        if let Some(nvml) = &self.nvml {
+            if let Ok(device_count) = nvml.device_count() {
+                for i in 0..device_count {
+                    if let Ok(device) = nvml.device_by_index(i) {
+                        if let Ok(uuid) = device.uuid() {
+                            if let Some(slot) = self.gpu_slots.get_mut(&uuid) {
+                                slot.available = device
+                                    .running_compute_processes()
+                                    .is_ok_and(|procs| procs.is_empty());
+                            }
                         }
                     }
                 }

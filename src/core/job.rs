@@ -17,6 +17,7 @@ pub enum JobState {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Job {
     /// Required fields at submission time
+    pub id: u32,
     pub script: Option<PathBuf>,
     pub command: Option<String>,
     pub gpus: u32,
@@ -70,6 +71,7 @@ impl JobBuilder {
 
     pub fn build(self) -> Job {
         Job {
+            id: 0,
             script: self.script,
             command: self.command,
             gpus: self.gpus,

@@ -20,7 +20,7 @@ pub enum Commands {
     /// Add a new job to the scheduler
     Submit(SubmitArgs),
     /// List all jobs in the scheduler
-    List,
+    List(ListArgs),
     /// Start the system service
     Up,
     /// Stop the system service
@@ -35,6 +35,13 @@ pub enum Commands {
     Finish(FinishArgs),
     /// Send Fail signal to a running job
     Fail(FailArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct ListArgs {
+    /// Show the TUI
+    #[arg(long)]
+    pub tui: bool,
 }
 
 #[derive(Debug, Parser)]
