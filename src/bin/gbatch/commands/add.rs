@@ -13,16 +13,17 @@ pub(crate) async fn handle_add(
 
     if let Some(array_spec) = &add_args.array {
         let task_ids = parse_array_spec(array_spec)?;
-        println!("Submitting job array with {} tasks.", task_ids.len());
+        let mut job_ids = Vec::new();
         for task_id in task_ids {
             let job = build_job(add_args.clone(), Some(task_id))?;
-            client.add_job(job).await.context("Failed to add job")?;
+            let job_id = client.add_job(job).await.context("Failed to add job")?;
+            job_ids.push(job_id);
+            println!("Submitted batch job {job_id}");
         }
-        println!("Successfully submitted job array.");
     } else {
         let job = build_job(add_args, None)?;
-        client.add_job(job).await.context("Failed to add job")?;
-        println!("Job added successfully.");
+        let job_id = client.add_job(job).await.context("Failed to add job")?;
+        println!("Submitted batch job {job_id}");
     }
 
     Ok(())

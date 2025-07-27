@@ -1,110 +1,143 @@
-# gflow - GPU Job Scheduler
+# gflow - A lightweight, single-node job scheduler
 
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)
- ![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)
- ![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)
+![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)
 [![dependency status](https://deps.rs/repo/github/AndPuQing/gflow/status.svg?style=flat-square)](https://deps.rs/repo/github/AndPuQing/gflow)
 ![Crates.io License](https://img.shields.io/crates/l/gflow?style=flat-square) ![Crates.io Size](https://img.shields.io/crates/size/gflow?style=flat-square)
 
-`gflow` is an efficient tool for scheduling and managing GPU tasks, supporting task submission from the command line and running tasks in the background. Built in Rust, it provides a simple and easy-to-use interface for single-node or ~~distributed~~ GPU task scheduling.
+`gflow` is a lightweight, single-node job scheduler written in Rust, inspired by Slurm. It is designed for efficiently managing and scheduling tasks, especially on machines with GPU resources.
 
 ## Snapshot
 
 ![gflow](./assets/Sniapaste.png)
 
-## Key Features
+## Core Features
 
-- **GPU Task Scheduling:** Supports queuing, scheduling, and management of GPU tasks.
-- **Parallel Execution:** Allows multiple GPU tasks to run simultaneously, maximizing GPU resource utilization.
-- **Command-Line Tool:** Provides the CLI tool `gflow` for submitting tasks, and `gflowd` for background task scheduling.
-- **tmux Integration:** Uses tmux to manage background tasks and track task execution status in real-time.
-- **TCP Submission:** Submit tasks via a TCP service, making it easy to integrate with other systems.
+- **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
+- **Rich Job Submission**: Supports dependencies, priorities, and job arrays via the `gbatch` command.
+- **Service and Job Control**: Provides clear commands to manage the scheduler daemon (`gctl`), query the job queue (`gqueue`), and signal jobs (`gsignal`).
+- **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
+- **Simple Command-Line Interface**: Offers a user-friendly and powerful set of command-line tools.
+
+## Component Overview
+
+The `gflow` suite consists of several command-line tools:
+
+- `gflowd`: The scheduler daemon that runs in the background, managing jobs and resources.
+- `gctl`: Controls the `gflowd` daemon (start, stop, status).
+- `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
+- `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
+- `gsignal`: Sends signals (e.g., finish, fail) to running jobs.
 
 ## Installation
 
 ### Install via `cargo` (Recommended)
 
-You can use `cargo` to compile and install `gflow` and `gflowd`:
-
 ```bash
 cargo install gflow
 ```
+This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gsignal`).
 
 ### Build Manually
 
-1. Clone the repository:
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/AndPuQing/gflow.git
+    cd gflow
+    ```
 
-   ```bash
-   git clone https://github.com/AndPuQing/gflow.git
-   cd gflow
-   ```
+2.  Build the project:
+    ```bash
+    cargo build --release
+    ```
+    The executables will be available in the `target/release/` directory.
 
-2. Build the project using `cargo`:
+## Quick Start
 
-   ```bash
-   cargo build --release
-   ```
+1.  **Start the scheduler daemon**:
+    ```bash
+    gctl start
+    ```
+    You can check its status with `gctl status`.
 
-   This will generate the `gflow` and `gflowd` executables in the `target/release/` directory.
+2.  **Submit a job**:
+    Create a script `my_job.sh`:
+    ```sh
+    #!/bin/bash
+    echo "Starting job on GPU: $CUDA_VISIBLE_DEVICES"
+    sleep 30
+    echo "Job finished."
+    ```
+    Submit it using `gbatch`:
+    ```bash
+    gbatch --gpus 1 ./my_job.sh
+    ```
 
-## Usage
+3.  **Check the job queue**:
+    ```bash
+    gqueue
+    ```
+    You can also watch the queue update live: `watch gqueue`.
 
-### Start the Scheduler
+4.  **Stop the scheduler**:
+    ```bash
+    gctl stop
+    ```
 
-Start the GPU task scheduler using `gflow`:
+## Usage Guide
 
-```bash
-gflow up
-```
+### Submitting Jobs with `gbatch`
 
-### Submit a Task
+`gbatch` provides flexible options for job submission.
 
-#### Submit scripts using the `gflow` CLI
+- **Submit a command directly**:
+  ```bash
+  gbatch --gpus 1 --command "python train.py --epochs 10"
+  ```
 
-Submit GPU tasks using the `gflow` command-line tool:
+- **Set a job name and priority**:
+  ```bash
+  gbatch --gpus 1 --name "training-run-1" --priority 10 ./my_job.sh
+  ```
 
-```bash
-gflow submit test.sh --gpu 1 --conda-env myenv
-```
+- **Create a job that depends on another**:
+  ```bash
+  # First job
+  gbatch --gpus 1 --name "job1" ./job1.sh
+  # Get job ID from gqueue, e.g., 123
 
-- `--gpu`: The number of GPUs to allocate for the task.
-- `--conda-env`: The Conda environment to activate before running the task.
+  # Second job depends on the first
+  gbatch --gpus 1 --name "job2" --depends-on 123 ./job2.sh
+  ```
 
-#### Submit commands using the `gflow` CLI
+### Querying Jobs with `gqueue`
 
-Submit GPU tasks using the `gflow` command-line tool:
+`gqueue` allows you to filter and format the job list.
 
-```bash
-gflow submit "python test.py" --gpu 1 --conda-env myenv
-```
+- **Filter by job state**:
+  ```bash
+  gqueue --states Running,Queued
+  ```
 
-### Task Scheduling Flow
+- **Filter by job ID or name**:
+  ```bash
+  gqueue --jobs 123,124
+  gqueue --names "training-run-1"
+  ```
 
-1. When submitting a task, `gflow` sends a TCP request to the scheduler.
-2. The `gflowd` scheduler allocates tasks based on available GPU resources.
-3. Background tasks are executed using `tmux`, and the scheduler monitors task status in real-time.
-4. The scheduler ensures each task is executed on suitable resources and allocates GPUs in priority order.
-
-> [!WARNING]
-> The `gflow` does not save task snapshots, meaning that if the associated files are deleted, the task will fail.
-
+- **Customize output format**:
+  ```bash
+  gqueue --format "ID,Name,State,GPUs"
+  ```
 
 ## Configuration
 
-`gflow` and `gflowd` provide several configuration options that you can adjust as needed:
-
-- Configuration files: You can customize the scheduling behavior by modifying the `gflowd` configuration file.
-- Environment variables: For example, set `GFLOW_LOG_LEVEL=debug` to configure the logging level.
+Configuration for `gflowd` can be customized. The default configuration file is located at `~/.config/gflow/gflowd.toml`.
 
 ## Contributing
 
 If you find any bugs or have feature requests, feel free to create an [Issue](https://github.com/AndPuQing/gflow/issues) and contribute by submitting [Pull Requests](https://github.com/AndPuQing/gflow/pulls).
-
-## TODO
-
-- [ ] Support GPU task scheduling in a multi-node environment.
-- [ ] Add task prioritization and resource quota management.
-- [ ] Improve task retry mechanism on failure.
 
 ## License
 

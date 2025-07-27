@@ -25,14 +25,24 @@ impl Client {
             .context("Failed to send list jobs request")
     }
 
-    pub async fn add_job(&self, job: Job) -> anyhow::Result<Response> {
+    pub async fn add_job(&self, job: Job) -> anyhow::Result<u32> {
         log::debug!("Adding job: {:?}", job);
-        self.client
+        let response = self
+            .client
             .post(format!("{}/jobs", self.base_url))
             .json(&job)
             .send()
             .await
-            .context("Failed to send job request")
+            .context("Failed to send job request")?;
+
+        let job_response: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+        job_response["id"]
+            .as_u64()
+            .map(|id| id as u32)
+            .context("Failed to get job id from response")
     }
 
     pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<Response> {

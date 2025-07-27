@@ -14,13 +14,13 @@ fn main() -> Result<()> {
         cli::Commands::Start => {
             let session = TmuxSession::new(TMUX_SESSION_NAME.to_string());
             session.send_command("gflowd -vvv");
-            println!("Started the system service");
+            println!("gflowd started.");
         }
         cli::Commands::Stop => {
             Tmux::with_command(KillSession::new().target_session(TMUX_SESSION_NAME))
                 .output()
                 .unwrap();
-            println!("Stopped the system service");
+            println!("gflowd stopped.");
         }
         cli::Commands::Status => {
             println!("Checking gflowd status...");

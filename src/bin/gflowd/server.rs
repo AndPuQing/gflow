@@ -54,8 +54,11 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.lock().await;
     log::info!("Received job: {:?}", input);
-    state.submit_job(input);
-    (StatusCode::CREATED, Json(()))
+    let job_id = state.submit_job(input);
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": job_id })),
+    )
 }
 
 #[axum::debug_handler]

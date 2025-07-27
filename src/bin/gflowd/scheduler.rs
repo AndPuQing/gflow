@@ -70,7 +70,7 @@ impl Scheduler {
             .collect()
     }
 
-    pub fn submit_job(&mut self, mut job: Job) {
+    pub fn submit_job(&mut self, mut job: Job) -> u32 {
         job.id = self.next_job_id;
         self.next_job_id += 1;
         let job_ = Job {
@@ -79,8 +79,9 @@ impl Scheduler {
             run_name: Some(gflow::core::random_run_name()),
             ..job
         };
-        self.jobs.push(job_);
+        self.jobs.push(job_.clone());
         self.save_state();
+        job_.id
     }
 
     pub fn save_state(&self) {
