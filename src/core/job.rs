@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use strum::{Display, EnumIter, FromRepr};
+use strum::{Display, EnumIter, EnumString, FromRepr};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr)]
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr, EnumString,
+)]
 pub enum JobState {
     #[strum(to_string = "Queued")]
     Queued,

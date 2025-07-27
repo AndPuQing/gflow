@@ -10,7 +10,6 @@ The `gflow` project will be split into the following binaries:
 - **`gbatch`**: The core client for submitting (`add`) and creating (`new`) jobs. Inspired by `sbatch`.
 - **`gqueue`**: Queries the job queue (replaces `gflow list`). Inspired by `squeue`.
 - **`gsignal`**: Sends signals to a job (e.g., finish, fail). Replaces `gcancel`.
-- **`glogs`**: Fetches job logs (replaces `gflow job logs`).
 - **`gctl`**: Manages the daemon (replaces `gflow daemon`). Inspired by `scontrol`/`systemctl`.
 
 ## Architecture Diagram
@@ -21,7 +20,6 @@ graph TD
         A[gbatch] --> C{gflowd}
         B[gqueue] --> C
         D[gsignal] --> C
-        E[glogs] --> C
         F[gctl] --> C
     end
 

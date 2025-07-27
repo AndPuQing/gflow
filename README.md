@@ -105,7 +105,6 @@ If you find any bugs or have feature requests, feel free to create an [Issue](ht
 - [ ] Support GPU task scheduling in a multi-node environment.
 - [ ] Add task prioritization and resource quota management.
 - [ ] Improve task retry mechanism on failure.
-- [ ] Implement task result feedback and log management.
 
 ## License
 

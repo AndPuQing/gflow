@@ -115,15 +115,26 @@ impl Scheduler {
     }
 
     fn refresh_gpu_slots(&mut self) {
+        let running_gpu_indices: std::collections::HashSet<u32> = self
+            .jobs
+            .iter()
+            .filter(|j| j.state == JobState::Running)
+            .filter_map(|j| j.gpu_ids.as_ref())
+            .flat_map(|ids| ids.iter().copied())
+            .collect();
+
         if let Some(nvml) = &self.nvml {
             if let Ok(device_count) = nvml.device_count() {
                 for i in 0..device_count {
                     if let Ok(device) = nvml.device_by_index(i) {
                         if let Ok(uuid) = device.uuid() {
                             if let Some(slot) = self.gpu_slots.get_mut(&uuid) {
-                                slot.available = device
+                                let is_free_in_scheduler =
+                                    !running_gpu_indices.contains(&slot.index);
+                                let is_free_in_nvml = device
                                     .running_compute_processes()
                                     .is_ok_and(|procs| procs.is_empty());
+                                slot.available = is_free_in_scheduler && is_free_in_nvml;
                             }
                         }
                     }
@@ -214,7 +225,6 @@ pub async fn run(shared_state: SharedState) {
             .enumerate()
             .filter(|(_, j)| j.state == JobState::Queued)
             .filter(|(_, j)| {
-                // Check for dependencies
                 if let Some(dependency_id) = j.depends_on {
                     return finished_jobs.contains(&dependency_id);
                 }
@@ -223,7 +233,6 @@ pub async fn run(shared_state: SharedState) {
             .map(|(i, _)| i)
             .collect();
 
-        // Sort indices by job priority in descending order
         runnable_jobs_indices.sort_by_key(|&i| std::cmp::Reverse(state.jobs[i].priority));
 
         // Easy backfilling loop
@@ -234,7 +243,6 @@ pub async fn run(shared_state: SharedState) {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
-                    let gpus_for_job_clone = gpus_for_job.clone();
                     job.gpu_ids = Some(gpus_for_job);
 
                     let executor = TmuxExecutor;
@@ -242,14 +250,6 @@ pub async fn run(shared_state: SharedState) {
                         Ok(_) => {
                             job.state = JobState::Running;
                             log::info!("Executing job: {:?}", job);
-                            // Mark GPUs as unavailable
-                            for gpu_index in gpus_for_job_clone {
-                                if let Some(slot) =
-                                    state.gpu_slots.values_mut().find(|s| s.index == gpu_index)
-                                {
-                                    slot.available = false;
-                                }
-                            }
                         }
                         Err(e) => {
                             log::error!("Failed to execute job: {:?}", e);
