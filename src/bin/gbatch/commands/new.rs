@@ -47,10 +47,6 @@ pub(crate) fn handle_new(new_args: cli::NewArgs) -> Result<()> {
         fs::set_permissions(&script_path, perms)?;
     }
 
-    log::info!(
-        "Successfully created new job '{}' in directory '{}'",
-        job_name,
-        job_name
-    );
+    log::info!("Successfully created new job '{job_name}' in directory '{job_dir:?}'.");
     Ok(())
 }

@@ -250,15 +250,64 @@ pub async fn run(shared_state: SharedState) {
                     match executor.execute(job) {
                         Ok(_) => {
                             job.state = JobState::Running;
-                            log::info!("Executing job: {:?}", job);
+                            log::info!("Executing job: {job:?}");
                         }
                         Err(e) => {
-                            log::error!("Failed to execute job: {:?}", e);
+                            log::error!("Failed to execute job: {e:?}");
                             job.state = JobState::Failed;
                         }
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::job::Job;
+    use tempfile::tempdir;
+
+    fn create_scheduler() -> Scheduler {
+        let state_dir = tempdir().unwrap();
+        let state_path = state_dir.path().join("state.json");
+        Scheduler::with_state_path(state_path)
+    }
+
+    #[test]
+    fn test_scheduler_new() {
+        let scheduler = create_scheduler();
+        assert!(scheduler.jobs.is_empty());
+        assert_eq!(scheduler.next_job_id, 1);
+    }
+
+    #[test]
+    fn test_submit_job() {
+        let mut scheduler = create_scheduler();
+        let job = Job::builder().build();
+        let job_id = scheduler.submit_job(job);
+        assert_eq!(job_id, 1);
+        assert_eq!(scheduler.jobs.len(), 1);
+        assert_eq!(scheduler.jobs[0].id, 1);
+        assert_eq!(scheduler.jobs[0].state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_finish_job() {
+        let mut scheduler = create_scheduler();
+        let job = Job::builder().build();
+        let job_id = scheduler.submit_job(job);
+        scheduler.finish_job(job_id);
+        assert_eq!(scheduler.jobs[0].state, JobState::Finished);
+    }
+
+    #[test]
+    fn test_fail_job() {
+        let mut scheduler = create_scheduler();
+        let job = Job::builder().build();
+        let job_id = scheduler.submit_job(job);
+        scheduler.fail_job(job_id);
+        assert_eq!(scheduler.jobs[0].state, JobState::Failed);
     }
 }

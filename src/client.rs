@@ -1,6 +1,6 @@
 use crate::core::job::Job;
 use anyhow::Context;
-use reqwest::{Client as ReqwestClient, Response};
+use reqwest::Client as ReqwestClient;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -17,16 +17,21 @@ impl Client {
         Ok(Self { client, base_url })
     }
 
-    pub async fn list_jobs(&self) -> anyhow::Result<Response> {
-        self.client
+    pub async fn list_jobs(&self) -> anyhow::Result<Vec<Job>> {
+        let jobs = self
+            .client
             .get(format!("{}/jobs", self.base_url))
             .send()
             .await
-            .context("Failed to send list jobs request")
+            .context("Failed to send list jobs request")?
+            .json::<Vec<Job>>()
+            .await
+            .context("Failed to parse jobs from response")?;
+        Ok(jobs)
     }
 
     pub async fn add_job(&self, job: Job) -> anyhow::Result<u32> {
-        log::debug!("Adding job: {:?}", job);
+        log::debug!("Adding job: {job:?}");
         let response = self
             .client
             .post(format!("{}/jobs", self.base_url))
@@ -45,29 +50,36 @@ impl Client {
             .context("Failed to get job id from response")
     }
 
-    pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<Response> {
-        log::debug!("Finishing job {}", job_id);
+    pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<()> {
+        log::debug!("Finishing job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/finish", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send finish job request")
+            .context("Failed to send finish job request")?;
+        Ok(())
     }
 
-    pub async fn fail_job(&self, job_id: u32) -> anyhow::Result<Response> {
-        log::debug!("Failing job {}", job_id);
+    pub async fn fail_job(&self, job_id: u32) -> anyhow::Result<()> {
+        log::debug!("Failing job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/fail", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send fail job request")
+            .context("Failed to send fail job request")?;
+        Ok(())
     }
-    pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Response> {
-        log::debug!("Getting log path for job {}", job_id);
-        self.client
+    pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<String> {
+        log::debug!("Getting log path for job {job_id}");
+        let response = self
+            .client
             .get(format!("{}/jobs/{}/log", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send get log path request")
+            .context("Failed to send get log path request")?;
+        response
+            .text()
+            .await
+            .context("Failed to read log path from response")
     }
 }

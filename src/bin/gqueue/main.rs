@@ -1,11 +1,7 @@
 mod cli;
 use anyhow::Result;
 use clap::Parser;
-use gflow::{
-    client::Client,
-    config::load_config,
-    core::job::{Job, JobState},
-};
+use gflow::{client::Client, config::load_config, core::job::JobState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -13,12 +9,7 @@ async fn main() -> Result<()> {
     let config = load_config(args.config.as_ref())?;
 
     let client = Client::build(&config)?;
-    let mut jobs = client
-        .list_jobs()
-        .await?
-        .json::<Vec<Job>>()
-        .await
-        .unwrap_or_default();
+    let mut jobs = client.list_jobs().await?;
 
     if let Some(states) = args.states {
         let states: Vec<JobState> = states

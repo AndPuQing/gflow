@@ -41,9 +41,7 @@ pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::Conf
         if config_path.exists() {
             config_vec.push(config_path.clone());
         } else {
-            return Err(config::ConfigError::NotFound(format!(
-                "Config file {config_path:?} does not exist",
-            )));
+            eprintln!("Warning: Config file {config_path:?} not found.");
         }
     }
 

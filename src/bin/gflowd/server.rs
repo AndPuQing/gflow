@@ -31,7 +31,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let port = config.daemon.port;
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    log::info!("Listening on: {}", addr);
+    log::info!("Listening on: {addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -53,7 +53,7 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 #[axum::debug_handler]
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.lock().await;
-    log::info!("Received job: {:?}", input);
+    log::info!("Received job: {input:?}");
     let job_id = state.submit_job(input);
     (
         StatusCode::CREATED,
@@ -74,7 +74,7 @@ async fn get_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl 
 #[axum::debug_handler]
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.lock().await;
-    log::info!("Finishing job with ID: {}", id);
+    log::info!("Finishing job with ID: {id}");
     if state.finish_job(id) {
         (StatusCode::OK, Json(()))
     } else {
@@ -104,7 +104,7 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 #[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.lock().await;
-    log::info!("Failing job with ID: {}", id);
+    log::info!("Failing job with ID: {id}");
     if state.fail_job(id) {
         (StatusCode::OK, Json(()))
     } else {
