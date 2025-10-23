@@ -2,6 +2,7 @@ mod cli;
 use anyhow::Result;
 use clap::Parser;
 use gflow::{client::Client, config::load_config, core::job::JobState};
+use std::time::SystemTime;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -49,7 +50,7 @@ async fn main() -> Result<()> {
 
     let format = args
         .format
-        .unwrap_or_else(|| "JOBID,NAME,ST,NODES,NODELIST(REASON)".to_string());
+        .unwrap_or_else(|| "JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)".to_string());
     let headers: Vec<&str> = format.split(',').collect();
     println!(
         "{}",
@@ -83,6 +84,7 @@ async fn main() -> Result<()> {
                             .join(",")
                     },
                 ),
+                "TIME" => format_elapsed_time(job.started_at, job.finished_at),
                 _ => "".to_string(),
             };
             row.push(format!("{:<width$}", value, width = get_width(header)));
@@ -98,8 +100,35 @@ fn get_width(header: &str) -> usize {
         "JOBID" => 8,
         "NAME" => 20,
         "ST" => 5,
+        "TIME" => 12,
         "NODES" => 8,
         "NODELIST(REASON)" => 15,
         _ => 10,
+    }
+}
+
+fn format_elapsed_time(started_at: Option<SystemTime>, finished_at: Option<SystemTime>) -> String {
+    match started_at {
+        Some(start_time) => {
+            // For finished/failed jobs, use finished_at; for running jobs, use current time
+            let end_time = finished_at.unwrap_or_else(SystemTime::now);
+
+            if let Ok(elapsed) = end_time.duration_since(start_time) {
+                let total_seconds = elapsed.as_secs();
+                let days = total_seconds / 86400;
+                let hours = (total_seconds % 86400) / 3600;
+                let minutes = (total_seconds % 3600) / 60;
+                let seconds = total_seconds % 60;
+
+                if days > 0 {
+                    format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+                } else {
+                    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+                }
+            } else {
+                "-".to_string()
+            }
+        }
+        None => "-".to_string(),
     }
 }

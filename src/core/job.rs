@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::SystemTime;
 use strum::{Display, EnumIter, EnumString, FromRepr};
 
 #[derive(
@@ -32,7 +33,9 @@ pub struct Job {
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
     pub state: JobState,
-    pub gpu_ids: Option<Vec<u32>>, // GPU IDs assigned to this job
+    pub gpu_ids: Option<Vec<u32>>,       // GPU IDs assigned to this job
+    pub started_at: Option<SystemTime>,  // When the job started running
+    pub finished_at: Option<SystemTime>, // When the job finished or failed
 }
 
 #[derive(Default)]
@@ -111,6 +114,8 @@ impl JobBuilder {
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir,
+            started_at: None,
+            finished_at: None,
         }
     }
 }

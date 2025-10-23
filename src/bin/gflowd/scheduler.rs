@@ -148,6 +148,7 @@ impl Scheduler {
     pub fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
             job.state = JobState::Finished;
+            job.finished_at = Some(std::time::SystemTime::now());
             self.save_state();
             true
         } else {
@@ -158,6 +159,7 @@ impl Scheduler {
     pub fn fail_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
             job.state = JobState::Failed;
+            job.finished_at = Some(std::time::SystemTime::now());
             self.save_state();
             true
         } else {
@@ -203,6 +205,7 @@ pub async fn run(shared_state: SharedState) {
                     if !session_exists {
                         log::warn!("Found zombie job (id: {}), marking as Failed.", job.id);
                         job.state = JobState::Failed;
+                        job.finished_at = Some(std::time::SystemTime::now());
                         zombie_jobs_found = true;
                     }
                 }
@@ -252,6 +255,7 @@ pub async fn run(shared_state: SharedState) {
                     match executor.execute(job) {
                         Ok(_) => {
                             job.state = JobState::Running;
+                            job.started_at = Some(std::time::SystemTime::now());
                             log::info!("Executing job: {job:?}");
                         }
                         Err(e) => {
