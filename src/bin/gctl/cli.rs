@@ -16,9 +16,9 @@ pub struct GCtl {
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Start the system service
-    Start,
+    Up,
     /// Stop the system service
-    Stop,
+    Down,
     /// Show the system service status
     Status,
 }
