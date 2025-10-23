@@ -36,6 +36,20 @@ pub fn is_session_exist(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
+    Tmux::with_command(SendKeys::new().target_pane(name).key("C-c"))
+        .output()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
+}
+
+pub fn kill_session(name: &str) -> anyhow::Result<()> {
+    Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
+        .output()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to kill tmux session: {}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use tmux_interface::{HasSession, KillSession, Tmux};

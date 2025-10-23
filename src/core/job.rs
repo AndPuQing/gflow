@@ -15,6 +15,8 @@ pub enum JobState {
     Finished,
     #[strum(to_string = "Failed")]
     Failed,
+    #[strum(to_string = "Cancelled")]
+    Cancelled,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

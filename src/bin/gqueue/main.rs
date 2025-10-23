@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
                     JobState::Running => "R",
                     JobState::Finished => "CD",
                     JobState::Failed => "F",
+                    JobState::Cancelled => "CA",
                 }
                 .to_string(),
                 "NODES" => job.gpus.to_string(),

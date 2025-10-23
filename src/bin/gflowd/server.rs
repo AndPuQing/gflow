@@ -24,6 +24,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id", get(get_job))
         .route("/jobs/:id/finish", post(finish_job))
         .route("/jobs/:id/fail", post(fail_job))
+        .route("/jobs/:id/cancel", post(cancel_job))
         .route("/jobs/:id/log", get(get_job_log))
         .route("/info", get(info))
         .with_state(scheduler);
@@ -106,6 +107,17 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
     let mut state = state.lock().await;
     log::info!("Failing job with ID: {id}");
     if state.fail_job(id) {
+        (StatusCode::OK, Json(()))
+    } else {
+        (StatusCode::NOT_FOUND, Json(()))
+    }
+}
+
+#[axum::debug_handler]
+async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+    let mut state = state.lock().await;
+    log::info!("Cancelling job with ID: {id}");
+    if state.cancel_job(id) {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))

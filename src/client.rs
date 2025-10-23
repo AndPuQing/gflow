@@ -73,6 +73,17 @@ impl Client {
             .context("Failed to send fail job request")?;
         Ok(())
     }
+
+    pub async fn cancel_job(&self, job_id: u32) -> anyhow::Result<()> {
+        log::debug!("Cancelling job {job_id}");
+        self.client
+            .post(format!("{}/jobs/{}/cancel", self.base_url, job_id))
+            .send()
+            .await
+            .context("Failed to send cancel job request")?;
+        Ok(())
+    }
+
     pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<String> {
         log::debug!("Getting log path for job {job_id}");
         let response = self
