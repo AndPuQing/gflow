@@ -1,6 +1,13 @@
 use crate::core::job::Job;
 use anyhow::Context;
 use reqwest::Client as ReqwestClient;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobSubmitResponse {
+    pub id: u32,
+    pub run_name: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -30,7 +37,7 @@ impl Client {
         Ok(jobs)
     }
 
-    pub async fn add_job(&self, job: Job) -> anyhow::Result<u32> {
+    pub async fn add_job(&self, job: Job) -> anyhow::Result<JobSubmitResponse> {
         log::debug!("Adding job: {job:?}");
         let response = self
             .client
@@ -40,14 +47,11 @@ impl Client {
             .await
             .context("Failed to send job request")?;
 
-        let job_response: serde_json::Value = response
+        let job_response: JobSubmitResponse = response
             .json()
             .await
             .context("Failed to parse response json")?;
-        job_response["id"]
-            .as_u64()
-            .map(|id| id as u32)
-            .context("Failed to get job id from response")
+        Ok(job_response)
     }
 
     pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<()> {

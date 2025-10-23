@@ -16,14 +16,20 @@ pub(crate) async fn handle_add(
         let mut job_ids = Vec::new();
         for task_id in task_ids {
             let job = build_job(add_args.clone(), Some(task_id))?;
-            let job_id = client.add_job(job).await.context("Failed to add job")?;
-            job_ids.push(job_id);
-            println!("Submitted batch job {job_id}");
+            let response = client.add_job(job).await.context("Failed to add job")?;
+            job_ids.push(response.id);
+            println!(
+                "Submitted batch job {} ({})",
+                response.id, response.run_name
+            );
         }
     } else {
         let job = build_job(add_args, None)?;
-        let job_id = client.add_job(job).await.context("Failed to add job")?;
-        println!("Submitted batch job {job_id}");
+        let response = client.add_job(job).await.context("Failed to add job")?;
+        println!(
+            "Submitted batch job {} ({})",
+            response.id, response.run_name
+        );
     }
 
     Ok(())

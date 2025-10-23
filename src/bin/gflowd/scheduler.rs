@@ -70,7 +70,7 @@ impl Scheduler {
             .collect()
     }
 
-    pub fn submit_job(&mut self, mut job: Job) -> u32 {
+    pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
         job.id = self.next_job_id;
         self.next_job_id += 1;
         let job_ = Job {
@@ -79,9 +79,11 @@ impl Scheduler {
             run_name: Some(gflow::core::random_run_name()),
             ..job
         };
+        let job_id = job_.id;
+        let run_name = job_.run_name.clone().unwrap_or_default();
         self.jobs.push(job_.clone());
         self.save_state();
-        job_.id
+        (job_id, run_name)
     }
 
     pub fn save_state(&self) {
@@ -286,8 +288,9 @@ mod tests {
     fn test_submit_job() {
         let mut scheduler = create_scheduler();
         let job = Job::builder().build();
-        let job_id = scheduler.submit_job(job);
+        let (job_id, run_name) = scheduler.submit_job(job);
         assert_eq!(job_id, 1);
+        assert!(!run_name.is_empty());
         assert_eq!(scheduler.jobs.len(), 1);
         assert_eq!(scheduler.jobs[0].id, 1);
         assert_eq!(scheduler.jobs[0].state, JobState::Queued);
@@ -297,7 +300,7 @@ mod tests {
     fn test_finish_job() {
         let mut scheduler = create_scheduler();
         let job = Job::builder().build();
-        let job_id = scheduler.submit_job(job);
+        let (job_id, _) = scheduler.submit_job(job);
         scheduler.finish_job(job_id);
         assert_eq!(scheduler.jobs[0].state, JobState::Finished);
     }
@@ -306,7 +309,7 @@ mod tests {
     fn test_fail_job() {
         let mut scheduler = create_scheduler();
         let job = Job::builder().build();
-        let job_id = scheduler.submit_job(job);
+        let (job_id, _) = scheduler.submit_job(job);
         scheduler.fail_job(job_id);
         assert_eq!(scheduler.jobs[0].state, JobState::Failed);
     }

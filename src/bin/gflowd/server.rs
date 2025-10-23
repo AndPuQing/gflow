@@ -54,10 +54,10 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.lock().await;
     log::info!("Received job: {input:?}");
-    let job_id = state.submit_job(input);
+    let (job_id, run_name) = state.submit_job(input);
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": job_id })),
+        Json(serde_json::json!({ "id": job_id, "run_name": run_name })),
     )
 }
 
