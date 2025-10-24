@@ -1,3 +1,4 @@
+use crate::core::info::SchedulerInfo;
 use crate::core::job::Job;
 use anyhow::Context;
 use reqwest::Client as ReqwestClient;
@@ -96,5 +97,19 @@ impl Client {
             .text()
             .await
             .context("Failed to read log path from response")
+    }
+
+    pub async fn get_info(&self) -> anyhow::Result<SchedulerInfo> {
+        log::debug!("Getting scheduler info");
+        let info = self
+            .client
+            .get(format!("{}/info", self.base_url))
+            .send()
+            .await
+            .context("Failed to send info request")?
+            .json::<SchedulerInfo>()
+            .await
+            .context("Failed to parse info from response")?;
+        Ok(info)
     }
 }

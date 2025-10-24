@@ -1,4 +1,5 @@
 pub mod executor;
+pub mod info;
 pub mod job;
 
 use rand::Rng;

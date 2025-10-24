@@ -37,6 +37,10 @@ path = "src/bin/gctl/main.rs"
 name = "gcancel"
 path = "src/bin/gcancel/main.rs"
 
+[[bin]]
+name = "ginfo"
+path = "src/bin/ginfo/main.rs"
+
 [dependencies]
 tmux_interface = { version = "0.3.2" }
 tokio = { version = "1.43.0", default-features = false, features = [

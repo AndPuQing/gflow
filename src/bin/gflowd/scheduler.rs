@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 pub type SharedState = Arc<Mutex<Scheduler>>;
 
+use gflow::core::info::{GpuInfo, SchedulerInfo};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Scheduler {
@@ -63,11 +64,19 @@ impl Scheduler {
             .collect()
     }
 
-    pub fn info(&self) -> HashMap<String, Vec<u32>> {
-        self.gpu_slots
+    pub fn info(&self) -> SchedulerInfo {
+        let mut gpus: Vec<GpuInfo> = self
+            .gpu_slots
             .iter()
-            .map(|(uuid, slot)| (uuid.clone(), vec![slot.index]))
-            .collect()
+            .map(|(uuid, slot)| GpuInfo {
+                uuid: uuid.clone(),
+                index: slot.index,
+                available: slot.available,
+            })
+            .collect();
+        // Sort by index for stable output
+        gpus.sort_by_key(|g| g.index);
+        SchedulerInfo { gpus }
     }
 
     pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
