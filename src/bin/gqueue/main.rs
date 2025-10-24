@@ -67,14 +67,7 @@ async fn main() -> Result<()> {
             let value = match *header {
                 "JOBID" => job.id.to_string(),
                 "NAME" => job.run_name.as_deref().unwrap_or("-").to_string(),
-                "ST" => match job.state {
-                    JobState::Queued => "PD",
-                    JobState::Running => "R",
-                    JobState::Finished => "CD",
-                    JobState::Failed => "F",
-                    JobState::Cancelled => "CA",
-                }
-                .to_string(),
+                "ST" => job.state.short_form().to_string(),
                 "NODES" => job.gpus.to_string(),
                 "NODELIST(REASON)" => job.gpu_ids.as_ref().map_or_else(
                     || "-".to_string(),

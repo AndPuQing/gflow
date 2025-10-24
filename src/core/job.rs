@@ -7,16 +7,29 @@ use strum::{Display, EnumIter, EnumString, FromRepr};
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr, EnumString,
 )]
 pub enum JobState {
-    #[strum(to_string = "Queued")]
+    #[strum(to_string = "Queued", serialize = "PD", serialize = "pd")]
     Queued,
-    #[strum(to_string = "Running")]
+    #[strum(to_string = "Running", serialize = "R", serialize = "r")]
     Running,
-    #[strum(to_string = "Finished")]
+    #[strum(to_string = "Finished", serialize = "CD", serialize = "cd")]
     Finished,
-    #[strum(to_string = "Failed")]
+    #[strum(to_string = "Failed", serialize = "F", serialize = "f")]
     Failed,
-    #[strum(to_string = "Cancelled")]
+    #[strum(to_string = "Cancelled", serialize = "CA", serialize = "ca")]
     Cancelled,
+}
+
+impl JobState {
+    /// Returns the short form representation of the job state
+    pub fn short_form(&self) -> &'static str {
+        match self {
+            JobState::Queued => "PD",
+            JobState::Running => "R",
+            JobState::Finished => "CD",
+            JobState::Failed => "F",
+            JobState::Cancelled => "CA",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
