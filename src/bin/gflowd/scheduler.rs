@@ -52,16 +52,14 @@ impl Scheduler {
     }
 
     pub fn get_available_gpu_slots(&self) -> Vec<u32> {
-        self.gpu_slots
-            .iter()
-            .filter_map(|(_uuid, slot)| {
-                if slot.available {
-                    Some(slot.index)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut slots: Vec<u32> = self
+            .gpu_slots
+            .values()
+            .filter(|slot| slot.available)
+            .map(|slot| slot.index)
+            .collect();
+        slots.sort_unstable();
+        slots
     }
 
     pub fn info(&self) -> SchedulerInfo {
