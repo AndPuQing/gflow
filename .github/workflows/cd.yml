@@ -20,21 +20,3 @@ jobs:
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    steps:
-        - uses: actions/checkout@v4
-        - name: Extract version
-          id: version
-          run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-        - name: Create GitHub Release
-          uses: softprops/action-gh-release@v2
-          with:
-            tag_name: ${{ env.VERSION }}
-            name: Release ${{ env.VERSION }}
-            draft: false
-            prerelease: false
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
