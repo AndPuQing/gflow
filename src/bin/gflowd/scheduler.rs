@@ -155,13 +155,7 @@ impl Scheduler {
 
     pub fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
-            let o = job.transition_to(JobState::Finished);
-            match o {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("Error finishing job {}: {}", job_id, e);
-                }
-            }
+            job.try_transition(job_id, JobState::Finished);
             self.save_state();
             true
         } else {
@@ -171,13 +165,7 @@ impl Scheduler {
 
     pub fn fail_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
-            let o = job.transition_to(JobState::Failed);
-            match o {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("Error failing job {}: {}", job_id, e);
-                }
-            }
+            job.try_transition(job_id, JobState::Failed);
             self.save_state();
             true
         } else {
@@ -195,13 +183,7 @@ impl Scheduler {
                     }
                 }
             }
-            let o = job.transition_to(JobState::Cancelled);
-            match o {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("Error cancelling job {}: {}", job_id, e);
-                }
-            }
+            job.try_transition(job_id, JobState::Cancelled);
             self.save_state();
             true
         } else {
