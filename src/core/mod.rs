@@ -2,7 +2,7 @@ pub mod executor;
 pub mod info;
 pub mod job;
 
-use rand::Rng;
+use names::{Generator, Name};
 use std::{collections::HashMap, path::PathBuf};
 pub type UUID = String;
 
@@ -67,16 +67,6 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
 }
 
 pub fn random_run_name() -> String {
-    const WORDS: &[&str] = &[
-        "Lion", "Tiger", "Elephant", "Giraffe", "Bear", "Monkey", "Zebra", "Kangaroo", "Panda",
-        "Penguin", "Happy", "Sad", "Angry", "Sleepy", "Hungry", "Thirsty", "Silly", "Crazy",
-        "Funny", "Grumpy",
-    ];
-
-    let mut rng = rand::rng();
-    format!(
-        "{}-{}",
-        WORDS[rng.random_range(0..WORDS.len())].to_lowercase(),
-        &uuid::Uuid::new_v4().to_string()[..8]
-    )
+    let mut generator = Generator::with_naming(Name::Numbered);
+    generator.next().unwrap()
 }
