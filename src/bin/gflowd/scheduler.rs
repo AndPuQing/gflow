@@ -152,10 +152,16 @@ impl Scheduler {
             }
         }
     }
+
     pub fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
-            job.state = JobState::Finished;
-            job.finished_at = Some(std::time::SystemTime::now());
+            let o = job.transition_to(JobState::Finished);
+            match o {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("Error finishing job {}: {}", job_id, e);
+                }
+            }
             self.save_state();
             true
         } else {
@@ -165,8 +171,13 @@ impl Scheduler {
 
     pub fn fail_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
-            job.state = JobState::Failed;
-            job.finished_at = Some(std::time::SystemTime::now());
+            let o = job.transition_to(JobState::Failed);
+            match o {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("Error failing job {}: {}", job_id, e);
+                }
+            }
             self.save_state();
             true
         } else {
@@ -176,23 +187,23 @@ impl Scheduler {
 
     pub fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
-            // Can only cancel queued or running jobs
-            if job.state == JobState::Queued || job.state == JobState::Running {
-                // If the job is running, send Ctrl-C to gracefully interrupt it
-                if job.state == JobState::Running {
-                    if let Some(run_name) = &job.run_name {
-                        if let Err(e) = gflow::tmux::send_ctrl_c(run_name) {
-                            log::error!("Failed to send C-c to tmux session {}: {}", run_name, e);
-                        }
+            // If the job is running, send Ctrl-C to gracefully interrupt it
+            if job.state == JobState::Running {
+                if let Some(run_name) = &job.run_name {
+                    if let Err(e) = gflow::tmux::send_ctrl_c(run_name) {
+                        log::error!("Failed to send C-c to tmux session {}: {}", run_name, e);
                     }
                 }
-                job.state = JobState::Cancelled;
-                job.finished_at = Some(std::time::SystemTime::now());
-                self.save_state();
-                true
-            } else {
-                false
             }
+            let o = job.transition_to(JobState::Cancelled);
+            match o {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("Error cancelling job {}: {}", job_id, e);
+                }
+            }
+            self.save_state();
+            true
         } else {
             false
         }

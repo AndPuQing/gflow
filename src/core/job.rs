@@ -1,7 +1,27 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use strum::{Display, EnumIter, EnumString, FromRepr};
+
+#[derive(Debug)]
+pub enum JobError {
+    NotFound(u32),
+    InvalidTransition { from: JobState, to: JobState },
+    AlreadyInState(JobState),
+}
+impl std::error::Error for JobError {}
+impl fmt::Display for JobError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JobError::NotFound(id) => write!(f, "Job {} not found", id),
+            JobError::InvalidTransition { from, to } => {
+                write!(f, "Invalid transition from {} to {}", from, to)
+            }
+            JobError::AlreadyInState(state) => write!(f, "Job already in state {}", state),
+        }
+    }
+}
 
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr, EnumString,
@@ -29,6 +49,23 @@ impl JobState {
             JobState::Failed => "F",
             JobState::Cancelled => "CA",
         }
+    }
+
+    pub fn can_transition_to(self, next: JobState) -> bool {
+        use JobState::*;
+        // Queued → Running → Finished
+        //           │
+        //           ├──> Failed
+        //           └──> Cancelled
+        // Queued ─────────> Cancelled
+        matches!(
+            (self, next),
+            (Queued, Running)
+                | (Running, Finished)
+                | (Running, Failed)
+                | (Queued, Cancelled)
+                | (Running, Cancelled)
+        )
     }
 }
 
@@ -138,5 +175,31 @@ impl JobBuilder {
 impl Job {
     pub fn builder() -> JobBuilder {
         JobBuilder::new()
+    }
+
+    pub fn transition_to(&mut self, next: JobState) -> Result<(), JobError> {
+        if self.state == next {
+            return Err(JobError::AlreadyInState(next));
+        }
+
+        if !self.state.clone().can_transition_to(next.clone()) {
+            return Err(JobError::InvalidTransition {
+                from: self.state.clone(),
+                to: next,
+            });
+        }
+
+        match next {
+            JobState::Running => {
+                self.started_at = Some(SystemTime::now());
+            }
+            JobState::Finished | JobState::Failed | JobState::Cancelled => {
+                self.finished_at = Some(SystemTime::now());
+            }
+            _ => {}
+        }
+
+        self.state = next;
+        Ok(())
     }
 }
