@@ -2,12 +2,13 @@ mod cli;
 
 use anyhow::Result;
 use clap::Parser;
-use gflow::tmux::TmuxSession;
+use gflow::tmux::{is_session_exist, TmuxSession};
 use tmux_interface::{KillSession, Tmux};
 
 pub static TMUX_SESSION_NAME: &str = "gflow_server";
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = cli::GCtl::parse();
 
     match args.command {
@@ -26,12 +27,40 @@ fn main() -> Result<()> {
             }
         }
         cli::Commands::Status => {
-            println!("Checking gflowd status...");
-            // In the future, this will communicate with the daemon
-            // to check its actual status.
-            println!("gflowd status check is not yet implemented.");
+            check_status(&args.config).await?;
         }
     }
 
+    Ok(())
+}
+
+async fn check_status(config_path: &Option<std::path::PathBuf>) -> Result<()> {
+    let session_exists = is_session_exist(TMUX_SESSION_NAME);
+
+    if !session_exists {
+        println!("Status: Not running");
+        println!("The gflowd daemon is not running (tmux session not found).");
+        return Ok(());
+    }
+
+    // Try to get daemon info
+    let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
+    let client = gflow::client::Client::build(&config)?;
+
+    match client.get_health().await {
+        Ok(health) => {
+            if health.is_success() {
+                println!("Status: Running");
+                println!("The gflowd daemon is running in tmux session '{TMUX_SESSION_NAME}'.");
+            } else {
+                println!("Status: Unhealthy");
+                eprintln!("The gflowd daemon responded to the health check but is not healthy.");
+            }
+        }
+        Err(e) => {
+            println!("Status: Not Running");
+            eprintln!("Failed to connect to gflowd daemon: {e}");
+        }
+    }
     Ok(())
 }

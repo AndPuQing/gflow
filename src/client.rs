@@ -1,7 +1,7 @@
 use crate::core::info::SchedulerInfo;
 use crate::core::job::Job;
 use anyhow::Context;
-use reqwest::Client as ReqwestClient;
+use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,5 +111,17 @@ impl Client {
             .await
             .context("Failed to parse info from response")?;
         Ok(info)
+    }
+
+    pub async fn get_health(&self) -> anyhow::Result<StatusCode> {
+        log::debug!("Getting health status");
+        let health = self
+            .client
+            .get(format!("{}/health", self.base_url))
+            .send()
+            .await
+            .context("Failed to send health request")?
+            .status();
+        Ok(health)
     }
 }

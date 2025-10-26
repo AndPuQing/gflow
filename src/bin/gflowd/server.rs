@@ -27,6 +27,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id/cancel", post(cancel_job))
         .route("/jobs/:id/log", get(get_job_log))
         .route("/info", get(info))
+        .route("/health", get(get_health))
         .with_state(scheduler);
     let host = &config.daemon.host;
     let port = config.daemon.port;
@@ -122,4 +123,9 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
     } else {
         (StatusCode::NOT_FOUND, Json(()))
     }
+}
+
+#[axum::debug_handler]
+async fn get_health() -> impl IntoResponse {
+    (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
 }
