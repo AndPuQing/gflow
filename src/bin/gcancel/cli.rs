@@ -13,4 +13,8 @@ pub struct GCancel {
 
     /// The ID of the job to cancel
     pub id: u32,
+
+    /// If set, the job will not be cancelled, but the action will be printed
+    #[arg(long)]
+    pub dry_run: bool,
 }

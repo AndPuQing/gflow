@@ -38,6 +38,26 @@ impl Client {
         Ok(jobs)
     }
 
+    pub async fn get_job(&self, job_id: u32) -> anyhow::Result<Option<Job>> {
+        log::debug!("Getting job {job_id}");
+        let response = self
+            .client
+            .get(format!("{}/jobs/{}", self.base_url, job_id))
+            .send()
+            .await
+            .context("Failed to send get job request")?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        let job = response
+            .json::<Job>()
+            .await
+            .context("Failed to parse job from response")?;
+        Ok(Some(job))
+    }
+
     pub async fn add_job(&self, job: Job) -> anyhow::Result<JobSubmitResponse> {
         log::debug!("Adding job: {job:?}");
         let response = self
