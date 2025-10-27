@@ -13,21 +13,61 @@ pub struct GQueue {
 
     #[arg(
         long,
-        short,
+        short = 'n',
+        help = "Limit the number of jobs to display (default: 10, use 0 for all)",
+        value_parser = clap::value_parser!(u32),
+        default_value = "10"
+    )]
+    pub limit: u32,
+
+    #[arg(
+        long,
+        short = 'a',
+        help = "Show all jobs (equivalent to --limit 0)",
+        conflicts_with = "limit"
+    )]
+    pub all: bool,
+
+    #[arg(
+        long,
+        short = 'r',
+        help = "Sort jobs by field (options: id, state, time, name, gpus, priority)",
+        default_value = "id"
+    )]
+    pub sort: String,
+
+    #[arg(
+        long,
+        short = 's',
         help = "Filter by a comma-separated list of job states (e.g., Queued,Running)"
     )]
     pub states: Option<String>,
 
-    #[arg(long, short, help = "Filter by a comma-separated list of job IDs")]
+    #[arg(
+        long,
+        short = 'j',
+        help = "Filter by a comma-separated list of job IDs"
+    )]
     pub jobs: Option<String>,
 
-    #[arg(long, short, help = "Filter by a comma-separated list of job names")]
+    #[arg(
+        long,
+        short = 'N',
+        help = "Filter by a comma-separated list of job names"
+    )]
     pub names: Option<String>,
 
     #[arg(
         long,
-        short,
+        short = 'f',
         help = "Specify a comma-separated list of fields to display"
     )]
     pub format: Option<String>,
+
+    #[arg(
+        long,
+        short = 'g',
+        help = "Group jobs by state (helps visualize job distribution)"
+    )]
+    pub group: bool,
 }

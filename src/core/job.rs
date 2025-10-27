@@ -24,7 +24,19 @@ impl fmt::Display for JobError {
 }
 
 #[derive(
-    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Display, EnumIter, FromRepr, EnumString,
+    Debug,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Display,
+    EnumIter,
+    FromRepr,
+    EnumString,
+    Hash,
+    Ord,
+    PartialOrd,
 )]
 pub enum JobState {
     #[strum(to_string = "Queued", serialize = "PD", serialize = "pd")]

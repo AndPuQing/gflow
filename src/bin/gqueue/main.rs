@@ -12,6 +12,7 @@ async fn main() -> Result<()> {
     let client = Client::build(&config)?;
     let mut jobs = client.list_jobs().await?;
 
+    // Apply filters
     if let Some(states) = args.states {
         let states: Vec<JobState> = states
             .split(',')
@@ -48,10 +49,60 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let format = args
-        .format
-        .unwrap_or_else(|| "JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)".to_string());
+    // Sort jobs
+    sort_jobs(&mut jobs, &args.sort);
+
+    // Apply limit
+    let limit = if args.all { 0 } else { args.limit };
+    if limit > 0 {
+        let limit_usize = limit as usize;
+        if jobs.len() > limit_usize {
+            let total_jobs = jobs.len();
+            jobs.truncate(limit_usize);
+            println!(
+                "Showing {} of {} jobs (use --all or --limit 0 to show all)",
+                limit, total_jobs
+            );
+            println!();
+        }
+    }
+
+    // Group by state if requested
+    if args.group {
+        display_grouped_jobs(jobs, args.format.as_deref());
+    } else {
+        display_jobs_table(jobs, args.format.as_deref());
+    }
+
+    Ok(())
+}
+
+fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
+    match sort_field.to_lowercase().as_str() {
+        "id" => jobs.sort_by_key(|j| j.id),
+        "state" => jobs.sort_by_key(|j| j.state.clone()),
+        "time" => jobs.sort_by(|a, b| a.started_at.cmp(&b.started_at)),
+        "name" => jobs.sort_by(|a, b| {
+            a.run_name
+                .as_deref()
+                .unwrap_or("")
+                .cmp(b.run_name.as_deref().unwrap_or(""))
+        }),
+        "gpus" | "nodes" => jobs.sort_by_key(|j| j.gpus),
+        "priority" => jobs.sort_by_key(|j| j.priority),
+        _ => eprintln!(
+            "Warning: Unknown sort field '{}', using default 'id'",
+            sort_field
+        ),
+    }
+}
+
+fn display_jobs_table(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
+    let format = format
+        .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
+        .to_string();
     let headers: Vec<&str> = format.split(',').collect();
+
     println!(
         "{}",
         headers
@@ -85,19 +136,33 @@ async fn main() -> Result<()> {
         }
         println!("{}", row.join(" "));
     }
-
-    Ok(())
 }
 
-fn get_width(header: &str) -> usize {
-    match header {
-        "JOBID" => 8,
-        "NAME" => 20,
-        "ST" => 5,
-        "TIME" => 12,
-        "NODES" => 8,
-        "NODELIST(REASON)" => 15,
-        _ => 10,
+fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
+    use gflow::core::job::JobState;
+
+    let mut grouped = std::collections::HashMap::new();
+    for job in jobs {
+        grouped
+            .entry(job.state.clone())
+            .or_insert_with(Vec::new)
+            .push(job);
+    }
+
+    let states_order = [
+        JobState::Running,
+        JobState::Queued,
+        JobState::Finished,
+        JobState::Failed,
+        JobState::Cancelled,
+    ];
+
+    for state in states_order {
+        if let Some(state_jobs) = grouped.get(&state) {
+            println!("\n{} ({})", state, state_jobs.len());
+            println!("{}", "─".repeat(60));
+            display_jobs_table(state_jobs.clone(), format);
+        }
     }
 }
 
@@ -124,5 +189,17 @@ fn format_elapsed_time(started_at: Option<SystemTime>, finished_at: Option<Syste
             }
         }
         None => "-".to_string(),
+    }
+}
+
+fn get_width(header: &str) -> usize {
+    match header {
+        "JOBID" => 8,
+        "NAME" => 20,
+        "ST" => 5,
+        "TIME" => 12,
+        "NODES" => 8,
+        "NODELIST(REASON)" => 15,
+        _ => 10,
     }
 }
