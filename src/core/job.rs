@@ -177,6 +177,16 @@ impl Job {
         JobBuilder::new()
     }
 
+    fn update_timestamps(&mut self, next: &JobState) {
+        match next {
+            JobState::Running => self.started_at = Some(SystemTime::now()),
+            JobState::Finished | JobState::Failed | JobState::Cancelled => {
+                self.finished_at = Some(SystemTime::now())
+            }
+            _ => {}
+        }
+    }
+
     pub fn transition_to(&mut self, next: JobState) -> Result<(), JobError> {
         if self.state == next {
             return Err(JobError::AlreadyInState(next));
@@ -188,17 +198,7 @@ impl Job {
                 to: next,
             });
         }
-
-        match next {
-            JobState::Running => {
-                self.started_at = Some(SystemTime::now());
-            }
-            JobState::Finished | JobState::Failed | JobState::Cancelled => {
-                self.finished_at = Some(SystemTime::now());
-            }
-            _ => {}
-        }
-
+        self.update_timestamps(&next);
         self.state = next;
         Ok(())
     }

@@ -7,15 +7,15 @@ use gflow::core::{
 };
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
-pub type SharedState = Arc<Mutex<Scheduler>>;
+pub type SharedState = Arc<RwLock<Scheduler>>;
 
 use gflow::core::info::{GpuInfo, SchedulerInfo};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Scheduler {
-    pub jobs: Vec<Job>,
+    pub jobs: HashMap<u32, Job>,
     #[serde(skip)]
     gpu_slots: HashMap<UUID, GPUSlot>,
     #[serde(skip)]
@@ -41,7 +41,7 @@ impl Scheduler {
         let nvml = Nvml::init().expect("Failed to initialize NVML");
         let gpu_slots = Self::get_gpus(&nvml);
         let mut scheduler = Self {
-            jobs: Vec::new(),
+            jobs: HashMap::new(),
             gpu_slots,
             nvml: Some(nvml),
             state_path,
@@ -88,7 +88,7 @@ impl Scheduler {
         };
         let job_id = job_.id;
         let run_name = job_.run_name.clone().unwrap_or_default();
-        self.jobs.push(job_.clone());
+        self.jobs.insert(job_id, job_);
         self.save_state();
         (job_id, run_name)
     }
@@ -127,7 +127,7 @@ impl Scheduler {
     fn refresh_gpu_slots(&mut self) {
         let running_gpu_indices: std::collections::HashSet<u32> = self
             .jobs
-            .iter()
+            .values()
             .filter(|j| j.state == JobState::Running)
             .filter_map(|j| j.gpu_ids.as_ref())
             .flat_map(|ids| ids.iter().copied())
@@ -154,7 +154,7 @@ impl Scheduler {
     }
 
     pub fn finish_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+        if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Finished);
             self.save_state();
             true
@@ -164,7 +164,7 @@ impl Scheduler {
     }
 
     pub fn fail_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+        if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Failed);
             self.save_state();
             true
@@ -174,7 +174,7 @@ impl Scheduler {
     }
 
     pub fn cancel_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+        if let Some(job) = self.jobs.get_mut(&job_id) {
             // If the job is running, send Ctrl-C to gracefully interrupt it
             if job.state == JobState::Running {
                 if let Some(run_name) = &job.run_name {
@@ -217,12 +217,12 @@ pub async fn run(shared_state: SharedState) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     loop {
         interval.tick().await;
-        let mut state = shared_state.lock().await;
+        let mut state = shared_state.write().await;
         state.refresh(); // Refresh based on NVML
 
         // Detect and clean up zombie jobs
         let mut zombie_jobs_found = false;
-        for job in &mut state.jobs {
+        for job in state.jobs.values_mut() {
             if job.state == JobState::Running {
                 if let Some(run_name) = &job.run_name {
                     let session_exists = gflow::tmux::is_session_exist(run_name);
@@ -243,31 +243,30 @@ pub async fn run(shared_state: SharedState) {
 
         let finished_jobs: std::collections::HashSet<u32> = state
             .jobs
-            .iter()
+            .values()
             .filter(|j| j.state == JobState::Finished)
             .map(|j| j.id)
             .collect();
 
         // Sort all queued jobs by priority
-        let mut runnable_jobs_indices: Vec<_> = state
+        let mut runnable_jobs: Vec<_> = state
             .jobs
-            .iter()
-            .enumerate()
-            .filter(|(_, j)| j.state == JobState::Queued)
-            .filter(|(_, j)| {
+            .values()
+            .filter(|j| j.state == JobState::Queued)
+            .filter(|j| {
                 if let Some(dependency_id) = j.depends_on {
                     return finished_jobs.contains(&dependency_id);
                 }
                 true
             })
-            .map(|(i, _)| i)
+            .map(|j| (j.id, j.priority))
             .collect();
 
-        runnable_jobs_indices.sort_by_key(|&i| std::cmp::Reverse(state.jobs[i].priority));
+        runnable_jobs.sort_by_key(|(_, priority)| std::cmp::Reverse(*priority));
 
         // Easy backfilling loop
-        for index in runnable_jobs_indices {
-            if let Some(job) = state.jobs.get_mut(index) {
+        for (job_id, _) in runnable_jobs {
+            if let Some(job) = state.jobs.get_mut(&job_id) {
                 if job.gpus as usize <= available_gpus.len() {
                     // This job can run
                     let gpus_for_job = available_gpus

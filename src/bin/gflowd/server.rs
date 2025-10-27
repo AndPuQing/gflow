@@ -40,21 +40,22 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
 #[axum::debug_handler]
 async fn info(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.lock().await;
+    let state = state.read().await;
     let info = state.info();
     (StatusCode::OK, Json(info))
 }
 
 #[axum::debug_handler]
 async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.lock().await;
-    let jobs = state.jobs.clone();
+    let state = state.read().await;
+    let mut jobs: Vec<_> = state.jobs.values().cloned().collect();
+    jobs.sort_by_key(|j| j.id);
     (StatusCode::OK, Json(jobs))
 }
 
 #[axum::debug_handler]
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
-    let mut state = state.lock().await;
+    let mut state = state.write().await;
     log::info!("Received job: {input:?}");
     let (job_id, run_name) = state.submit_job(input);
     (
@@ -64,18 +65,22 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 }
 
 #[axum::debug_handler]
-async fn get_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let state = state.lock().await;
-    if let Some(job) = state.jobs.iter().find(|j| j.id == id) {
-        (StatusCode::OK, Json(Some(job.clone())))
-    } else {
-        (StatusCode::NOT_FOUND, Json(None))
-    }
+async fn get_job(
+    State(state): State<SharedState>,
+    Path(id): Path<u32>,
+) -> Result<Json<Job>, StatusCode> {
+    let state = state.read().await;
+    state
+        .jobs
+        .get(&id)
+        .cloned()
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 #[axum::debug_handler]
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.lock().await;
+    let mut state = state.write().await;
     log::info!("Finishing job with ID: {id}");
     if state.finish_job(id) {
         (StatusCode::OK, Json(()))
@@ -86,8 +91,8 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 
 #[axum::debug_handler]
 async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let state = state.lock().await;
-    if state.jobs.iter().any(|j| j.id == id) {
+    let state = state.read().await;
+    if state.jobs.contains_key(&id) {
         match gflow::core::get_log_file_path(id) {
             Ok(path) => {
                 if path.exists() {
@@ -105,7 +110,7 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 
 #[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.lock().await;
+    let mut state = state.write().await;
     log::info!("Failing job with ID: {id}");
     if state.fail_job(id) {
         (StatusCode::OK, Json(()))
@@ -116,7 +121,7 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 
 #[axum::debug_handler]
 async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.lock().await;
+    let mut state = state.write().await;
     log::info!("Cancelling job with ID: {id}");
     if state.cancel_job(id) {
         (StatusCode::OK, Json(()))
