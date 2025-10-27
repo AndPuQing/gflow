@@ -18,7 +18,7 @@ impl TmuxExecutor {
 
         let _log_path = gflow::core::get_log_file_path(job.id)?;
         let wrapped_command = format!(
-            "{user_command} && gsignal finish {job_id} || gsignal fail {job_id}",
+            "{user_command} && gcancel --finish {job_id} || gcancel --fail {job_id}",
             job_id = job.id,
         );
         Ok(wrapped_command)

@@ -16,7 +16,7 @@
 
 - **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
 - **Rich Job Submission**: Supports dependencies, priorities, and job arrays via the `gbatch` command.
-- **Service and Job Control**: Provides clear commands to manage the scheduler daemon (`gctl`), query the job queue (`gqueue`), and signal jobs (`gsignal`).
+- **Service and Job Control**: Provides clear commands to manage the scheduler daemon (`gctl`), query the job queue (`gqueue`), and control job states (`gcancel`).
 - **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
 - **Simple Command-Line Interface**: Offers a user-friendly and powerful set of command-line tools.
 
@@ -28,7 +28,7 @@ The `gflow` suite consists of several command-line tools:
 - `gctl`: Controls the `gflowd` daemon (start, stop, status).
 - `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
 - `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
-- `gsignal`: Sends signals (e.g., finish, fail) to running jobs.
+- `gcancel`: Cancels jobs and manages job states (internal use).
 
 ## Installation
 
@@ -37,7 +37,7 @@ The `gflow` suite consists of several command-line tools:
 ```bash
 cargo install gflow
 ```
-This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gsignal`).
+This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gcancel`, `ginfo`).
 
 ### Build Manually
 

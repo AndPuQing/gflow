@@ -11,7 +11,20 @@ async fn main() -> Result<()> {
     let config = load_config(args.config.as_ref())?;
     let client = Client::build(&config)?;
 
-    let job_ids = parse_job_ids(&args.ids)?;
+    // Handle internal signal operations (hidden from users)
+    if let Some(job_id) = args.finish {
+        client.finish_job(job_id).await?;
+        return Ok(());
+    }
+
+    if let Some(job_id) = args.fail {
+        client.fail_job(job_id).await?;
+        return Ok(());
+    }
+
+    // Handle normal cancellation operation
+    let ids = args.ids.context("No job IDs provided")?;
+    let job_ids = parse_job_ids(&ids)?;
 
     if args.dry_run {
         perform_dry_run(&client, &job_ids).await?;

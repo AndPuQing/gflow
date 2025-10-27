@@ -25,9 +25,6 @@ path = "src/bin/gbatch/main.rs"
 name = "gqueue"
 path = "src/bin/gqueue/main.rs"
 
-[[bin]]
-name = "gsignal"
-path = "src/bin/gsignal/main.rs"
 
 [[bin]]
 name = "gctl"
