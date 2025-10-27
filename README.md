@@ -25,7 +25,7 @@
 The `gflow` suite consists of several command-line tools:
 
 - `gflowd`: The scheduler daemon that runs in the background, managing jobs and resources.
-- `gctl`: Controls the `gflowd` daemon (start, stop, status).
+- `gctl`: Controls the daemon (`gflowd`) and displays system information.
 - `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
 - `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
 - `gcancel`: Cancels jobs and manages job states (internal use).
@@ -37,7 +37,7 @@ The `gflow` suite consists of several command-line tools:
 ```bash
 cargo install gflow
 ```
-This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gcancel`, `ginfo`).
+This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gcancel`).
 
 ### Build Manually
 

@@ -34,9 +34,6 @@ path = "src/bin/gctl/main.rs"
 name = "gcancel"
 path = "src/bin/gcancel/main.rs"
 
-[[bin]]
-name = "ginfo"
-path = "src/bin/ginfo/main.rs"
 
 [dependencies]
 tmux_interface = { version = "0.3.2" }

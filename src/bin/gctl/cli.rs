@@ -21,4 +21,6 @@ pub enum Commands {
     Down,
     /// Show the system service status
     Status,
+    /// Display system information and GPU allocation
+    Info,
 }

@@ -10,7 +10,7 @@ The `gflow` project will be split into the following binaries:
 - **`gbatch`**: The core client for submitting (`add`) and creating (`new`) jobs. Inspired by `sbatch`.
 - **`gqueue`**: Queries the job queue (replaces `gflow list`). Inspired by `squeue`.
 - **`gcancel`**: Cancels jobs and manages job states (internal use).
-- **`gctl`**: Manages the daemon (replaces `gflow daemon`). Inspired by `scontrol`/`systemctl`.
+- **`gctl`**: Manages the daemon and displays system information (replaces `gflow daemon` and `ginfo`). Inspired by `scontrol`/`systemctl`.
 
 ## Architecture Diagram
 
