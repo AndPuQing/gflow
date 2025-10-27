@@ -875,6 +875,7 @@ dependencies = [
  "names",
  "nvml-wrapper",
  "rand 0.9.2",
+ "range-parser",
  "ratatui",
  "reqwest",
  "serde",
@@ -2681,6 +2682,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
 dependencies = [
  "getrandom 0.3.3",
+]
+
+[[package]]
+name = "range-parser"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d26b5df187f049cc0264bed9ed314d5a5f7c13a2c3ec8b23b79723f938f39d71"
+dependencies = [
+ "thiserror 1.0.69",
 ]
 
 [[package]]
