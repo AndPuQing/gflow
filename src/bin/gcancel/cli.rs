@@ -26,3 +26,27 @@ pub struct GCancel {
     #[arg(long)]
     pub dry_run: bool,
 }
+
+#[derive(Debug)]
+pub enum CancelCommand {
+    Cancel { ids: String, dry_run: bool },
+    Finish { id: u32 },
+    Fail { id: u32 },
+}
+
+impl GCancel {
+    pub fn get_command(&self) -> anyhow::Result<CancelCommand> {
+        if let Some(job_id) = self.finish {
+            Ok(CancelCommand::Finish { id: job_id })
+        } else if let Some(job_id) = self.fail {
+            Ok(CancelCommand::Fail { id: job_id })
+        } else if let Some(ref ids) = self.ids {
+            Ok(CancelCommand::Cancel {
+                ids: ids.clone(),
+                dry_run: self.dry_run,
+            })
+        } else {
+            anyhow::bail!("No command specified. Use --finish <id>, --fail <id>, or provide job IDs to cancel")
+        }
+    }
+}
