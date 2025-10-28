@@ -116,7 +116,7 @@ If you have NVIDIA GPUs, verify they're detected:
 
 ```bash
 # Start the daemon
-gctl start
+gctl up
 
 # Check daemon logs
 tmux attach -t gflow_server
@@ -223,7 +223,7 @@ To remove gflow:
 
 ```bash
 # Stop the daemon first
-gctl stop
+gctl down
 
 # Uninstall binaries
 cargo uninstall gflow

@@ -59,7 +59,7 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 
 1.  **Start the scheduler daemon**:
     ```bash
-    gctl start
+    gctl up
     ```
     You can check its status with `gctl status`.
 
@@ -84,7 +84,7 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 
 4.  **Stop the scheduler**:
     ```bash
-    gctl stop
+    gctl down
     ```
 
 ## Usage Guide

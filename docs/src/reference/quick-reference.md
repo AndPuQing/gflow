@@ -4,8 +4,8 @@
 
 ### Daemon Management
 ```bash
-gctl start              # Start the scheduler daemon
-gctl stop               # Stop the scheduler daemon
+gctl up              # Start the scheduler daemon
+gctl down               # Stop the scheduler daemon
 gctl status             # Check daemon status
 gctl up                 # Alias for start
 gctl down               # Alias for stop
@@ -273,7 +273,7 @@ tmux ls
 tmux kill-session -t gflow_server
 
 # Try starting again
-gctl start
+gctl up
 ```
 
 ### Job stuck in Queued

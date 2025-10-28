@@ -7,7 +7,7 @@ This guide will get you up and running with gflow in 5 minutes.
 First, start the gflow daemon:
 
 ```bash
-gctl start
+gctl up
 ```
 
 You should see:
@@ -216,7 +216,7 @@ tmux attach -t <session_name>
 When you're done:
 
 ```bash
-gctl stop
+gctl down
 ```
 
 This will:
@@ -231,7 +231,7 @@ Here's a complete example workflow:
 
 ```bash
 # 1. Start scheduler
-gctl start
+gctl up
 
 # 2. Submit preprocessing job
 gbatch --time 10 --command "python preprocess.py --output data.pkl" --name prep
@@ -250,7 +250,7 @@ cat ~/.local/share/gflow/logs/2.log
 cat ~/.local/share/gflow/logs/3.log
 
 # 6. Stop scheduler
-gctl stop
+gctl down
 ```
 
 ## Common Patterns
