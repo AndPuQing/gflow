@@ -59,14 +59,11 @@ Every job runs in its own tmux session, allowing you to:
 - Resume interrupted sessions
 - Automatic output logging to files
 
-### 🎮 GPU Management
-Automatic GPU detection and allocation via NVML (NVIDIA Management Library).
-
 ## Quick Example
 
 ```bash
 # Start the scheduler
-gctl start
+gctl up
 
 # Submit a training job with 1 GPU and 2-hour time limit
 gbatch --gpus 1 --time 2:00:00 --command "python train.py"
@@ -78,7 +75,7 @@ gqueue
 watch gqueue
 
 # Stop the scheduler
-gctl stop
+gctl down
 ```
 
 ## Architecture Overview
