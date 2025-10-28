@@ -193,6 +193,7 @@ fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) 
         JobState::Finished,
         JobState::Failed,
         JobState::Cancelled,
+        JobState::Timeout,
     ];
 
     for state in states_order {
@@ -230,6 +231,21 @@ fn format_elapsed_time(started_at: Option<SystemTime>, finished_at: Option<Syste
     }
 }
 
+/// Formats a Duration as HH:MM:SS or D-HH:MM:SS
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let days = total_seconds / 86400;
+    let hours = (total_seconds % 86400) / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if days > 0 {
+        format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    }
+}
+
 /// Returns the default column width for a given header
 fn get_width(header: &str) -> usize {
     match header {
@@ -237,6 +253,7 @@ fn get_width(header: &str) -> usize {
         "NAME" => 20,
         "ST" => 5,
         "TIME" => 12,
+        "TIMELIMIT" => 12,
         "NODES" => 8,
         "NODELIST(REASON)" => 15,
         _ => 10,
@@ -260,6 +277,9 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
             },
         ),
         "TIME" => format_elapsed_time(job.started_at, job.finished_at),
+        "TIMELIMIT" => job
+            .time_limit
+            .map_or_else(|| "UNLIMITED".to_string(), format_duration),
         _ => String::new(),
     }
 }
@@ -517,6 +537,7 @@ mod tests {
             gpu_ids: Some(vec![0]),
             started_at: None,
             finished_at: None,
+            time_limit: None,
         }
     }
 

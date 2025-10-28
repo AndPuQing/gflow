@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use strum::{Display, EnumIter, EnumString, FromRepr};
 
 #[derive(Debug)]
@@ -49,6 +49,8 @@ pub enum JobState {
     Failed,
     #[strum(to_string = "Cancelled", serialize = "CA", serialize = "ca")]
     Cancelled,
+    #[strum(to_string = "Timeout", serialize = "TO", serialize = "to")]
+    Timeout,
 }
 
 impl JobState {
@@ -60,6 +62,7 @@ impl JobState {
             JobState::Finished => "CD",
             JobState::Failed => "F",
             JobState::Cancelled => "CA",
+            JobState::Timeout => "TO",
         }
     }
 
@@ -68,7 +71,8 @@ impl JobState {
         // Queued → Running → Finished
         //           │
         //           ├──> Failed
-        //           └──> Cancelled
+        //           ├──> Cancelled
+        //           └──> Timeout
         // Queued ─────────> Cancelled
         matches!(
             (self, next),
@@ -77,6 +81,7 @@ impl JobState {
                 | (Running, Failed)
                 | (Queued, Cancelled)
                 | (Running, Cancelled)
+                | (Running, Timeout)
         )
     }
 }
@@ -93,6 +98,7 @@ pub struct Job {
     pub priority: u8,
     pub depends_on: Option<u32>,
     pub task_id: Option<u32>,
+    pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -112,6 +118,7 @@ pub struct JobBuilder {
     priority: u8,
     depends_on: Option<u32>,
     task_id: Option<u32>,
+    time_limit: Option<Duration>,
 }
 
 impl JobBuilder {
@@ -164,6 +171,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn time_limit(mut self, time_limit: Option<Duration>) -> Self {
+        self.time_limit = time_limit;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -174,6 +186,7 @@ impl JobBuilder {
             priority: self.priority,
             depends_on: self.depends_on,
             task_id: self.task_id,
+            time_limit: self.time_limit,
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,
@@ -192,7 +205,7 @@ impl Job {
     fn update_timestamps(&mut self, next: &JobState) {
         match next {
             JobState::Running => self.started_at = Some(SystemTime::now()),
-            JobState::Finished | JobState::Failed | JobState::Cancelled => {
+            JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout => {
                 self.finished_at = Some(SystemTime::now())
             }
             _ => {}
@@ -238,5 +251,20 @@ impl Job {
                 false
             }
         }
+    }
+
+    /// Check if the job has exceeded its time limit
+    pub fn has_exceeded_time_limit(&self) -> bool {
+        if self.state != JobState::Running {
+            return false;
+        }
+
+        if let (Some(time_limit), Some(started_at)) = (self.time_limit, self.started_at) {
+            if let Ok(elapsed) = SystemTime::now().duration_since(started_at) {
+                return elapsed > time_limit;
+            }
+        }
+
+        false
     }
 }

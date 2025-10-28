@@ -100,7 +100,10 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
                     JobState::Running => {
                         println!("  Impact: ✓ Already running (unaffected)");
                     }
-                    JobState::Finished | JobState::Failed | JobState::Cancelled => {
+                    JobState::Finished
+                    | JobState::Failed
+                    | JobState::Cancelled
+                    | JobState::Timeout => {
                         println!("  Impact: ✓ Already completed (unaffected)");
                     }
                 }

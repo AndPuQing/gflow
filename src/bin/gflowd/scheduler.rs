@@ -239,6 +239,30 @@ pub async fn run(shared_state: SharedState) {
             state.save_state();
         }
 
+        // Check for timed-out jobs
+        let mut timed_out_jobs = Vec::new();
+        for job in state.jobs.values() {
+            if job.has_exceeded_time_limit() {
+                log::warn!("Job {} has exceeded time limit, terminating...", job.id);
+                timed_out_jobs.push((job.id, job.run_name.clone()));
+            }
+        }
+
+        // Terminate timed-out jobs
+        for (job_id, run_name) in timed_out_jobs {
+            if let Some(run_name) = run_name {
+                // Send Ctrl-C to interrupt the job
+                if let Err(e) = gflow::tmux::send_ctrl_c(&run_name) {
+                    log::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
+                }
+            }
+            // Mark job as timed out
+            if let Some(job) = state.jobs.get_mut(&job_id) {
+                job.try_transition(job_id, JobState::Timeout);
+            }
+            state.save_state();
+        }
+
         let mut available_gpus = state.get_available_gpu_slots();
 
         let finished_jobs: std::collections::HashSet<u32> = state

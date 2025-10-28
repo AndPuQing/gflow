@@ -56,4 +56,8 @@ pub struct AddArgs {
     /// The job array specification (e.g., "1-10")
     #[arg(long)]
     pub array: Option<String>,
+
+    /// Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
+    #[arg(short = 't', long)]
+    pub time: Option<String>,
 }
