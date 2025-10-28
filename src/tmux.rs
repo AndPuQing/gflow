@@ -1,3 +1,4 @@
+use std::path::Path;
 use tmux_interface::{NewSession, SendKeys, Tmux};
 
 /// A tmux session
@@ -27,6 +28,44 @@ impl TmuxSession {
             .output()
             .ok();
     }
+
+    /// Enable pipe-pane to capture output to a log file
+    pub fn enable_pipe_pane(&self, log_path: &Path) -> anyhow::Result<()> {
+        let log_path_str = log_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid log path"))?;
+
+        Tmux::with_command(
+            tmux_interface::PipePane::new()
+                .target_pane(&self.name)
+                .open()
+                .shell_command(format!("cat >> {}", log_path_str)),
+        )
+        .output()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to enable pipe-pane: {}", e))
+    }
+
+    /// Disable pipe-pane for the session
+    pub fn disable_pipe_pane(&self) -> anyhow::Result<()> {
+        Tmux::with_command(tmux_interface::PipePane::new().target_pane(&self.name))
+            .output()
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
+    }
+
+    /// Check if pipe-pane is active for the session
+    pub fn is_pipe_pane_active(&self) -> bool {
+        Tmux::with_command(
+            tmux_interface::DisplayMessage::new()
+                .target_pane(&self.name)
+                .print()
+                .message("#{pane_pipe}"),
+        )
+        .output()
+        .map(|output| output.success())
+        .unwrap_or(false)
+    }
 }
 
 pub fn is_session_exist(name: &str) -> bool {
@@ -44,6 +83,11 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
 }
 
 pub fn kill_session(name: &str) -> anyhow::Result<()> {
+    // Disable pipe-pane before killing session (ignore errors if already disabled)
+    Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))
+        .output()
+        .ok();
+
     Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
         .output()
         .map(|_| ())
