@@ -453,9 +453,9 @@ fn display_job_node(
     let tree_prefix = if is_root {
         String::new()
     } else if is_last {
-        format!("{} ", TREE_EDGE)
+        TREE_EDGE.to_string()
     } else {
-        format!("{} ", TREE_BRANCH)
+        TREE_BRANCH.to_string()
     };
 
     // Build the row
