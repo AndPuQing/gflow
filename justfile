@@ -1,12 +1,6 @@
 clean:
     cargo clean
 
-gflow *ARGS:
-    cargo run --bin gflow -- {{ARGS}}
-
-gflowd *ARGS:
-    cargo run --bin gflowd -- {{ARGS}}
-
 test:
     cargo test
 
@@ -15,3 +9,6 @@ release:
 
 install:
     cargo install --path .
+
+test-tree:
+    cargo test --bin gqueue -- --nocapture --test-threads 1

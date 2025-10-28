@@ -494,3 +494,136 @@ fn display_job_node(
         display_job_node(child, headers, widths, &child_prefix, is_last_child, false);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::job::{Job, JobState};
+    use std::path::PathBuf;
+
+    fn create_test_job(id: u32, name: &str, depends_on: Option<u32>) -> Job {
+        Job {
+            id,
+            script: None,
+            command: Some(format!("test command {}", id)),
+            gpus: 1,
+            conda_env: None,
+            run_dir: PathBuf::from("/tmp"),
+            priority: 10,
+            depends_on,
+            task_id: None,
+            run_name: Some(name.to_string()),
+            state: JobState::Finished,
+            gpu_ids: Some(vec![0]),
+            started_at: None,
+            finished_at: None,
+        }
+    }
+
+    #[test]
+    fn test_simple_dependency_tree() {
+        let jobs = vec![
+            create_test_job(1, "root-job", None),
+            create_test_job(2, "child-job-1", Some(1)),
+            create_test_job(3, "child-job-2", Some(1)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_multi_level_dependency_tree() {
+        let jobs = vec![
+            create_test_job(1, "root-job", None),
+            create_test_job(2, "level-1-job", Some(1)),
+            create_test_job(3, "level-2-job", Some(2)),
+            create_test_job(4, "level-3-job", Some(3)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_multiple_independent_trees() {
+        let jobs = vec![
+            create_test_job(1, "root-1", None),
+            create_test_job(2, "child-1-1", Some(1)),
+            create_test_job(3, "root-2", None),
+            create_test_job(4, "child-2-1", Some(3)),
+            create_test_job(5, "child-2-2", Some(3)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_circular_dependency_detection() {
+        // Note: This creates a simulated circular dependency scenario
+        // In reality, the job system should prevent this at submission time
+        let jobs = vec![
+            create_test_job(1, "job-1", None),
+            create_test_job(2, "job-2", Some(1)),
+            create_test_job(3, "job-3", Some(2)),
+            // If job 1 depended on 3, it would be circular, but we can't represent
+            // this in our current structure without modifying the data after creation
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_missing_parent_job() {
+        let jobs = vec![
+            create_test_job(1, "job-1", None),
+            create_test_job(2, "job-2", Some(99)), // Parent 99 doesn't exist
+            create_test_job(3, "job-3", Some(1)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_complex_branching_tree() {
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job(2, "branch-a", Some(1)),
+            create_test_job(3, "branch-b", Some(1)),
+            create_test_job(4, "branch-a-1", Some(2)),
+            create_test_job(5, "branch-a-2", Some(2)),
+            create_test_job(6, "branch-b-1", Some(3)),
+            create_test_job(7, "deep-child", Some(4)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_empty_job_list() {
+        let jobs: Vec<Job> = vec![];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_tree_with_long_job_names() {
+        let jobs = vec![
+            create_test_job(1, "very-long-root-job-name-here", None),
+            create_test_job(2, "extremely-long-child-job-name", Some(1)),
+            create_test_job(3, "short", Some(1)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_max_depth_calculation() {
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job(2, "level-1", Some(1)),
+            create_test_job(3, "level-2", Some(2)),
+        ];
+
+        let tree = build_dependency_tree(jobs);
+        assert_eq!(tree[0].max_depth(), 2);
+    }
+}
