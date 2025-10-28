@@ -57,6 +57,23 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Received job: {input:?}");
+
+    // Validate that dependency job exists if specified
+    if let Some(dep_id) = input.depends_on {
+        if !state.jobs.contains_key(&dep_id) {
+            log::warn!(
+                "Job submission failed: dependency job {} does not exist",
+                dep_id
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Dependency job {} does not exist", dep_id)
+                })),
+            );
+        }
+    }
+
     let (job_id, run_name) = state.submit_job(input);
     (
         StatusCode::CREATED,

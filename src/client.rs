@@ -68,6 +68,24 @@ impl Client {
             .await
             .context("Failed to send job request")?;
 
+        // Check if the response is successful
+        if !response.status().is_success() {
+            // Try to extract error message from response
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::from("Unknown error"));
+
+            // Try to parse as JSON with error field
+            if let Ok(json_error) = serde_json::from_str::<serde_json::Value>(&error_body) {
+                if let Some(error_msg) = json_error.get("error").and_then(|e| e.as_str()) {
+                    return Err(anyhow::anyhow!("{}", error_msg));
+                }
+            }
+
+            return Err(anyhow::anyhow!("Failed to add job: {}", error_body));
+        }
+
         let job_response: JobSubmitResponse = response
             .json()
             .await
