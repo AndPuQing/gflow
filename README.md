@@ -15,9 +15,11 @@
 ## Core Features
 
 - **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
-- **Rich Job Submission**: Supports dependencies, priorities, and job arrays via the `gbatch` command.
+- **Rich Job Submission**: Supports dependencies, priorities, job arrays, and time limits via the `gbatch` command.
+- **Time Limits**: Set maximum runtime for jobs (similar to Slurm's `--time`) to prevent runaway processes.
 - **Service and Job Control**: Provides clear commands to manage the scheduler daemon (`gctl`), query the job queue (`gqueue`), and control job states (`gcancel`).
 - **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
+- **Output Logging**: Automatic capture of job output to log files via `tmux pipe-pane`.
 - **Simple Command-Line Interface**: Offers a user-friendly and powerful set of command-line tools.
 
 ## Component Overview
@@ -110,6 +112,20 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
   # Second job depends on the first
   gbatch --gpus 1 --name "job2" --depends-on 123 ./job2.sh
   ```
+
+- **Set a time limit for a job**:
+  ```bash
+  # 30-minute limit
+  gbatch --time 30 --command "python train.py"
+
+  # 2-hour limit (HH:MM:SS format)
+  gbatch --time 2:00:00 --command "python long_training.py"
+
+  # 5 minutes 30 seconds
+  gbatch --time 5:30 --command "python quick_task.py"
+  ```
+
+  See [docs/TIME_LIMITS.md](docs/TIME_LIMITS.md) for detailed documentation on time limits.
 
 ### Querying Jobs with `gqueue`
 
