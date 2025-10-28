@@ -15,6 +15,7 @@ pub async fn handle_commands(config: &Config, args: &crate::cli::GQueue) -> Resu
         limit: args.limit,
         all: args.all,
         group: args.group,
+        tree: args.tree,
         format: args.format.clone(),
     };
 

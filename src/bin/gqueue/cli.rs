@@ -14,11 +14,11 @@ pub struct GQueue {
     #[arg(
         long,
         short = 'n',
-        help = "Limit the number of jobs to display (default: 10, use 0 for all)",
-        value_parser = clap::value_parser!(u32),
-        default_value = "10"
+        help = "Limit the number of jobs to display (positive: first N, negative: last N, 0: all)",
+        value_parser = clap::value_parser!(i32),
+        default_value = "-10"
     )]
-    pub limit: u32,
+    pub limit: i32,
 
     #[arg(
         long,
@@ -70,4 +70,11 @@ pub struct GQueue {
         help = "Group jobs by state (helps visualize job distribution)"
     )]
     pub group: bool,
+
+    #[arg(
+        long,
+        short = 't',
+        help = "Display jobs in tree format showing dependencies"
+    )]
+    pub tree: bool,
 }
