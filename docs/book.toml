@@ -1,7 +1,6 @@
 [book]
 authors = ["PuQing"]
 language = "en"
-multilingual = false
 src = "src"
 title = "gflow Documentation"
 description = "A lightweight, single-node job scheduler inspired by Slurm"
