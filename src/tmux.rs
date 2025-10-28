@@ -88,6 +88,8 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
         .output()
         .ok();
 
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
     Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
         .output()
         .map(|_| ())
