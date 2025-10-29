@@ -55,8 +55,13 @@ fn build_job(args: cli::AddArgs, task_id: Option<u32>) -> Result<Job> {
         None
     };
 
-    if let Some(script) = &args.script {
-        let script_path = make_absolute_path(script.clone())?;
+    // Determine if it's a script or command
+    let is_script =
+        args.script_or_command.len() == 1 && PathBuf::from(&args.script_or_command[0]).exists();
+
+    if is_script {
+        // Script mode
+        let script_path = make_absolute_path(PathBuf::from(&args.script_or_command[0]))?;
         let script_args = parse_script_for_args(&script_path)?;
 
         builder = builder.script(script_path);
@@ -74,7 +79,9 @@ fn build_job(args: cli::AddArgs, task_id: Option<u32>) -> Result<Job> {
             None
         };
         builder = builder.time_limit(final_time_limit);
-    } else if let Some(command) = args.command {
+    } else {
+        // Command mode
+        let command = args.script_or_command.join(" ");
         builder = builder.command(command);
         builder = builder.gpus(args.gpus.unwrap_or(0));
         builder = builder.priority(args.priority.unwrap_or(10));
@@ -166,8 +173,7 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
 
     if gflow_lines.is_empty() {
         return Ok(cli::AddArgs {
-            script: None,
-            command: None,
+            script_or_command: vec![],
             conda_env: None,
             gpus: None,
             priority: None,
@@ -178,7 +184,8 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
     }
 
     let args_str = gflow_lines.join(" ");
-    let full_args = format!("gbatch {args_str}");
+    // Add a dummy positional arg since we only care about the options
+    let full_args = format!("gbatch {args_str} dummy");
     let parsed = cli::GBatch::try_parse_from(full_args.split_whitespace())?;
     Ok(parsed.add_args)
 }

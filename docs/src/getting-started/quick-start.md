@@ -26,7 +26,7 @@ $ gctl status
 Let's submit a simple job:
 
 ```bash
-gbatch --command "echo 'Hello from gflow!'; sleep 5; echo 'Job complete!'"
+gbatch echo 'Hello from gflow!'; sleep 5; echo 'Job complete!'
 ```
 
 Output:
@@ -74,27 +74,27 @@ Job complete!
 ### Job with GPU Request
 
 ```bash
-gbatch --gpus 1 --command "nvidia-smi"
+gbatch --gpus 1 nvidia-smi
 ```
 
 ### Job with Time Limit
 
 ```bash
 # 30-minute limit
-gbatch --time 30 --command "python train.py"
+gbatch --time 30 python train.py
 
 # 2-hour limit
-gbatch --time 2:00:00 --command "python long_train.py"
+gbatch --time 2:00:00 python long_train.py
 ```
 
 ### Job with Priority
 
 ```bash
 # Higher priority (runs first)
-gbatch --priority 100 --command "python urgent_task.py"
+gbatch --priority 100 python urgent_task.py
 
 # Lower priority (default is 10)
-gbatch --priority 5 --command "python background_task.py"
+gbatch --priority 5 python background_task.py
 ```
 
 ### Job Script
@@ -123,14 +123,14 @@ Run jobs in sequence:
 
 ```bash
 # Job 1: Preprocessing
-gbatch --command "python preprocess.py" --name "prep"
+gbatch python preprocess.py --name "prep"
 # Note the job ID, e.g., 2
 
 # Job 2: Training (depends on job 2)
-gbatch --command "python train.py" --depends-on 2 --name "train"
+gbatch python train.py --depends-on 2 --name "train"
 
 # Job 3: Evaluation (depends on job 3)
-gbatch --command "python evaluate.py" --depends-on 3 --name "eval"
+gbatch python evaluate.py --depends-on 3 --name "eval"
 ```
 
 View dependency tree:
@@ -224,12 +224,12 @@ Here's a complete example workflow:
 gctl up
 
 # 2. Submit preprocessing job
-gbatch --time 10 --command "python preprocess.py --output data.pkl" --name prep
+gbatch --time 10 python preprocess.py --output data.pkl --name prep
 # Job ID: 1
 
 # 3. Submit training jobs (depend on preprocessing)
-gbatch --time 2:00:00 --gpus 1 --depends-on 1 --command "python train.py --lr 0.001" --name train_lr001
-gbatch --time 2:00:00 --gpus 1 --depends-on 1 --command "python train.py --lr 0.01" --name train_lr01
+gbatch --time 2:00:00 --gpus 1 --depends-on 1 python train.py --lr 0.001 --name train_lr001
+gbatch --time 2:00:00 --gpus 1 --depends-on 1 python train.py --lr 0.01 --name train_lr01
 
 # 4. Monitor jobs
 watch gqueue
@@ -251,7 +251,7 @@ Run multiple similar tasks:
 
 ```bash
 gbatch --array 1-10 --time 30 \
-       --command 'python process.py --task $GFLOW_ARRAY_TASK_ID'
+       python process.py --task $GFLOW_ARRAY_TASK_ID
 ```
 
 This creates 10 jobs, each with `$GFLOW_ARRAY_TASK_ID` set to 1, 2, ..., 10.
@@ -262,9 +262,9 @@ Test different hyperparameters on different GPUs:
 
 ```bash
 # Each job gets 1 GPU
-gbatch --gpus 1 --time 4:00:00 --command "python train.py --lr 0.001"
-gbatch --gpus 1 --time 4:00:00 --command "python train.py --lr 0.01"
-gbatch --gpus 1 --time 4:00:00 --command "python train.py --lr 0.1"
+gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.001
+gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.01
+gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.1
 ```
 
 ### Conda Environment
@@ -272,14 +272,14 @@ gbatch --gpus 1 --time 4:00:00 --command "python train.py --lr 0.1"
 Use a specific conda environment:
 
 ```bash
-gbatch --conda-env myenv --command "python script.py"
+gbatch --conda-env myenv python script.py
 ```
 
 ## Tips for Beginners
 
 1. **Always set time limits** for production jobs:
    ```bash
-   gbatch --time 2:00:00 --command "..."
+   gbatch --time 2:00:00 your_command
    ```
 
 2. **Use `watch gqueue`** to monitor jobs in real-time
@@ -291,12 +291,12 @@ gbatch --conda-env myenv --command "python script.py"
 
 4. **Test scripts first** with short time limits:
    ```bash
-   gbatch --time 1 --command "bash test.sh"
+   gbatch --time 1 bash test.sh
    ```
 
 5. **Use job dependencies** for workflows:
    ```bash
-   gbatch --depends-on <prev_job_id> --command "..."
+   gbatch --depends-on <prev_job_id> your_command
    ```
 
 ## Next Steps

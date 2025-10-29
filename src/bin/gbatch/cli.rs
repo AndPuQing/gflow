@@ -1,6 +1,5 @@
 use clap::Parser;
 use gflow::core::version;
-use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "gbatch", author, version = version(), about = "Submits jobs to the gflow scheduler. Inspired by sbatch.")]
@@ -29,13 +28,11 @@ pub struct NewArgs {
 
 #[derive(Debug, Parser, Clone)]
 pub struct AddArgs {
-    /// The script to run
-    #[arg(required_unless_present = "command")]
-    pub script: Option<PathBuf>,
-
-    /// The command to run
-    #[arg(long, conflicts_with = "script")]
-    pub command: Option<String>,
+    /// The script or command to run (e.g., "script.sh" or "python train.py --epochs 100")
+    /// If a single argument that exists as a file, it's treated as a script.
+    /// Otherwise, all arguments are joined as a command.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+    pub script_or_command: Vec<String>,
 
     #[arg(short, long)]
     /// The conda environment to use

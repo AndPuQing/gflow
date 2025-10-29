@@ -10,15 +10,21 @@ This guide covers all aspects of submitting jobs with `gbatch`, from basic usage
 
 ### Submitting a Command
 
-The simplest way to submit a job:
+The simplest way to submit a job is to provide the command directly:
 
 ```bash
-gbatch --command "python script.py"
+gbatch python script.py
 ```
 
 Output:
 ```
 Submitted batch job 1 (silent-pump-6338)
+```
+
+**No quotes needed** for simple commands! Arguments are automatically joined:
+
+```bash
+gbatch python train.py --epochs 100 --lr 0.01
 ```
 
 ### Submitting a Script
@@ -48,10 +54,10 @@ Request GPUs for your job:
 
 ```bash
 # Request 1 GPU
-gbatch --gpus 1 --command "python train.py"
+gbatch --gpus 1 python train.py
 
 # Request 2 GPUs
-gbatch --gpus 2 --command "python multi_gpu_train.py"
+gbatch --gpus 2 python multi_gpu_train.py
 ```
 
 The scheduler sets `CUDA_VISIBLE_DEVICES` automatically to the allocated GPUs.
@@ -69,7 +75,7 @@ JOBID    NAME                NODES    NODELIST(REASON)
 Activate a conda environment before running your job:
 
 ```bash
-gbatch --conda-env myenv --command "python script.py"
+gbatch --conda-env myenv python script.py
 ```
 
 This is equivalent to running:
@@ -86,13 +92,13 @@ Control when your job runs relative to others:
 
 ```bash
 # High priority (runs first)
-gbatch --priority 100 --command "python urgent.py"
+gbatch --priority 100 python urgent.py
 
 # Default priority
-gbatch --command "python normal.py"  # priority = 10
+gbatch python normal.py  # priority = 10
 
 # Low priority (runs last)
-gbatch --priority 1 --command "python background.py"
+gbatch --priority 1 python background.py
 ```
 
 **Priority details**:
@@ -117,22 +123,22 @@ When resources become available, gflow schedules jobs using a three-level priori
 # These jobs will run in the following order when GPUs become available:
 
 # 1st: High priority, even though unlimited
-gbatch --priority 20 --command "python urgent.py"
+gbatch --priority 20 python urgent.py
 
 # 2nd: Same priority, but 10-minute limit beats unlimited
-gbatch --priority 10 --time 10 --command "python quick.py"
+gbatch --priority 10 --time 10 python quick.py
 
 # 3rd: Same priority, but 1-hour limit (submitted first)
-gbatch --priority 10 --time 1:00:00 --command "python train1.py"  # Job ID 100
+gbatch --priority 10 --time 1:00:00 python train1.py  # Job ID 100
 
 # 4th: Same priority and limit, but submitted later
-gbatch --priority 10 --time 1:00:00 --command "python train2.py"  # Job ID 101
+gbatch --priority 10 --time 1:00:00 python train2.py  # Job ID 101
 
 # 5th: Same priority, unlimited (submitted first)
-gbatch --priority 10 --command "python long1.py"  # Job ID 102
+gbatch --priority 10 python long1.py  # Job ID 102
 
 # 6th: Same priority, unlimited (submitted later)
-gbatch --priority 10 --command "python long2.py"  # Job ID 103
+gbatch --priority 10 python long2.py  # Job ID 103
 ```
 
 **Key Insights**:
@@ -146,13 +152,13 @@ Set maximum runtime for jobs:
 
 ```bash
 # 30 minutes
-gbatch --time 30 --command "python quick.py"
+gbatch --time 30 python quick.py
 
 # 2 hours
-gbatch --time 2:00:00 --command "python train.py"
+gbatch --time 2:00:00 python train.py
 
 # 5 minutes 30 seconds
-gbatch --time 5:30 --command "python test.py"
+gbatch --time 5:30 python test.py
 ```
 
 See [Time Limits](./time-limits.md) for comprehensive documentation.
@@ -162,7 +168,7 @@ See [Time Limits](./time-limits.md) for comprehensive documentation.
 By default, jobs get auto-generated names (e.g., "silent-pump-6338"). You can specify custom names:
 
 ```bash
-gbatch --name "my-training-run" --command "python train.py"
+gbatch --name "my-training-run" python train.py
 ```
 
 **Note**: The `--name` option is for custom naming. If not specified, a random name is generated.
@@ -173,14 +179,14 @@ Make jobs wait for other jobs to complete:
 
 ```bash
 # Job 1: Preprocessing
-gbatch --command "python preprocess.py" --name "prep"
+gbatch --name "prep" python preprocess.py
 # Returns: Submitted batch job 1
 
 # Job 2: Training (waits for job 1)
-gbatch --command "python train.py" --depends-on 1 --name "train"
+gbatch --depends-on 1 --name "train" python train.py
 
 # Job 3: Evaluation (waits for job 2)
-gbatch --command "python evaluate.py" --depends-on 2 --name "eval"
+gbatch --depends-on 2 --name "eval" python evaluate.py
 ```
 
 See [Job Dependencies](./job-dependencies.md) for advanced dependency management.
@@ -191,7 +197,7 @@ Run multiple similar tasks in parallel:
 
 ```bash
 # Create 10 jobs with task IDs 1-10
-gbatch --array 1-10 --command 'python process.py --task $GFLOW_ARRAY_TASK_ID'
+gbatch --array 1-10 python process.py --task '$GFLOW_ARRAY_TASK_ID'
 ```
 
 **How it works**:
@@ -203,7 +209,7 @@ gbatch --array 1-10 --command 'python process.py --task $GFLOW_ARRAY_TASK_ID'
 **Example with different parameters**:
 ```bash
 gbatch --array 1-5 --gpus 1 --time 2:00:00 \
-       --command 'python train.py --lr $(echo "0.001 0.01 0.1 0.5 1.0" | cut -d" " -f$GFLOW_ARRAY_TASK_ID)'
+       python train.py --lr '$(echo "0.001 0.01 0.1 0.5 1.0" | cut -d" " -f$GFLOW_ARRAY_TASK_ID)'
 ```
 
 **Environment variable**:
@@ -332,7 +338,7 @@ Test multiple hyperparameters:
 for lr in 0.001 0.01 0.1; do
     gbatch --gpus 1 --time 4:00:00 \
            --name "train-lr-$lr" \
-           --command "python train.py --lr $lr"
+           python train.py --lr $lr
 done
 ```
 
@@ -340,14 +346,14 @@ done
 
 ```bash
 # Step 1: Data preprocessing
-ID1=$(gbatch --time 30 --command "python preprocess.py" | grep -oP '\d+')
+ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
 
 # Step 2: Training
 ID2=$(gbatch --time 4:00:00 --gpus 1 --depends-on $ID1 \
-             --command "python train.py" | grep -oP '\d+')
+             python train.py | grep -oP '\d+')
 
 # Step 3: Evaluation
-gbatch --time 10 --depends-on $ID2 --command "python evaluate.py"
+gbatch --time 10 --depends-on $ID2 python evaluate.py
 ```
 
 ### Multi-stage Job Script
@@ -381,7 +387,7 @@ PREV_JOB=42
 STATUS=$(gqueue -j $PREV_JOB -f ST | tail -n 1)
 
 if [ "$STATUS" = "CD" ]; then
-    gbatch --command "python next_step.py"
+    gbatch python next_step.py
 else
     echo "Previous job not completed successfully"
 fi
@@ -416,7 +422,7 @@ for epoch in range(epochs):
 
 Submit with time limit:
 ```bash
-gbatch --time 8:00:00 --gpus 1 --command "python train.py"
+gbatch --time 8:00:00 --gpus 1 python train.py
 ```
 
 ### GPU Utilization Check
@@ -508,12 +514,11 @@ gbatch my_script.sh
 
 **Full command syntax**:
 ```bash
-gbatch [OPTIONS] [SCRIPT]
-gbatch --command <CMD> [OPTIONS]
+gbatch [OPTIONS] <SCRIPT>
+gbatch [OPTIONS] <COMMAND> [ARGS...]
 ```
 
 **All options**:
-- `--command <CMD>`: Command to run
 - `--gpus <N>` or `-g <N>`: Number of GPUs
 - `--time <TIME>` or `-t <TIME>`: Time limit
 - `--priority <N>`: Job priority (0-255, default: 10)

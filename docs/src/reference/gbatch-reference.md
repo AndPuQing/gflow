@@ -5,14 +5,14 @@ Complete reference for the `gbatch` command - gflow's job submission tool.
 ## Synopsis
 
 ```bash
+gbatch [OPTIONS] [COMMAND...]
 gbatch [OPTIONS] [SCRIPT]
-gbatch --command <CMD> [OPTIONS]
 gbatch new <NAME>
 ```
 
 ## Description
 
-`gbatch` submits jobs to the gflow scheduler. It supports both script-based and direct command execution, with extensive options for resource allocation, scheduling, and job dependencies.
+`gbatch` submits jobs to the gflow scheduler. It supports both script-based and direct command execution using positional arguments, with extensive options for resource allocation, scheduling, and job dependencies.
 
 ## Modes
 
@@ -28,13 +28,13 @@ The script can contain `# GFLOW` directives for job parameters.
 
 ### Direct Command
 
-Execute a command directly:
+Execute a command directly using positional arguments:
 
 ```bash
-gbatch --command <CMD> [OPTIONS]
+gbatch [OPTIONS] <COMMAND> [ARGS...]
 ```
 
-Command-line options take precedence over script directives.
+The command and its arguments come after all options. Command-line options take precedence over script directives.
 
 ### Template Creation
 
@@ -66,23 +66,24 @@ gbatch /absolute/path/to/job.sh
 - Should be executable (`chmod +x`)
 - Can contain `# GFLOW` directives
 
-**Mutually exclusive** with `--command`.
+**Mutually exclusive** with direct command execution.
 
-#### `--command <CMD>`, `-c <CMD>`
+#### Direct Command Execution
 
-Command to execute directly.
+When no script is provided, all arguments after the options are treated as the command to execute.
 
 **Example**:
 ```bash
-gbatch --command "python train.py"
-gbatch --command "echo 'Hello'; sleep 10"
-gbatch -c "nvidia-smi"
+gbatch python train.py
+gbatch echo 'Hello'; sleep 10
+gbatch nvidia-smi
 ```
 
 **Notes**:
 - Executed in bash shell
 - Can contain multiple commands (use `;` or `&&`)
 - Mutually exclusive with `<SCRIPT>`
+- Commands with complex arguments should be quoted appropriately
 
 ### Resource Allocation
 
@@ -93,13 +94,13 @@ Number of GPUs to request.
 **Example**:
 ```bash
 # Request 1 GPU
-gbatch --gpus 1 --command "python train.py"
+gbatch --gpus 1 python train.py
 
 # Request 2 GPUs
-gbatch -g 2 --command "python multi_gpu_train.py"
+gbatch -g 2 python multi_gpu_train.py
 
 # No GPU (default)
-gbatch --command "python cpu_task.py"
+gbatch python cpu_task.py
 ```
 
 **Behavior**:
@@ -114,7 +115,7 @@ Conda environment to activate.
 
 **Example**:
 ```bash
-gbatch --conda-env myenv --command "python script.py"
+gbatch --conda-env myenv python script.py
 gbatch --conda-env pytorch_env my_training.sh
 ```
 
@@ -123,24 +124,24 @@ gbatch --conda-env pytorch_env my_training.sh
 - Requires conda to be initialized in shell
 - Job fails if environment doesn't exist
 
-**Auto-detection** (for `--command` mode only):
+**Auto-detection** (for direct command mode only):
 - If `--conda-env` is not specified, gflow automatically detects your currently active conda environment
 - Uses the `CONDA_DEFAULT_ENV` environment variable
-- Only applies when using `--command`, not when submitting scripts
+- Only applies when using direct command execution, not when submitting scripts
 - Explicit `--conda-env` always takes precedence over auto-detection
 
 ```bash
 # With auto-detection (uses currently active conda env)
 conda activate myenv
-gbatch --command "python script.py"  # Will use 'myenv'
+gbatch python script.py  # Will use 'myenv'
 
 # Explicit override (ignores active env)
 conda activate myenv
-gbatch --conda-env otherenv --command "python script.py"  # Uses 'otherenv'
+gbatch --conda-env otherenv python script.py  # Uses 'otherenv'
 
 # No conda environment
 conda deactivate
-gbatch --command "python script.py"  # No conda activation
+gbatch python script.py  # No conda activation
 ```
 
 ### Scheduling Options
@@ -152,13 +153,13 @@ Job priority (0-255, default: 10).
 **Example**:
 ```bash
 # High priority (runs first)
-gbatch --priority 100 --command "python urgent.py"
+gbatch --priority 100 python urgent.py
 
 # Default priority
-gbatch --command "python normal.py"  # priority = 10
+gbatch python normal.py  # priority = 10
 
 # Low priority (runs last)
-gbatch --priority 1 --command "python background.py"
+gbatch --priority 1 python background.py
 ```
 
 **Behavior**:
@@ -173,11 +174,11 @@ Job ID this job depends on.
 **Example**:
 ```bash
 # Job 1
-gbatch --command "python preprocess.py"
+gbatch python preprocess.py
 # Returns job ID 1
 
 # Job 2 (depends on 1)
-gbatch --depends-on 1 --command "python train.py"
+gbatch --depends-on 1 python train.py
 ```
 
 **Behavior**:
@@ -203,13 +204,13 @@ Maximum job runtime (time limit).
 **Example**:
 ```bash
 # 30 minutes
-gbatch --time 30 --command "python quick.py"
+gbatch --time 30 python quick.py
 
 # 2 hours
-gbatch --time 2:00:00 --command "python train.py"
+gbatch --time 2:00:00 python train.py
 
 # 5 minutes 30 seconds
-gbatch -t 5:30 --command "python test.py"
+gbatch -t 5:30 python test.py
 ```
 
 **Behavior**:
@@ -227,10 +228,10 @@ Create job array.
 **Example**:
 ```bash
 # Create 10 jobs (tasks 1-10)
-gbatch --array 1-10 --command 'python process.py --task $GFLOW_ARRAY_TASK_ID'
+gbatch --array 1-10 python process.py --task $GFLOW_ARRAY_TASK_ID
 
 # Create 5 jobs with GPUs
-gbatch --array 1-5 --gpus 1 --command 'python train.py --fold $GFLOW_ARRAY_TASK_ID'
+gbatch --array 1-5 --gpus 1 python train.py --fold $GFLOW_ARRAY_TASK_ID
 ```
 
 **Behavior**:
@@ -249,7 +250,7 @@ Custom job name.
 
 **Example**:
 ```bash
-gbatch --name "my-training-run" --command "python train.py"
+gbatch --name "my-training-run" python train.py
 gbatch --name "experiment-1" my_job.sh
 ```
 
@@ -267,7 +268,7 @@ Use custom configuration file (hidden option).
 
 **Example**:
 ```bash
-gbatch --config /path/to/custom.toml --command "..."
+gbatch --config /path/to/custom.toml your_command
 ```
 
 #### `--help`, `-h`
@@ -394,7 +395,7 @@ python train.py
 ### Submission Success
 
 ```bash
-$ gbatch --command "python train.py"
+$ gbatch python train.py
 Submitted batch job 42 (silent-pump-6338)
 ```
 
@@ -419,63 +420,63 @@ tail -f ~/.local/share/gflow/logs/42.log
 
 ```bash
 # Direct command
-gbatch --command "echo 'Hello, gflow!'"
+gbatch echo 'Hello, gflow!'
 
 # Script file
 gbatch my_script.sh
 
 # With options
-gbatch --gpus 1 --time 2:00:00 --command "python train.py"
+gbatch --gpus 1 --time 2:00:00 python train.py
 ```
 
 ### Resource Allocation
 
 ```bash
 # GPU job
-gbatch --gpus 2 --command "python multi_gpu_train.py"
+gbatch --gpus 2 python multi_gpu_train.py
 
 # CPU job with time limit
-gbatch --time 30 --command "python preprocess.py"
+gbatch --time 30 python preprocess.py
 
 # Conda environment (explicit)
-gbatch --conda-env myenv --command "python script.py"
+gbatch --conda-env myenv python script.py
 
 # Conda environment (auto-detected from currently active env)
 conda activate myenv
-gbatch --command "python script.py"  # Automatically uses 'myenv'
+gbatch python script.py  # Automatically uses 'myenv'
 ```
 
 ### Job Dependencies
 
 ```bash
 # Sequential pipeline
-ID1=$(gbatch --time 30 --command "python prep.py" | grep -oP '\d+')
-ID2=$(gbatch --depends-on $ID1 --gpus 1 --command "python train.py" | grep -oP '\d+')
-gbatch --depends-on $ID2 --command "python eval.py"
+ID1=$(gbatch --time 30 python prep.py | grep -oP '\d+')
+ID2=$(gbatch --depends-on $ID1 --gpus 1 python train.py | grep -oP '\d+')
+gbatch --depends-on $ID2 python eval.py
 ```
 
 ### Job Arrays
 
 ```bash
 # Process 10 tasks in parallel
-gbatch --array 1-10 --command 'python process.py --id $GFLOW_ARRAY_TASK_ID'
+gbatch --array 1-10 python process.py --id $GFLOW_ARRAY_TASK_ID
 
 # GPU sweep
 gbatch --array 1-5 --gpus 1 --time 4:00:00 \
-       --command 'python train.py --lr $(echo "0.001 0.01 0.1 0.5 1.0" | cut -d" " -f$GFLOW_ARRAY_TASK_ID)'
+       python train.py --lr $(echo "0.001 0.01 0.1 0.5 1.0" | cut -d" " -f$GFLOW_ARRAY_TASK_ID)
 ```
 
 ### Priority and Scheduling
 
 ```bash
 # Urgent job
-gbatch --priority 100 --gpus 1 --command "python urgent.py"
+gbatch --priority 100 --gpus 1 python urgent.py
 
 # Background job
-gbatch --priority 1 --command "python background.py"
+gbatch --priority 1 python background.py
 
 # Named job
-gbatch --name "exp-baseline" --command "python train_baseline.py"
+gbatch --name "exp-baseline" python train_baseline.py
 ```
 
 ### Script Templates
@@ -497,7 +498,7 @@ gbatch experiment.sh
 
 ```bash
 # Both script and command
-Error: Cannot specify both script and --command
+Error: Cannot specify both script and direct command
 
 # Script not found
 Error: Script file not found: missing.sh
@@ -522,7 +523,7 @@ At submission, gbatch validates:
 - ✅ Dependency job exists
 - ✅ No circular dependencies
 - ✅ Valid time format
-- ✅ Not both script and command
+- ✅ Not both script and direct command
 - ✅ GPU count is reasonable
 
 ## Integration Examples
@@ -537,7 +538,7 @@ for lr in 0.001 0.01 0.1; do
     for bs in 32 64 128; do
         gbatch --gpus 1 --time 4:00:00 \
                --name "lr${lr}_bs${bs}" \
-               --command "python train.py --lr $lr --batch-size $bs"
+               python train.py --lr $lr --batch-size $bs
     done
 done
 ```
@@ -554,17 +555,17 @@ echo "Submitting pipeline..."
 
 # Stage 1: Download
 ID1=$(gbatch --time 1:00:00 --name "download" \
-             --command "python download.py" | grep -oP '\d+')
+             python download.py | grep -oP '\d+')
 echo "Job $ID1 (download) submitted"
 
 # Stage 2: Process (depends on download)
 ID2=$(gbatch --depends-on $ID1 --time 2:00:00 --name "process" \
-             --command "python process.py" | grep -oP '\d+')
+             python process.py | grep -oP '\d+')
 echo "Job $ID2 (process) submitted"
 
 # Stage 3: Train (depends on process)
 ID3=$(gbatch --depends-on $ID2 --gpus 1 --time 8:00:00 --name "train" \
-             --command "python train.py" | grep -oP '\d+')
+             python train.py | grep -oP '\d+')
 echo "Job $ID3 (train) submitted"
 
 echo "Pipeline submitted! Monitor with: watch gqueue -t"
@@ -581,8 +582,9 @@ import re
 
 def submit_job(command, **kwargs):
     """Submit a job and return its ID."""
-    cmd = ['gbatch', '--command', command]
+    cmd = ['gbatch']
 
+    # Add options first
     if 'gpus' in kwargs:
         cmd += ['--gpus', str(kwargs['gpus'])]
     if 'time' in kwargs:
@@ -593,6 +595,9 @@ def submit_job(command, **kwargs):
         cmd += ['--depends-on', str(kwargs['depends_on'])]
     if 'name' in kwargs:
         cmd += ['--name', kwargs['name']]
+
+    # Add command at the end
+    cmd += command.split() if isinstance(command, str) else command
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     match = re.search(r'job (\d+)', result.stdout)

@@ -95,7 +95,7 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 
 - **Submit a command directly**:
   ```bash
-  gbatch --gpus 1 --command "python train.py --epochs 10"
+  gbatch --gpus 1 python train.py --epochs 10
   ```
 
 - **Set a job name and priority**:
@@ -116,13 +116,13 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 - **Set a time limit for a job**:
   ```bash
   # 30-minute limit
-  gbatch --time 30 --command "python train.py"
+  gbatch --time 30 python train.py
 
   # 2-hour limit (HH:MM:SS format)
-  gbatch --time 2:00:00 --command "python long_training.py"
+  gbatch --time 2:00:00 python long_training.py
 
   # 5 minutes 30 seconds
-  gbatch --time 5:30 --command "python quick_task.py"
+  gbatch --time 5:30 python quick_task.py
   ```
 
   See [docs/TIME_LIMITS.md](docs/TIME_LIMITS.md) for detailed documentation on time limits.

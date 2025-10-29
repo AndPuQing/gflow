@@ -37,13 +37,13 @@ Submit jobs with various options:
 ### ⏱️ Time Limits
 Set maximum runtime for jobs (similar to Slurm's `--time`) to prevent runaway processes:
 ```bash
-gbatch --time 2:00:00 --command "python train.py"
+gbatch --time 2:00:00 python train.py
 ```
 
 ### 🔗 Job Dependencies
 Create complex workflows where jobs depend on others:
 ```bash
-gbatch --depends-on 123 --command "python postprocess.py"
+gbatch --depends-on 123 python postprocess.py
 ```
 
 ### 📊 Powerful Monitoring
@@ -66,7 +66,7 @@ Every job runs in its own tmux session, allowing you to:
 $ gctl up
 
 # Submit a training job with 1 GPU and 2-hour time limit
-$ gbatch --gpus 1 --time 2:00:00 --command "python train.py"
+$ gbatch --gpus 1 --time 2:00:00 python train.py
 
 # Check the job queue
 $ gqueue
@@ -90,7 +90,7 @@ $ gctl down
                  │ HTTP API
                  ▼
 ┌──────────────────────────────────┐
-│          gflowd Daemon            │
+│          gflowd Daemon             │
 │  ┌────────────────────────────┐  │
 │  │ Scheduler (5s interval)    │  │
 │  │ - Check dependencies       │  │
