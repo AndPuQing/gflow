@@ -10,7 +10,7 @@ echo "Setting up gh-pages worktree..."
 rm -rf gh-pages
 git worktree prune
 
-# Delete local gh-pages branch if it exists
+# Delete existing gh-pages branch if it exists (locally)
 git branch -D gh-pages 2>/dev/null || true
 
 # Create orphan gh-pages branch (clean history)
@@ -27,7 +27,7 @@ PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m "Deploy documentation $(date +'%Y-%m-
 echo "Pushing to gh-pages..."
 git push origin +gh-pages
 
-cd ..
-git worktree remove gh-pages
+cd ../..
+git worktree remove docs/gh-pages
 
 echo "✓ Documentation deployed to gh-pages branch!"
