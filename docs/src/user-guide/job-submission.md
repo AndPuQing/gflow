@@ -99,7 +99,46 @@ gbatch --priority 1 --command "python background.py"
 - Range: 0-255
 - Default: 10
 - Higher values = higher priority
-- Jobs with higher priority run first when resources are available
+- Jobs are scheduled based on a multi-factor priority system (see below)
+
+**Scheduling Priority Hierarchy**:
+
+When resources become available, gflow schedules jobs using a three-level priority system:
+
+1. **User Priority** (Primary): Jobs with higher `--priority` values run first
+2. **Time Limit Bonus** (Secondary): Among jobs with equal priority:
+   - Time-limited jobs are preferred over unlimited jobs
+   - Shorter jobs run before longer jobs
+3. **Submission Order** (Tertiary): Jobs submitted earlier run first (FIFO)
+
+**Examples**:
+
+```bash
+# These jobs will run in the following order when GPUs become available:
+
+# 1st: High priority, even though unlimited
+gbatch --priority 20 --command "python urgent.py"
+
+# 2nd: Same priority, but 10-minute limit beats unlimited
+gbatch --priority 10 --time 10 --command "python quick.py"
+
+# 3rd: Same priority, but 1-hour limit (submitted first)
+gbatch --priority 10 --time 1:00:00 --command "python train1.py"  # Job ID 100
+
+# 4th: Same priority and limit, but submitted later
+gbatch --priority 10 --time 1:00:00 --command "python train2.py"  # Job ID 101
+
+# 5th: Same priority, unlimited (submitted first)
+gbatch --priority 10 --command "python long1.py"  # Job ID 102
+
+# 6th: Same priority, unlimited (submitted later)
+gbatch --priority 10 --command "python long2.py"  # Job ID 103
+```
+
+**Key Insights**:
+- Setting `--time` not only prevents runaway jobs but also improves scheduling priority
+- Shorter time limits get slight preference, encouraging accurate estimates
+- Submission order acts as a fair tie-breaker when all else is equal
 
 ### Time Limits
 

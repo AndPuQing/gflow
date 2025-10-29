@@ -82,6 +82,50 @@ gbatch --time 5:30 --command "quick_task"
 gbatch --time 12:45:00 --command "overnight_job"
 ```
 
+## Scheduling Benefits
+
+### Time Limits Improve Scheduling Priority
+
+When multiple jobs are queued with the same priority level, gflow uses a multi-factor scheduling algorithm:
+
+1. **User Priority** (Primary factor)
+2. **Time Limit Bonus** (Secondary factor)
+3. **Submission Order** (Tie-breaker)
+
+**How the Time Bonus Works**:
+
+- **Unlimited jobs**: Receive lowest scheduling bonus
+- **Time-limited jobs**: Receive higher scheduling bonus
+- **Shorter jobs**: Receive even higher bonus within time-limited jobs
+
+This means setting a time limit provides two benefits:
+- ✅ **Safety**: Prevents runaway jobs from consuming resources indefinitely
+- ✅ **Priority**: Your job runs sooner when competing with unlimited jobs
+
+**Example Scheduling Order**:
+
+```bash
+# Assume all jobs have priority=10 and are submitted in this order:
+
+gbatch --priority 10 --time 10 --command "quick.py"        # Runs 1st (shortest)
+gbatch --priority 10 --time 1:00:00 --command "medium.py"  # Runs 2nd (medium)
+gbatch --priority 10 --time 8:00:00 --command "long.py"    # Runs 3rd (long limit)
+gbatch --priority 10 --command "unlimited.py"              # Runs 4th (no limit)
+```
+
+**Key Insight**: Even a very generous time limit (e.g., 24 hours) gives your job an advantage over unlimited jobs at the same priority level. Setting realistic time limits is a win-win!
+
+### Scheduling Priority Details
+
+The time bonus uses the following formula:
+- No time limit: Bonus = 100
+- With time limit: Bonus = 200-300 (based on duration)
+  - Very short jobs (seconds-minutes): ~300
+  - Medium jobs (hours): ~250
+  - Long jobs (≥24 hours): ~200
+
+User priority is multiplied by 1000, so it always dominates the scheduling decision. Time bonuses only matter when jobs have equal priority.
+
 ## Behavior and Enforcement
 
 ### How Time Limits Work

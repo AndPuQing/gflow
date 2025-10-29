@@ -190,6 +190,27 @@ impl Scheduler {
             false
         }
     }
+
+    /// Calculate time bonus for scheduling priority
+    /// Returns a value between 100-300:
+    /// - 100: No time limit (lowest bonus)
+    /// - 200-300: Has time limit (shorter jobs get higher bonus)
+    fn calculate_time_bonus(time_limit: &Option<Duration>) -> u32 {
+        match time_limit {
+            None => 100, // Jobs without time limits get lowest bonus
+            Some(limit) => {
+                // Normalize time limit against a 24-hour maximum
+                let max_time_secs = 24.0 * 3600.0; // 24 hours in seconds
+                let limit_secs = limit.as_secs_f64();
+                let normalized = (limit_secs / max_time_secs).min(1.0);
+
+                // Shorter jobs get higher bonus (up to 300)
+                // Longer jobs get lower bonus (down to 200)
+                // Formula: 200 + (1 - normalized) * 100
+                200 + ((1.0 - normalized) * 100.0) as u32
+            }
+        }
+    }
 }
 
 impl GPU for Scheduler {
@@ -272,7 +293,11 @@ pub async fn run(shared_state: SharedState) {
             .map(|j| j.id)
             .collect();
 
-        // Sort all queued jobs by priority
+        // Sort all queued jobs by priority, time limit, and submission order
+        // Priority hierarchy:
+        // 1. User priority (highest priority wins)
+        // 2. Time limit bonus (time-limited jobs preferred, shorter jobs first)
+        // 3. Submission order (earlier submissions first, using job ID as proxy)
         let mut runnable_jobs: Vec<_> = state
             .jobs
             .values()
@@ -283,13 +308,20 @@ pub async fn run(shared_state: SharedState) {
                 }
                 true
             })
-            .map(|j| (j.id, j.priority))
+            .map(|j| j.id)
             .collect();
 
-        runnable_jobs.sort_by_key(|(_, priority)| std::cmp::Reverse(*priority));
+        runnable_jobs.sort_by_key(|job_id| {
+            let job = state.jobs.get(job_id).unwrap();
+            let time_bonus = Scheduler::calculate_time_bonus(&job.time_limit);
+            // Tuples compare lexicographically: priority first, then time_bonus, then job_id
+            // Use Reverse for descending order on priority and time_bonus
+            // Use double Reverse on job_id for ascending order (FIFO)
+            std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
+        });
 
         // Easy backfilling loop
-        for (job_id, _) in runnable_jobs {
+        for job_id in runnable_jobs {
             if let Some(job) = state.jobs.get_mut(&job_id) {
                 if job.gpus as usize <= available_gpus.len() {
                     // This job can run
@@ -313,5 +345,79 @@ pub async fn run(shared_state: SharedState) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_time_bonus_no_limit() {
+        // Jobs without time limits should get the lowest bonus
+        assert_eq!(Scheduler::calculate_time_bonus(&None), 100);
+    }
+
+    #[test]
+    fn test_calculate_time_bonus_short_job() {
+        // Very short jobs (1 minute) should get close to maximum bonus
+        let one_minute = Duration::from_secs(60);
+        let bonus = Scheduler::calculate_time_bonus(&Some(one_minute));
+        assert!(bonus >= 299, "Expected bonus >= 299, got {}", bonus);
+        assert!(bonus <= 300, "Expected bonus <= 300, got {}", bonus);
+    }
+
+    #[test]
+    fn test_calculate_time_bonus_medium_job() {
+        // Medium jobs (1 hour) should get intermediate bonus
+        let one_hour = Duration::from_secs(3600);
+        let bonus = Scheduler::calculate_time_bonus(&Some(one_hour));
+        assert!(
+            bonus > 200 && bonus < 300,
+            "Expected 200 < bonus < 300, got {}",
+            bonus
+        );
+    }
+
+    #[test]
+    fn test_calculate_time_bonus_long_job() {
+        // Long jobs (24 hours) should get minimum time-limited bonus
+        let twenty_four_hours = Duration::from_secs(24 * 3600);
+        let bonus = Scheduler::calculate_time_bonus(&Some(twenty_four_hours));
+        assert_eq!(bonus, 200);
+    }
+
+    #[test]
+    fn test_calculate_time_bonus_very_long_job() {
+        // Jobs longer than 24 hours should still get 200 (min for time-limited jobs)
+        let forty_eight_hours = Duration::from_secs(48 * 3600);
+        let bonus = Scheduler::calculate_time_bonus(&Some(forty_eight_hours));
+        assert_eq!(bonus, 200);
+    }
+
+    #[test]
+    fn test_time_bonus_ordering() {
+        // Shorter jobs should have higher bonus than longer jobs
+        let one_min = Some(Duration::from_secs(60));
+        let one_hour = Some(Duration::from_secs(3600));
+        let one_day = Some(Duration::from_secs(24 * 3600));
+
+        let bonus_1min = Scheduler::calculate_time_bonus(&one_min);
+        let bonus_1hr = Scheduler::calculate_time_bonus(&one_hour);
+        let bonus_1day = Scheduler::calculate_time_bonus(&one_day);
+        let bonus_none = Scheduler::calculate_time_bonus(&None);
+
+        assert!(
+            bonus_1min > bonus_1hr,
+            "1 minute should have higher bonus than 1 hour"
+        );
+        assert!(
+            bonus_1hr > bonus_1day,
+            "1 hour should have higher bonus than 1 day"
+        );
+        assert!(
+            bonus_1day > bonus_none,
+            "1 day time limit should have higher bonus than no limit"
+        );
     }
 }
