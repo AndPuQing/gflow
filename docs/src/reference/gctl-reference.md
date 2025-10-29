@@ -143,64 +143,7 @@ gctl info
 
 **Output example**:
 ```bash
-System Information:
-  Total GPUs: 4
-  Available GPUs: 2
-  Daemon: Running
-  Host: localhost:59000
-
-GPU Details:
-  GPU 0: NVIDIA GeForce RTX 3090
-    UUID: GPU-12345678-1234-1234-1234-123456789abc
-    Memory: 24 GB
-    Status: In use by job 42 (training-run)
-
-  GPU 1: NVIDIA GeForce RTX 3090
-    UUID: GPU-87654321-4321-4321-4321-cba987654321
-    Memory: 24 GB
-    Status: Available
-
-  GPU 2: NVIDIA GeForce RTX 3080
-    UUID: GPU-11111111-2222-3333-4444-555555555555
-    Memory: 10 GB
-    Status: In use by job 43 (preprocessing)
-
-  GPU 3: NVIDIA GeForce RTX 3080
-    UUID: GPU-66666666-7777-8888-9999-000000000000
-    Memory: 10 GB
-    Status: Available
-
-Job Queue Summary:
-  Running: 2
-  Queued: 3
-  Finished: 15
-  Failed: 1
-  Cancelled: 0
-  Timeout: 0
-```
-
-**Information displayed**:
-- Total number of GPUs
-- Number of available (unused) GPUs
-- Daemon status and connection details
-- Per-GPU information:
-  - Model name
-  - UUID (unique identifier)
-  - Memory capacity
-  - Current allocation status
-  - Job using the GPU (if any)
-- Job queue statistics
-
-**Examples**:
-```bash
-# View system info
-gctl info
-
-# Check GPU availability
-gctl info | grep "Available GPUs"
-
-# List GPU models
-gctl info | grep "GPU [0-9]:"
+<!-- cmdrun gctl info -->
 ```
 
 **Notes**:
@@ -208,19 +151,6 @@ gctl info | grep "GPU [0-9]:"
 - Shows real-time GPU allocation
 - Useful for capacity planning
 - GPU detection requires NVML library
-
-**No GPU systems**:
-```bash
-System Information:
-  Total GPUs: 0
-  Daemon: Running
-  Host: localhost:59000
-
-Job Queue Summary:
-  Running: 5
-  Queued: 2
-  Finished: 20
-```
 
 ## Global Options
 

@@ -14,26 +14,7 @@ View system GPU information:
 
 ```bash
 $ gctl info
-System Information:
-  Total GPUs: 4
-  Available GPUs: 2
-
-GPU Details:
-  GPU 0: NVIDIA GeForce RTX 3090
-    UUID: GPU-12345678-1234-1234-1234-123456789abc
-    Status: In use by job 42
-
-  GPU 1: NVIDIA GeForce RTX 3090
-    UUID: GPU-87654321-4321-4321-4321-cba987654321
-    Status: Available
-
-  GPU 2: NVIDIA GeForce RTX 3080
-    UUID: GPU-11111111-2222-3333-4444-555555555555
-    Status: In use by job 43
-
-  GPU 3: NVIDIA GeForce RTX 3080
-    UUID: GPU-66666666-7777-8888-9999-000000000000
-    Status: Available
+<!-- cmdrun gctl info -->
 ```
 
 **Information displayed**:
