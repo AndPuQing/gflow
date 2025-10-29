@@ -22,7 +22,7 @@ cp -rT book/ gh-pages/
 cd gh-pages
 
 git add -A
-git commit -m "Deploy documentation $(date +'%Y-%m-%d %H:%M:%S')"
+PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m "Deploy documentation $(date +'%Y-%m-%d %H:%M:%S')"
 
 echo "Pushing to gh-pages..."
 git push origin +gh-pages
