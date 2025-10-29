@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
 use gflow::core::job::Job;
-use std::{fs, path::PathBuf, time::Duration};
+use std::{env, fs, path::PathBuf, time::Duration};
 
 pub(crate) async fn handle_add(
     config: &gflow::config::Config,
@@ -33,6 +33,13 @@ pub(crate) async fn handle_add(
     }
 
     Ok(())
+}
+
+/// Detects the currently active conda environment from the environment variables
+fn detect_current_conda_env() -> Option<String> {
+    env::var("CONDA_DEFAULT_ENV")
+        .ok()
+        .filter(|env_name| !env_name.is_empty())
 }
 
 fn build_job(args: cli::AddArgs, task_id: Option<u32>) -> Result<Job> {
@@ -71,7 +78,11 @@ fn build_job(args: cli::AddArgs, task_id: Option<u32>) -> Result<Job> {
         builder = builder.command(command);
         builder = builder.gpus(args.gpus.unwrap_or(0));
         builder = builder.priority(args.priority.unwrap_or(10));
-        builder = builder.conda_env(&args.conda_env);
+
+        // Auto-detect conda environment if not specified
+        let conda_env = args.conda_env.or_else(detect_current_conda_env);
+        builder = builder.conda_env(&conda_env);
+
         builder = builder.depends_on(args.depends_on);
         builder = builder.time_limit(time_limit);
     }

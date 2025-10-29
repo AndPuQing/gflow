@@ -123,6 +123,26 @@ gbatch --conda-env pytorch_env my_training.sh
 - Requires conda to be initialized in shell
 - Job fails if environment doesn't exist
 
+**Auto-detection** (for `--command` mode only):
+- If `--conda-env` is not specified, gflow automatically detects your currently active conda environment
+- Uses the `CONDA_DEFAULT_ENV` environment variable
+- Only applies when using `--command`, not when submitting scripts
+- Explicit `--conda-env` always takes precedence over auto-detection
+
+```bash
+# With auto-detection (uses currently active conda env)
+conda activate myenv
+gbatch --command "python script.py"  # Will use 'myenv'
+
+# Explicit override (ignores active env)
+conda activate myenv
+gbatch --conda-env otherenv --command "python script.py"  # Uses 'otherenv'
+
+# No conda environment
+conda deactivate
+gbatch --command "python script.py"  # No conda activation
+```
+
 ### Scheduling Options
 
 #### `--priority <N>`
@@ -417,8 +437,12 @@ gbatch --gpus 2 --command "python multi_gpu_train.py"
 # CPU job with time limit
 gbatch --time 30 --command "python preprocess.py"
 
-# Conda environment
+# Conda environment (explicit)
 gbatch --conda-env myenv --command "python script.py"
+
+# Conda environment (auto-detected from currently active env)
+conda activate myenv
+gbatch --command "python script.py"  # Automatically uses 'myenv'
 ```
 
 ### Job Dependencies
