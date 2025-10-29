@@ -617,12 +617,12 @@ print(f"Pipeline: {prep_id} -> {train_id} -> {eval_id}")
 
 1. **Always set time limits** for production jobs
    ```bash
-   gbatch --time 2:00:00 --command "..."
+   gbatch --time 2:00:00 your_command
    ```
 
 2. **Use meaningful names** for easier tracking
    ```bash
-   gbatch --name "exp-baseline-lr0.01" --command "..."
+   gbatch --name "exp-baseline-lr0.01" your_command
    ```
 
 3. **Test scripts locally** before submitting
