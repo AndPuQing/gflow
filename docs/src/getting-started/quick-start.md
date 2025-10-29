@@ -17,13 +17,7 @@ gflowd started.
 
 Verify it's running:
 ```bash
-gctl status
-```
-
-Expected output:
-```
-Status: Running
-The gflowd daemon is running in tmux session 'gflow_server'.
+<!-- cmdrun gctl status -->
 ```
 
 ## Your First Job
@@ -44,13 +38,7 @@ Submitted batch job 1 (silent-pump-6338)
 View the job queue:
 
 ```bash
-gqueue
-```
-
-Output:
-```
-JOBID    NAME                 ST    TIME         NODES    NODELIST(REASON)
-1        silent-pump-6338     R     00:00:02     0        -
+<!-- cmdrun gqueue -n 10 -->
 ```
 
 Job states:
@@ -170,7 +158,7 @@ gqueue -s Running,Queued
 
 ```bash
 # Show job ID, name, state, time, and time limit
-gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
+<!-- cmdrun gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT -n 10 -->
 ```
 
 ### View Specific Jobs

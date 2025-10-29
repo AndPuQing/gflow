@@ -69,7 +69,7 @@ gctl up
 gbatch --gpus 1 --time 2:00:00 --command "python train.py"
 
 # Check the job queue
-gqueue
+<!-- cmdrun gqueue -n 5 -->
 
 # Watch jobs in real-time
 watch gqueue

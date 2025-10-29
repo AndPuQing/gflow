@@ -14,3 +14,7 @@
 # Reference
 
 - [Quick Reference](./reference/quick-reference.md)
+
+# Testing
+
+- [cmdrun Test](./test-cmdrun.md)

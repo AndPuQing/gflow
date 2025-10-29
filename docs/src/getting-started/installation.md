@@ -84,21 +84,17 @@ After installation, verify that gflow is properly installed:
 
 ```bash
 # Check version
-gflowd --version
-gctl --version
-gbatch --version
-gqueue --version
-gcancel --version
+<!-- cmdrun gflowd --version -->
+<!-- cmdrun gctl --version -->
+<!-- cmdrun gbatch --version -->
+<!-- cmdrun gqueue --version -->
+<!-- cmdrun gcancel --version -->
 
 # Check if commands are in PATH
-which gctl
+<!-- cmdrun which gctl -->
 ```
 
-Expected output:
-```
-gflow v0.3.12
-/home/user/.cargo/bin/gctl
-```
+The output shows all commands are properly installed and available in your PATH.
 
 ## Post-Installation Setup
 
@@ -118,12 +114,11 @@ If you have NVIDIA GPUs, verify they're detected:
 # Start the daemon
 gctl up
 
-# Check daemon logs
-tmux attach -t gflow_server
-# Press Ctrl+B then D to detach
+# Check system info and GPU allocation
+<!-- cmdrun gctl info -->
 ```
 
-The daemon should log GPU information on startup.
+The daemon should show GPU information if NVIDIA GPUs are available.
 
 ### 3. Create Configuration Directory
 

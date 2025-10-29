@@ -370,7 +370,13 @@ Common exit codes in logs:
 
 **Quick Help**: Run any command with `--help` for detailed options:
 ```bash
-gbatch --help
-gqueue --help
-gctl --help
+<!-- cmdrun gbatch --help -->
+```
+
+```bash
+<!-- cmdrun gqueue --help -->
+```
+
+```bash
+<!-- cmdrun gctl --help -->
 ```
