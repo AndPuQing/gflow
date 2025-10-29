@@ -7,6 +7,7 @@ This document demonstrates that all gflow commands in the documentation are exec
 Check the gflow version:
 
 ```bash
+$ gctl --version
 <!-- cmdrun gctl --version -->
 ```
 
@@ -15,6 +16,7 @@ Check the gflow version:
 Check if the daemon is running:
 
 ```bash
+$ gctl status
 <!-- cmdrun gctl status -->
 ```
 
@@ -23,24 +25,28 @@ Check if the daemon is running:
 ### gctl Help
 
 ```bash
+$ gctl --help
 <!-- cmdrun gctl --help -->
 ```
 
 ### gbatch Help
 
 ```bash
+$ gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 
 ### gqueue Help
 
 ```bash
+$ gqueue --help
 <!-- cmdrun gqueue --help -->
 ```
 
 ### gcancel Help
 
 ```bash
+$ gcancel --help
 <!-- cmdrun gcancel --help -->
 ```
 
@@ -49,31 +55,22 @@ Check if the daemon is running:
 Submit a simple test job:
 
 ```bash
+$ gbatch --command "echo 'Hello from gflow!'; sleep 1; echo 'Job completed successfully'"
 <!-- cmdrun gbatch --command "echo 'Hello from gflow!'; sleep 1; echo 'Job completed successfully'" -->
 ```
 
-Wait for the job to start:
+Wait for the job to start and check the queue:
 
 ```bash
-<!-- cmdrun sleep 2 -->
+$ sleep 2 && gqueue
+<!-- cmdrun sleep 2 && gqueue -->
 ```
 
-Check the job queue:
+Wait for job completion and check again:
 
 ```bash
-<!-- cmdrun gqueue -->
-```
-
-Wait for job completion:
-
-```bash
-<!-- cmdrun sleep 2 -->
-```
-
-Check queue again (job should be completed):
-
-```bash
-<!-- cmdrun gqueue -->
+$ sleep 2 && gqueue
+<!-- cmdrun sleep 2 && gqueue -->
 ```
 
 ## Job with Priority
@@ -81,6 +78,7 @@ Check queue again (job should be completed):
 Submit a job with custom priority:
 
 ```bash
+$ gbatch --priority 50 --command "echo 'High priority job'"
 <!-- cmdrun gbatch --priority 50 --command "echo 'High priority job'" -->
 ```
 
@@ -89,6 +87,7 @@ Submit a job with custom priority:
 Submit a job with a time limit:
 
 ```bash
+$ gbatch --time 30 --command "echo 'Job with 30-second limit'"
 <!-- cmdrun gbatch --time 30 --command "echo 'Job with 30-second limit'" -->
 ```
 
@@ -97,6 +96,7 @@ Submit a job with a time limit:
 Show system info and GPU allocation:
 
 ```bash
+$ gctl info
 <!-- cmdrun gctl info -->
 ```
 
@@ -105,6 +105,7 @@ Show system info and GPU allocation:
 Show gflow data directory:
 
 ```bash
+$ ls -la ~/.local/share/gflow/
 <!-- cmdrun ls -la ~/.local/share/gflow/ -->
 ```
 

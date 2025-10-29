@@ -17,6 +17,7 @@ gflowd started.
 
 Verify it's running:
 ```bash
+$ gctl status
 <!-- cmdrun gctl status -->
 ```
 
@@ -38,6 +39,7 @@ Submitted batch job 1 (silent-pump-6338)
 View the job queue:
 
 ```bash
+$ gqueue
 <!-- cmdrun gqueue -n 10 -->
 ```
 
@@ -157,7 +159,7 @@ gqueue -s Running,Queued
 ### Custom Output Format
 
 ```bash
-# Show job ID, name, state, time, and time limit
+$ gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
 <!-- cmdrun gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT -n 10 -->
 ```
 

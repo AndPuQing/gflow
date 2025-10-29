@@ -63,19 +63,20 @@ Every job runs in its own tmux session, allowing you to:
 
 ```bash
 # Start the scheduler
-gctl up
+$ gctl up
 
 # Submit a training job with 1 GPU and 2-hour time limit
-gbatch --gpus 1 --time 2:00:00 --command "python train.py"
+$ gbatch --gpus 1 --time 2:00:00 --command "python train.py"
 
 # Check the job queue
+$ gqueue
 <!-- cmdrun gqueue -n 5 -->
 
 # Watch jobs in real-time
-watch gqueue
+$ watch gqueue
 
 # Stop the scheduler
-gctl down
+$ gctl down
 ```
 
 ## Architecture Overview

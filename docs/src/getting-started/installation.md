@@ -82,19 +82,39 @@ Check the [Releases page](https://github.com/AndPuQing/gflow/releases) for pre-b
 
 After installation, verify that gflow is properly installed:
 
+Check versions:
 ```bash
-# Check version
+$ gflowd --version
 <!-- cmdrun gflowd --version -->
-<!-- cmdrun gctl --version -->
-<!-- cmdrun gbatch --version -->
-<!-- cmdrun gqueue --version -->
-<!-- cmdrun gcancel --version -->
+```
 
-# Check if commands are in PATH
+```bash
+$ gctl --version
+<!-- cmdrun gctl --version -->
+```
+
+```bash
+$ gbatch --version
+<!-- cmdrun gbatch --version -->
+```
+
+```bash
+$ gqueue --version
+<!-- cmdrun gqueue --version -->
+```
+
+```bash
+$ gcancel --version
+<!-- cmdrun gcancel --version -->
+```
+
+Verify commands are in PATH:
+```bash
+$ which gctl
 <!-- cmdrun which gctl -->
 ```
 
-The output shows all commands are properly installed and available in your PATH.
+All commands are properly installed and available in your PATH.
 
 ## Post-Installation Setup
 
@@ -112,13 +132,16 @@ If you have NVIDIA GPUs, verify they're detected:
 
 ```bash
 # Start the daemon
-gctl up
+$ gctl up
+```
 
-# Check system info and GPU allocation
+Check system info and GPU allocation:
+```bash
+$ gctl info
 <!-- cmdrun gctl info -->
 ```
 
-The daemon should show GPU information if NVIDIA GPUs are available.
+The daemon shows GPU information if NVIDIA GPUs are available.
 
 ### 3. Create Configuration Directory
 
