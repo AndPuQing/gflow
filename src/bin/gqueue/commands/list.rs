@@ -1,14 +1,15 @@
 use anyhow::Result;
 use gflow::{client::Client, core::job::JobState};
+use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
+use tabled::{builder::Builder, settings::style::Style};
 
 // Tree rendering constants
 const TREE_BRANCH: &str = "├─";
 const TREE_EDGE: &str = "└─";
 const TREE_PIPE: &str = "│ ";
 const TREE_EMPTY: &str = "  ";
-const TREE_CHARS_PER_LEVEL: usize = 3; // "├─ " or "│  "
 
 pub struct ListOptions {
     pub states: Option<String>,
@@ -147,33 +148,25 @@ fn display_jobs_table(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
         .to_string();
     let headers: Vec<&str> = format.split(',').collect();
 
-    // Calculate dynamic column widths based on actual content
-    let widths: HashMap<&str, usize> = headers
-        .iter()
-        .map(|h| (*h, get_dynamic_width(h, &jobs)))
-        .collect();
+    // Build table using tabled Builder
+    let mut builder = Builder::default();
 
-    // Print header with dynamic widths
-    println!(
-        "{}",
-        headers
-            .iter()
-            .map(|h| format!("{:<width$}", h, width = widths[h]))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    // Add header row
+    builder.push_record(headers.clone());
 
-    // Print each job row with dynamic widths
+    // Add data rows
     for job in jobs {
         let row: Vec<String> = headers
             .iter()
-            .map(|header| {
-                let value = format_job_cell(&job, header);
-                format!("{:<width$}", value, width = widths[header])
-            })
+            .map(|header| format_job_cell(&job, header))
             .collect();
-        println!("{}", row.join(" "));
+        builder.push_record(row);
     }
+
+    let mut table = builder.build();
+    table.with(Style::blank());
+
+    println!("{}", table);
 }
 
 fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
@@ -196,9 +189,15 @@ fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) 
         JobState::Timeout,
     ];
 
+    let mut first = true;
     for state in states_order {
         if let Some(state_jobs) = grouped.get(&state) {
-            println!("\n{} ({})", state, state_jobs.len());
+            if !first {
+                println!();
+            }
+            first = false;
+
+            println!("{} ({})", state, state_jobs.len());
             println!("{}", "─".repeat(60));
             display_jobs_table(state_jobs.clone(), format);
         }
@@ -246,17 +245,16 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
-/// Returns the default column width for a given header
-fn get_width(header: &str) -> usize {
-    match header {
-        "JOBID" => 8,
-        "NAME" => 20,
-        "ST" => 5,
-        "TIME" => 12,
-        "TIMELIMIT" => 12,
-        "NODES" => 8,
-        "NODELIST(REASON)" => 15,
-        _ => 10,
+/// Colorizes a job state string based on its state
+fn colorize_state(state: &JobState) -> String {
+    let short = state.short_form();
+    match state {
+        JobState::Running => short.green().bold().to_string(),
+        JobState::Finished => short.dimmed().to_string(),
+        JobState::Queued => short.italic().to_string(),
+        JobState::Failed => short.red().bold().to_string(),
+        JobState::Timeout => short.underline().to_string(),
+        JobState::Cancelled => short.strikethrough().to_string(),
     }
 }
 
@@ -265,7 +263,7 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
     match header {
         "JOBID" => job.id.to_string(),
         "NAME" => job.run_name.as_deref().unwrap_or("-").to_string(),
-        "ST" => job.state.short_form().to_string(),
+        "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
         "NODELIST(REASON)" => job.gpu_ids.as_ref().map_or_else(
             || "-".to_string(),
@@ -284,52 +282,10 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
     }
 }
 
-/// Calculates the dynamic width for a column based on actual content
-fn get_dynamic_width(header: &str, jobs: &[gflow::core::job::Job]) -> usize {
-    let min_width = get_width(header);
-
-    let content_width = match header {
-        "NAME" => jobs
-            .iter()
-            .map(|j| j.run_name.as_deref().unwrap_or("-").len())
-            .max()
-            .unwrap_or(0),
-        "NODELIST(REASON)" => jobs
-            .iter()
-            .filter_map(|j| j.gpu_ids.as_ref())
-            .map(|ids| {
-                // Calculate length without building string: digits + commas
-                if ids.is_empty() {
-                    1 // "-"
-                } else {
-                    ids.iter().map(|id| id.to_string().len()).sum::<usize>() + (ids.len() - 1)
-                    // commas between IDs
-                }
-            })
-            .max()
-            .unwrap_or(0),
-        _ => 0,
-    };
-
-    // Return the larger of min_width or content_width
-    min_width.max(content_width).max(header.len())
-}
-
 /// Tree structure for dependency visualization
 struct JobNode {
     job: gflow::core::job::Job,
     children: Vec<JobNode>,
-}
-
-impl JobNode {
-    /// Calculates the maximum depth of the tree from this node
-    fn max_depth(&self) -> usize {
-        self.children
-            .iter()
-            .map(|c| c.max_depth() + 1)
-            .max()
-            .unwrap_or(0)
-    }
 }
 
 /// Builds a dependency tree from a list of jobs, with cycle detection
@@ -416,55 +372,31 @@ fn display_jobs_tree(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
         .to_string();
     let headers: Vec<&str> = format.split(',').collect();
 
-    // Build dependency tree first to calculate max depth
+    // Build dependency tree
     let tree = build_dependency_tree(jobs.clone());
 
-    // Calculate max depth of tree
-    let max_depth = tree.iter().map(|node| node.max_depth()).max().unwrap_or(0);
+    // Build table using tabled Builder
+    let mut builder = Builder::default();
 
-    // Calculate max job ID length
-    let max_id_len = jobs
-        .iter()
-        .map(|j| j.id.to_string().len())
-        .max()
-        .unwrap_or(0);
+    // Add header row
+    builder.push_record(headers.clone());
 
-    // Calculate dynamic column widths based on actual content
-    let mut widths: HashMap<&str, usize> = headers
-        .iter()
-        .map(|h| (*h, get_dynamic_width(h, &jobs)))
-        .collect();
-
-    // JOBID column needs space for: max_id_len + tree_chars (TREE_CHARS_PER_LEVEL per level)
-    // Also ensure minimum width matches header length
-    if let Some(jobid_width) = widths.get_mut("JOBID") {
-        let needed_width = max_id_len + (max_depth * TREE_CHARS_PER_LEVEL);
-        *jobid_width = needed_width.max("JOBID".len());
+    // Collect all tree rows
+    for node in &tree {
+        collect_tree_rows(&mut builder, node, &headers, "", true, true);
     }
 
-    // Print header with dynamic widths
-    println!(
-        "{}",
-        headers
-            .iter()
-            .map(|h| format!("{:<width$}", h, width = widths[h]))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    let mut table = builder.build();
+    table.with(Style::blank());
 
-    // Display each root and its children
-    let root_count = tree.len();
-    for (idx, node) in tree.into_iter().enumerate() {
-        let is_last_root = idx == root_count - 1;
-        display_job_node(&node, &headers, &widths, "", is_last_root, true);
-    }
+    println!("{}", table);
 }
 
-/// Renders a single job node and its children in tree format
-fn display_job_node(
+/// Collects job node and its children as table rows
+fn collect_tree_rows(
+    builder: &mut Builder,
     node: &JobNode,
     headers: &[&str],
-    widths: &HashMap<&str, usize>,
     prefix: &str,
     is_last: bool,
     is_root: bool,
@@ -483,21 +415,18 @@ fn display_job_node(
         .iter()
         .enumerate()
         .map(|(idx, header)| {
-            let value = if *header == "JOBID" && idx == 0 {
+            if *header == "JOBID" && idx == 0 {
                 // Add tree prefix to JOBID column
                 format!("{}{}{}", prefix, tree_prefix, job.id)
             } else {
                 format_job_cell(job, header)
-            };
-
-            let width = widths[header];
-            format!("{:<width$}", value, width = width)
+            }
         })
         .collect();
 
-    println!("{}", row.join(" "));
+    builder.push_record(row);
 
-    // Display children with updated prefix
+    // Collect children with updated prefix
     let child_count = node.children.len();
     for (idx, child) in node.children.iter().enumerate() {
         let is_last_child = idx == child_count - 1;
@@ -511,7 +440,7 @@ fn display_job_node(
             format!("{}{}", prefix, TREE_PIPE)
         };
 
-        display_job_node(child, headers, widths, &child_prefix, is_last_child, false);
+        collect_tree_rows(builder, child, headers, &child_prefix, is_last_child, false);
     }
 }
 
@@ -634,17 +563,5 @@ mod tests {
         ];
         println!();
         display_jobs_tree(jobs, None);
-    }
-
-    #[test]
-    fn test_max_depth_calculation() {
-        let jobs = vec![
-            create_test_job(1, "root", None),
-            create_test_job(2, "level-1", Some(1)),
-            create_test_job(3, "level-2", Some(2)),
-        ];
-
-        let tree = build_dependency_tree(jobs);
-        assert_eq!(tree[0].max_depth(), 2);
     }
 }
