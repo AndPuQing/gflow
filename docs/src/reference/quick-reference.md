@@ -14,32 +14,32 @@ gctl down               # Alias for stop
 ### Job Submission
 ```bash
 # Basic submission
-gbatch --command "python script.py"
+gbatch python script.py
 gbatch my_script.sh
 
 # With GPU
-gbatch --gpus 1 --command "python train.py"
+gbatch --gpus 1 python train.py
 
 # With time limit
-gbatch --time 2:00:00 --command "python train.py"    # 2 hours
-gbatch --time 30 --command "python train.py"         # 30 minutes
-gbatch --time 5:30 --command "python train.py"       # 5 min 30 sec
+gbatch --time 2:00:00 python train.py    # 2 hours
+gbatch --time 30 python train.py         # 30 minutes
+gbatch --time 5:30 python train.py       # 5 min 30 sec
 
 # With dependencies
-gbatch --depends-on 123 --command "python process.py"
+gbatch --depends-on 123 python process.py
 
 # With priority
-gbatch --priority 100 --command "python urgent.py"
+gbatch --priority 100 python urgent.py
 
 # Job arrays
-gbatch --array 1-10 --command "python task.py"
+gbatch --array 1-10 python task.py
 
 # Conda environment
-gbatch --conda-env myenv --command "python script.py"
+gbatch --conda-env myenv python script.py
 
 # Combined options
 gbatch --gpus 2 --time 4:00:00 --priority 50 \
-       --command "python train.py"
+       python train.py
 ```
 
 ### Job Script Format
@@ -171,40 +171,39 @@ Set by gflow in job environment:
 ### Sequential Jobs (Pipeline)
 ```bash
 # Step 1: Preprocessing
-ID1=$(gbatch --time 30 --command "python preprocess.py" | grep -oP '\d+')
+ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
 
 # Step 2: Training (depends on step 1)
-ID2=$(gbatch --time 4:00:00 --depends-on $ID1 \
-             --command "python train.py" | grep -oP '\d+')
+ID2=$(gbatch --time 4:00:00 --depends-on $ID1 python train.py | grep -oP '\d+')
 
 # Step 3: Evaluation (depends on step 2)
-gbatch --time 10 --depends-on $ID2 --command "python evaluate.py"
+gbatch --time 10 --depends-on $ID2 python evaluate.py
 ```
 
 ### Parallel Jobs (Array)
 ```bash
 # Process 10 tasks in parallel
 gbatch --array 1-10 --time 1:00:00 \
-       --command 'python process.py --task $GFLOW_ARRAY_TASK_ID'
+       python process.py --task $GFLOW_ARRAY_TASK_ID
 ```
 
 ### GPU Sweeps
 ```bash
 # Try different hyperparameters on different GPUs
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --lr 0.001"
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --lr 0.01"
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --lr 0.1"
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.001
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.01
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.1
 ```
 
 ### Long-Running with Checkpointing
 ```bash
 # Initial training
 gbatch --time 8:00:00 --gpus 1 \
-       --command "python train.py --checkpoint checkpoint.pth"
+       python train.py --checkpoint checkpoint.pth
 
 # Resume if timed out (submit manually after checking)
 gbatch --time 8:00:00 --gpus 1 \
-       --command "python train.py --resume checkpoint.pth"
+       python train.py --resume checkpoint.pth
 ```
 
 ## Tips and Tricks
@@ -213,7 +212,7 @@ gbatch --time 8:00:00 --gpus 1 \
 ```bash
 # Not built-in, but can script it:
 while [ "$(gqueue -j $ID1 -f ST)" != "CD" ]; do sleep 5; done
-gbatch --command "python next_step.py"
+gbatch python next_step.py
 ```
 
 ### 2. Get job output path programmatically
@@ -295,7 +294,7 @@ gqueue -j <job_id> -f TIME,TIMELIMIT
 
 # Verify time format (30 = 30 minutes, not seconds!)
 # Resubmit with longer limit
-gbatch --time 60 --command "..."
+gbatch --time 60 ...
 ```
 
 ### Can't find job logs

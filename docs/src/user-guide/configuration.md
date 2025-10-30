@@ -39,7 +39,7 @@ Use the `--config` flag (available on all commands, but hidden from help):
 # Use custom config file
 gflowd --config /path/to/custom.toml
 gctl --config /path/to/custom.toml status
-gbatch --config /path/to/custom.toml --command "..."
+gbatch --config /path/to/custom.toml ...
 gqueue --config /path/to/custom.toml
 ```
 
@@ -245,7 +245,7 @@ port = 59001
 ```bash
 gflowd --config ~/gflow-dev/config.toml &
 gctl --config ~/gflow-dev/config.toml status
-gbatch --config ~/gflow-dev/config.toml --command "..."
+gbatch --config ~/gflow-dev/config.toml ...
 ```
 
 **Use cases**:
@@ -270,7 +270,7 @@ gpus = [0, 1]  # Use only first 2 GPUs for this project
 EOF
 
 # Use with --config
-gbatch --config ./gflow.toml --gpus 1 --command "python train.py"
+gbatch --config ./gflow.toml --gpus 1 python train.py
 ```
 
 **Tip**: Add to `.gitignore`:

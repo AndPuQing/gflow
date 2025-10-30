@@ -633,18 +633,18 @@ print(f"Pipeline: {prep_id} -> {train_id} -> {eval_id}")
 
 4. **Request only needed GPUs**
    ```bash
-   gbatch --gpus 1 --command "..."  # Not --gpus 4 if you only need 1
+   gbatch --gpus 1 "..."  # Not --gpus 4 if you only need 1
    ```
 
 5. **Use dependencies** for workflows
    ```bash
-   ID=$(gbatch --command "prep.py" | grep -oP '\d+')
-   gbatch --depends-on $ID --command "train.py"
+   ID=$(gbatch python prep.py | grep -oP '\d+')
+   gbatch --depends-on $ID python train.py
    ```
 
 6. **Use job arrays** for parallel tasks
    ```bash
-   gbatch --array 1-10 --command 'process.py --id $GFLOW_ARRAY_TASK_ID'
+   gbatch --array 1-10 python process.py --id $GFLOW_ARRAY_TASK_ID
    ```
 
 7. **Add error handling** in scripts

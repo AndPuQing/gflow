@@ -58,13 +58,13 @@ Request GPUs when submitting jobs:
 
 ```bash
 # Request 1 GPU
-gbatch --gpus 1 --command "python train.py"
+gbatch --gpus 1 python train.py
 
 # Request 2 GPUs
-gbatch --gpus 2 --command "python multi_gpu_train.py"
+gbatch --gpus 2 python multi_gpu_train.py
 
 # Request 4 GPUs
-gbatch --gpus 4 --command "python distributed_train.py"
+gbatch --gpus 4 python distributed_train.py
 ```
 
 ### Automatic GPU Assignment
@@ -78,7 +78,7 @@ When a job requests GPUs:
 **Example**:
 ```bash
 # Submit job requesting 2 GPUs
-$ gbatch --gpus 2 --command "nvidia-smi"
+$ gbatch --gpus 2 nvidia-smi
 
 # Check allocation
 $ gqueue -f JOBID,NAME,NODES,NODELIST
@@ -128,11 +128,11 @@ Jobs wait for GPUs when none are available:
 # System has 2 GPUs
 
 # Job 1: Uses 2 GPUs
-$ gbatch --gpus 2 --command "python long_train.py"
+$ gbatch --gpus 2 python long_train.py
 Submitted batch job 1
 
 # Job 2: Requests 1 GPU (must wait)
-$ gbatch --gpus 1 --command "python train.py"
+$ gbatch --gpus 1 python train.py
 Submitted batch job 2
 
 $ gqueue
@@ -149,10 +149,10 @@ Higher priority jobs get GPUs first:
 
 ```bash
 # Low priority job
-gbatch --priority 5 --gpus 1 --command "python task1.py"
+gbatch --priority 5 --gpus 1 python task1.py
 
 # High priority job
-gbatch --priority 100 --gpus 1 --command "python urgent_task.py"
+gbatch --priority 100 --gpus 1 python urgent_task.py
 ```
 
 When GPUs become available:
@@ -168,7 +168,7 @@ If a job requests more GPUs than currently available, it waits:
 # System has 4 GPUs, 3 in use
 
 # This waits for 4 GPUs
-gbatch --gpus 4 --command "python distributed_train.py"
+gbatch --gpus 4 python distributed_train.py
 
 $ gqueue
 JOBID    NAME      ST    NODES    NODELIST(REASON)
@@ -250,7 +250,7 @@ train(model)
 
 Submit with multiple GPUs:
 ```bash
-gbatch --gpus 2 --command "python train.py"
+gbatch --gpus 2 python train.py
 ```
 
 ### Distributed Training (PyTorch)
@@ -280,7 +280,7 @@ if __name__ == '__main__':
 
 Submit:
 ```bash
-gbatch --gpus 4 --command "python distributed_train.py"
+gbatch --gpus 4 python distributed_train.py
 ```
 
 ### TensorFlow Multi-GPU
@@ -304,7 +304,7 @@ model.fit(...)
 
 Submit:
 ```bash
-gbatch --gpus 2 --command "python tf_train.py"
+gbatch --gpus 2 python tf_train.py
 ```
 
 ## Advanced GPU Management
@@ -318,7 +318,7 @@ Even if GPUs are "available", they might have insufficient memory:
 nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits
 
 # Example: Job needs 20GB per GPU
-gbatch --gpus 1 --command "python memory_intensive_train.py"
+gbatch --gpus 1 python memory_intensive_train.py
 ```
 
 **Note**: gflow tracks GPU allocation, not memory usage. Plan accordingly.
@@ -336,10 +336,10 @@ Run CPU and GPU jobs simultaneously:
 
 ```bash
 # CPU-only job
-gbatch --command "python cpu_task.py"
+gbatch python cpu_task.py
 
 # GPU job
-gbatch --gpus 1 --command "python gpu_task.py"
+gbatch --gpus 1 python gpu_task.py
 ```
 
 CPU jobs don't consume GPU slots and can run in parallel with GPU jobs.
@@ -352,14 +352,14 @@ Release GPUs between stages:
 
 ```bash
 # Stage 1: Preprocessing (no GPU)
-ID1=$(gbatch --time 30 --command "python preprocess.py" | grep -oP '\d+')
+ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
 
 # Stage 2: Training (uses GPU)
 ID2=$(gbatch --depends-on $ID1 --gpus 1 --time 4:00:00 \
-             --command "python train.py" | grep -oP '\d+')
+             python train.py | grep -oP '\d+')
 
 # Stage 3: Evaluation (no GPU)
-gbatch --depends-on $ID2 --time 10 --command "python evaluate.py"
+gbatch --depends-on $ID2 --time 10 python evaluate.py
 ```
 
 **Benefit**: GPU is free during preprocessing and evaluation.
@@ -370,9 +370,9 @@ Run experiments in parallel on different GPUs:
 
 ```bash
 # Each gets one GPU
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --config config1.yaml" --name "exp1"
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --config config2.yaml" --name "exp2"
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --config config3.yaml" --name "exp3"
+gbatch --gpus 1 --time 2:00:00 --config config1.yaml --name "exp1" python train.py
+gbatch --gpus 1 --time 2:00:00 --config config2.yaml --name "exp2" python train.py
+gbatch --gpus 1 --time 2:00:00 --config config3.yaml --name "exp3" python train.py
 ```
 
 If you have 4 GPUs, the first 4 jobs run in parallel.
@@ -383,10 +383,10 @@ Start with fewer GPUs, scale up later:
 
 ```bash
 # Initial experiment (1 GPU)
-gbatch --gpus 1 --time 1:00:00 --command "python train.py --test-run"
+gbatch --gpus 1 --time 1:00:00 python train.py --test-run
 
 # Full training (4 GPUs) - submit after validation
-gbatch --gpus 4 --time 8:00:00 --command "python train.py --full"
+gbatch --gpus 4 --time 8:00:00 python train.py --full
 ```
 
 ### Hyperparameter Sweep with GPUs
@@ -397,7 +397,7 @@ for lr in 0.001 0.01 0.1; do
     for batch_size in 32 64 128; do
         gbatch --gpus 1 --time 3:00:00 \
                --name "lr${lr}_bs${batch_size}" \
-               --command "python train.py --lr $lr --batch-size $batch_size"
+               python train.py --lr $lr --batch-size $batch_size
     done
 done
 
@@ -434,10 +434,10 @@ gctl info
 1. **Forgot to request GPU**:
    ```bash
    # Wrong - no GPU requested
-   gbatch --command "python train.py"
+   gbatch python train.py
 
    # Correct
-   gbatch --gpus 1 --command "python train.py"
+   gbatch --gpus 1 python train.py
    ```
 
 2. **All GPUs in use**:
@@ -571,7 +571,7 @@ kill $GPU_MONITOR_PID
 gctl info
 
 # Submit job with GPUs
-gbatch --gpus <N> --command "..."
+gbatch --gpus <N> ...
 
 # Check GPU allocation
 gqueue -f JOBID,NODES,NODELIST

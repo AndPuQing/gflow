@@ -304,7 +304,7 @@ fi
 gcancel 42
 
 # Resubmit with corrections
-gbatch --gpus 1 --time 2:00:00 --command "python train.py --fixed"
+gbatch --gpus 1 --time 2:00:00 python train.py --fixed
 ```
 
 ### Cancel Failed Dependencies

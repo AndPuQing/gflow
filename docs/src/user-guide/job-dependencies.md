@@ -18,11 +18,11 @@ Submit a job that depends on another:
 
 ```bash
 # Job 1: Preprocessing
-$ gbatch --command "python preprocess.py" --name "prep"
+$ gbatch --name "prep" python preprocess.py
 Submitted batch job 1 (prep)
 
 # Job 2: Training (waits for job 1)
-$ gbatch --command "python train.py" --depends-on 1 --name "train"
+$ gbatch --depends-on 1 --name "train" python train.py
 Submitted batch job 2 (train)
 ```
 
@@ -53,16 +53,16 @@ Execute jobs in sequence:
 
 ```bash
 # Stage 1: Data collection
-ID1=$(gbatch --time 10 --command "python collect_data.py" | grep -oP '\d+')
+ID1=$(gbatch --time 10 python collect_data.py | grep -oP '\d+')
 
 # Stage 2: Data preprocessing (depends on stage 1)
-ID2=$(gbatch --time 30 --depends-on $ID1 --command "python preprocess.py" | grep -oP '\d+')
+ID2=$(gbatch --time 30 --depends-on $ID1 python preprocess.py | grep -oP '\d+')
 
 # Stage 3: Training (depends on stage 2)
-ID3=$(gbatch --time 4:00:00 --gpus 1 --depends-on $ID2 --command "python train.py" | grep -oP '\d+')
+ID3=$(gbatch --time 4:00:00 --gpus 1 --depends-on $ID2 python train.py | grep -oP '\d+')
 
 # Stage 4: Evaluation (depends on stage 3)
-gbatch --time 10 --depends-on $ID3 --command "python evaluate.py"
+gbatch --time 10 --depends-on $ID3 python evaluate.py
 ```
 
 **Watch the pipeline**:
@@ -76,14 +76,14 @@ Multiple jobs feeding into one:
 
 ```bash
 # Parallel data processing tasks
-ID1=$(gbatch --time 30 --command "python process_part1.py" | grep -oP '\d+')
-ID2=$(gbatch --time 30 --command "python process_part2.py" | grep -oP '\d+')
-ID3=$(gbatch --time 30 --command "python process_part3.py" | grep -oP '\d+')
+ID1=$(gbatch --time 30 python process_part1.py | grep -oP '\d+')
+ID2=$(gbatch --time 30 python process_part2.py | grep -oP '\d+')
+ID3=$(gbatch --time 30 python process_part3.py | grep -oP '\d+')
 
 # Merge results (waits for all three)
 # Note: Currently gflow supports single dependency per job
 # For multiple dependencies, you'll need to chain them
-gbatch --depends-on $ID3 --command "python merge_results.py"
+gbatch --depends-on $ID3 python merge_results.py
 ```
 
 **Current limitation**: gflow currently supports only one dependency per job. For multiple dependencies, create intermediate coordination jobs.
@@ -94,12 +94,12 @@ One job triggering multiple downstream jobs:
 
 ```bash
 # Main processing
-ID1=$(gbatch --time 1:00:00 --command "python main_process.py" | grep -oP '\d+')
+ID1=$(gbatch --time 1:00:00 python main_process.py | grep -oP '\d+')
 
 # Multiple analysis jobs (all depend on ID1)
-gbatch --depends-on $ID1 --time 30 --command "python analysis_a.py"
-gbatch --depends-on $ID1 --time 30 --command "python analysis_b.py"
-gbatch --depends-on $ID1 --time 30 --command "python analysis_c.py"
+gbatch --depends-on $ID1 --time 30 python analysis_a.py
+gbatch --depends-on $ID1 --time 30 python analysis_b.py
+gbatch --depends-on $ID1 --time 30 python analysis_c.py
 ```
 
 ## Dependency States and Behavior
@@ -180,10 +180,10 @@ gflow detects and prevents circular dependencies:
 
 ```bash
 # This will fail
-$ gbatch --depends-on 2 --command "python a.py"
+$ gbatch --depends-on 2 python a.py
 Submitted batch job 1
 
-$ gbatch --depends-on 1 --command "python b.py"
+$ gbatch --depends-on 1 python b.py
 Error: Circular dependency detected: Job 2 depends on Job 1, which depends on Job 2
 ```
 
@@ -241,7 +241,7 @@ STATUS=$(gqueue -j 1 -f ST | tail -n 1)
 
 if [ "$STATUS" = "CD" ]; then
     echo "Job 1 succeeded, submitting next job"
-    gbatch --command "python next_step.py"
+    gbatch python next_step.py
 else
     echo "Job 1 failed with status: $STATUS"
     exit 1
@@ -254,12 +254,12 @@ Create job arrays that depend on a preprocessing job:
 
 ```bash
 # Preprocessing
-ID=$(gbatch --time 30 --command "python preprocess.py" | grep -oP '\d+')
+ID=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
 
 # Array of training jobs (all depend on preprocessing)
 for i in {1..5}; do
     gbatch --depends-on $ID --gpus 1 --time 2:00:00 \
-           --command "python train.py --fold $i"
+           python train.py --fold $i
 done
 ```
 
@@ -269,14 +269,14 @@ Release GPUs between stages:
 
 ```bash
 # Stage 1: CPU-only preprocessing
-ID1=$(gbatch --time 30 --command "python preprocess.py" | grep -oP '\d+')
+ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
 
 # Stage 2: GPU training
 ID2=$(gbatch --depends-on $ID1 --gpus 2 --time 4:00:00 \
-             --command "python train.py" | grep -oP '\d+')
+             python train.py | grep -oP '\d+')
 
 # Stage 3: CPU-only evaluation
-gbatch --depends-on $ID2 --time 10 --command "python evaluate.py"
+gbatch --depends-on $ID2 --time 10 python evaluate.py
 ```
 
 **Benefit**: GPUs are only allocated when needed, maximizing resource utilization.
@@ -348,16 +348,16 @@ During execution:
 
 ```bash
 # Complete ML pipeline
-PREP=$(gbatch --time 20 --command "python prepare_dataset.py" | grep -oP '\d+')
+PREP=$(gbatch --time 20 python prepare_dataset.py | grep -oP '\d+')
 
 TRAIN=$(gbatch --depends-on $PREP --gpus 1 --time 8:00:00 \
-               --command "python train.py --output model.pth" | grep -oP '\d+')
+               python train.py --output model.pth | grep -oP '\d+')
 
 EVAL=$(gbatch --depends-on $TRAIN --time 15 \
-              --command "python evaluate.py --model model.pth" | grep -oP '\d+')
+              python evaluate.py --model model.pth | grep -oP '\d+')
 
 gbatch --depends-on $EVAL --time 5 \
-       --command "python generate_report.py"
+       python generate_report.py
 ```
 
 ### Example 2: Data Processing Pipeline
@@ -370,19 +370,19 @@ echo "Submitting data processing pipeline..."
 
 # Download data
 ID1=$(gbatch --time 1:00:00 --name "download" \
-             --command "python download_data.py" | grep -oP '\d+')
+             python download_data.py | grep -oP '\d+')
 
 # Validate data
 ID2=$(gbatch --depends-on $ID1 --time 30 --name "validate" \
-             --command "python validate_data.py" | grep -oP '\d+')
+             python validate_data.py | grep -oP '\d+')
 
 # Transform data
 ID3=$(gbatch --depends-on $ID2 --time 45 --name "transform" \
-             --command "python transform_data.py" | grep -oP '\d+')
+             python transform_data.py | grep -oP '\d+')
 
 # Upload results
 gbatch --depends-on $ID3 --time 30 --name "upload" \
-       --command "python upload_results.py"
+       python upload_results.py
 
 echo "Pipeline submitted. Monitor with: watch gqueue -t"
 ```
@@ -394,7 +394,7 @@ echo "Pipeline submitted. Monitor with: watch gqueue -t"
 MODELS=()
 for lr in 0.001 0.01 0.1; do
     ID=$(gbatch --gpus 1 --time 2:00:00 \
-                --command "python train.py --lr $lr --output model_$lr.pth" | grep -oP '\d+')
+                python train.py --lr $lr --output model_$lr.pth | grep -oP '\d+')
     MODELS+=($ID)
 done
 
@@ -402,7 +402,7 @@ done
 # (Create a dummy job that depends on the last model)
 LAST_MODEL=${MODELS[-1]}
 gbatch --depends-on $LAST_MODEL --time 30 \
-       --command "python compare_models.py --models model_*.pth"
+       python compare_models.py --models model_*.pth
 ```
 
 ## Troubleshooting

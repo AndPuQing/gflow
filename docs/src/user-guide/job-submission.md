@@ -461,11 +461,6 @@ python train.py
   Error: Script file not found: missing.sh
   ```
 
-- **Both script and command**: Can't specify both
-  ```
-  Error: Cannot specify both script and --command
-  ```
-
 ## Tips and Best Practices
 
 1. **Always set time limits** for production jobs to prevent runaway processes

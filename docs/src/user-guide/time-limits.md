@@ -21,7 +21,7 @@ gflow supports setting time limits for jobs, similar to Slurm's `sbatch --time` 
 Use the `--time` (or `-t`) flag when submitting jobs:
 
 ```bash
-gbatch --time <TIME_SPEC> --command "your_command"
+gbatch --time <TIME_SPEC> your_command
 ```
 
 ### In Job Scripts
@@ -70,16 +70,16 @@ gflow supports multiple time format specifications for flexibility:
 
 ```bash
 # 2 hours
-gbatch --time 2:00:00 --command "long_simulation"
+gbatch --time 2:00:00 long_simulation
 
 # 30 minutes
-gbatch --time 30 --command "medium_task"
+gbatch --time 30 medium_task
 
 # 5 minutes 30 seconds
-gbatch --time 5:30 --command "quick_task"
+gbatch --time 5:30 quick_task
 
 # 12 hours 45 minutes
-gbatch --time 12:45:00 --command "overnight_job"
+gbatch --time 12:45:00 overnight_job
 ```
 
 ## Scheduling Benefits
@@ -107,10 +107,10 @@ This means setting a time limit provides two benefits:
 ```bash
 # Assume all jobs have priority=10 and are submitted in this order:
 
-gbatch --priority 10 --time 10 --command "quick.py"        # Runs 1st (shortest)
-gbatch --priority 10 --time 1:00:00 --command "medium.py"  # Runs 2nd (medium)
-gbatch --priority 10 --time 8:00:00 --command "long.py"    # Runs 3rd (long limit)
-gbatch --priority 10 --command "unlimited.py"              # Runs 4th (no limit)
+gbatch --priority 10 --time 10 quick.py        # Runs 1st (shortest)
+gbatch --priority 10 --time 1:00:00 medium.py  # Runs 2nd (medium)
+gbatch --priority 10 --time 8:00:00 long.py    # Runs 3rd (long limit)
+gbatch --priority 10 unlimited.py              # Runs 4th (no limit)
 ```
 
 **Key Insight**: Even a very generous time limit (e.g., 24 hours) gives your job an advantage over unlimited jobs at the same priority level. Setting realistic time limits is a win-win!
@@ -201,7 +201,7 @@ Valid transitions to `Timeout`:
 # Submit a training job with 2-hour limit
 gbatch --time 2:00:00 \
        --gpus 1 \
-       --command "python train.py --epochs 100"
+       python train.py --epochs 100
 ```
 
 **Output**:
@@ -221,7 +221,7 @@ JOBID    NAME                   ST    TIME         TIMELIMIT
 ```bash
 # Submit a job that will exceed its limit
 gbatch --time 0:10 \
-       --command "sleep 1000"  # Will run for 1000 seconds
+       sleep 1000  # Will run for 1000 seconds
 ```
 
 **After 10 seconds**:
@@ -245,7 +245,7 @@ Line 2
 # Submit array of jobs, each with 30-minute limit
 gbatch --time 30 \
        --array 1-10 \
-       --command "python process.py --task \$GFLOW_ARRAY_TASK_ID"
+       python process.py --task \$GFLOW_ARRAY_TASK_ID
 ```
 
 Each job in the array inherits the same 30-minute time limit.
@@ -255,20 +255,21 @@ Each job in the array inherits the same 30-minute time limit.
 ```bash
 # Job 1: Data preprocessing (1 hour)
 gbatch --time 1:00:00 \
-       --command "python preprocess.py" \
-       --name "preprocess"
+       --name "preprocess" \
+       python preprocess.py
+
 
 # Job 2: Training (4 hours), depends on Job 1
 gbatch --time 4:00:00 \
-       --command "python train.py" \
        --depends-on 1 \
-       --name "training"
+       --name "training" \
+       python train.py
 
 # Job 3: Evaluation (30 minutes), depends on Job 2
 gbatch --time 30 \
-       --command "python evaluate.py" \
        --depends-on 2 \
-       --name "evaluation"
+       --name "evaluation" \
+       python evaluate.py \
 ```
 
 ### Example 5: Job Script with Time Limit
@@ -307,20 +308,20 @@ gbatch --time 1:00:00 experiment.sh
 
 ```bash
 # Bad: Too tight
-gbatch --time 10 --command "python train.py"  # Training takes ~12 minutes
+gbatch --time 10 python train.py  # Training takes ~12 minutes
 
 # Good: Reasonable buffer
-gbatch --time 15 --command "python train.py"  # Allows 25% buffer
+gbatch --time 15 python train.py  # Allows 25% buffer
 ```
 
 ### 2. Use Time Limits for All Production Jobs
 
 ```bash
 # Bad: No limit, could run forever
-gbatch --command "python train.py"
+gbatch python train.py
 
 # Good: Always specify limits
-gbatch --time 4:00:00 --command "python train.py"
+gbatch --time 4:00:00 python train.py
 ```
 
 ### 3. Implement Checkpointing
@@ -370,13 +371,13 @@ gqueue -j 42 -f JOBID,TIME,TIMELIMIT
 
 ```bash
 # Quick preprocessing
-gbatch --time 10 --command "preprocess.py" --name prep
+gbatch --time 10 --name "preprocess" python preprocess.py
 
 # Long training
-gbatch --time 8:00:00 --command "train.py" --depends-on <prep_id>
+gbatch --time 8:00:00 --depends-on <prep_id> --name "training" python train.py
 
 # Quick evaluation
-gbatch --time 5 --command "evaluate.py" --depends-on <train_id>
+gbatch --time 5 --name "evaluation" --depends-on <train_id> python evaluate.py
 ```
 
 ## Displaying Time Limits
@@ -435,7 +436,7 @@ gqueue -s Timeout -f JOBID,NAME,TIME,TIMELIMIT
 
 Example of a very long limit:
 ```bash
-gbatch --time 168:00:00 --command "week_long_simulation"  # 1 week
+gbatch --time 168:00:00 week_long_simulation # 1 week
 ```
 
 ### Q: Will my job save its work when it times out?
