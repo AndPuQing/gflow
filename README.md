@@ -2,6 +2,7 @@
 
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)
 ![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/gflow/badges/version.svg)](https://anaconda.org/conda-forge/gflow)
 ![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)
 [![dependency status](https://deps.rs/repo/github/AndPuQing/gflow/status.svg?style=flat-square)](https://deps.rs/repo/github/AndPuQing/gflow)
 ![Crates.io License](https://img.shields.io/crates/l/gflow?style=flat-square) ![Crates.io Size](https://img.shields.io/crates/size/gflow?style=flat-square)
