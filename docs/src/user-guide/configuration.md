@@ -37,8 +37,10 @@ Use the `--config` flag (available on all commands, but hidden from help):
 
 ```bash
 # Use custom config file
-gflowd --config /path/to/custom.toml
-gctl --config /path/to/custom.toml status
+gflowd --config /path/to/custom.toml up
+gflowd --config /path/to/custom.toml status
+ginfo --config /path/to/custom.toml info
+gflowd --config /path/to/custom.toml down
 gbatch --config /path/to/custom.toml ...
 gqueue --config /path/to/custom.toml
 ```
@@ -116,7 +118,7 @@ export GFLOW_DAEMON_PORT="59000"
 export GFLOW_LOG_LEVEL="debug"
 
 # Start daemon with these settings
-gflowd
+gflowd up
 ```
 
 **Precedence**:
@@ -132,10 +134,10 @@ To limit CUDA devices before gflow:
 ```bash
 # Make only GPU 0 visible to gflow
 export CUDA_VISIBLE_DEVICES=0
-gctl up
+gflowd up
 
 # gflow will only see and manage GPU 0
-gctl info
+ginfo info
 ```
 
 **Warning**: This affects all CUDA applications, not just gflow.
@@ -183,11 +185,8 @@ export XDG_DATA_HOME="$HOME/my-data"
 ### View Current Configuration
 
 ```bash
-# Check daemon status (shows host:port)
-gctl status
-
-# View system info
-gctl info
+# View scheduler info (includes host and port)
+ginfo info
 
 # The config file itself
 cat ~/.config/gflow/gflow.toml
@@ -199,13 +198,13 @@ Remove configuration to use defaults:
 
 ```bash
 # Stop daemon first
-gctl down
+gflowd down
 
 # Remove config file
 rm ~/.config/gflow/gflow.toml
 
 # Restart daemon (uses defaults)
-gctl up
+gflowd up
 ```
 
 ### Configuration Cleanup
@@ -232,7 +231,7 @@ port = 59000
 ```
 
 ```bash
-gctl up
+gflowd up
 ```
 
 **Instance 2** (custom):
@@ -243,8 +242,8 @@ port = 59001
 ```
 
 ```bash
-gflowd --config ~/gflow-dev/config.toml &
-gctl --config ~/gflow-dev/config.toml status
+gflowd --config ~/gflow-dev/config.toml up
+ginfo --config ~/gflow-dev/config.toml info
 gbatch --config ~/gflow-dev/config.toml ...
 ```
 
@@ -305,32 +304,40 @@ Each user runs their own daemon instance.
 ### Starting the Daemon
 
 ```bash
-# Default config
-gctl up
+# Default config (creates/uses tmux session)
+gflowd up
 
 # Custom config
-gflowd --config /path/to/config.toml
+gflowd --config /path/to/config.toml up
 
 # With verbosity
-gflowd -vv  # debug level
-gflowd -vvv  # trace level
+gflowd -vv up   # debug level
+gflowd -vvv up  # trace level
 ```
+
+`gflowd up` detaches immediately after launching the daemon inside the `gflow_server` tmux session.
 
 ### Stopping the Daemon
 
 ```bash
-gctl down
+gflowd down
 ```
+
+This politely stops the daemon, saves state, and removes the `gflow_server` session. If the tmux session is missing, `gflowd down` reports the failure but otherwise exits cleanly.
 
 ### Checking Status
 
 ```bash
-$ gctl status
-gflowd is running (PID: 12345)
-
-# Or if not running:
-gflowd is not running
+gflowd status
 ```
+
+`gflowd status` checks for the tmux session and performs a health probe against the HTTP API. Use `ginfo info` to inspect detailed resources:
+
+```bash
+$ ginfo info
+```
+
+`ginfo` prints scheduler metadata, GPU availability, and which jobs currently occupy each device.
 
 ### Daemon Persistence
 
@@ -378,20 +385,20 @@ cp ~/.local/share/gflow/state.json ~/.local/share/gflow/state.json.backup
 **Clear all job history**:
 ```bash
 # Stop daemon first!
-gctl down
+gflowd down
 
 # Remove state file
 rm ~/.local/share/gflow/state.json
 
 # Restart (fresh state)
-gctl up
+gflowd up
 ```
 
 **Restore state**:
 ```bash
-gctl down
+gflowd down
 cp state.json.backup ~/.local/share/gflow/state.json
-gctl up
+gflowd up
 ```
 
 ## Logging
@@ -476,24 +483,24 @@ lsof -i :59000
 **Verify GPUs**:
 ```bash
 nvidia-smi
-gctl info
+ginfo info
 ```
 
 ### Issue: Can't connect to daemon
 
 **Check**:
-1. Daemon running: `gctl status`
+1. Daemon running: `gflowd status`
 2. Correct host/port in config
 3. Firewall settings (if using custom host)
 
 **Solution**:
 ```bash
 # Restart daemon
-gctl down
-gctl up
+gflowd down
+gflowd up
 
 # Check connection
-gctl status
+ginfo info
 ```
 
 ## Security Considerations

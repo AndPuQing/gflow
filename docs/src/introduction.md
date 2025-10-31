@@ -62,8 +62,8 @@ Every job runs in its own tmux session, allowing you to:
 ## Quick Example
 
 ```bash
-# Start the scheduler
-$ gctl up
+# Start the scheduler (run in a separate terminal)
+$ gflowd up
 
 # Submit a training job with 1 GPU and 2-hour time limit
 $ gbatch --gpus 1 --time 2:00:00 python train.py
@@ -72,11 +72,15 @@ $ gbatch --gpus 1 --time 2:00:00 python train.py
 $ gqueue
 <!-- cmdrun gqueue -n 5 -->
 
+# Inspect scheduler status and GPU usage
+$ ginfo info
+<!-- cmdrun ginfo info -->
+
 # Watch jobs in real-time
 $ watch gqueue
 
 # Stop the scheduler
-$ gctl down
+$ gflowd down
 ```
 
 ## Architecture Overview
@@ -84,7 +88,7 @@ $ gctl down
 ```
 ┌──────────────────────────────────┐
 │          User Commands           │
-│ (gbatch, gqueue, gcancel, gctl)  │
+│ (gbatch, gqueue, gcancel, ginfo) │
 └────────────────┬─────────────────┘
                  │
                  │ HTTP API
@@ -125,7 +129,7 @@ gflow consists of five command-line tools:
 | Command | Purpose | Similar to |
 |---------|---------|------------|
 | `gflowd` | Scheduler daemon | Slurm's `slurmctld` |
-| `gctl` | Control the daemon | `systemctl` for slurm |
+| `ginfo` | Display scheduler and GPU info | Slurm's `scontrol show nodes` |
 | `gbatch` | Submit jobs | Slurm's `sbatch` |
 | `gqueue` | Query job queue | Slurm's `squeue` |
 | `gcancel` | Cancel jobs | Slurm's `scancel` |

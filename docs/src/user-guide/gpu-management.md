@@ -13,8 +13,8 @@ gflow provides automatic GPU detection, allocation, and management for NVIDIA GP
 View system GPU information:
 
 ```bash
-$ gctl info
-<!-- cmdrun gctl info -->
+$ ginfo info
+<!-- cmdrun ginfo info -->
 ```
 
 **Information displayed**:
@@ -39,8 +39,8 @@ nvidia-smi
 ldconfig -p | grep libnvidia-ml
 
 # Test GPU detection with gflow
-gctl up
-gctl info
+gflowd up
+ginfo info
 ```
 
 ### No GPU Systems
@@ -192,7 +192,7 @@ JOBID    NAME                NODES    NODELIST(REASON)
 
 ```bash
 # View system info
-$ gctl info
+$ ginfo info
 
 # Use nvidia-smi for real-time monitoring
 watch -n 1 nvidia-smi
@@ -407,26 +407,6 @@ watch -n 2 'gqueue -s Running,Queued -f JOBID,NAME,NODES,NODELIST'
 
 ## Troubleshooting
 
-### Issue: GPUs not detected
-
-**Check**:
-```bash
-# Verify NVIDIA driver
-nvidia-smi
-
-# Verify NVML library
-ldconfig -p | grep libnvidia-ml
-
-# Check gflow daemon logs
-gctl status
-gctl info
-```
-
-**Solutions**:
-- Install NVIDIA drivers: Follow NVIDIA's installation guide
-- Install CUDA toolkit (includes NVML)
-- Restart gflow daemon: `gctl down && gctl up`
-
 ### Issue: Job not getting GPU
 
 **Possible causes**:
@@ -444,7 +424,7 @@ gctl info
    ```bash
    # Check allocation
    gqueue -s Running -f NODES,NODELIST
-   gctl info
+   ginfo info
    ```
 
 3. **Job is queued**:
@@ -568,7 +548,7 @@ kill $GPU_MONITOR_PID
 
 ```bash
 # Check system GPUs
-gctl info
+ginfo info
 
 # Submit job with GPUs
 gbatch --gpus <N> ...

@@ -534,7 +534,7 @@ A future enhancement could add a `REMAINING` column.
 
 **Possible causes**:
 1. **No time limit set**: Verify with `gqueue -f TIMELIMIT`
-2. **Daemon not running**: Check `gctl status`
+2. **Daemon not running**: Check `ginfo info`
 3. **Job not in Running state**: Time limits only apply to running jobs
 
 ### Time Limit Not Showing in `gqueue`

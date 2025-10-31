@@ -45,7 +45,7 @@ cargo install gflow
 
 This will install all five binaries:
 - `gflowd` - The scheduler daemon
-- `gctl` - Daemon control tool
+- `ginfo` - Scheduler inspection tool
 - `gbatch` - Job submission tool
 - `gqueue` - Job query tool
 - `gcancel` - Job cancellation tool
@@ -89,8 +89,8 @@ $ gflowd --version
 ```
 
 ```bash
-$ gctl --version
-<!-- cmdrun gctl --version -->
+$ ginfo --version
+<!-- cmdrun ginfo --version -->
 ```
 
 ```bash
@@ -110,8 +110,8 @@ $ gcancel --version
 
 Verify commands are in PATH:
 ```bash
-$ which gctl
-<!-- cmdrun which gctl -->
+$ which ginfo
+<!-- cmdrun which ginfo -->
 ```
 
 All commands are properly installed and available in your PATH.
@@ -131,14 +131,18 @@ tmux kill-session -t test
 If you have NVIDIA GPUs, verify they're detected:
 
 ```bash
-# Start the daemon
-$ gctl up
+# Start the daemon (run in a separate terminal)
+$ gflowd up
+
+# Verify it started
+$ gflowd status
+<!-- cmdrun gflowd status -->
 ```
 
 Check system info and GPU allocation:
 ```bash
-$ gctl info
-<!-- cmdrun gctl info -->
+$ ginfo info
+<!-- cmdrun ginfo info -->
 ```
 
 The daemon shows GPU information if NVIDIA GPUs are available.
@@ -241,7 +245,7 @@ To remove gflow:
 
 ```bash
 # Stop the daemon first
-gctl down
+gflowd down
 
 # Uninstall binaries
 cargo uninstall gflow

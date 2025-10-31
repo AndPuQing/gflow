@@ -7,18 +7,19 @@ This guide will get you up and running with gflow in 5 minutes.
 First, start the gflow daemon:
 
 ```bash
-gctl up
+gflowd up
 ```
 
-You should see:
-```
-gflowd started.
-```
-
-Verify it's running:
+Run this in its own terminal or tmux session and leave it running. You can confirm that it started successfully with:
 ```bash
-$ gctl status
-<!-- cmdrun gctl status -->
+$ gflowd status
+<!-- cmdrun gflowd status -->
+```
+
+Verify it's reachable from another terminal:
+```bash
+$ ginfo info
+<!-- cmdrun ginfo info -->
 ```
 
 ## Your First Job
@@ -206,22 +207,18 @@ tmux attach -t <session_name>
 When you're done:
 
 ```bash
-gctl down
+gflowd down
 ```
 
-This will:
-- Stop the scheduler daemon
-- Keep job state persistent
-- Preserve logs
-- Running jobs will be marked as failed (they're in tmux sessions, so they actually stop)
+This stops the daemon, saves state, and removes the tmux session.
 
 ## Example Workflow
 
 Here's a complete example workflow:
 
 ```bash
-# 1. Start scheduler
-gctl up
+# 1. Start scheduler (run in another terminal)
+gflowd up
 
 # 2. Submit preprocessing job
 gbatch --time 10 python preprocess.py --output data.pkl --name prep
@@ -240,7 +237,7 @@ cat ~/.local/share/gflow/logs/2.log
 cat ~/.local/share/gflow/logs/3.log
 
 # 6. Stop scheduler
-gctl down
+gflowd down
 ```
 
 ## Common Patterns

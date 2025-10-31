@@ -663,7 +663,7 @@ print(f"Pipeline: {prep_id} -> {train_id} -> {eval_id}")
 
 - [gqueue](./gqueue-reference.md) - Job queue reference
 - [gcancel](./gcancel-reference.md) - Job cancellation reference
-- [gctl](./gctl-reference.md) - Daemon control reference
+- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
 - [Job Submission](../user-guide/job-submission.md) - Detailed submission guide
 - [Job Dependencies](../user-guide/job-dependencies.md) - Workflow management
 - [GPU Management](../user-guide/gpu-management.md) - GPU allocation guide

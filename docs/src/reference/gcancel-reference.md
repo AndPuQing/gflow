@@ -418,7 +418,7 @@ gqueue -j <job_id> -f JOBID,ST
 gqueue -a | grep <job_id>
 
 # Check daemon status
-gctl status
+ginfo info
 ```
 
 ### Issue: Dependent jobs not cancelled
@@ -551,7 +551,7 @@ Error: Could not connect to gflowd (connection refused)
 
 - [gbatch](./gbatch-reference.md) - Job submission reference
 - [gqueue](./gqueue-reference.md) - Job queue reference
-- [gctl](./gctl-reference.md) - Daemon control reference
+- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
 - [Quick Reference](./quick-reference.md) - Command cheat sheet
 - [Job Submission](../user-guide/job-submission.md) - Job submission guide
 - [Job Dependencies](../user-guide/job-dependencies.md) - Dependency management

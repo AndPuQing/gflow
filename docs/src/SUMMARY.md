@@ -21,4 +21,4 @@
 - [gbatch Reference](./reference/gbatch-reference.md)
 - [gqueue Reference](./reference/gqueue-reference.md)
 - [gcancel Reference](./reference/gcancel-reference.md)
-- [gctl Reference](./reference/gctl-reference.md)
+- [ginfo Reference](./reference/ginfo-reference.md)

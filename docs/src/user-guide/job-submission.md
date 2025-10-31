@@ -487,7 +487,7 @@ gqueue -j <dependency_id>
 
 **Check**:
 1. Did you request GPU? `--gpus 1`
-2. Are GPUs available? `gctl info`
+2. Are GPUs available? `ginfo info`
 3. Are other jobs using all GPUs? `gqueue -s Running -f NODES,NODELIST`
 
 ### Issue: Conda environment not activating

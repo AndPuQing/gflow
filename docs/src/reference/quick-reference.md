@@ -4,11 +4,10 @@
 
 ### Daemon Management
 ```bash
-gctl up              # Start the scheduler daemon
-gctl down               # Stop the scheduler daemon
-gctl status             # Check daemon status
-gctl up                 # Alias for start
-gctl down               # Alias for stop
+gflowd up                  # Start the scheduler daemon
+gflowd down                # Stop the scheduler daemon
+ginfo info              # Check daemon status and GPU allocation
+watch -n 2 ginfo info   # Monitor scheduler state
 ```
 
 ### Job Submission
@@ -260,21 +259,6 @@ gqueue -a -s Timeout -f JOBID,NAME,TIME,TIMELIMIT
 
 ## Troubleshooting
 
-### Daemon won't start
-```bash
-# Check if already running
-gctl status
-
-# Check tmux sessions
-tmux ls
-
-# Kill zombie session
-tmux kill-session -t gflow_server
-
-# Try starting again
-gctl up
-```
-
 ### Job stuck in Queued
 ```bash
 # Check dependencies
@@ -379,6 +363,6 @@ $ gqueue --help
 ```
 
 ```bash
-$ gctl --help
-<!-- cmdrun gctl --help -->
+$ ginfo --help
+<!-- cmdrun ginfo --help -->
 ```

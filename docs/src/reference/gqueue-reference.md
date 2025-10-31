@@ -573,7 +573,7 @@ echo "Failed: $FAILED"
 **Solutions**:
 ```bash
 # Check daemon
-gctl status
+ginfo info
 
 # View all jobs
 gqueue -a
@@ -604,8 +604,8 @@ gqueue -f JOBID,NAME,ST
 sleep 5
 gqueue
 
-# Restart daemon if persistent
-gctl down && gctl up
+gflowd down
+gflowd up
 ```
 
 ## Performance Notes
@@ -619,7 +619,7 @@ gctl down && gctl up
 
 - [gbatch](./gbatch-reference.md) - Job submission reference
 - [gcancel](./gcancel-reference.md) - Job cancellation reference
-- [gctl](./gctl-reference.md) - Daemon control reference
+- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
 - [Quick Reference](./quick-reference.md) - Command cheat sheet
 - [Job Submission](../user-guide/job-submission.md) - Job submission guide
 - [Job Dependencies](../user-guide/job-dependencies.md) - Dependency management
