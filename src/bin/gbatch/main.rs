@@ -4,6 +4,7 @@ use commands::handle_commands;
 use gflow::config::load_config;
 mod cli;
 mod commands;
+mod history;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -169,7 +169,7 @@ gbatch --priority 1 python background.py
 
 #### `--depends-on <ID>`
 
-Job ID this job depends on.
+Job ID this job depends on. Supports shorthand for recent submissions.
 
 **Example**:
 ```bash
@@ -179,6 +179,12 @@ gbatch python preprocess.py
 
 # Job 2 (depends on 1)
 gbatch --depends-on 1 python train.py
+
+# Equivalent shorthand using the last submission
+gbatch --depends-on @ python train.py
+
+# Two submissions back
+gbatch --depends-on @~2 python evaluate.py
 ```
 
 **Behavior**:
@@ -186,11 +192,13 @@ gbatch --depends-on 1 python train.py
 - If dependency fails, this job never starts
 - Only one dependency per job supported
 - See [Job Dependencies](../user-guide/job-dependencies.md)
+- Shorthand values resolve to the most recent job IDs recorded by `gbatch`
 
 **Validation**:
 - Dependency job must exist
 - No circular dependencies allowed
 - Cannot depend on self
+- `@~N` requires at least `N` previous submissions
 
 #### `--time <TIME>`, `-t <TIME>`
 

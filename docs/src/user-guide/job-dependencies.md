@@ -31,6 +31,8 @@ Submitted batch job 2 (train)
 - If Job 1 fails, Job 2 remains in `Queued` state indefinitely
 - You must manually cancel Job 2 if Job 1 fails
 
+**Tip**: You can reference recent submissions without copying IDs. Use `--depends-on @` for the most recent job or `--depends-on @~N` for the Nth submission from the end.
+
 ### Checking Dependencies
 
 View dependency relationships:

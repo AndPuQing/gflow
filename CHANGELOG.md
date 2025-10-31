@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Works for successful, failed, cancelled, and timed-out jobs
   - Automatic cleanup of pipe-pane when sessions are terminated
   - Log directory automatically created if it doesn't exist
+- **Dependency Shorthand**: `gbatch --depends-on` now accepts `@` (last) and `@~N` (Nth from the end) to reference recent submissions without copying job IDs
 
 ### Changed
 - **Job State Transitions**: Updated to support new `Timeout` state

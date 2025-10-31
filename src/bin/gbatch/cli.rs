@@ -46,9 +46,9 @@ pub struct AddArgs {
     #[arg(long)]
     pub priority: Option<u8>,
 
-    /// The ID of the job this job depends on
+    /// Job dependency; accepts a job ID or shorthand like "@" / "@~N"
     #[arg(long)]
-    pub depends_on: Option<u32>,
+    pub depends_on: Option<String>,
 
     /// The job array specification (e.g., "1-10")
     #[arg(long)]
