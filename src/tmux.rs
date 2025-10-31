@@ -96,6 +96,18 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to kill tmux session: {}", e))
 }
 
+pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
+    // Check if session exists before attaching
+    if !is_session_exist(name) {
+        return Err(anyhow::anyhow!("Tmux session '{}' does not exist", name));
+    }
+    Tmux::with_command(tmux_interface::AttachSession::new().target_session(name))
+        .output()
+        .map_err(|e| anyhow::anyhow!("Failed to attach to tmux session: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use tmux_interface::{HasSession, KillSession, Tmux};

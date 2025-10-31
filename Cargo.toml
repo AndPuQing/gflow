@@ -27,12 +27,16 @@ path = "src/bin/gqueue/main.rs"
 
 
 [[bin]]
-name = "gctl"
-path = "src/bin/gctl/main.rs"
+name = "ginfo"
+path = "src/bin/ginfo/main.rs"
 
 [[bin]]
 name = "gcancel"
 path = "src/bin/gcancel/main.rs"
+
+[[bin]]
+name = "gjob"
+path = "src/bin/gjob/main.rs"
 
 
 [dependencies]

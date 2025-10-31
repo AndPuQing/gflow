@@ -1,5 +1,6 @@
 use clap::Parser;
 mod cli;
+mod commands;
 mod executor;
 mod scheduler;
 mod server;
@@ -10,6 +11,10 @@ async fn main() -> anyhow::Result<()> {
     env_logger::Builder::new()
         .filter_level(gflowd.verbose.log_level_filter())
         .init();
+
+    if let Some(command) = gflowd.command {
+        return commands::handle_commands(&gflowd.config, command).await;
+    }
 
     let config = gflow::config::load_config(gflowd.config.as_ref())?;
     server::run(config).await

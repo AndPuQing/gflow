@@ -1,8 +1,13 @@
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(name = "gctl", author, version, about = "Controls the gflow daemon.")]
-pub struct GCtl {
+#[command(
+    name = "ginfo",
+    author,
+    version,
+    about = "Displays gflow scheduler and GPU information."
+)]
+pub struct GInfoCli {
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,
 
@@ -15,12 +20,6 @@ pub struct GCtl {
 
 #[derive(Debug, Parser)]
 pub enum Commands {
-    /// Start the system service
-    Up,
-    /// Stop the system service
-    Down,
-    /// Show the system service status
-    Status,
     /// Display system information and GPU allocation
     Info,
 }

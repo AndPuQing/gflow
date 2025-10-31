@@ -10,7 +10,6 @@ pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<(
         return Ok(());
     }
 
-    // Try to get daemon info
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
     let client = Client::build(&config)?;
 

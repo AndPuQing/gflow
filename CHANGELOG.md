@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Priority-based scheduling
 - Tmux integration for job execution
 - RESTful HTTP API for job management
-- Command-line tools: `gflowd`, `gctl`, `gbatch`, `gqueue`, `gcancel`
+- Command-line tools: `gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`
 
 ### Job Management
 - Job state tracking (Queued, Running, Finished, Failed, Cancelled)

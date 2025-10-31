@@ -18,7 +18,7 @@
 - **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
 - **Rich Job Submission**: Supports dependencies, priorities, job arrays, and time limits via the `gbatch` command.
 - **Time Limits**: Set maximum runtime for jobs (similar to Slurm's `--time`) to prevent runaway processes.
-- **Service and Job Control**: Provides clear commands to manage the scheduler daemon (`gctl`), query the job queue (`gqueue`), and control job states (`gcancel`).
+- **Service and Job Control**: Provides clear commands to inspect the scheduler state (`ginfo`), query the job queue (`gqueue`), and control job states (`gcancel`).
 - **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
 - **Output Logging**: Automatic capture of job output to log files via `tmux pipe-pane`.
 - **Simple Command-Line Interface**: Offers a user-friendly and powerful set of command-line tools.
@@ -28,7 +28,7 @@
 The `gflow` suite consists of several command-line tools:
 
 - `gflowd`: The scheduler daemon that runs in the background, managing jobs and resources.
-- `gctl`: Controls the daemon (`gflowd`) and displays system information.
+- `ginfo`: Displays scheduler and GPU information.
 - `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
 - `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
 - `gcancel`: Cancels jobs and manages job states (internal use).
@@ -40,7 +40,7 @@ The `gflow` suite consists of several command-line tools:
 ```bash
 cargo install gflow
 ```
-This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueue`, `gcancel`).
+This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`).
 
 ### Build Manually
 
@@ -60,9 +60,9 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 
 1.  **Start the scheduler daemon**:
     ```bash
-    gctl up
+    gflowd up
     ```
-    You can check its status with `gctl status`.
+    Run this in a dedicated terminal or `tmux` session and leave it running. You can check its health at any time with `gflowd status` and inspect resources with `ginfo info`.
 
 2.  **Submit a job**:
     Create a script `my_job.sh`:
@@ -85,8 +85,9 @@ This will install all the necessary binaries (`gflowd`, `gctl`, `gbatch`, `gqueu
 
 4.  **Stop the scheduler**:
     ```bash
-    gctl down
+    gflowd down
     ```
+    This shuts down the daemon and cleans up the tmux session.
 
 ## Usage Guide
 

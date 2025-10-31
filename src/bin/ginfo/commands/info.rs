@@ -10,7 +10,7 @@ pub async fn handle_info(config_path: &Option<std::path::PathBuf>) -> Result<()>
             print_gpu_allocation(&info, &jobs);
         }
         Err(e) => {
-            eprintln!("gctl: daemon not reachable: {e}");
+            eprintln!("ginfo: daemon not reachable: {e}");
         }
     }
     Ok(())

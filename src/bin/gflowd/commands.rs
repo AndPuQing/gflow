@@ -1,7 +1,6 @@
 use crate::cli::Commands;
 
 pub mod down;
-pub mod info;
 pub mod status;
 pub mod up;
 
@@ -20,9 +19,6 @@ pub async fn handle_commands(
         }
         Commands::Status => {
             status::handle_status(config_path).await?;
-        }
-        Commands::Info => {
-            info::handle_info(config_path).await?;
         }
     }
 
