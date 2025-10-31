@@ -41,6 +41,8 @@ impl fmt::Display for JobError {
 pub enum JobState {
     #[strum(to_string = "Queued", serialize = "PD", serialize = "pd")]
     Queued,
+    #[strum(to_string = "Hold", serialize = "H", serialize = "h")]
+    Hold,
     #[strum(to_string = "Running", serialize = "R", serialize = "r")]
     Running,
     #[strum(to_string = "Finished", serialize = "CD", serialize = "cd")]
@@ -58,6 +60,7 @@ impl JobState {
     pub fn short_form(&self) -> &'static str {
         match self {
             JobState::Queued => "PD",
+            JobState::Hold => "H",
             JobState::Running => "R",
             JobState::Finished => "CD",
             JobState::Failed => "F",
@@ -69,14 +72,17 @@ impl JobState {
     pub fn can_transition_to(self, next: JobState) -> bool {
         use JobState::*;
         // Queued → Running → Finished
-        //           │
-        //           ├──> Failed
-        //           ├──> Cancelled
-        //           └──> Timeout
-        // Queued ─────────> Cancelled
+        //   │       │
+        //   ↓       ├──> Failed
+        // Hold      ├──> Cancelled
+        //   │       └──> Timeout
+        //   └─────────> Cancelled
         matches!(
             (self, next),
             (Queued, Running)
+                | (Queued, Hold)
+                | (Hold, Queued)
+                | (Hold, Cancelled)
                 | (Running, Finished)
                 | (Running, Failed)
                 | (Queued, Cancelled)

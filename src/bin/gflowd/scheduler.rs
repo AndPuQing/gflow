@@ -191,6 +191,26 @@ impl Scheduler {
         }
     }
 
+    pub fn hold_job(&mut self, job_id: u32) -> bool {
+        if let Some(job) = self.jobs.get_mut(&job_id) {
+            job.try_transition(job_id, JobState::Hold);
+            self.save_state();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn release_job(&mut self, job_id: u32) -> bool {
+        if let Some(job) = self.jobs.get_mut(&job_id) {
+            job.try_transition(job_id, JobState::Queued);
+            self.save_state();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Calculate time bonus for scheduling priority
     /// Returns a value between 100-300:
     /// - 100: No time limit (lowest bonus)
@@ -298,6 +318,7 @@ pub async fn run(shared_state: SharedState) {
         // 1. User priority (highest priority wins)
         // 2. Time limit bonus (time-limited jobs preferred, shorter jobs first)
         // 3. Submission order (earlier submissions first, using job ID as proxy)
+        // Note: Held jobs are not eligible for scheduling
         let mut runnable_jobs: Vec<_> = state
             .jobs
             .values()

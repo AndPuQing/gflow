@@ -25,6 +25,8 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/:id/finish", post(finish_job))
         .route("/jobs/:id/fail", post(fail_job))
         .route("/jobs/:id/cancel", post(cancel_job))
+        .route("/jobs/:id/hold", post(hold_job))
+        .route("/jobs/:id/release", post(release_job))
         .route("/jobs/:id/log", get(get_job_log))
         .route("/info", get(info))
         .route("/health", get(get_health))
@@ -141,6 +143,28 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
     let mut state = state.write().await;
     log::info!("Cancelling job with ID: {id}");
     if state.cancel_job(id) {
+        (StatusCode::OK, Json(()))
+    } else {
+        (StatusCode::NOT_FOUND, Json(()))
+    }
+}
+
+#[axum::debug_handler]
+async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+    let mut state = state.write().await;
+    log::info!("Holding job with ID: {id}");
+    if state.hold_job(id) {
+        (StatusCode::OK, Json(()))
+    } else {
+        (StatusCode::NOT_FOUND, Json(()))
+    }
+}
+
+#[axum::debug_handler]
+async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+    let mut state = state.write().await;
+    log::info!("Releasing job with ID: {id}");
+    if state.release_job(id) {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))

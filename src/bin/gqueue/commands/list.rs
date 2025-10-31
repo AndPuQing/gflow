@@ -252,6 +252,7 @@ fn colorize_state(state: &JobState) -> String {
         JobState::Running => short.green().bold().to_string(),
         JobState::Finished => short.dimmed().to_string(),
         JobState::Queued => short.italic().to_string(),
+        JobState::Hold => short.bold().to_string(),
         JobState::Failed => short.red().bold().to_string(),
         JobState::Timeout => short.underline().to_string(),
         JobState::Cancelled => short.strikethrough().to_string(),
@@ -468,6 +469,41 @@ mod tests {
             finished_at: None,
             time_limit: None,
         }
+    }
+
+    fn create_test_job_with_state(id: u32, name: &str, state: JobState) -> Job {
+        Job {
+            id,
+            script: None,
+            command: Some(format!("test command {}", id)),
+            gpus: 1,
+            conda_env: None,
+            run_dir: PathBuf::from("/tmp"),
+            priority: 10,
+            depends_on: None,
+            task_id: None,
+            run_name: Some(name.to_string()),
+            state,
+            gpu_ids: Some(vec![0]),
+            started_at: None,
+            finished_at: None,
+            time_limit: None,
+        }
+    }
+
+    #[test]
+    fn test_statue() {
+        let jobs = vec![
+            create_test_job_with_state(1, "job-1", JobState::Running),
+            create_test_job_with_state(2, "job-2", JobState::Finished),
+            create_test_job_with_state(3, "job-3", JobState::Queued),
+            create_test_job_with_state(4, "job-4", JobState::Hold),
+            create_test_job_with_state(5, "job-5", JobState::Failed),
+            create_test_job_with_state(6, "job-6", JobState::Timeout),
+            create_test_job_with_state(7, "job-7", JobState::Cancelled),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
     }
 
     #[test]

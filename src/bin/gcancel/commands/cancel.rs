@@ -97,6 +97,10 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
                         println!("  Impact: ⚠ This job will remain queued indefinitely");
                         println!("          (dependency will never complete)");
                     }
+                    JobState::Hold => {
+                        println!("  Impact: ⚠ This job is on hold and will remain blocked");
+                        println!("          (dependency will never complete)");
+                    }
                     JobState::Running => {
                         println!("  Impact: ✓ Already running (unaffected)");
                     }

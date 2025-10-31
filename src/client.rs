@@ -123,6 +123,26 @@ impl Client {
         Ok(())
     }
 
+    pub async fn hold_job(&self, job_id: u32) -> anyhow::Result<()> {
+        log::debug!("Holding job {job_id}");
+        self.client
+            .post(format!("{}/jobs/{}/hold", self.base_url, job_id))
+            .send()
+            .await
+            .context("Failed to send hold job request")?;
+        Ok(())
+    }
+
+    pub async fn release_job(&self, job_id: u32) -> anyhow::Result<()> {
+        log::debug!("Releasing job {job_id}");
+        self.client
+            .post(format!("{}/jobs/{}/release", self.base_url, job_id))
+            .send()
+            .await
+            .context("Failed to send release job request")?;
+        Ok(())
+    }
+
     pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Option<String>> {
         log::debug!("Getting log path for job {job_id}");
         let response = self

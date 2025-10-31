@@ -33,4 +33,16 @@ pub enum Commands {
         #[arg(short, long, help = "Job ID to view the log for")]
         job: u32,
     },
+    /// Put a queued job on hold
+    #[command(visible_alias = "h")]
+    Hold {
+        #[arg(short, long, help = "Job ID to hold")]
+        job: u32,
+    },
+    /// Release a held job back to the queue
+    #[command(visible_alias = "r")]
+    Release {
+        #[arg(short, long, help = "Job ID to release")]
+        job: u32,
+    },
 }
