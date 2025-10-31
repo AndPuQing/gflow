@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(
     name = "gqueue",
     author,
-    version,
+    version=gflow::core::version(),
     about = "Lists jobs in the gflow scheduler."
 )]
 pub struct GQueue {

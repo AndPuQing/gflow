@@ -1,6 +1,6 @@
 use crate::core::info::SchedulerInfo;
 use crate::core::job::Job;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -123,7 +123,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<String> {
+    pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Option<String>> {
         log::debug!("Getting log path for job {job_id}");
         let response = self
             .client
@@ -131,10 +131,26 @@ impl Client {
             .send()
             .await
             .context("Failed to send get log path request")?;
-        response
-            .text()
-            .await
-            .context("Failed to read log path from response")
+        let status = response.status();
+        if status == StatusCode::OK {
+            response
+                .json::<Option<String>>()
+                .await
+                .context("Failed to parse log path from response")
+        } else if status == StatusCode::NOT_FOUND {
+            Ok(None)
+        } else {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::from("<failed to read body>"));
+            Err(anyhow!(
+                "Failed to get log path for job {} (status {}): {}",
+                job_id,
+                status,
+                body
+            ))
+        }
     }
 
     pub async fn get_info(&self) -> anyhow::Result<SchedulerInfo> {

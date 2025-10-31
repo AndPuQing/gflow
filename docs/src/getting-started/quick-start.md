@@ -6,18 +6,19 @@ This guide will get you up and running with gflow in 5 minutes.
 
 First, start the gflow daemon:
 
-```bash
-gflowd up
+```shell
+$ gflowd up
+<!-- cmdrun gflowd up -->
 ```
 
 Run this in its own terminal or tmux session and leave it running. You can confirm that it started successfully with:
-```bash
+```shell
 $ gflowd status
 <!-- cmdrun gflowd status -->
 ```
 
 Verify it's reachable from another terminal:
-```bash
+```shell
 $ ginfo info
 <!-- cmdrun ginfo info -->
 ```
@@ -26,22 +27,18 @@ $ ginfo info
 
 Let's submit a simple job:
 
-```bash
-gbatch echo 'Hello from gflow!'; sleep 5; echo 'Job complete!'
-```
-
-Output:
-```
-Submitted batch job 1 (silent-pump-6338)
+```shell
+$ gbatch echo 'Hello from gflow!'
+<!-- cmdrun gbatch echo 'Hello from gflow!' -->
 ```
 
 ## Checking Job Status
 
 View the job queue:
 
-```bash
+```shell
 $ gqueue
-<!-- cmdrun gqueue -n 10 -->
+<!-- cmdrun gqueue -->
 ```
 
 Job states:
@@ -56,31 +53,23 @@ Job states:
 
 Job output is automatically logged:
 
-```bash
-# Wait for job to complete
-sleep 6
-
-# View the log
-cat ~/.local/share/gflow/logs/1.log
-```
-
-You should see:
-```
-Hello from gflow!
-Job complete!
+```shell
+$ sleep 6
+$ gjob -j 1
+<!-- cmdrun gjob -j 1 -->
 ```
 
 ## Submitting Jobs with Options
 
 ### Job with GPU Request
 
-```bash
+```shell
 gbatch --gpus 1 nvidia-smi
 ```
 
 ### Job with Time Limit
 
-```bash
+```shell
 # 30-minute limit
 gbatch --time 30 python train.py
 
@@ -90,7 +79,7 @@ gbatch --time 2:00:00 python long_train.py
 
 ### Job with Priority
 
-```bash
+```shell
 # Higher priority (runs first)
 gbatch --priority 100 python urgent_task.py
 
@@ -101,8 +90,8 @@ gbatch --priority 5 python background_task.py
 ### Job Script
 
 Create a file `my_job.sh`:
-```bash
-#!/bin/bash
+```shell
+#!/bin/shell
 # GFLOW --gpus 1
 # GFLOW --time 1:00:00
 # GFLOW --priority 20
@@ -113,7 +102,7 @@ echo "Job finished at $(date)"
 ```
 
 Make it executable and submit:
-```bash
+```shell
 chmod +x my_job.sh
 gbatch my_job.sh
 ```
@@ -122,7 +111,7 @@ gbatch my_job.sh
 
 Run jobs in sequence:
 
-```bash
+```shell
 # Job 1: Preprocessing
 gbatch python preprocess.py --name "prep"
 # Note the job ID, e.g., 2
@@ -135,7 +124,7 @@ gbatch python evaluate.py --depends-on 3 --name "eval"
 ```
 
 View dependency tree:
-```bash
+```shell
 gqueue -t
 ```
 
@@ -143,13 +132,13 @@ gqueue -t
 
 ### Watch Queue in Real-time
 
-```bash
+```shell
 watch -n 2 gqueue
 ```
 
 ### Filter by State
 
-```bash
+```shell
 # Show only running jobs
 gqueue -s Running
 
@@ -159,14 +148,14 @@ gqueue -s Running,Queued
 
 ### Custom Output Format
 
-```bash
+```shell
 $ gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
 <!-- cmdrun gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT -n 10 -->
 ```
 
 ### View Specific Jobs
 
-```bash
+```shell
 # Single job
 gqueue -j 5
 
@@ -178,7 +167,7 @@ gqueue -j 5,6,7
 
 Cancel a job:
 
-```bash
+```shell
 gcancel 5
 ```
 
@@ -191,7 +180,7 @@ Job 5 cancelled.
 
 Each job runs in a tmux session. You can attach to see live output:
 
-```bash
+```shell
 # Get the job's session name from gqueue
 gqueue -f JOBID,NAME
 
@@ -206,7 +195,7 @@ tmux attach -t <session_name>
 
 When you're done:
 
-```bash
+```shell
 gflowd down
 ```
 
@@ -216,7 +205,7 @@ This stops the daemon, saves state, and removes the tmux session.
 
 Here's a complete example workflow:
 
-```bash
+```shell
 # 1. Start scheduler (run in another terminal)
 gflowd up
 
@@ -246,7 +235,7 @@ gflowd down
 
 Run multiple similar tasks:
 
-```bash
+```shell
 gbatch --array 1-10 --time 30 \
        python process.py --task $GFLOW_ARRAY_TASK_ID
 ```
@@ -257,7 +246,7 @@ This creates 10 jobs, each with `$GFLOW_ARRAY_TASK_ID` set to 1, 2, ..., 10.
 
 Test different hyperparameters on different GPUs:
 
-```bash
+```shell
 # Each job gets 1 GPU
 gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.001
 gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.01
@@ -268,31 +257,31 @@ gbatch --gpus 1 --time 4:00:00 python train.py --lr 0.1
 
 Use a specific conda environment:
 
-```bash
+```shell
 gbatch --conda-env myenv python script.py
 ```
 
 ## Tips for Beginners
 
 1. **Always set time limits** for production jobs:
-   ```bash
+   ```shell
    gbatch --time 2:00:00 your_command
    ```
 
 2. **Use `watch gqueue`** to monitor jobs in real-time
 
 3. **Check logs** when jobs fail:
-   ```bash
+   ```shell
    cat ~/.local/share/gflow/logs/<job_id>.log
    ```
 
 4. **Test scripts first** with short time limits:
-   ```bash
-   gbatch --time 1 bash test.sh
+   ```shell
+   gbatch --time 1 shell test.sh
    ```
 
 5. **Use job dependencies** for workflows:
-   ```bash
+   ```shell
    gbatch --depends-on <prev_job_id> your_command
    ```
 

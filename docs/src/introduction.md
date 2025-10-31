@@ -94,7 +94,7 @@ $ gflowd down
                  │ HTTP API
                  ▼
 ┌──────────────────────────────────┐
-│          gflowd Daemon             │
+│          gflowd Daemon           │
 │  ┌────────────────────────────┐  │
 │  │ Scheduler (5s interval)    │  │
 │  │ - Check dependencies       │  │

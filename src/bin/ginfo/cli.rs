@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(
     name = "ginfo",
     author,
-    version,
+    version=gflow::core::version(),
     about = "Displays gflow scheduler and GPU information."
 )]
 pub struct GInfoCli {

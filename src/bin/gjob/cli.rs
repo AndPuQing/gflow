@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(
     name = "gjob",
     author,
-    version,
+    version=gflow::core::version(),
     about = "Controls and manages jobs in the gflow scheduler."
 )]
 pub struct GJob {
@@ -25,6 +25,12 @@ pub enum Commands {
     #[command(visible_alias = "a")]
     Attach {
         #[arg(short, long, help = "Job ID to attach to")]
+        job: u32,
+    },
+    /// View a job's log output
+    #[command(visible_alias = "l")]
+    Log {
+        #[arg(short, long, help = "Job ID to view the log for")]
         job: u32,
     },
 }

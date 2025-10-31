@@ -1,10 +1,10 @@
 use clap::Parser;
-
+use gflow::core::version;
 #[derive(Debug, Parser)]
 #[command(
     name = "gcancel",
     author,
-    version,
+    version=version(),
     about = "Controls job states in the gflow scheduler."
 )]
 pub struct GCancel {
