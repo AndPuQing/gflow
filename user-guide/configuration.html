@@ -1,0 +1,691 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Configuration - gflow Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A lightweight, single-node job scheduler inspired by Slurm">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">gflow Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
+<p>This guide covers how to configure gflow for your environment.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>gflow uses a simple configuration system based on TOML files and environment variables. Most users can use gflow without any configuration, but customization options are available for specific needs.</p>
+<h2 id="configuration-files"><a class="header" href="#configuration-files">Configuration Files</a></h2>
+<h3 id="default-configuration-location"><a class="header" href="#default-configuration-location">Default Configuration Location</a></h3>
+<pre><code>~/.config/gflow/gflow.toml
+</code></pre>
+<p>This file is created automatically when you first run gflow commands. If it doesn't exist, gflow uses built-in defaults.</p>
+<h3 id="configuration-file-structure"><a class="header" href="#configuration-file-structure">Configuration File Structure</a></h3>
+<pre><code class="language-toml">[daemon]
+# Daemon connection settings
+host = "localhost"
+port = 59000
+
+# Optional: Specify GPU indices to use (commented out = use all)
+# gpus = [0, 1, 2]
+
+# Optional: Log level (error, warn, info, debug, trace)
+# log_level = "info"
+</code></pre>
+<h3 id="custom-configuration-location"><a class="header" href="#custom-configuration-location">Custom Configuration Location</a></h3>
+<p>Use the <code>--config</code> flag (available on all commands, but hidden from help):</p>
+<pre><code class="language-bash"># Use custom config file
+gflowd --config /path/to/custom.toml up
+gflowd --config /path/to/custom.toml status
+ginfo --config /path/to/custom.toml info
+gflowd --config /path/to/custom.toml down
+gbatch --config /path/to/custom.toml ...
+gqueue --config /path/to/custom.toml
+</code></pre>
+<h2 id="configuration-options"><a class="header" href="#configuration-options">Configuration Options</a></h2>
+<h3 id="daemon-configuration"><a class="header" href="#daemon-configuration">Daemon Configuration</a></h3>
+<h4 id="host-and-port"><a class="header" href="#host-and-port">Host and Port</a></h4>
+<p>Control where the daemon listens:</p>
+<pre><code class="language-toml">[daemon]
+host = "localhost"  # Listen address
+port = 59000        # Listen port
+</code></pre>
+<p><strong>Default values</strong>:</p>
+<ul>
+<li>Host: <code>localhost</code> (127.0.0.1)</li>
+<li>Port: <code>59000</code></li>
+</ul>
+<p><strong>Use cases</strong>:</p>
+<ul>
+<li>Default is fine for single-machine use</li>
+<li>Change port if 59000 is already in use</li>
+<li>Use <code>0.0.0.0</code> to allow remote connections (⚠️ not recommended for security)</li>
+</ul>
+<h4 id="gpu-selection"><a class="header" href="#gpu-selection">GPU Selection</a></h4>
+<p>Limit which GPUs gflow can use:</p>
+<pre><code class="language-toml">[daemon]
+# Use only GPUs 0 and 2
+gpus = [0, 2]
+</code></pre>
+<p><strong>Use cases</strong>:</p>
+<ul>
+<li>Reserve specific GPUs for other applications</li>
+<li>Test with subset of GPUs</li>
+<li>Isolate gflow from other workloads</li>
+</ul>
+<p><strong>Default</strong>: All detected GPUs are available</p>
+<h4 id="logging-level"><a class="header" href="#logging-level">Logging Level</a></h4>
+<p>Control daemon verbosity:</p>
+<pre><code class="language-toml">[daemon]
+log_level = "info"  # error | warn | info | debug | trace
+</code></pre>
+<p><strong>Levels</strong>:</p>
+<ul>
+<li><code>error</code>: Only critical errors</li>
+<li><code>warn</code>: Warnings and errors</li>
+<li><code>info</code>: General information (default)</li>
+<li><code>debug</code>: Detailed debugging info</li>
+<li><code>trace</code>: Very verbose (includes all internal operations)</li>
+</ul>
+<h2 id="environment-variables"><a class="header" href="#environment-variables">Environment Variables</a></h2>
+<h3 id="configuration-via-environment"><a class="header" href="#configuration-via-environment">Configuration via Environment</a></h3>
+<p>gflow supports environment variable configuration with the <code>GFLOW_</code> prefix:</p>
+<pre><code class="language-bash"># Set daemon host
+export GFLOW_DAEMON_HOST="localhost"
+
+# Set daemon port
+export GFLOW_DAEMON_PORT="59000"
+
+# Set log level
+export GFLOW_LOG_LEVEL="debug"
+
+# Start daemon with these settings
+gflowd up
+</code></pre>
+<p><strong>Precedence</strong>:</p>
+<ol>
+<li>Command-line arguments (if available)</li>
+<li>Configuration file (<code>--config</code> or default)</li>
+<li>Environment variables</li>
+<li>Built-in defaults</li>
+</ol>
+<h3 id="setting-cuda-devices-system-wide"><a class="header" href="#setting-cuda-devices-system-wide">Setting CUDA Devices System-wide</a></h3>
+<p>To limit CUDA devices before gflow:</p>
+<pre><code class="language-bash"># Make only GPU 0 visible to gflow
+export CUDA_VISIBLE_DEVICES=0
+gflowd up
+
+# gflow will only see and manage GPU 0
+ginfo info
+</code></pre>
+<p><strong>Warning</strong>: This affects all CUDA applications, not just gflow.</p>
+<h2 id="file-locations"><a class="header" href="#file-locations">File Locations</a></h2>
+<h3 id="standard-directories"><a class="header" href="#standard-directories">Standard Directories</a></h3>
+<p>gflow uses XDG Base Directory specification:</p>
+<pre><code class="language-bash"># Configuration
+~/.config/gflow/
+  └── gflow.toml          # Main configuration file
+
+# Data (state and logs)
+~/.local/share/gflow/
+  ├── state.json           # Persistent job state
+  └── logs/                # Job output logs
+      ├── 1.log
+      ├── 2.log
+      └── ...
+
+# Runtime (optional, not used by default)
+~/.local/share/gflow/
+</code></pre>
+<h3 id="customizing-directories"><a class="header" href="#customizing-directories">Customizing Directories</a></h3>
+<p>While not officially supported, you can use environment variables:</p>
+<pre><code class="language-bash"># Custom config directory
+export XDG_CONFIG_HOME="$HOME/my-config"
+# Config will be at: $HOME/my-config/gflow/gflow.toml
+
+# Custom data directory
+export XDG_DATA_HOME="$HOME/my-data"
+# State will be at: $HOME/my-data/gflow/state.json
+# Logs will be at: $HOME/my-data/gflow/logs/
+</code></pre>
+<h2 id="configuration-management"><a class="header" href="#configuration-management">Configuration Management</a></h2>
+<h3 id="view-current-configuration"><a class="header" href="#view-current-configuration">View Current Configuration</a></h3>
+<pre><code class="language-bash"># View scheduler info (includes host and port)
+ginfo info
+
+# The config file itself
+cat ~/.config/gflow/gflow.toml
+</code></pre>
+<h3 id="reset-configuration"><a class="header" href="#reset-configuration">Reset Configuration</a></h3>
+<p>Remove configuration to use defaults:</p>
+<pre><code class="language-bash"># Stop daemon first
+gflowd down
+
+# Remove config file
+rm ~/.config/gflow/gflow.toml
+
+# Restart daemon (uses defaults)
+gflowd up
+</code></pre>
+<h3 id="configuration-cleanup"><a class="header" href="#configuration-cleanup">Configuration Cleanup</a></h3>
+<p>Use the cleanup option (undocumented feature):</p>
+<pre><code class="language-bash">gflowd --cleanup
+</code></pre>
+<p>This removes the configuration file and resets to defaults.</p>
+<h2 id="advanced-configuration"><a class="header" href="#advanced-configuration">Advanced Configuration</a></h2>
+<h3 id="multiple-gflow-instances"><a class="header" href="#multiple-gflow-instances">Multiple gflow Instances</a></h3>
+<p>Run multiple independent gflow instances with different configs:</p>
+<p><strong>Instance 1</strong> (default):</p>
+<pre><code class="language-toml"># ~/.config/gflow/gflow.toml
+[daemon]
+port = 59000
+</code></pre>
+<pre><code class="language-bash">gflowd up
+</code></pre>
+<p><strong>Instance 2</strong> (custom):</p>
+<pre><code class="language-toml"># ~/gflow-dev/config.toml
+[daemon]
+port = 59001
+</code></pre>
+<pre><code class="language-bash">gflowd --config ~/gflow-dev/config.toml up
+ginfo --config ~/gflow-dev/config.toml info
+gbatch --config ~/gflow-dev/config.toml ...
+</code></pre>
+<p><strong>Use cases</strong>:</p>
+<ul>
+<li>Testing new features without affecting production</li>
+<li>Separate job queues for different projects</li>
+<li>Different GPU allocations for different teams</li>
+</ul>
+<h3 id="per-project-configuration"><a class="header" href="#per-project-configuration">Per-Project Configuration</a></h3>
+<p>Create a project-specific config:</p>
+<pre><code class="language-bash"># Project directory
+cd my-ml-project/
+
+# Create local config
+cat &gt; gflow.toml &lt;&lt; 'EOF'
+[daemon]
+host = "localhost"
+port = 59001
+gpus = [0, 1]  # Use only first 2 GPUs for this project
+EOF
+
+# Use with --config
+gbatch --config ./gflow.toml --gpus 1 python train.py
+</code></pre>
+<p><strong>Tip</strong>: Add to <code>.gitignore</code>:</p>
+<pre><code class="language-bash">echo "gflow.toml" &gt;&gt; .gitignore
+</code></pre>
+<h3 id="gpu-partitioning"><a class="header" href="#gpu-partitioning">GPU Partitioning</a></h3>
+<p>Divide GPUs among users or projects:</p>
+<p><strong>User A</strong> (GPUs 0-1):</p>
+<pre><code class="language-toml"># ~/.config/gflow/gflow-userA.toml
+[daemon]
+port = 59000
+gpus = [0, 1]
+</code></pre>
+<p><strong>User B</strong> (GPUs 2-3):</p>
+<pre><code class="language-toml"># ~/.config/gflow/gflow-userB.toml
+[daemon]
+port = 59001
+gpus = [2, 3]
+</code></pre>
+<p>Each user runs their own daemon instance.</p>
+<h2 id="daemon-control"><a class="header" href="#daemon-control">Daemon Control</a></h2>
+<h3 id="starting-the-daemon"><a class="header" href="#starting-the-daemon">Starting the Daemon</a></h3>
+<pre><code class="language-bash"># Default config (creates/uses tmux session)
+gflowd up
+
+# Custom config
+gflowd --config /path/to/config.toml up
+
+# With verbosity
+gflowd -vv up   # debug level
+gflowd -vvv up  # trace level
+</code></pre>
+<p><code>gflowd up</code> detaches immediately after launching the daemon inside the <code>gflow_server</code> tmux session.</p>
+<h3 id="stopping-the-daemon"><a class="header" href="#stopping-the-daemon">Stopping the Daemon</a></h3>
+<pre><code class="language-bash">gflowd down
+</code></pre>
+<p>This politely stops the daemon, saves state, and removes the <code>gflow_server</code> session. If the tmux session is missing, <code>gflowd down</code> reports the failure but otherwise exits cleanly.</p>
+<h3 id="checking-status"><a class="header" href="#checking-status">Checking Status</a></h3>
+<pre><code class="language-bash">gflowd status
+</code></pre>
+<p><code>gflowd status</code> checks for the tmux session and performs a health probe against the HTTP API. Use <code>ginfo info</code> to inspect detailed resources:</p>
+<pre><code class="language-bash">$ ginfo info
+</code></pre>
+<p><code>ginfo</code> prints scheduler metadata, GPU availability, and which jobs currently occupy each device.</p>
+<h3 id="daemon-persistence"><a class="header" href="#daemon-persistence">Daemon Persistence</a></h3>
+<p>The daemon runs in a tmux session:</p>
+<pre><code class="language-bash"># Attach to daemon session
+tmux attach -t gflow_server
+
+# Detach without stopping (Ctrl-B, then D)
+
+# View daemon logs
+tmux attach -t gflow_server
+# Then scroll up (Ctrl-B, then [)
+</code></pre>
+<h2 id="state-persistence"><a class="header" href="#state-persistence">State Persistence</a></h2>
+<h3 id="job-state"><a class="header" href="#job-state">Job State</a></h3>
+<p>Job state is automatically persisted to disk:</p>
+<pre><code class="language-bash">~/.local/share/gflow/state.json
+</code></pre>
+<p><strong>When state is saved</strong>:</p>
+<ul>
+<li>When jobs are submitted</li>
+<li>When job states change</li>
+<li>Periodically during daemon operation</li>
+<li>When daemon shuts down</li>
+</ul>
+<p><strong>State recovery</strong>:</p>
+<ul>
+<li>Daemon reads state on startup</li>
+<li>Jobs resume from their previous state</li>
+<li>Running jobs are marked as failed (tmux sessions stopped)</li>
+</ul>
+<h3 id="manual-state-management"><a class="header" href="#manual-state-management">Manual State Management</a></h3>
+<p><strong>Backup state</strong>:</p>
+<pre><code class="language-bash">cp ~/.local/share/gflow/state.json ~/.local/share/gflow/state.json.backup
+</code></pre>
+<p><strong>Clear all job history</strong>:</p>
+<pre><code class="language-bash"># Stop daemon first!
+gflowd down
+
+# Remove state file
+rm ~/.local/share/gflow/state.json
+
+# Restart (fresh state)
+gflowd up
+</code></pre>
+<p><strong>Restore state</strong>:</p>
+<pre><code class="language-bash">gflowd down
+cp state.json.backup ~/.local/share/gflow/state.json
+gflowd up
+</code></pre>
+<h2 id="logging"><a class="header" href="#logging">Logging</a></h2>
+<h3 id="job-logs"><a class="header" href="#job-logs">Job Logs</a></h3>
+<p>Automatic log capture to files:</p>
+<pre><code class="language-bash">~/.local/share/gflow/logs/&lt;job_id&gt;.log
+</code></pre>
+<p><strong>Features</strong>:</p>
+<ul>
+<li>Automatic directory creation</li>
+<li>Real-time log writing via <code>tmux pipe-pane</code></li>
+<li>Logs persist after job completion</li>
+<li>No size limits (manage manually if needed)</li>
+</ul>
+<p><strong>Managing logs</strong>:</p>
+<pre><code class="language-bash"># View recent logs
+ls -lt ~/.local/share/gflow/logs/ | head -10
+
+# Clean old logs
+find ~/.local/share/gflow/logs/ -name "*.log" -mtime +30 -delete
+
+# Archive logs
+tar -czf logs-$(date +%Y%m%d).tar.gz ~/.local/share/gflow/logs/
+</code></pre>
+<h3 id="daemon-logs"><a class="header" href="#daemon-logs">Daemon Logs</a></h3>
+<p>Daemon logs appear in its tmux session:</p>
+<pre><code class="language-bash"># View daemon logs
+tmux attach -t gflow_server
+
+# Capture daemon logs to file
+tmux capture-pane -t gflow_server -p &gt; daemon.log
+</code></pre>
+<h2 id="troubleshooting-configuration"><a class="header" href="#troubleshooting-configuration">Troubleshooting Configuration</a></h2>
+<h3 id="issue-config-file-not-found"><a class="header" href="#issue-config-file-not-found">Issue: Config file not found</a></h3>
+<p><strong>Check location</strong>:</p>
+<pre><code class="language-bash">ls -la ~/.config/gflow/gflow.toml
+</code></pre>
+<p><strong>Solution</strong>: Create default config or specify with <code>--config</code></p>
+<h3 id="issue-port-already-in-use"><a class="header" href="#issue-port-already-in-use">Issue: Port already in use</a></h3>
+<p><strong>Check port</strong>:</p>
+<pre><code class="language-bash">lsof -i :59000
+</code></pre>
+<p><strong>Solutions</strong>:</p>
+<ol>
+<li>
+<p>Change port in config:</p>
+<pre><code class="language-toml">[daemon]
+port = 59001
+</code></pre>
+</li>
+<li>
+<p>Kill process using the port:</p>
+<pre><code class="language-bash">kill &lt;PID&gt;
+</code></pre>
+</li>
+</ol>
+<h3 id="issue-gpus-not-detected"><a class="header" href="#issue-gpus-not-detected">Issue: GPUs not detected</a></h3>
+<p><strong>Check config</strong>:</p>
+<pre><code class="language-toml">[daemon]
+# Make sure you don't have invalid GPU indices
+# gpus = [0, 1, 2, 3]  # Comment out to use all
+</code></pre>
+<p><strong>Verify GPUs</strong>:</p>
+<pre><code class="language-bash">nvidia-smi
+ginfo info
+</code></pre>
+<h3 id="issue-cant-connect-to-daemon"><a class="header" href="#issue-cant-connect-to-daemon">Issue: Can't connect to daemon</a></h3>
+<p><strong>Check</strong>:</p>
+<ol>
+<li>Daemon running: <code>gflowd status</code></li>
+<li>Correct host/port in config</li>
+<li>Firewall settings (if using custom host)</li>
+</ol>
+<p><strong>Solution</strong>:</p>
+<pre><code class="language-bash"># Restart daemon
+gflowd down
+gflowd up
+
+# Check connection
+ginfo info
+</code></pre>
+<h2 id="security-considerations"><a class="header" href="#security-considerations">Security Considerations</a></h2>
+<h3 id="local-only-access"><a class="header" href="#local-only-access">Local-only Access</a></h3>
+<p>By default, gflow only accepts local connections:</p>
+<pre><code class="language-toml">[daemon]
+host = "localhost"  # Only local access
+</code></pre>
+<p><strong>Don't expose to network</strong> unless you understand the risks:</p>
+<pre><code class="language-toml">[daemon]
+host = "0.0.0.0"  # ⚠️ Accepts connections from any network interface
+</code></pre>
+<h3 id="file-permissions"><a class="header" href="#file-permissions">File Permissions</a></h3>
+<p>Protect your configuration and state:</p>
+<pre><code class="language-bash"># Restrict config file
+chmod 600 ~/.config/gflow/gflow.toml
+
+# Restrict state file
+chmod 600 ~/.local/share/gflow/state.json
+
+# Restrict logs directory
+chmod 700 ~/.local/share/gflow/logs/
+</code></pre>
+<h3 id="multi-user-systems"><a class="header" href="#multi-user-systems">Multi-user Systems</a></h3>
+<p>On shared systems:</p>
+<ul>
+<li>Each user should run their own daemon instance</li>
+<li>Use different ports for each user</li>
+<li>Set proper file permissions on logs and state</li>
+</ul>
+<pre><code class="language-bash"># User 1
+# ~/.config/gflow/gflow.toml
+[daemon]
+port = 59000
+
+# User 2
+# ~/.config/gflow/gflow.toml
+[daemon]
+port = 59001
+</code></pre>
+<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<ol>
+<li><strong>Use default config</strong> unless you have specific needs</li>
+<li><strong>Version control your config</strong> for project-specific settings</li>
+<li><strong>Document custom configs</strong> for your team</li>
+<li><strong>Backup state periodically</strong> if job history is important</li>
+<li><strong>Clean logs regularly</strong> to manage disk space</li>
+<li><strong>Use meaningful port numbers</strong> for multiple instances</li>
+<li><strong>Test config changes</strong> before deploying to production</li>
+<li><strong>Monitor daemon logs</strong> when debugging issues</li>
+<li><strong>Set appropriate permissions</strong> on config and state files</li>
+<li><strong>Use environment variables</strong> for CI/CD automation</li>
+</ol>
+<h2 id="configuration-examples"><a class="header" href="#configuration-examples">Configuration Examples</a></h2>
+<h3 id="example-1-minimal-config"><a class="header" href="#example-1-minimal-config">Example 1: Minimal Config</a></h3>
+<p>Use defaults for everything:</p>
+<pre><code class="language-toml"># ~/.config/gflow/gflow.toml
+# Empty file - all defaults
+</code></pre>
+<h3 id="example-2-custom-port"><a class="header" href="#example-2-custom-port">Example 2: Custom Port</a></h3>
+<pre><code class="language-toml">[daemon]
+port = 59001
+</code></pre>
+<h3 id="example-3-limited-gpu-access"><a class="header" href="#example-3-limited-gpu-access">Example 3: Limited GPU Access</a></h3>
+<pre><code class="language-toml">[daemon]
+# Only use GPUs 0 and 2
+gpus = [0, 2]
+</code></pre>
+<h3 id="example-4-debug-mode"><a class="header" href="#example-4-debug-mode">Example 4: Debug Mode</a></h3>
+<pre><code class="language-toml">[daemon]
+log_level = "debug"
+</code></pre>
+<h3 id="example-5-multi-instance-setup"><a class="header" href="#example-5-multi-instance-setup">Example 5: Multi-instance Setup</a></h3>
+<p><strong>Production</strong> (~/.config/gflow/gflow.toml):</p>
+<pre><code class="language-toml">[daemon]
+port = 59000
+gpus = [0, 1]
+log_level = "info"
+</code></pre>
+<p><strong>Development</strong> (~/gflow-dev/config.toml):</p>
+<pre><code class="language-toml">[daemon]
+port = 59001
+gpus = [2, 3]
+log_level = "debug"
+</code></pre>
+<h2 id="see-also"><a class="header" href="#see-also">See Also</a></h2>
+<ul>
+<li><a href="../getting-started/installation.html">Installation</a> - Initial setup</li>
+<li><a href="../getting-started/quick-start.html">Quick Start</a> - Basic usage</li>
+<li><a href="./job-submission.html">Job Submission</a> - Submitting jobs</li>
+<li><a href="./gpu-management.html">GPU Management</a> - GPU allocation</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../user-guide/time-limits.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../reference/quick-reference.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../user-guide/time-limits.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../reference/quick-reference.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
