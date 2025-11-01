@@ -3,7 +3,7 @@ pub mod info;
 pub mod job;
 
 use names::{Generator, Name};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, env, path::PathBuf};
 pub type UUID = String;
 
 const VERSION_MESSAGE: &str = concat!(
@@ -69,4 +69,10 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
 pub fn random_run_name() -> String {
     let mut generator = Generator::with_naming(Name::Numbered);
     generator.next().unwrap()
+}
+
+pub fn get_current_username() -> String {
+    env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string())
 }

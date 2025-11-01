@@ -58,9 +58,7 @@ fn build_job(args: cli::AddArgs, task_id: Option<u32>, history: &SubmissionHisto
     builder = builder.task_id(task_id);
 
     // Get the username of the submitter
-    let username = env::var("USER")
-        .or_else(|_| env::var("USERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string());
+    let username = gflow::core::get_current_username();
     builder = builder.submitted_by(username);
 
     // Parse time limit if provided

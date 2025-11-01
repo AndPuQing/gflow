@@ -23,7 +23,7 @@ pub struct GQueue {
     #[arg(
         long,
         short = 'a',
-        help = "Show all jobs (equivalent to --limit 0)",
+        help = "Show all jobs including completed (equivalent to --limit 0)",
         conflicts_with = "limit"
     )]
     pub all: bool,
