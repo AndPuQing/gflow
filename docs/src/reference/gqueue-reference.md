@@ -129,6 +129,7 @@ Custom output format (comma-separated field list).
 - `NODELIST(REASON)`: Alias for NODELIST
 - `PRIORITY`: Job priority (0-255)
 - `DEPENDENCY`: Job ID this job depends on
+- `USER`: Username of the job submitter
 
 **Default format**:
 ```bash

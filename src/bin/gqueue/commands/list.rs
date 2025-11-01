@@ -279,6 +279,7 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
         "TIMELIMIT" => job
             .time_limit
             .map_or_else(|| "UNLIMITED".to_string(), format_duration),
+        "USER" => job.submitted_by.clone(),
         _ => String::new(),
     }
 }
@@ -468,6 +469,7 @@ mod tests {
             started_at: None,
             finished_at: None,
             time_limit: None,
+            submitted_by: "testuser".to_string(),
         }
     }
 
@@ -488,6 +490,7 @@ mod tests {
             started_at: None,
             finished_at: None,
             time_limit: None,
+            submitted_by: "testuser".to_string(),
         }
     }
 

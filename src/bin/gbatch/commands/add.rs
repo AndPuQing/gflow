@@ -57,6 +57,12 @@ fn build_job(args: cli::AddArgs, task_id: Option<u32>, history: &SubmissionHisto
     builder = builder.run_dir(run_dir);
     builder = builder.task_id(task_id);
 
+    // Get the username of the submitter
+    let username = env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
+    builder = builder.submitted_by(username);
+
     // Parse time limit if provided
     let time_limit = if let Some(time_str) = &args.time {
         Some(parse_time_limit(time_str)?)

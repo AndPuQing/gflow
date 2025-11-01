@@ -105,6 +105,7 @@ pub struct Job {
     pub depends_on: Option<u32>,
     pub task_id: Option<u32>,
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
+    pub submitted_by: String,
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -125,6 +126,7 @@ pub struct JobBuilder {
     depends_on: Option<u32>,
     task_id: Option<u32>,
     time_limit: Option<Duration>,
+    submitted_by: String,
 }
 
 impl JobBuilder {
@@ -182,6 +184,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn submitted_by(mut self, submitted_by: String) -> Self {
+        self.submitted_by = submitted_by;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -193,6 +200,7 @@ impl JobBuilder {
             depends_on: self.depends_on,
             task_id: self.task_id,
             time_limit: self.time_limit,
+            submitted_by: self.submitted_by,
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,
