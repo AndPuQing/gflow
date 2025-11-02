@@ -244,21 +244,6 @@ fn format_elapsed_time(started_at: Option<SystemTime>, finished_at: Option<Syste
     }
 }
 
-/// Formats a Duration as HH:MM:SS or D-HH:MM:SS
-fn format_duration(duration: std::time::Duration) -> String {
-    let total_seconds = duration.as_secs();
-    let days = total_seconds / 86400;
-    let hours = (total_seconds % 86400) / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-
-    if days > 0 {
-        format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
-    } else {
-        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-    }
-}
-
 /// Colorizes a job state string based on its state
 fn colorize_state(state: &JobState) -> String {
     let short = state.short_form();
@@ -316,7 +301,7 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
         "TIME" => format_elapsed_time(job.started_at, job.finished_at),
         "TIMELIMIT" => job
             .time_limit
-            .map_or_else(|| "UNLIMITED".to_string(), format_duration),
+            .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
         "USER" => job.submitted_by.clone(),
         _ => String::new(),
     }

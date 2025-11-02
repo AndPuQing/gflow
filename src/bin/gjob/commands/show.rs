@@ -68,18 +68,27 @@ fn print_job_details(job: &Job) {
     // Time information
     println!("\nTiming:");
     if let Some(time_limit) = job.time_limit {
-        println!("  Time limit:    {}", format_duration(time_limit));
+        println!(
+            "  Time limit:    {}",
+            gflow::utils::format_duration(time_limit)
+        );
     }
     if let Some(started_at) = job.started_at {
         println!("  Started:       {}", format_relative_time(started_at));
         if let Some(finished_at) = job.finished_at {
             println!("  Finished:      {}", format_relative_time(finished_at));
             if let Ok(duration) = finished_at.duration_since(started_at) {
-                println!("  Runtime:       {}", format_duration(duration));
+                println!(
+                    "  Runtime:       {}",
+                    gflow::utils::format_duration(duration)
+                );
             }
         } else if job.state.to_string() == "Running" {
             if let Ok(elapsed) = SystemTime::now().duration_since(started_at) {
-                println!("  Elapsed:       {}", format_duration(elapsed));
+                println!(
+                    "  Elapsed:       {}",
+                    gflow::utils::format_duration(elapsed)
+                );
             }
         }
     }
@@ -91,21 +100,6 @@ fn format_gpu_ids(gpu_ids: &[u32]) -> String {
         .map(|id| id.to_string())
         .collect::<Vec<_>>()
         .join(",")
-}
-
-fn format_duration(duration: std::time::Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
-    } else {
-        format!("{}s", seconds)
-    }
 }
 
 fn format_relative_time(time: SystemTime) -> String {

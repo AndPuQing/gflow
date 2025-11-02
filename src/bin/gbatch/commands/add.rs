@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
 use gflow::core::job::Job;
-use std::{env, fs, path::PathBuf, time::Duration};
+use std::{env, fs, path::PathBuf};
 
 pub(crate) async fn handle_add(
     config: &gflow::config::Config,
@@ -54,7 +54,7 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
 
     // Parse time limit if provided
     let time_limit = if let Some(time_str) = &args.time {
-        Some(parse_time_limit(time_str)?)
+        Some(gflow::utils::parse_time_limit(time_str)?)
     } else {
         None
     };
@@ -81,7 +81,7 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
         let final_time_limit = if time_limit.is_some() {
             time_limit
         } else if let Some(script_time_str) = &script_args.time {
-            Some(parse_time_limit(script_time_str)?)
+            Some(gflow::utils::parse_time_limit(script_time_str)?)
         } else {
             None
         };
@@ -103,52 +103,6 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
     }
 
     Ok(builder.build())
-}
-
-/// Parse time limit string into Duration
-/// Supported formats:
-/// - "HH:MM:SS" - hours:minutes:seconds
-/// - "MM:SS" - minutes:seconds
-/// - "MM" - minutes
-/// - raw number - seconds
-fn parse_time_limit(time_str: &str) -> Result<Duration> {
-    let parts: Vec<&str> = time_str.split(':').collect();
-
-    match parts.len() {
-        1 => {
-            // Either minutes or seconds as a single number
-            let val = time_str
-                .parse::<u64>()
-                .context("Invalid time format. Expected number of minutes")?;
-            Ok(Duration::from_secs(val * 60))
-        }
-        2 => {
-            // MM:SS
-            let minutes = parts[0]
-                .parse::<u64>()
-                .context("Invalid minutes in MM:SS format")?;
-            let seconds = parts[1]
-                .parse::<u64>()
-                .context("Invalid seconds in MM:SS format")?;
-            Ok(Duration::from_secs(minutes * 60 + seconds))
-        }
-        3 => {
-            // HH:MM:SS
-            let hours = parts[0]
-                .parse::<u64>()
-                .context("Invalid hours in HH:MM:SS format")?;
-            let minutes = parts[1]
-                .parse::<u64>()
-                .context("Invalid minutes in HH:MM:SS format")?;
-            let seconds = parts[2]
-                .parse::<u64>()
-                .context("Invalid seconds in HH:MM:SS format")?;
-            Ok(Duration::from_secs(hours * 3600 + minutes * 60 + seconds))
-        }
-        _ => Err(anyhow!(
-            "Invalid time format. Expected formats: HH:MM:SS, MM:SS, or MM"
-        )),
-    }
 }
 
 fn parse_array_spec(spec: &str) -> Result<Vec<u32>> {

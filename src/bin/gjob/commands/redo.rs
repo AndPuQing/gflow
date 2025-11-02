@@ -2,7 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use gflow::client::Client;
 use gflow::core::job::Job;
 use std::path::PathBuf;
-use std::time::Duration;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_redo(
@@ -67,13 +66,13 @@ pub async fn handle_redo(
 
     // Apply time limit (override or original)
     let time_limit = if let Some(ref time_str) = time_override {
-        Some(parse_time_limit(time_str)?)
+        Some(gflow::utils::parse_time_limit(time_str)?)
     } else {
         original_job.time_limit
     };
     builder = builder.time_limit(time_limit);
     if let Some(limit) = time_limit {
-        println!("  Time limit:   {}", format_duration(limit));
+        println!("  Time limit:   {}", gflow::utils::format_duration(limit));
     }
 
     // Handle dependency
@@ -148,66 +147,5 @@ async fn resolve_dependency(client: &Client, depends_on: &str) -> Result<u32> {
         trimmed
             .parse::<u32>()
             .map_err(|_| anyhow!("Invalid dependency value: {}", trimmed))
-    }
-}
-
-/// Parse time limit string into Duration
-/// Supported formats:
-/// - "HH:MM:SS" - hours:minutes:seconds
-/// - "MM:SS" - minutes:seconds
-/// - "MM" - minutes
-fn parse_time_limit(time_str: &str) -> Result<Duration> {
-    let parts: Vec<&str> = time_str.split(':').collect();
-
-    match parts.len() {
-        1 => {
-            // Minutes as a single number
-            let val = time_str
-                .parse::<u64>()
-                .context("Invalid time format. Expected number of minutes")?;
-            Ok(Duration::from_secs(val * 60))
-        }
-        2 => {
-            // MM:SS
-            let minutes = parts[0]
-                .parse::<u64>()
-                .context("Invalid minutes in MM:SS format")?;
-            let seconds = parts[1]
-                .parse::<u64>()
-                .context("Invalid seconds in MM:SS format")?;
-            Ok(Duration::from_secs(minutes * 60 + seconds))
-        }
-        3 => {
-            // HH:MM:SS
-            let hours = parts[0]
-                .parse::<u64>()
-                .context("Invalid hours in HH:MM:SS format")?;
-            let minutes = parts[1]
-                .parse::<u64>()
-                .context("Invalid minutes in HH:MM:SS format")?;
-            let seconds = parts[2]
-                .parse::<u64>()
-                .context("Invalid seconds in HH:MM:SS format")?;
-            Ok(Duration::from_secs(hours * 3600 + minutes * 60 + seconds))
-        }
-        _ => Err(anyhow!(
-            "Invalid time format. Expected formats: HH:MM:SS, MM:SS, or MM"
-        )),
-    }
-}
-
-/// Format duration for display
-fn format_duration(duration: Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
-    } else {
-        format!("{}s", seconds)
     }
 }
