@@ -51,4 +51,31 @@ pub enum Commands {
         #[arg(short, long, help = "Job ID to show details for")]
         job: u32,
     },
+    /// Resubmit a job with the same or modified parameters
+    Redo {
+        #[arg(help = "Job ID to resubmit (supports @ for most recent job)")]
+        job: String,
+
+        #[arg(short, long, help = "Override number of GPUs")]
+        gpus: Option<u32>,
+
+        #[arg(short, long, help = "Override priority")]
+        priority: Option<u8>,
+
+        #[arg(short = 'd', long, help = "Override or set dependency (job ID or @)")]
+        depends_on: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            help = "Override time limit (formats: HH:MM:SS, MM:SS, or MM)"
+        )]
+        time: Option<String>,
+
+        #[arg(short = 'e', long, help = "Override conda environment")]
+        conda_env: Option<String>,
+
+        #[arg(long, help = "Clear dependency from original job")]
+        clear_deps: bool,
+    },
 }

@@ -3,6 +3,7 @@ use crate::cli::Commands;
 pub mod attach;
 pub mod hold;
 pub mod log;
+pub mod redo;
 pub mod release;
 pub mod show;
 
@@ -25,6 +26,27 @@ pub async fn handle_commands(
         }
         Commands::Show { job } => {
             show::handle_show(config_path, job).await?;
+        }
+        Commands::Redo {
+            job,
+            gpus,
+            priority,
+            depends_on,
+            time,
+            conda_env,
+            clear_deps,
+        } => {
+            redo::handle_redo(
+                config_path,
+                &job,
+                gpus,
+                priority,
+                depends_on,
+                time,
+                conda_env,
+                clear_deps,
+            )
+            .await?;
         }
     }
 
