@@ -198,4 +198,50 @@ impl Client {
             .status();
         Ok(health)
     }
+
+    pub async fn resolve_dependency(&self, username: &str, shorthand: &str) -> anyhow::Result<u32> {
+        log::debug!(
+            "Resolving dependency '{}' for user '{}'",
+            shorthand,
+            username
+        );
+        let response = self
+            .client
+            .get(format!("{}/jobs/resolve-dependency", self.base_url))
+            .query(&[("username", username), ("shorthand", shorthand)])
+            .send()
+            .await
+            .context("Failed to send resolve dependency request")?;
+
+        if !response.status().is_success() {
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::from("Unknown error"));
+
+            if let Ok(json_error) = serde_json::from_str::<serde_json::Value>(&error_body) {
+                if let Some(error_msg) = json_error.get("error").and_then(|e| e.as_str()) {
+                    return Err(anyhow::anyhow!("{}", error_msg));
+                }
+            }
+
+            return Err(anyhow::anyhow!(
+                "Failed to resolve dependency: {}",
+                error_body
+            ));
+        }
+
+        let result: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+
+        let job_id = result
+            .get("job_id")
+            .and_then(|v| v.as_u64())
+            .context("Invalid response format: missing or invalid job_id")?
+            as u32;
+
+        Ok(job_id)
+    }
 }

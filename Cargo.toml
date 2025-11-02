@@ -63,6 +63,7 @@ axum = { version = "0.7.5", features = [
     "json",
     "macros",
     "tokio",
+    "query",
 ], default-features = false }
 config = { version = "0.15.7", features = ["toml"], default-features = false }
 dirs = "6.0.0"

@@ -21,6 +21,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/jobs", get(list_jobs).post(create_job))
+        .route("/jobs/resolve-dependency", get(resolve_dependency))
         .route("/jobs/:id", get(get_job))
         .route("/jobs/:id/finish", post(finish_job))
         .route("/jobs/:id/fail", post(fail_job))
@@ -169,6 +170,34 @@ async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> i
     } else {
         (StatusCode::NOT_FOUND, Json(()))
     }
+}
+
+#[axum::debug_handler]
+async fn resolve_dependency(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<ResolveDependencyQuery>,
+) -> impl IntoResponse {
+    let state = state.read().await;
+
+    if let Some(resolved_id) = state.resolve_dependency(&params.username, &params.shorthand) {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "job_id": resolved_id })),
+        )
+    } else {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Cannot resolve dependency '{}' for user '{}'", params.shorthand, params.username)
+            })),
+        )
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ResolveDependencyQuery {
+    username: String,
+    shorthand: String,
 }
 
 #[axum::debug_handler]

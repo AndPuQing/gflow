@@ -281,4 +281,10 @@ impl Job {
 
         false
     }
+
+    #[cfg(test)]
+    pub fn with_id(mut self, id: u32) -> Self {
+        self.id = id;
+        self
+    }
 }

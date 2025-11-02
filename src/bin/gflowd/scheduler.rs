@@ -211,6 +211,49 @@ impl Scheduler {
         }
     }
 
+    /// Resolve dependency shorthand to a job ID
+    /// Supports formats:
+    /// - "@" -> most recent submission by the user
+    /// - "@~N" -> Nth most recent submission by the user
+    ///   Returns None if shorthand is invalid or history is insufficient
+    pub fn resolve_dependency(&self, username: &str, shorthand: &str) -> Option<u32> {
+        let trimmed = shorthand.trim();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        // Get all jobs submitted by the user, sorted by job ID (which corresponds to submission order)
+        let mut user_jobs: Vec<_> = self
+            .jobs
+            .values()
+            .filter(|job| job.submitted_by == username)
+            .collect();
+
+        // Sort by job ID (ascending) since job IDs are assigned incrementally
+        user_jobs.sort_by_key(|job| job.id);
+
+        if trimmed == "@" {
+            // Most recent submission
+            return user_jobs.last().map(|job| job.id);
+        }
+
+        if let Some(offset_str) = trimmed.strip_prefix("@~") {
+            if offset_str.is_empty() {
+                return None;
+            }
+            let offset = offset_str.parse::<usize>().ok()?;
+            if offset == 0 {
+                return None;
+            }
+            if offset <= user_jobs.len() {
+                return user_jobs.get(user_jobs.len() - offset).map(|job| job.id);
+            }
+        }
+
+        None
+    }
+
     /// Calculate time bonus for scheduling priority
     /// Returns a value between 100-300:
     /// - 100: No time limit (lowest bonus)
@@ -372,6 +415,105 @@ pub async fn run(shared_state: SharedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gflow::core::job::{Job, JobBuilder};
+
+    fn create_test_job(id: u32, username: &str) -> Job {
+        let mut job = JobBuilder::new()
+            .submitted_by(username.to_string())
+            .run_dir("/tmp".into())
+            .build();
+        job.id = id;
+        job
+    }
+
+    #[test]
+    fn test_resolve_dependency_most_recent() {
+        let mut scheduler = Scheduler::new();
+        let username = "testuser";
+
+        // Add some jobs for the user
+        let job1 = create_test_job(1, username);
+        let job2 = create_test_job(2, username);
+        let job3 = create_test_job(3, username);
+
+        scheduler.jobs.insert(1, job1);
+        scheduler.jobs.insert(2, job2);
+        scheduler.jobs.insert(3, job3);
+
+        // Test resolving "@" (most recent)
+        let resolved = scheduler.resolve_dependency(username, "@");
+        assert_eq!(resolved, Some(3));
+    }
+
+    #[test]
+    fn test_resolve_dependency_with_offset() {
+        let mut scheduler = Scheduler::new();
+        let username = "testuser";
+
+        // Add some jobs for the user
+        let job1 = create_test_job(1, username);
+        let job2 = create_test_job(2, username);
+        let job3 = create_test_job(3, username);
+        let job4 = create_test_job(4, username);
+
+        scheduler.jobs.insert(1, job1);
+        scheduler.jobs.insert(2, job2);
+        scheduler.jobs.insert(3, job3);
+        scheduler.jobs.insert(4, job4);
+
+        // Test resolving "@~2" (2nd most recent)
+        let resolved = scheduler.resolve_dependency(username, "@~2");
+        assert_eq!(resolved, Some(3));
+
+        // Test resolving "@~3" (3rd most recent)
+        let resolved = scheduler.resolve_dependency(username, "@~3");
+        assert_eq!(resolved, Some(2));
+
+        // Test resolving "@~4" (4th most recent)
+        let resolved = scheduler.resolve_dependency(username, "@~4");
+        assert_eq!(resolved, Some(1));
+    }
+
+    #[test]
+    fn test_resolve_dependency_per_user() {
+        let mut scheduler = Scheduler::new();
+
+        // Add jobs for different users
+        let job1 = create_test_job(1, "alice");
+        let job2 = create_test_job(2, "bob");
+        let job3 = create_test_job(3, "alice");
+        let job4 = create_test_job(4, "bob");
+
+        scheduler.jobs.insert(1, job1);
+        scheduler.jobs.insert(2, job2);
+        scheduler.jobs.insert(3, job3);
+        scheduler.jobs.insert(4, job4);
+
+        // Alice should see her most recent job (3)
+        let resolved = scheduler.resolve_dependency("alice", "@");
+        assert_eq!(resolved, Some(3));
+
+        // Bob should see his most recent job (4)
+        let resolved = scheduler.resolve_dependency("bob", "@");
+        assert_eq!(resolved, Some(4));
+    }
+
+    #[test]
+    fn test_resolve_dependency_not_found() {
+        let scheduler = Scheduler::new();
+
+        // Test with no jobs
+        let resolved = scheduler.resolve_dependency("nonexistent", "@");
+        assert_eq!(resolved, None);
+
+        // Test with invalid offset
+        let resolved = scheduler.resolve_dependency("testuser", "@~0");
+        assert_eq!(resolved, None);
+
+        // Test with invalid shorthand
+        let resolved = scheduler.resolve_dependency("testuser", "@foo");
+        assert_eq!(resolved, None);
+    }
 
     #[test]
     fn test_calculate_time_bonus_no_limit() {
