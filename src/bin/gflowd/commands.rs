@@ -17,6 +17,10 @@ pub async fn handle_commands(
         Commands::Down => {
             down::handle_down().await?;
         }
+        Commands::Restart => {
+            down::handle_down().await?;
+            up::handle_up().await?;
+        }
         Commands::Status => {
             status::handle_status(config_path).await?;
         }

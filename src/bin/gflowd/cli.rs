@@ -26,6 +26,8 @@ pub enum Commands {
     Up,
     /// Stop the daemon
     Down,
+    /// Restart the daemon
+    Restart,
     /// Show the daemon status
     Status,
 }
