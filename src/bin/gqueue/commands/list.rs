@@ -273,6 +273,22 @@ fn colorize_state(state: &JobState) -> String {
     }
 }
 
+/// Computes the reason why a job is pending/queued
+fn get_pending_reason(job: &gflow::core::job::Job) -> String {
+    match job.state {
+        JobState::Hold => "(JobHeldUser)".to_string(),
+        JobState::Queued => {
+            if job.depends_on.is_some() {
+                "(Dependency)".to_string()
+            } else {
+                // Default reason for queued jobs - waiting for resources
+                "(Resources)".to_string()
+            }
+        }
+        _ => "-".to_string(),
+    }
+}
+
 /// Formats a job field value for display
 fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
     match header {
@@ -280,15 +296,23 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
         "NAME" => job.run_name.as_deref().unwrap_or("-").to_string(),
         "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
-        "NODELIST(REASON)" => job.gpu_ids.as_ref().map_or_else(
-            || "-".to_string(),
-            |ids| {
-                ids.iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            },
-        ),
+        "NODELIST(REASON)" => {
+            // For running jobs, show GPU IDs
+            // For queued/held jobs, show pending reason
+            match job.state {
+                JobState::Running => job.gpu_ids.as_ref().map_or_else(
+                    || "-".to_string(),
+                    |ids| {
+                        ids.iter()
+                            .map(|id| id.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    },
+                ),
+                JobState::Queued | JobState::Hold => get_pending_reason(job),
+                _ => "-".to_string(),
+            }
+        }
         "TIME" => format_elapsed_time(job.started_at, job.finished_at),
         "TIMELIMIT" => job
             .time_limit
