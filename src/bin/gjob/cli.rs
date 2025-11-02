@@ -45,4 +45,10 @@ pub enum Commands {
         #[arg(short, long, help = "Job ID to release")]
         job: u32,
     },
+    /// Show detailed information about a job
+    #[command(visible_alias = "s")]
+    Show {
+        #[arg(short, long, help = "Job ID to show details for")]
+        job: u32,
+    },
 }

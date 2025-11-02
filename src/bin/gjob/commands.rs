@@ -4,6 +4,7 @@ pub mod attach;
 pub mod hold;
 pub mod log;
 pub mod release;
+pub mod show;
 
 pub async fn handle_commands(
     config_path: &Option<std::path::PathBuf>,
@@ -21,6 +22,9 @@ pub async fn handle_commands(
         }
         Commands::Release { job } => {
             release::handle_release(config_path, job).await?;
+        }
+        Commands::Show { job } => {
+            show::handle_show(config_path, job).await?;
         }
     }
 
