@@ -7,6 +7,6 @@ use clap::Parser;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = cli::GInfoCli::parse();
-    commands::handle_commands(&args.config, args.command).await?;
+    commands::info::handle_info(&args.config).await?;
     Ok(())
 }

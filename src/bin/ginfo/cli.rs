@@ -13,13 +13,4 @@ pub struct GInfoCli {
 
     #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
-
-    #[command(subcommand)]
-    pub command: Commands,
-}
-
-#[derive(Debug, Parser)]
-pub enum Commands {
-    /// Display system information and GPU allocation
-    Info,
 }
