@@ -51,6 +51,21 @@ impl Scheduler {
         scheduler
     }
 
+    /// Create a new scheduler without NVML initialization.
+    /// This is useful for testing environments where NVML is not available.
+    #[cfg(test)]
+    pub fn new_without_nvml() -> Self {
+        let state_path =
+            std::env::temp_dir().join(format!("gflow_test_state_{}.json", std::process::id()));
+        Self {
+            jobs: HashMap::new(),
+            gpu_slots: HashMap::new(),
+            nvml: None,
+            state_path,
+            next_job_id: 1,
+        }
+    }
+
     pub fn get_available_gpu_slots(&self) -> Vec<u32> {
         let mut slots: Vec<u32> = self
             .gpu_slots
@@ -428,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_resolve_dependency_most_recent() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new_without_nvml();
         let username = "testuser";
 
         // Add some jobs for the user
@@ -447,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_resolve_dependency_with_offset() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new_without_nvml();
         let username = "testuser";
 
         // Add some jobs for the user
@@ -476,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_resolve_dependency_per_user() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new_without_nvml();
 
         // Add jobs for different users
         let job1 = create_test_job(1, "alice");
@@ -500,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_resolve_dependency_not_found() {
-        let scheduler = Scheduler::new();
+        let scheduler = Scheduler::new_without_nvml();
 
         // Test with no jobs
         let resolved = scheduler.resolve_dependency("nonexistent", "@");
