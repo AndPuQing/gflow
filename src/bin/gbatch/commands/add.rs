@@ -71,7 +71,7 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
         builder = builder.script(script_path);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.conda_env(&args.conda_env.or(script_args.conda_env));
+        builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
 
         let depends_on_expr = args.depends_on.or(script_args.depends_on);
         let depends_on = resolve_dependency(depends_on_expr, client).await?;
@@ -100,7 +100,7 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
 
         // Auto-detect conda environment if not specified
         let conda_env = args.conda_env.or_else(detect_current_conda_env);
-        builder = builder.conda_env(&conda_env);
+        builder = builder.conda_env(conda_env);
 
         let depends_on = resolve_dependency(args.depends_on, client).await?;
         builder = builder.depends_on(depends_on);

@@ -59,7 +59,7 @@ pub async fn handle_redo(
     } else {
         original_job.conda_env.clone()
     };
-    builder = builder.conda_env(&conda_env);
+    builder = builder.conda_env(conda_env.clone());
     if let Some(ref env) = conda_env {
         println!("  Conda env:    {}", env);
     }

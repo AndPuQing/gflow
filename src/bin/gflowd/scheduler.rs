@@ -420,7 +420,7 @@ mod tests {
     fn create_test_job(id: u32, username: &str) -> Job {
         let mut job = JobBuilder::new()
             .submitted_by(username.to_string())
-            .run_dir("/tmp".into())
+            .run_dir("/tmp")
             .build();
         job.id = id;
         job
