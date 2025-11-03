@@ -88,7 +88,12 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
         builder = builder.time_limit(final_time_limit);
     } else {
         // Command mode
-        let command = args.script_or_command.join(" ");
+        let command = args
+            .script_or_command
+            .iter()
+            .map(|arg| shell_escape::escape(arg.into()))
+            .collect::<Vec<_>>()
+            .join(" ");
         builder = builder.command(command);
         builder = builder.gpus(args.gpus.unwrap_or(0));
         builder = builder.priority(args.priority.unwrap_or(10));
