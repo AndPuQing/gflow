@@ -1,0 +1,733 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Time Limits - gflow Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A lightweight, single-node job scheduler inspired by Slurm">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">gflow Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="job-time-limits-in-gflow"><a class="header" href="#job-time-limits-in-gflow">Job Time Limits in gflow</a></h1>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>gflow supports setting time limits for jobs, similar to Slurm's <code>sbatch --time</code> parameter. When a job exceeds its specified time limit, the scheduler automatically terminates it and marks it with a <code>Timeout</code> status. This feature helps prevent runaway jobs from consuming resources indefinitely and facilitates better resource planning.</p>
+<h2 id="table-of-contents"><a class="header" href="#table-of-contents">Table of Contents</a></h2>
+<ul>
+<li><a href="#basic-usage">Basic Usage</a></li>
+<li><a href="#time-format-specifications">Time Format Specifications</a></li>
+<li><a href="#behavior-and-enforcement">Behavior and Enforcement</a></li>
+<li><a href="#job-states">Job States</a></li>
+<li><a href="#examples">Examples</a></li>
+<li><a href="#best-practices">Best Practices</a></li>
+<li><a href="#faq">FAQ</a></li>
+</ul>
+<h2 id="basic-usage"><a class="header" href="#basic-usage">Basic Usage</a></h2>
+<h3 id="setting-time-limits-with-gbatch"><a class="header" href="#setting-time-limits-with-gbatch">Setting Time Limits with <code>gbatch</code></a></h3>
+<p>Use the <code>--time</code> (or <code>-t</code>) flag when submitting jobs:</p>
+<pre><code class="language-bash">gbatch --time &lt;TIME_SPEC&gt; your_command
+</code></pre>
+<h3 id="in-job-scripts"><a class="header" href="#in-job-scripts">In Job Scripts</a></h3>
+<p>You can also specify time limits directly in your job scripts using the <code># GFLOW</code> directive:</p>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --time 2:00:00
+# GFLOW --gpus 1
+
+echo "Starting training..."
+python train.py
+</code></pre>
+<p>Note: Command-line arguments take precedence over script directives.</p>
+<h2 id="time-format-specifications"><a class="header" href="#time-format-specifications">Time Format Specifications</a></h2>
+<p>gflow supports multiple time format specifications for flexibility:</p>
+<div class="table-wrapper"><table><thead><tr><th>Format</th><th>Description</th><th>Example</th><th>Equivalent Duration</th></tr></thead><tbody>
+<tr><td><code>HH:MM:SS</code></td><td>Hours:Minutes:Seconds</td><td><code>2:30:45</code></td><td>2 hours, 30 minutes, 45 seconds</td></tr>
+<tr><td><code>MM:SS</code></td><td>Minutes:Seconds</td><td><code>45:30</code></td><td>45 minutes, 30 seconds</td></tr>
+<tr><td><code>MM</code></td><td>Minutes only</td><td><code>30</code></td><td>30 minutes</td></tr>
+</tbody></table>
+</div>
+<h3 id="format-details"><a class="header" href="#format-details">Format Details</a></h3>
+<h4 id="hhmmss-format"><a class="header" href="#hhmmss-format"><code>HH:MM:SS</code> Format</a></h4>
+<ul>
+<li><strong>Use case</strong>: Long-running jobs (hours)</li>
+<li><strong>Example</strong>: <code>--time 1:30:00</code> (1.5 hours)</li>
+<li><strong>Range</strong>: Any valid combination of hours, minutes, and seconds</li>
+</ul>
+<h4 id="mmss-format"><a class="header" href="#mmss-format"><code>MM:SS</code> Format</a></h4>
+<ul>
+<li><strong>Use case</strong>: Medium-duration jobs (minutes)</li>
+<li><strong>Example</strong>: <code>--time 45:30</code> (45 minutes, 30 seconds)</li>
+<li><strong>Note</strong>: Two numbers separated by colon are interpreted as minutes:seconds</li>
+</ul>
+<h4 id="mm-format"><a class="header" href="#mm-format"><code>MM</code> Format</a></h4>
+<ul>
+<li><strong>Use case</strong>: Short jobs (minutes)</li>
+<li><strong>Example</strong>: <code>--time 10</code> (10 minutes)</li>
+<li><strong>Note</strong>: A single number is always interpreted as minutes, not seconds</li>
+</ul>
+<h3 id="examples-by-format"><a class="header" href="#examples-by-format">Examples by Format</a></h3>
+<pre><code class="language-bash"># 2 hours
+gbatch --time 2:00:00 long_simulation
+
+# 30 minutes
+gbatch --time 30 medium_task
+
+# 5 minutes 30 seconds
+gbatch --time 5:30 quick_task
+
+# 12 hours 45 minutes
+gbatch --time 12:45:00 overnight_job
+</code></pre>
+<h2 id="scheduling-benefits"><a class="header" href="#scheduling-benefits">Scheduling Benefits</a></h2>
+<h3 id="time-limits-improve-scheduling-priority"><a class="header" href="#time-limits-improve-scheduling-priority">Time Limits Improve Scheduling Priority</a></h3>
+<p>When multiple jobs are queued with the same priority level, gflow uses a multi-factor scheduling algorithm:</p>
+<ol>
+<li><strong>User Priority</strong> (Primary factor)</li>
+<li><strong>Time Limit Bonus</strong> (Secondary factor)</li>
+<li><strong>Submission Order</strong> (Tie-breaker)</li>
+</ol>
+<p><strong>How the Time Bonus Works</strong>:</p>
+<ul>
+<li><strong>Unlimited jobs</strong>: Receive lowest scheduling bonus</li>
+<li><strong>Time-limited jobs</strong>: Receive higher scheduling bonus</li>
+<li><strong>Shorter jobs</strong>: Receive even higher bonus within time-limited jobs</li>
+</ul>
+<p>This means setting a time limit provides two benefits:</p>
+<ul>
+<li>✅ <strong>Safety</strong>: Prevents runaway jobs from consuming resources indefinitely</li>
+<li>✅ <strong>Priority</strong>: Your job runs sooner when competing with unlimited jobs</li>
+</ul>
+<p><strong>Example Scheduling Order</strong>:</p>
+<pre><code class="language-bash"># Assume all jobs have priority=10 and are submitted in this order:
+
+gbatch --priority 10 --time 10 quick.py        # Runs 1st (shortest)
+gbatch --priority 10 --time 1:00:00 medium.py  # Runs 2nd (medium)
+gbatch --priority 10 --time 8:00:00 long.py    # Runs 3rd (long limit)
+gbatch --priority 10 unlimited.py              # Runs 4th (no limit)
+</code></pre>
+<p><strong>Key Insight</strong>: Even a very generous time limit (e.g., 24 hours) gives your job an advantage over unlimited jobs at the same priority level. Setting realistic time limits is a win-win!</p>
+<h3 id="scheduling-priority-details"><a class="header" href="#scheduling-priority-details">Scheduling Priority Details</a></h3>
+<p>The time bonus uses the following formula:</p>
+<ul>
+<li>No time limit: Bonus = 100</li>
+<li>With time limit: Bonus = 200-300 (based on duration)
+<ul>
+<li>Very short jobs (seconds-minutes): ~300</li>
+<li>Medium jobs (hours): ~250</li>
+<li>Long jobs (≥24 hours): ~200</li>
+</ul>
+</li>
+</ul>
+<p>User priority is multiplied by 1000, so it always dominates the scheduling decision. Time bonuses only matter when jobs have equal priority.</p>
+<h2 id="behavior-and-enforcement"><a class="header" href="#behavior-and-enforcement">Behavior and Enforcement</a></h2>
+<h3 id="how-time-limits-work"><a class="header" href="#how-time-limits-work">How Time Limits Work</a></h3>
+<ol>
+<li>
+<p><strong>Job Submission</strong>: When you submit a job with <code>--time</code>, the time limit is stored with the job metadata.</p>
+</li>
+<li>
+<p><strong>Execution Start</strong>: When the job starts running, the scheduler records the start time.</p>
+</li>
+<li>
+<p><strong>Monitoring</strong>: The scheduler checks all running jobs every 5 seconds for timeout violations.</p>
+</li>
+<li>
+<p><strong>Timeout Detection</strong>: If a job's elapsed time exceeds its time limit, the scheduler:</p>
+<ul>
+<li>Logs a warning: <code>Job &lt;id&gt; has exceeded time limit, terminating...</code></li>
+<li>Sends <code>Ctrl-C</code> to the job's tmux session (graceful interrupt)</li>
+<li>Transitions the job to <code>Timeout</code> state</li>
+<li>Records the finish time</li>
+</ul>
+</li>
+<li>
+<p><strong>Post-Termination</strong>: The job's output is preserved in the log file, and the session is cleaned up.</p>
+</li>
+</ol>
+<h3 id="graceful-vs-forceful-termination"><a class="header" href="#graceful-vs-forceful-termination">Graceful vs Forceful Termination</a></h3>
+<ul>
+<li>
+<p><strong>Graceful Termination</strong>: gflow sends <code>Ctrl-C</code> (SIGINT) first, giving jobs a chance to:</p>
+<ul>
+<li>Save checkpoints</li>
+<li>Close file handles</li>
+<li>Clean up temporary files</li>
+<li>Log final states</li>
+</ul>
+</li>
+<li>
+<p><strong>Forceful Cleanup</strong>: If the tmux session doesn't respond, it will be killed when the job is fully cancelled or the daemon is stopped.</p>
+</li>
+</ul>
+<h3 id="accuracy-and-timing"><a class="header" href="#accuracy-and-timing">Accuracy and Timing</a></h3>
+<ul>
+<li><strong>Check Interval</strong>: 5 seconds (jobs may run up to 5 seconds past their limit)</li>
+<li><strong>Tolerance</strong>: Jobs are terminated as soon as the next check detects the timeout</li>
+<li><strong>Precision</strong>: Sub-second timing is recorded, but enforcement happens at 5-second intervals</li>
+</ul>
+<h2 id="job-states"><a class="header" href="#job-states">Job States</a></h2>
+<h3 id="timeout-state-to"><a class="header" href="#timeout-state-to">Timeout State (<code>TO</code>)</a></h3>
+<p>When a job exceeds its time limit, it transitions to the <code>Timeout</code> state:</p>
+<pre><code class="language-bash">$ gqueue -j 42
+JOBID    NAME             ST    TIME         TIMELIMIT
+42       my-long-job      TO    00:10:05     00:10:00
+</code></pre>
+<p>Key characteristics:</p>
+<ul>
+<li><strong>State Code</strong>: <code>TO</code> (Timeout)</li>
+<li><strong>Terminal State</strong>: Job will not restart or continue</li>
+<li><strong>Distinguishable</strong>: Different from <code>F</code> (Failed) and <code>CA</code> (Cancelled)</li>
+<li><strong>Logged</strong>: Timeout event is recorded in daemon logs</li>
+</ul>
+<h3 id="state-transitions"><a class="header" href="#state-transitions">State Transitions</a></h3>
+<pre><code>Queued ──→ Running ──→ Finished
+            │
+            ├──→ Failed
+            ├──→ Cancelled
+            └──→ Timeout (new)
+</code></pre>
+<p>Valid transitions to <code>Timeout</code>:</p>
+<ul>
+<li>✅ <code>Running</code> → <code>Timeout</code> (time limit exceeded)</li>
+<li>❌ <code>Queued</code> → <code>Timeout</code> (not possible)</li>
+<li>❌ <code>Finished</code> → <code>Timeout</code> (terminal state)</li>
+</ul>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="example-1-training-job-with-time-limit"><a class="header" href="#example-1-training-job-with-time-limit">Example 1: Training Job with Time Limit</a></h3>
+<pre><code class="language-bash"># Submit a training job with 2-hour limit
+gbatch --time 2:00:00 \
+       --gpus 1 \
+       python train.py --epochs 100
+</code></pre>
+<p><strong>Output</strong>:</p>
+<pre><code>Submitted batch job 42 (elegant-mountain-1234)
+</code></pre>
+<p><strong>Check status</strong>:</p>
+<pre><code class="language-bash">$ gqueue -j 42 -f JOBID,NAME,ST,TIME,TIMELIMIT
+JOBID    NAME                   ST    TIME         TIMELIMIT
+42       elegant-mountain-1234  R     00:15:23     02:00:00
+</code></pre>
+<h3 id="example-2-job-that-times-out"><a class="header" href="#example-2-job-that-times-out">Example 2: Job that Times Out</a></h3>
+<pre><code class="language-bash"># Submit a job that will exceed its limit
+gbatch --time 0:10 \
+       sleep 1000  # Will run for 1000 seconds
+</code></pre>
+<p><strong>After 10 seconds</strong>:</p>
+<pre><code class="language-bash">$ gqueue -j 43 -f JOBID,NAME,ST,TIME,TIMELIMIT
+JOBID    NAME                ST    TIME         TIMELIMIT
+43       quiet-river-5678    TO    00:00:13     00:00:10
+</code></pre>
+<p><strong>Log output</strong> (<code>~/.local/share/gflow/logs/43.log</code>):</p>
+<pre><code>Line 1
+Line 2
+...
+^C
+</code></pre>
+<h3 id="example-3-job-array-with-time-limits"><a class="header" href="#example-3-job-array-with-time-limits">Example 3: Job Array with Time Limits</a></h3>
+<pre><code class="language-bash"># Submit array of jobs, each with 30-minute limit
+gbatch --time 30 \
+       --array 1-10 \
+       python process.py --task \$GFLOW_ARRAY_TASK_ID
+</code></pre>
+<p>Each job in the array inherits the same 30-minute time limit.</p>
+<h3 id="example-4-dependency-chain-with-time-limits"><a class="header" href="#example-4-dependency-chain-with-time-limits">Example 4: Dependency Chain with Time Limits</a></h3>
+<pre><code class="language-bash"># Job 1: Data preprocessing (1 hour)
+gbatch --time 1:00:00 \
+       --name "preprocess" \
+       python preprocess.py
+
+
+# Job 2: Training (4 hours), depends on Job 1
+gbatch --time 4:00:00 \
+       --depends-on 1 \
+       --name "training" \
+       python train.py
+
+# Job 3: Evaluation (30 minutes), depends on Job 2
+gbatch --time 30 \
+       --depends-on 2 \
+       --name "evaluation" \
+       python evaluate.py \
+</code></pre>
+<h3 id="example-5-job-script-with-time-limit"><a class="header" href="#example-5-job-script-with-time-limit">Example 5: Job Script with Time Limit</a></h3>
+<p>Create <code>experiment.sh</code>:</p>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --time 3:00:00
+# GFLOW --gpus 2
+# GFLOW --priority 20
+
+echo "Starting experiment at $(date)"
+python run_experiment.py --config config.yaml
+echo "Experiment finished at $(date)"
+</code></pre>
+<p>Submit:</p>
+<pre><code class="language-bash">gbatch experiment.sh
+</code></pre>
+<p>Override time limit from command line:</p>
+<pre><code class="language-bash"># This overrides the script's 3-hour limit
+gbatch --time 1:00:00 experiment.sh
+</code></pre>
+<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<h3 id="1-set-realistic-time-limits"><a class="header" href="#1-set-realistic-time-limits">1. Set Realistic Time Limits</a></h3>
+<ul>
+<li><strong>Estimate Runtime</strong>: Add 10-20% buffer to your expected runtime</li>
+<li><strong>Account for Variability</strong>: Consider dataset size, hardware performance</li>
+<li><strong>Too Short</strong>: Jobs terminate prematurely, wasting computation</li>
+<li><strong>Too Long</strong>: Doesn't help catch runaway jobs</li>
+</ul>
+<pre><code class="language-bash"># Bad: Too tight
+gbatch --time 10 python train.py  # Training takes ~12 minutes
+
+# Good: Reasonable buffer
+gbatch --time 15 python train.py  # Allows 25% buffer
+</code></pre>
+<h3 id="2-use-time-limits-for-all-production-jobs"><a class="header" href="#2-use-time-limits-for-all-production-jobs">2. Use Time Limits for All Production Jobs</a></h3>
+<pre><code class="language-bash"># Bad: No limit, could run forever
+gbatch python train.py
+
+# Good: Always specify limits
+gbatch --time 4:00:00 python train.py
+</code></pre>
+<h3 id="3-implement-checkpointing"><a class="header" href="#3-implement-checkpointing">3. Implement Checkpointing</a></h3>
+<p>Time limits work best with checkpointing:</p>
+<pre><code class="language-python"># Your training script
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    print('Received interrupt, saving checkpoint...')
+    model.save_checkpoint('checkpoint.pth')
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+# Training loop
+for epoch in range(epochs):
+    train_epoch()
+    if epoch % 10 == 0:
+        model.save_checkpoint(f'checkpoint_epoch_{epoch}.pth')
+</code></pre>
+<h3 id="4-monitor-time-usage"><a class="header" href="#4-monitor-time-usage">4. Monitor Time Usage</a></h3>
+<p>Use <code>gqueue</code> to monitor job progress:</p>
+<pre><code class="language-bash"># Watch jobs with time limits
+watch -n 5 'gqueue -s Running -f JOBID,NAME,ST,TIME,TIMELIMIT'
+</code></pre>
+<h3 id="5-adjust-limits-based-on-history"><a class="header" href="#5-adjust-limits-based-on-history">5. Adjust Limits Based on History</a></h3>
+<p>After running jobs, analyze their runtime:</p>
+<pre><code class="language-bash"># Check completed job runtime
+gqueue -j 42 -f JOBID,TIME,TIMELIMIT
+
+# Adjust future jobs based on actual runtime
+</code></pre>
+<h3 id="6-different-limits-for-different-stages"><a class="header" href="#6-different-limits-for-different-stages">6. Different Limits for Different Stages</a></h3>
+<pre><code class="language-bash"># Quick preprocessing
+gbatch --time 10 --name "preprocess" python preprocess.py
+
+# Long training
+gbatch --time 8:00:00 --depends-on &lt;prep_id&gt; --name "training" python train.py
+
+# Quick evaluation
+gbatch --time 5 --name "evaluation" --depends-on &lt;train_id&gt; python evaluate.py
+</code></pre>
+<h2 id="displaying-time-limits"><a class="header" href="#displaying-time-limits">Displaying Time Limits</a></h2>
+<h3 id="using-gqueue"><a class="header" href="#using-gqueue">Using <code>gqueue</code></a></h3>
+<p>Show time limit column:</p>
+<pre><code class="language-bash"># Include TIMELIMIT in output
+gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
+</code></pre>
+<p><strong>Output</strong>:</p>
+<pre><code>JOBID    NAME                ST    TIME         TIMELIMIT
+42       training-job        R     01:23:45     04:00:00
+43       quick-task          CD    00:02:15     00:10:00
+44       unlimited-job       R     00:45:12     UNLIMITED
+</code></pre>
+<h3 id="time-display-formats"><a class="header" href="#time-display-formats">Time Display Formats</a></h3>
+<ul>
+<li><strong>With Days</strong>: <code>D-HH:MM:SS</code> (e.g., <code>2-04:30:00</code> = 2 days, 4.5 hours)</li>
+<li><strong>Without Days</strong>: <code>HH:MM:SS</code> (e.g., <code>04:30:00</code> = 4.5 hours)</li>
+<li><strong>Unlimited</strong>: <code>UNLIMITED</code> (no time limit set)</li>
+</ul>
+<h3 id="filtering-by-state"><a class="header" href="#filtering-by-state">Filtering by State</a></h3>
+<p>View all timed-out jobs:</p>
+<pre><code class="language-bash">gqueue -s Timeout -f JOBID,NAME,TIME,TIMELIMIT
+</code></pre>
+<h2 id="faq"><a class="header" href="#faq">FAQ</a></h2>
+<h3 id="q-what-happens-if-i-dont-specify-a-time-limit"><a class="header" href="#q-what-happens-if-i-dont-specify-a-time-limit">Q: What happens if I don't specify a time limit?</a></h3>
+<p><strong>A</strong>: The job runs without any time restrictions (<code>UNLIMITED</code>). It will run until:</p>
+<ul>
+<li>It completes successfully</li>
+<li>It fails due to an error</li>
+<li>You manually cancel it with <code>gcancel</code></li>
+<li>The system crashes or daemon stops</li>
+</ul>
+<h3 id="q-can-i-change-a-jobs-time-limit-after-submission"><a class="header" href="#q-can-i-change-a-jobs-time-limit-after-submission">Q: Can I change a job's time limit after submission?</a></h3>
+<p><strong>A</strong>: Currently, no. Time limits are set at submission time and cannot be modified for queued or running jobs. You would need to:</p>
+<ol>
+<li>Cancel the current job</li>
+<li>Resubmit with a new time limit</li>
+</ol>
+<h3 id="q-whats-the-maximum-time-limit"><a class="header" href="#q-whats-the-maximum-time-limit">Q: What's the maximum time limit?</a></h3>
+<p><strong>A</strong>: There's no hard maximum, but practical limits depend on:</p>
+<ul>
+<li>System stability (days/weeks)</li>
+<li>Resource availability</li>
+<li>Your specific use case</li>
+</ul>
+<p>Example of a very long limit:</p>
+<pre><code class="language-bash">gbatch --time 168:00:00 week_long_simulation # 1 week
+</code></pre>
+<h3 id="q-will-my-job-save-its-work-when-it-times-out"><a class="header" href="#q-will-my-job-save-its-work-when-it-times-out">Q: Will my job save its work when it times out?</a></h3>
+<p><strong>A</strong>: It depends on your job's implementation:</p>
+<ul>
+<li><strong>With SIGINT handler</strong>: Yes, if you catch <code>Ctrl-C</code> and save state</li>
+<li><strong>Without handler</strong>: Possibly not, job is interrupted immediately</li>
+<li><strong>Best practice</strong>: Implement periodic checkpointing</li>
+</ul>
+<h3 id="q-how-do-i-see-why-a-job-timed-out"><a class="header" href="#q-how-do-i-see-why-a-job-timed-out">Q: How do I see why a job timed out?</a></h3>
+<p><strong>A</strong>: Check multiple sources:</p>
+<ol>
+<li>
+<p><strong>Job status</strong>:</p>
+<pre><code class="language-bash">gqueue -j &lt;job_id&gt;
+</code></pre>
+</li>
+<li>
+<p><strong>Job logs</strong>:</p>
+<pre><code class="language-bash">cat ~/.local/share/gflow/logs/&lt;job_id&gt;.log
+</code></pre>
+</li>
+<li>
+<p><strong>Daemon logs</strong> (if attached to tmux):</p>
+<pre><code class="language-bash">tmux attach -t gflow_server
+</code></pre>
+</li>
+</ol>
+<h3 id="q-can-i-set-different-time-limits-for-job-arrays"><a class="header" href="#q-can-i-set-different-time-limits-for-job-arrays">Q: Can I set different time limits for job arrays?</a></h3>
+<p><strong>A</strong>: Currently, all jobs in an array share the same time limit. To have different limits:</p>
+<ul>
+<li>Submit jobs individually, or</li>
+<li>Implement conditional logic in your script based on <code>$GFLOW_ARRAY_TASK_ID</code></li>
+</ul>
+<h3 id="q-whats-the-difference-between-timeout-to-and-failed-f"><a class="header" href="#q-whats-the-difference-between-timeout-to-and-failed-f">Q: What's the difference between Timeout (TO) and Failed (F)?</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Aspect</th><th>Timeout (TO)</th><th>Failed (F)</th></tr></thead><tbody>
+<tr><td><strong>Cause</strong></td><td>Exceeded time limit</td><td>Job crashed/error</td></tr>
+<tr><td><strong>Initiated by</strong></td><td>Scheduler</td><td>Job itself</td></tr>
+<tr><td><strong>Exit code</strong></td><td>SIGINT (130)</td><td>Variable (job-dependent)</td></tr>
+<tr><td><strong>Planned</strong></td><td>Yes (hit limit)</td><td>No (unexpected)</td></tr>
+</tbody></table>
+</div>
+<h3 id="q-does-the-time-limit-include-queue-time"><a class="header" href="#q-does-the-time-limit-include-queue-time">Q: Does the time limit include queue time?</a></h3>
+<p><strong>A</strong>: No, only running time counts. The timer starts when the job transitions from <code>Queued</code> to <code>Running</code> state.</p>
+<pre><code>Queued (not counted) → Running (timer starts) → Timeout/Finished
+</code></pre>
+<h3 id="q-how-accurate-is-the-timeout-enforcement"><a class="header" href="#q-how-accurate-is-the-timeout-enforcement">Q: How accurate is the timeout enforcement?</a></h3>
+<p><strong>A</strong>: Within 5 seconds. The scheduler checks every 5 seconds, so:</p>
+<ul>
+<li><strong>Limit</strong>: 10:00</li>
+<li><strong>Actual termination</strong>: Between 10:00 and 10:05</li>
+</ul>
+<p>For most use cases, this accuracy is sufficient.</p>
+<h3 id="q-what-if-the-daemon-restarts-while-jobs-are-running"><a class="header" href="#q-what-if-the-daemon-restarts-while-jobs-are-running">Q: What if the daemon restarts while jobs are running?</a></h3>
+<p><strong>A</strong>: Time limits are preserved:</p>
+<ol>
+<li>Job state (including start time) is saved to disk</li>
+<li>When daemon restarts, it reloads job state</li>
+<li>Time limit checking resumes automatically</li>
+<li>Jobs that exceeded limits during downtime will be caught on next check</li>
+</ol>
+<h3 id="q-can-i-see-time-remaining-for-a-running-job"><a class="header" href="#q-can-i-see-time-remaining-for-a-running-job">Q: Can I see time remaining for a running job?</a></h3>
+<p><strong>A</strong>: Not directly, but you can calculate it:</p>
+<pre><code class="language-bash"># Show TIME and TIMELIMIT columns
+gqueue -j &lt;job_id&gt; -f JOBID,NAME,TIME,TIMELIMIT
+
+# Calculate: TIMELIMIT - TIME = Remaining time
+</code></pre>
+<p>A future enhancement could add a <code>REMAINING</code> column.</p>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h3 id="job-terminates-earlier-than-expected"><a class="header" href="#job-terminates-earlier-than-expected">Job Terminates Earlier Than Expected</a></h3>
+<p><strong>Possible causes</strong>:</p>
+<ol>
+<li>
+<p><strong>Wrong time format</strong>:</p>
+<ul>
+<li>❌ <code>--time 30</code> thinking it's seconds (it's actually 30 minutes)</li>
+<li>✅ <code>--time 0:30</code> for 30 seconds</li>
+</ul>
+</li>
+<li>
+<p><strong>Time limit too strict</strong>: Check actual runtime of previous jobs</p>
+</li>
+<li>
+<p><strong>Job failed for other reasons</strong>: Check logs and job state</p>
+</li>
+</ol>
+<h3 id="job-doesnt-terminate-at-time-limit"><a class="header" href="#job-doesnt-terminate-at-time-limit">Job Doesn't Terminate at Time Limit</a></h3>
+<p><strong>Possible causes</strong>:</p>
+<ol>
+<li><strong>No time limit set</strong>: Verify with <code>gqueue -f TIMELIMIT</code></li>
+<li><strong>Daemon not running</strong>: Check <code>ginfo info</code></li>
+<li><strong>Job not in Running state</strong>: Time limits only apply to running jobs</li>
+</ol>
+<h3 id="time-limit-not-showing-in-gqueue"><a class="header" href="#time-limit-not-showing-in-gqueue">Time Limit Not Showing in <code>gqueue</code></a></h3>
+<pre><code class="language-bash"># Make sure to include TIMELIMIT in format
+gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
+
+# Or check default columns for your gflow version
+</code></pre>
+<h2 id="implementation-details"><a class="header" href="#implementation-details">Implementation Details</a></h2>
+<p>For developers and advanced users:</p>
+<h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
+<ul>
+<li><strong>Storage</strong>: <code>time_limit</code> field in <code>Job</code> struct as <code>Option&lt;Duration&gt;</code></li>
+<li><strong>Checking</strong>: Scheduler loop every 5 seconds</li>
+<li><strong>Method</strong>: <code>Job::has_exceeded_time_limit()</code> compares elapsed vs limit</li>
+<li><strong>Termination</strong>: <code>send_ctrl_c()</code> → transition to <code>Timeout</code> state</li>
+</ul>
+<h3 id="state-persistence"><a class="header" href="#state-persistence">State Persistence</a></h3>
+<p>Time limits are persisted in <code>~/.local/share/gflow/state.json</code>:</p>
+<pre><code class="language-json">{
+  "id": 42,
+  "time_limit": {
+    "secs": 3600,
+    "nanos": 0
+  },
+  "started_at": {
+    "secs_since_epoch": 1234567890,
+    "nanos_since_epoch": 0
+  }
+}
+</code></pre>
+<h3 id="scheduler-code"><a class="header" href="#scheduler-code">Scheduler Code</a></h3>
+<p>Located in <code>src/bin/gflowd/scheduler.rs:242-267</code>, the timeout checking logic runs every scheduler cycle.</p>
+<h2 id="related-features"><a class="header" href="#related-features">Related Features</a></h2>
+<ul>
+<li><strong>Job Dependencies</strong>: Combine with <code>--depends-on</code> for complex workflows</li>
+<li><strong>Job Priorities</strong>: Use with <code>--priority</code> for important time-sensitive jobs</li>
+<li><strong>Job Arrays</strong>: Apply time limits to parallel task batches</li>
+<li><strong>Output Logging</strong>: All output captured via <code>pipe-pane</code> to log files</li>
+</ul>
+<h2 id="see-also"><a class="header" href="#see-also">See Also</a></h2>
+<ul>
+<li><a href="../README.html">README.md</a> - Main documentation</li>
+<li><a href="./DEPENDENCIES.html">Job Dependencies</a> - Managing job dependencies</li>
+<li><a href="./GPU_SCHEDULING.html">GPU Scheduling</a> - GPU resource management</li>
+<li>GitHub Issues - Report problems or request features</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../user-guide/gpu-management.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../user-guide/configuration.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../user-guide/gpu-management.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../user-guide/configuration.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
