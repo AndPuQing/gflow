@@ -3,26 +3,8 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-const SCRIPT_TEMPLATE: &str = r#"#!/bin/bash
-#
-# ==================================================
-# GFLOW Job Configuration
-#
-# Use the GFLOW directives below to configure your job.
-# These settings can be overridden by command-line arguments.
-# ==================================================
-
-# GFLOW --gpus=1
-# GFLOW --priority=10
-# GFLOW --conda-env=your-env-name
-# GFLOW --depends-on=123
-
-# --- Your script starts here ---
-echo "Starting gflow job..."
-echo "Running on node: $HOSTNAME"
-sleep 20
-echo "Job finished successfully."
-"#;
+// Template is generated from AddArgs struct by scripts/generate_template.py
+const SCRIPT_TEMPLATE: &str = include_str!("../script_template.sh");
 
 pub(crate) fn handle_new(new_args: cli::NewArgs) -> Result<()> {
     let job_name = &new_args.name;
