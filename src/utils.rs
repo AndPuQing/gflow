@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use range_parser::parse;
 use std::time::Duration;
 
 /// Parse time limit string into Duration.
@@ -83,4 +84,26 @@ pub fn format_duration(duration: Duration) -> String {
     } else {
         format!("{}s", seconds)
     }
+}
+
+/// Parse job IDs from string inputs, supporting ranges like "1-3" or comma-separated "1,2,3".
+///
+/// # Examples
+///
+/// ```
+/// use gflow::utils::parse_job_ids;
+///
+/// assert_eq!(parse_job_ids("1").unwrap(), vec![1]);
+/// assert_eq!(parse_job_ids("1,2,3").unwrap(), vec![1, 2, 3]);
+/// assert_eq!(parse_job_ids("1-3").unwrap(), vec![1, 2, 3]);
+/// assert_eq!(parse_job_ids("1-3,5").unwrap(), vec![1, 2, 3, 5]);
+/// ```
+pub fn parse_job_ids(id_strings: &str) -> Result<Vec<u32>> {
+    let mut parsed_ids: Vec<u32> =
+        parse::<u32>(id_strings.trim()).context(format!("Invalid ID or range: {}", id_strings))?;
+
+    parsed_ids.sort_unstable();
+    parsed_ids.dedup();
+
+    Ok(parsed_ids)
 }

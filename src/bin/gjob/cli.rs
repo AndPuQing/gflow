@@ -36,20 +36,32 @@ pub enum Commands {
     /// Put a queued job on hold
     #[command(visible_alias = "h")]
     Hold {
-        #[arg(short, long, help = "Job ID to hold")]
-        job: u32,
+        #[arg(
+            short,
+            long,
+            help = "Job ID(s) to hold. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+        )]
+        job: String,
     },
     /// Release a held job back to the queue
     #[command(visible_alias = "r")]
     Release {
-        #[arg(short, long, help = "Job ID to release")]
-        job: u32,
+        #[arg(
+            short,
+            long,
+            help = "Job ID(s) to release. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+        )]
+        job: String,
     },
     /// Show detailed information about a job
     #[command(visible_alias = "s")]
     Show {
-        #[arg(short, long, help = "Job ID to show details for")]
-        job: u32,
+        #[arg(
+            short,
+            long,
+            help = "Job ID(s) to show details for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+        )]
+        job: String,
     },
     /// Resubmit a job with the same or modified parameters
     Redo {

@@ -1,22 +1,32 @@
 use anyhow::Result;
 use gflow::client::Client;
 use gflow::core::job::Job;
+use gflow::utils::parse_job_ids;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-pub async fn handle_show(config_path: &Option<PathBuf>, job_id: u32) -> Result<()> {
+pub async fn handle_show(config_path: &Option<PathBuf>, job_ids_str: String) -> Result<()> {
     let config = gflow::config::load_config(config_path.as_ref())?;
     let client = Client::build(&config)?;
 
-    let job = match client.get_job(job_id).await? {
-        Some(job) => job,
-        None => {
-            eprintln!("Job {} not found.", job_id);
-            return Ok(());
-        }
-    };
+    let job_ids = parse_job_ids(&job_ids_str)?;
 
-    print_job_details(&job);
+    for (index, &job_id) in job_ids.iter().enumerate() {
+        if index > 0 {
+            println!("\n{}", "=".repeat(80));
+            println!();
+        }
+
+        let job = match client.get_job(job_id).await? {
+            Some(job) => job,
+            None => {
+                eprintln!("Job {} not found.", job_id);
+                continue;
+            }
+        };
+
+        print_job_details(&job);
+    }
     Ok(())
 }
 

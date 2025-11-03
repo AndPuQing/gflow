@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
-use gflow::{client::Client, core::job::JobState};
-use range_parser::parse;
+use gflow::{client::Client, core::job::JobState, utils::parse_job_ids};
 
 pub async fn handle_cancel(client: &Client, ids: &str, dry_run: bool) -> Result<()> {
     let job_ids = parse_job_ids(ids)?;
@@ -15,17 +14,6 @@ pub async fn handle_cancel(client: &Client, ids: &str, dry_run: bool) -> Result<
     }
 
     Ok(())
-}
-
-/// Parse job IDs from string inputs, supporting ranges like "1-3"
-pub fn parse_job_ids(id_strings: &str) -> Result<Vec<u32>> {
-    let mut parsed_ids: Vec<u32> =
-        parse::<u32>(id_strings.trim()).context(format!("Invalid ID or range: {}", id_strings))?;
-
-    parsed_ids.sort_unstable();
-    parsed_ids.dedup();
-
-    Ok(parsed_ids)
 }
 
 async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
