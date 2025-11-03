@@ -19,8 +19,8 @@ $ gflowd status
 
 Verify it's reachable from another terminal:
 ```shell
-$ ginfo info
-<!-- cmdrun ginfo info -->
+$ ginfo
+<!-- cmdrun ginfo -->
 ```
 
 ## Your First Job
@@ -55,8 +55,7 @@ Job output is automatically logged:
 
 ```shell
 $ sleep 6
-$ gjob -j 1
-<!-- cmdrun gjob -j 1 -->
+$ gjob log -j 1
 ```
 
 ## Submitting Jobs with Options
@@ -113,14 +112,14 @@ Run jobs in sequence:
 
 ```shell
 # Job 1: Preprocessing
-gbatch python preprocess.py --name "prep"
+gbatch --name "prep" python preprocess.py
 # Note the job ID, e.g., 2
 
 # Job 2: Training (depends on job 2)
-gbatch python train.py --depends-on 2 --name "train"
+gbatch --name --depends-on 2 "train" python train.py
 
 # Job 3: Evaluation (depends on job 3)
-gbatch python evaluate.py --depends-on 3 --name "eval"
+gbatch --depends-on 3 --name "eval" python evaluate.py
 ```
 
 View dependency tree:
@@ -185,7 +184,7 @@ Each job runs in a tmux session. You can attach to see live output:
 gqueue -f JOBID,NAME
 
 # Attach to the session
-tmux attach -t <session_name>
+gjob attach -t <job_id>
 
 # Detach without stopping the job
 # Press: Ctrl+B then D
@@ -206,17 +205,17 @@ This stops the daemon, saves state, and removes the tmux session.
 Here's a complete example workflow:
 
 ```shell
-# 1. Start scheduler (run in another terminal)
+# 1. Start scheduler
 gflowd up
 
 # 2. Submit preprocessing job
-gbatch --time 10 python preprocess.py --output data.pkl --name prep
+gbatch --time 10 --name prep python preprocess.py
 # Job ID: 1
 
 # 3. Submit training jobs (depend on preprocessing)
 gbatch --time 2:00:00 --gpus 1 --depends-on 1 python train.py --lr 0.001 --name train_lr001
-gbatch --time 2:00:00 --gpus 1 --depends-on 1 python train.py --lr 0.01 --name train_lr01
-
+gbatch --time 2:00:00 --gpus 1 --depends-on @ python train.py --lr 0.01 --name train_lr01
+# @ depends on the last submitted job (train_lr001)
 # 4. Monitor jobs
 watch gqueue
 

@@ -66,7 +66,8 @@ gqueue -s Queued,Running         # Multiple states
 
 # Filter by job ID
 gqueue -j 42                     # Specific job
-gqueue -j 40,41,42               # Multiple jobs
+gqueue -j 40,41,42               # Multiple jobs (comma-separated)
+gqueue -j 40-45                  # Job ID range (40, 41, 42, 43, 44, 45)
 
 # Custom format
 gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
@@ -87,6 +88,9 @@ gqueue -t                        # Show job dependency tree
 ### Job Control
 ```bash
 gcancel <job_id>                 # Cancel a job
+gcancel 40,41,42                 # Cancel multiple jobs (comma-separated)
+gcancel 40-45                    # Cancel job ID range (40 through 45)
+gcancel --dry-run <job_id>       # Preview cancellation impact (shows dependents)
 gcancel --finish <job_id>        # Mark job as finished (internal)
 gcancel --fail <job_id>          # Mark job as failed (internal)
 ```

@@ -27,6 +27,32 @@ Submitted batch job 1 (silent-pump-6338)
 gbatch python train.py --epochs 100 --lr 0.01
 ```
 
+### Command Argument Safety
+
+gflow automatically handles special characters in command arguments using shell escaping:
+
+```bash
+# Arguments with spaces
+gbatch python script.py --message "Hello World"
+
+# Arguments with special characters
+gbatch python script.py --pattern 'test_*.py'
+
+# Complex arguments
+gbatch bash -c 'echo $USER && python script.py'
+```
+
+**How it works**:
+- Command arguments are properly escaped before execution
+- Prevents shell injection and unintended command interpretation
+- Special characters like spaces, quotes, and wildcards are handled safely
+- Uses the `shell-escape` library to ensure safety
+
+**Best practice**: While gflow handles escaping automatically, it's still recommended to:
+- Test complex commands locally first
+- Use explicit quoting for clarity
+- Avoid overly complex inline commands (use script files instead)
+
 ### Submitting a Script
 
 Create a script file and submit it:
@@ -283,6 +309,16 @@ chmod +x my_job.sh
 # Submit
 gbatch my_job.sh
 ```
+
+### Automatic Template Generation
+
+The job script template is **automatically generated** from the `gbatch` CLI definition to ensure it always reflects available options:
+
+- **Template Source**: The template is generated from `src/bin/gbatch/cli.rs`
+- **Automatic Sync**: A pre-commit hook automatically regenerates the template when command-line options change
+- **Always Current**: You always get the latest available options in your templates
+
+**For developers**: See `scripts/README.md` for details on how the template generation works.
 
 ## Environment Variables
 

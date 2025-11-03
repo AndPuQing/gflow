@@ -133,6 +133,7 @@ If you have NVIDIA GPUs, verify they're detected:
 ```bash
 # Start the daemon
 $ gflowd up
+<!-- cmdrun gflowd up -->
 
 # Verify it started
 $ gflowd status
@@ -141,8 +142,8 @@ $ gflowd status
 
 Check system info and GPU allocation:
 ```bash
-$ ginfo info
-<!-- cmdrun ginfo info -->
+$ ginfo
+<!-- cmdrun ginfo -->
 ```
 
 The daemon shows GPU information if NVIDIA GPUs are available.
@@ -196,19 +197,6 @@ If you get permission errors:
 chmod +x ~/.cargo/bin/gflow*
 ```
 
-### Issue: tmux not found
-
-Install tmux using your package manager:
-```bash
-# Ubuntu/Debian
-sudo apt-get install tmux
-
-# Fedora/RHEL
-sudo dnf install tmux
-
-# macOS (if attempting to use gflow on macOS)
-brew install tmux
-```
 
 ### Issue: GPU not detected
 

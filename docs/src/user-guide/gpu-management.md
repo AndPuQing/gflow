@@ -22,6 +22,7 @@ $ ginfo info
 - Number of currently available (unused) GPUs
 - GPU model and UUID for each device
 - Current allocation status (available or in use by which job)
+- **Enhanced display**: Shows GPU allocations organized by job, making it easy to see which jobs are using which GPUs
 
 ### Requirements
 
@@ -179,14 +180,22 @@ JOBID    NAME      ST    NODES    NODELIST(REASON)
 
 ### Check Current GPU Allocation
 
+View GPU allocation for running jobs:
+
 ```bash
-# View GPU allocation for running jobs
 $ gqueue -s Running -f JOBID,NAME,NODES,NODELIST
+<!-- cmdrun gqueue -s Running -f JOBID,NAME,NODES,NODELIST -->
+```
+
+**Example output** (when jobs are running):
+```
 JOBID    NAME                NODES    NODELIST(REASON)
 1        train-resnet        1        0
 2        train-vit           1        1
 3        train-bert          2        2,3
 ```
+
+The `NODES` column shows how many GPUs each job requested, and `NODELIST` shows the specific GPU IDs allocated.
 
 ### System-wide GPU Status
 
