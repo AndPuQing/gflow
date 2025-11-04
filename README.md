@@ -35,12 +35,34 @@ The `gflow` suite consists of several command-line tools:
 
 ## Installation
 
-### Install via `cargo` (Recommended)
+### Quick Install (Linux x86_64)
+
+Install gflow with a single command:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+```
+
+This will download and install the latest release binaries to `~/.cargo/bin`. You can customize the installation directory by setting the `GFLOW_INSTALL_DIR` environment variable:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+```
+
+### Install via `cargo`
 
 ```bash
 cargo install gflow
 ```
-This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`).
+This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`).
+
+### Install via Conda
+
+You can install `gflow` using Conda from the conda-forge channel:
+
+```bash
+conda install -c conda-forge gflow
+```
 
 ### Build Manually
 
