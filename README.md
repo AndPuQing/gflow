@@ -40,13 +40,13 @@ The `gflow` suite consists of several command-line tools:
 Install gflow with a single command:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
 ```
 
 This will download and install the latest release binaries to `~/.cargo/bin`. You can customize the installation directory by setting the `GFLOW_INSTALL_DIR` environment variable:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
 ```
 
 ### Install via `cargo`
