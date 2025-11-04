@@ -574,7 +574,7 @@ echo "Failed: $FAILED"
 **Solutions**:
 ```bash
 # Check daemon
-ginfo info
+ginfo
 
 # View all jobs
 gqueue -a

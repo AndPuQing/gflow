@@ -13,8 +13,8 @@ gflow provides automatic GPU detection, allocation, and management for NVIDIA GP
 View system GPU information:
 
 ```bash
-$ ginfo info
-<!-- cmdrun ginfo info -->
+$ ginfo
+<!-- cmdrun ginfo -->
 ```
 
 **Information displayed**:
@@ -41,7 +41,7 @@ ldconfig -p | grep libnvidia-ml
 
 # Test GPU detection with gflow
 gflowd up
-ginfo info
+ginfo
 ```
 
 ### No GPU Systems
@@ -201,7 +201,7 @@ The `NODES` column shows how many GPUs each job requested, and `NODELIST` shows 
 
 ```bash
 # View system info
-$ ginfo info
+$ ginfo
 
 # Use nvidia-smi for real-time monitoring
 watch -n 1 nvidia-smi
@@ -433,7 +433,7 @@ watch -n 2 'gqueue -s Running,Queued -f JOBID,NAME,NODES,NODELIST'
    ```bash
    # Check allocation
    gqueue -s Running -f NODES,NODELIST
-   ginfo info
+   ginfo
    ```
 
 3. **Job is queued**:
@@ -557,7 +557,7 @@ kill $GPU_MONITOR_PID
 
 ```bash
 # Check system GPUs
-ginfo info
+ginfo
 
 # Submit job with GPUs
 gbatch --gpus <N> ...

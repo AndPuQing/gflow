@@ -424,7 +424,7 @@ gbatch --depends-on $LAST_MODEL --time 30 \
 
 3. No resources available (GPUs):
    ```bash
-   ginfo info
+   ginfo
    gqueue -s Running -f NODES,NODELIST
    ```
 

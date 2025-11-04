@@ -22,7 +22,7 @@ Display the current scheduler status and GPU allocation.
 
 **Syntax**
 ```bash
-ginfo info
+ginfo
 ```
 
 **What it shows**
@@ -33,13 +33,13 @@ ginfo info
 **Examples**
 ```bash
 # Query the default daemon using the default config path
-ginfo info
+ginfo
 
 # Use a custom configuration file
 ginfo --config ~/gflow-dev/config.toml info
 
 # Refresh the view every 2 seconds
-watch -n 2 ginfo info
+watch -n 2 ginfo
 ```
 
 When the daemon is offline, the command prints a helpful error such as:
@@ -70,14 +70,14 @@ Adjust log verbosity for troubleshooting:
 
 ```bash
 # Combine with gqueue for a full snapshot
-ginfo info && gqueue -s Running -f JOBID,NAME,NODES,NODELIST
+ginfo && gqueue -s Running -f JOBID,NAME,NODES,NODELIST
 
 # Create a lightweight dashboard
 watch -n 5 '
   clear
   date
   echo
-  ginfo info
+  ginfo
 '
 ```
 

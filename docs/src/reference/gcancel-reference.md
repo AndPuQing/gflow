@@ -418,7 +418,7 @@ gqueue -j <job_id> -f JOBID,ST
 gqueue -a | grep <job_id>
 
 # Check daemon status
-ginfo info
+ginfo
 ```
 
 ### Issue: Dependent jobs not cancelled

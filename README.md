@@ -62,7 +62,7 @@ This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gque
     ```bash
     gflowd up
     ```
-    Run this in a dedicated terminal or `tmux` session and leave it running. You can check its health at any time with `gflowd status` and inspect resources with `ginfo info`.
+    Run this in a dedicated terminal or `tmux` session and leave it running. You can check its health at any time with `gflowd status` and inspect resources with `ginfo`.
 
 2.  **Submit a job**:
     Create a script `my_job.sh`:

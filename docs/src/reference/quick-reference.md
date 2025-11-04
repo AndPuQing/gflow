@@ -6,8 +6,8 @@
 ```bash
 gflowd up                  # Start the scheduler daemon
 gflowd down                # Stop the scheduler daemon
-ginfo info              # Check daemon status and GPU allocation
-watch -n 2 ginfo info   # Monitor scheduler state
+ginfo              # Check daemon status and GPU allocation
+watch -n 2 ginfo   # Monitor scheduler state
 ```
 
 ### Job Submission

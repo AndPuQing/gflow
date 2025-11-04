@@ -137,7 +137,7 @@ export CUDA_VISIBLE_DEVICES=0
 gflowd up
 
 # gflow will only see and manage GPU 0
-ginfo info
+ginfo
 ```
 
 **Warning**: This affects all CUDA applications, not just gflow.
@@ -186,7 +186,7 @@ export XDG_DATA_HOME="$HOME/my-data"
 
 ```bash
 # View scheduler info (includes host and port)
-ginfo info
+ginfo
 
 # The config file itself
 cat ~/.config/gflow/gflow.toml
@@ -331,10 +331,10 @@ This politely stops the daemon, saves state, and removes the `gflow_server` sess
 gflowd status
 ```
 
-`gflowd status` checks for the tmux session and performs a health probe against the HTTP API. Use `ginfo info` to inspect detailed resources:
+`gflowd status` checks for the tmux session and performs a health probe against the HTTP API. Use `ginfo` to inspect detailed resources:
 
 ```bash
-$ ginfo info
+$ ginfo
 ```
 
 `ginfo` prints scheduler metadata, GPU availability, and which jobs currently occupy each device.
@@ -483,7 +483,7 @@ lsof -i :59000
 **Verify GPUs**:
 ```bash
 nvidia-smi
-ginfo info
+ginfo
 ```
 
 ### Issue: Can't connect to daemon
@@ -500,7 +500,7 @@ gflowd down
 gflowd up
 
 # Check connection
-ginfo info
+ginfo
 ```
 
 ## Security Considerations
