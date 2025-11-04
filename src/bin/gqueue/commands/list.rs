@@ -130,7 +130,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
 fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
     match sort_field.to_lowercase().as_str() {
         "id" => jobs.sort_by_key(|j| j.id),
-        "state" => jobs.sort_by_key(|j| j.state.clone()),
+        "state" => jobs.sort_by_key(|j| j.state),
         "time" => jobs.sort_by(|a, b| a.started_at.cmp(&b.started_at)),
         "name" => jobs.sort_by(|a, b| {
             a.run_name
@@ -188,10 +188,7 @@ fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) 
 
     let mut grouped = std::collections::HashMap::new();
     for job in jobs {
-        grouped
-            .entry(job.state.clone())
-            .or_insert_with(Vec::new)
-            .push(job);
+        grouped.entry(job.state).or_insert_with(Vec::new).push(job);
     }
 
     let states_order = [

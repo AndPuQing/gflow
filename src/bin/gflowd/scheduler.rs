@@ -26,29 +26,54 @@ pub struct Scheduler {
 
 impl Default for Scheduler {
     fn default() -> Self {
-        Self::new()
+        Self::new().unwrap_or_else(|e| {
+            log::error!(
+                "Failed to create scheduler: {}. Creating minimal scheduler.",
+                e
+            );
+            // Fallback to a minimal scheduler without GPU support
+            Self {
+                jobs: HashMap::new(),
+                gpu_slots: HashMap::new(),
+                nvml: None,
+                state_path: PathBuf::from("state.json"),
+                next_job_id: 1,
+            }
+        })
     }
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
-        // This is not ideal, but for now we will panic if we can't get the config dir
-        let state_path = get_data_dir().unwrap().join("state.json");
+    pub fn new() -> anyhow::Result<Self> {
+        let state_path = get_data_dir()?.join("state.json");
         Self::with_state_path(state_path)
     }
 
-    pub fn with_state_path(state_path: PathBuf) -> Self {
-        let nvml = Nvml::init().expect("Failed to initialize NVML");
-        let gpu_slots = Self::get_gpus(&nvml);
+    pub fn with_state_path(state_path: PathBuf) -> anyhow::Result<Self> {
+        // Try to initialize NVML, but continue without it if it fails
+        let (nvml, gpu_slots) = match Nvml::init() {
+            Ok(nvml) => {
+                let gpu_slots = Self::get_gpus(&nvml);
+                (Some(nvml), gpu_slots)
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to initialize NVML: {}. Running without GPU support.",
+                    e
+                );
+                (None, HashMap::new())
+            }
+        };
+
         let mut scheduler = Self {
             jobs: HashMap::new(),
             gpu_slots,
-            nvml: Some(nvml),
+            nvml,
             state_path,
             next_job_id: 1,
         };
         scheduler.load_state();
-        scheduler
+        Ok(scheduler)
     }
 
     /// Create a new scheduler without NVML initialization.
@@ -127,8 +152,18 @@ impl Scheduler {
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(path) {
                 if let Ok(mut scheduler) = serde_json::from_str::<Scheduler>(&json) {
-                    scheduler.nvml = Some(Nvml::init().expect("Failed to initialize NVML"));
-                    scheduler.gpu_slots = Self::get_gpus(scheduler.nvml.as_ref().unwrap());
+                    // Try to initialize NVML, but continue without it if it fails
+                    match Nvml::init() {
+                        Ok(nvml) => {
+                            scheduler.gpu_slots = Self::get_gpus(&nvml);
+                            scheduler.nvml = Some(nvml);
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
+                            scheduler.gpu_slots = HashMap::new();
+                            scheduler.nvml = None;
+                        }
+                    }
                     *self = scheduler;
                 }
             }
@@ -391,12 +426,18 @@ pub async fn run(shared_state: SharedState) {
             .collect();
 
         runnable_jobs.sort_by_key(|job_id| {
-            let job = state.jobs.get(job_id).unwrap();
-            let time_bonus = Scheduler::calculate_time_bonus(&job.time_limit);
-            // Tuples compare lexicographically: priority first, then time_bonus, then job_id
-            // Use Reverse for descending order on priority and time_bonus
-            // Use double Reverse on job_id for ascending order (FIFO)
-            std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
+            // Safe to use get() since job_id came from state.jobs.values()
+            state
+                .jobs
+                .get(job_id)
+                .map(|job| {
+                    let time_bonus = Scheduler::calculate_time_bonus(&job.time_limit);
+                    // Tuples compare lexicographically: priority first, then time_bonus, then job_id
+                    // Use Reverse for descending order on priority and time_bonus
+                    // Use double Reverse on job_id for ascending order (FIFO)
+                    std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
+                })
+                .unwrap_or(std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id))))
         });
 
         // Easy backfilling loop

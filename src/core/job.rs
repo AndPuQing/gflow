@@ -30,6 +30,7 @@ impl fmt::Display for JobError {
     PartialEq,
     Eq,
     Clone,
+    Copy,
     Display,
     EnumIter,
     FromRepr,
@@ -226,9 +227,9 @@ impl Job {
             return Err(JobError::AlreadyInState(next));
         }
 
-        if !self.state.clone().can_transition_to(next.clone()) {
+        if !self.state.can_transition_to(next) {
             return Err(JobError::InvalidTransition {
-                from: self.state.clone(),
+                from: self.state,
                 to: next,
             });
         }
@@ -238,7 +239,7 @@ impl Job {
     }
 
     pub fn try_transition(&mut self, job_id: u32, next: JobState) -> bool {
-        match self.transition_to(next.clone()) {
+        match self.transition_to(next) {
             Ok(_) => {
                 log::debug!("Job {} transitioned to {}", job_id, next);
                 true

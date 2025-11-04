@@ -25,6 +25,23 @@ impl Client {
         Ok(Self { client, base_url })
     }
 
+    /// Helper to extract error message from response
+    async fn extract_error_message(response: reqwest::Response) -> String {
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| String::from("Unknown error"));
+
+        // Try to parse as JSON with error field
+        if let Ok(json_error) = serde_json::from_str::<serde_json::Value>(&error_body) {
+            if let Some(error_msg) = json_error.get("error").and_then(|e| e.as_str()) {
+                return error_msg.to_string();
+            }
+        }
+
+        error_body
+    }
+
     pub async fn list_jobs(&self) -> anyhow::Result<Vec<Job>> {
         let jobs = self
             .client
@@ -70,20 +87,8 @@ impl Client {
 
         // Check if the response is successful
         if !response.status().is_success() {
-            // Try to extract error message from response
-            let error_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| String::from("Unknown error"));
-
-            // Try to parse as JSON with error field
-            if let Ok(json_error) = serde_json::from_str::<serde_json::Value>(&error_body) {
-                if let Some(error_msg) = json_error.get("error").and_then(|e| e.as_str()) {
-                    return Err(anyhow::anyhow!("{}", error_msg));
-                }
-            }
-
-            return Err(anyhow::anyhow!("Failed to add job: {}", error_body));
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow::anyhow!("Failed to add job: {}", error_msg));
         }
 
         let job_response: JobSubmitResponse = response
@@ -214,20 +219,10 @@ impl Client {
             .context("Failed to send resolve dependency request")?;
 
         if !response.status().is_success() {
-            let error_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| String::from("Unknown error"));
-
-            if let Ok(json_error) = serde_json::from_str::<serde_json::Value>(&error_body) {
-                if let Some(error_msg) = json_error.get("error").and_then(|e| e.as_str()) {
-                    return Err(anyhow::anyhow!("{}", error_msg));
-                }
-            }
-
+            let error_msg = Self::extract_error_message(response).await;
             return Err(anyhow::anyhow!(
                 "Failed to resolve dependency: {}",
-                error_body
+                error_msg
             ));
         }
 

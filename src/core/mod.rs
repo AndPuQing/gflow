@@ -18,13 +18,17 @@ const VERSION_MESSAGE: &str = concat!(
 );
 
 pub fn version() -> &'static str {
-    let author = clap::crate_authors!();
+    use std::sync::OnceLock;
+    static VERSION: OnceLock<String> = OnceLock::new();
 
-    Box::leak(Box::new(format!(
-        "\
+    VERSION.get_or_init(|| {
+        let author = clap::crate_authors!();
+        format!(
+            "\
 {VERSION_MESSAGE}
 Authors: {author}"
-    )))
+        )
+    })
 }
 
 #[derive(Debug)]

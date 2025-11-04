@@ -34,7 +34,7 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
         println!("Current State: {}", job.state);
 
         // Determine if the cancellation is valid
-        let can_cancel = job.state.clone().can_transition_to(JobState::Cancelled);
+        let can_cancel = job.state.can_transition_to(JobState::Cancelled);
 
         if can_cancel {
             println!("Target State: {}", JobState::Cancelled);
