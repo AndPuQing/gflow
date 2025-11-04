@@ -123,7 +123,9 @@ impl Scheduler {
         let job_ = Job {
             state: JobState::Queued,
             gpu_ids: None,
-            run_name: Some(gflow::core::random_run_name()),
+            run_name: job
+                .run_name
+                .or_else(|| Some(gflow::core::random_run_name())),
             ..job
         };
         let job_id = job_.id;

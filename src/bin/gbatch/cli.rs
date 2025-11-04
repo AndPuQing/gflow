@@ -57,4 +57,8 @@ pub struct AddArgs {
     /// Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
     #[arg(short = 't', long)]
     pub time: Option<String>,
+
+    /// Custom run name for the job (used as tmux session name)
+    #[arg(short = 'n', long)]
+    pub name: Option<String>,
 }

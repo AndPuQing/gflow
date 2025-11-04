@@ -52,6 +52,9 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
     let username = gflow::core::get_current_username();
     builder = builder.submitted_by(username);
 
+    // Set custom run name if provided
+    builder = builder.run_name(args.name.clone());
+
     // Parse time limit if provided
     let time_limit = if let Some(time_str) = &args.time {
         Some(gflow::utils::parse_time_limit(time_str)?)
@@ -147,6 +150,7 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
             depends_on: None,
             array: None,
             time: None,
+            name: None,
         });
     }
 

@@ -96,6 +96,7 @@ def generate_example(field_name: str) -> str:
         "depends_on": "123",
         "time": "1:30:00",
         "array": "1-10",
+        "name": "your-custom-job-name",
     }
     return examples.get(field_name, "value")
 

@@ -128,6 +128,7 @@ pub struct JobBuilder {
     task_id: Option<u32>,
     time_limit: Option<Duration>,
     submitted_by: Option<String>,
+    run_name: Option<String>,
 }
 
 impl JobBuilder {
@@ -185,6 +186,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn run_name(mut self, run_name: impl Into<Option<String>>) -> Self {
+        self.run_name = run_name.into();
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -197,7 +203,7 @@ impl JobBuilder {
             task_id: self.task_id,
             time_limit: self.time_limit,
             submitted_by: self.submitted_by.unwrap_or_else(|| "unknown".into()),
-            run_name: None,
+            run_name: self.run_name,
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
