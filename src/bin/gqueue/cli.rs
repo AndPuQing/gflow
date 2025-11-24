@@ -59,28 +59,32 @@ pub struct ListArgs {
     #[arg(
         long,
         short = 's',
-        help = "Filter by a comma-separated list of job states (e.g., Queued,Running)"
+        help = "Filter by a comma-separated list of job states (e.g., Queued,Running)",
+        value_hint = clap::ValueHint::Other
     )]
     pub states: Option<String>,
 
     #[arg(
         long,
         short = 'j',
-        help = "Filter by a comma-separated list of job IDs"
+        help = "Filter by a comma-separated list of job IDs",
+        value_hint = clap::ValueHint::Other
     )]
     pub jobs: Option<String>,
 
     #[arg(
         long,
         short = 'N',
-        help = "Filter by a comma-separated list of job names"
+        help = "Filter by a comma-separated list of job names",
+        value_hint = clap::ValueHint::Other
     )]
     pub names: Option<String>,
 
     #[arg(
         long,
         short = 'f',
-        help = "Specify a comma-separated list of fields to display"
+        help = "Specify a comma-separated list of fields to display",
+        value_hint = clap::ValueHint::Other
     )]
     pub format: Option<String>,
 

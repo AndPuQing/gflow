@@ -41,6 +41,7 @@ pub struct CancelArgs {
     pub fail: Option<u32>,
 
     /// Job ID(s) to cancel. Supports ranges like "1-3" or individual IDs like "1,2,3"
+    #[arg(value_hint = clap::ValueHint::Other)]
     pub ids: Option<String>,
 
     /// If set, the job will not be cancelled, but the action will be printed

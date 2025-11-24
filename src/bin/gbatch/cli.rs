@@ -38,11 +38,11 @@ pub struct AddArgs {
     /// The script or command to run (e.g., "script.sh" or "python train.py --epochs 100")
     /// If a single argument that exists as a file, it's treated as a script.
     /// Otherwise, all arguments are joined as a command.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_hint = clap::ValueHint::CommandWithArguments)]
     pub script_or_command: Vec<String>,
 
-    #[arg(short, long)]
     /// The conda environment to use
+    #[arg(short, long, value_hint = clap::ValueHint::Other)]
     pub conda_env: Option<String>,
 
     /// The GPU count to request
@@ -54,18 +54,18 @@ pub struct AddArgs {
     pub priority: Option<u8>,
 
     /// Job dependency; accepts a job ID or shorthand like "@" / "@~N"
-    #[arg(long)]
+    #[arg(long, value_hint = clap::ValueHint::Other)]
     pub depends_on: Option<String>,
 
     /// The job array specification (e.g., "1-10")
-    #[arg(long)]
+    #[arg(long, value_hint = clap::ValueHint::Other)]
     pub array: Option<String>,
 
     /// Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
-    #[arg(short = 't', long)]
+    #[arg(short = 't', long, value_hint = clap::ValueHint::Other)]
     pub time: Option<String>,
 
     /// Custom run name for the job (used as tmux session name)
-    #[arg(short = 'n', long)]
+    #[arg(short = 'n', long, value_hint = clap::ValueHint::Other)]
     pub name: Option<String>,
 }

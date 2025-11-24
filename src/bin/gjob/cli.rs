@@ -40,7 +40,8 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "Job ID(s) to hold. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+            help = "Job ID(s) to hold. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
+            value_hint = clap::ValueHint::Other
         )]
         job: String,
     },
@@ -50,7 +51,8 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "Job ID(s) to release. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+            help = "Job ID(s) to release. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
+            value_hint = clap::ValueHint::Other
         )]
         job: String,
     },
@@ -60,13 +62,14 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "Job ID(s) to show details for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\""
+            help = "Job ID(s) to show details for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
+            value_hint = clap::ValueHint::Other
         )]
         job: String,
     },
     /// Resubmit a job with the same or modified parameters
     Redo {
-        #[arg(help = "Job ID to resubmit (supports @ for most recent job)")]
+        #[arg(help = "Job ID to resubmit (supports @ for most recent job)", value_hint = clap::ValueHint::Other)]
         job: String,
 
         #[arg(short, long, help = "Override number of GPUs")]
@@ -75,17 +78,18 @@ pub enum Commands {
         #[arg(short, long, help = "Override priority")]
         priority: Option<u8>,
 
-        #[arg(short = 'd', long, help = "Override or set dependency (job ID or @)")]
+        #[arg(short = 'd', long, help = "Override or set dependency (job ID or @)", value_hint = clap::ValueHint::Other)]
         depends_on: Option<String>,
 
         #[arg(
             short,
             long,
-            help = "Override time limit (formats: HH:MM:SS, MM:SS, or MM)"
+            help = "Override time limit (formats: HH:MM:SS, MM:SS, or MM)",
+            value_hint = clap::ValueHint::Other
         )]
         time: Option<String>,
 
-        #[arg(short = 'e', long, help = "Override conda environment")]
+        #[arg(short = 'e', long, help = "Override conda environment", value_hint = clap::ValueHint::Other)]
         conda_env: Option<String>,
 
         #[arg(long, help = "Clear dependency from original job")]
