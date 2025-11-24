@@ -77,7 +77,7 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
         }
     }
 
-    let (job_id, run_name) = state.submit_job(input);
+    let (job_id, run_name) = state.submit_job(input).await;
     (
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": job_id, "run_name": run_name })),
@@ -102,7 +102,7 @@ async fn get_job(
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Finishing job with ID: {id}");
-    if state.finish_job(id) {
+    if state.finish_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -132,7 +132,7 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Failing job with ID: {id}");
-    if state.fail_job(id) {
+    if state.fail_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -143,7 +143,7 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Cancelling job with ID: {id}");
-    if state.cancel_job(id) {
+    if state.cancel_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -154,7 +154,7 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Holding job with ID: {id}");
-    if state.hold_job(id) {
+    if state.hold_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -165,7 +165,7 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Releasing job with ID: {id}");
-    if state.release_job(id) {
+    if state.release_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))

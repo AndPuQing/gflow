@@ -6,7 +6,7 @@ use gflow::core::{
     GPUSlot, GPU, UUID,
 };
 use nvml_wrapper::Nvml;
-use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<Scheduler>>;
@@ -117,7 +117,7 @@ impl Scheduler {
         SchedulerInfo { gpus }
     }
 
-    pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
+    pub async fn submit_job(&mut self, mut job: Job) -> (u32, String) {
         job.id = self.next_job_id;
         self.next_job_id += 1;
         let job_ = Job {
@@ -131,19 +131,22 @@ impl Scheduler {
         let job_id = job_.id;
         let run_name = job_.run_name.clone().unwrap_or_default();
         self.jobs.insert(job_id, job_);
-        self.save_state();
+        self.save_state().await;
         (job_id, run_name)
     }
 
-    pub fn save_state(&self) {
+    pub async fn save_state(&self) {
         let path = &self.state_path;
         let tmp_path = path.with_extension("json.tmp");
 
         if let Ok(json) = serde_json::to_string_pretty(&self) {
-            if let Ok(mut file) = File::create(&tmp_path) {
-                if file.write_all(json.as_bytes()).is_ok() {
+            if let Ok(mut file) = tokio::fs::File::create(&tmp_path).await {
+                if tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes())
+                    .await
+                    .is_ok()
+                {
                     // Atomic rename
-                    std::fs::rename(&tmp_path, path).ok();
+                    tokio::fs::rename(&tmp_path, path).await.ok();
                 }
             }
         }
@@ -205,27 +208,27 @@ impl Scheduler {
         }
     }
 
-    pub fn finish_job(&mut self, job_id: u32) -> bool {
+    pub async fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Finished);
-            self.save_state();
+            self.save_state().await;
             true
         } else {
             false
         }
     }
 
-    pub fn fail_job(&mut self, job_id: u32) -> bool {
+    pub async fn fail_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Failed);
-            self.save_state();
+            self.save_state().await;
             true
         } else {
             false
         }
     }
 
-    pub fn cancel_job(&mut self, job_id: u32) -> bool {
+    pub async fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             // If the job is running, send Ctrl-C to gracefully interrupt it
             if job.state == JobState::Running {
@@ -236,27 +239,27 @@ impl Scheduler {
                 }
             }
             job.try_transition(job_id, JobState::Cancelled);
-            self.save_state();
+            self.save_state().await;
             true
         } else {
             false
         }
     }
 
-    pub fn hold_job(&mut self, job_id: u32) -> bool {
+    pub async fn hold_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Hold);
-            self.save_state();
+            self.save_state().await;
             true
         } else {
             false
         }
     }
 
-    pub fn release_job(&mut self, job_id: u32) -> bool {
+    pub async fn release_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             job.try_transition(job_id, JobState::Queued);
-            self.save_state();
+            self.save_state().await;
             true
         } else {
             false
@@ -353,54 +356,81 @@ pub async fn run(shared_state: SharedState) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     loop {
         interval.tick().await;
-        let mut state = shared_state.write().await;
-        state.refresh(); // Refresh based on NVML
 
-        // Detect and clean up zombie jobs
-        let mut zombie_jobs_found = false;
-        for job in state.jobs.values_mut() {
-            if job.state == JobState::Running {
-                if let Some(run_name) = &job.run_name {
-                    let session_exists = gflow::tmux::is_session_exist(run_name);
-                    if !session_exists {
-                        log::warn!("Found zombie job (id: {}), marking as Failed.", job.id);
-                        job.state = JobState::Failed;
-                        job.finished_at = Some(std::time::SystemTime::now());
-                        zombie_jobs_found = true;
-                    }
+        // Step 1: Refresh GPU slots (write lock - very brief)
+        {
+            let mut state = shared_state.write().await;
+            state.refresh();
+        }
+
+        // Step 2: Detect zombie jobs (collect data with read lock, check tmux without lock)
+        let running_jobs = {
+            let state = shared_state.read().await;
+            state
+                .jobs
+                .values()
+                .filter(|j| j.state == JobState::Running)
+                .map(|j| (j.id, j.run_name.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        // Check tmux sessions without holding any lock
+        let mut zombie_job_ids = Vec::new();
+        for (job_id, run_name) in running_jobs {
+            if let Some(rn) = run_name {
+                if !gflow::tmux::is_session_exist(&rn) {
+                    log::warn!("Found zombie job (id: {}), marking as Failed.", job_id);
+                    zombie_job_ids.push(job_id);
                 }
             }
         }
-        if zombie_jobs_found {
-            state.save_state();
-        }
 
-        // Check for timed-out jobs
-        let mut timed_out_jobs = Vec::new();
-        for job in state.jobs.values() {
-            if job.has_exceeded_time_limit() {
-                log::warn!("Job {} has exceeded time limit, terminating...", job.id);
-                timed_out_jobs.push((job.id, job.run_name.clone()));
+        // Update zombie jobs (write lock - brief)
+        if !zombie_job_ids.is_empty() {
+            let mut state = shared_state.write().await;
+            for job_id in zombie_job_ids {
+                if let Some(job) = state.jobs.get_mut(&job_id) {
+                    job.state = JobState::Failed;
+                    job.finished_at = Some(std::time::SystemTime::now());
+                }
             }
+            state.save_state().await;
         }
 
-        // Terminate timed-out jobs
+        // Step 3: Check for timed-out jobs (read lock to identify, then handle)
+        let timed_out_jobs = {
+            let state = shared_state.read().await;
+            state
+                .jobs
+                .values()
+                .filter(|job| job.has_exceeded_time_limit())
+                .map(|job| {
+                    log::warn!("Job {} has exceeded time limit, terminating...", job.id);
+                    (job.id, job.run_name.clone())
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Terminate timed-out jobs without lock, then update state
         for (job_id, run_name) in timed_out_jobs {
             if let Some(run_name) = run_name {
-                // Send Ctrl-C to interrupt the job
                 if let Err(e) = gflow::tmux::send_ctrl_c(&run_name) {
                     log::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
                 }
             }
-            // Mark job as timed out
+
+            // Update job state (brief write lock per job)
+            let mut state = shared_state.write().await;
             if let Some(job) = state.jobs.get_mut(&job_id) {
                 job.try_transition(job_id, JobState::Timeout);
             }
-            state.save_state();
+            state.save_state().await;
         }
 
-        let mut available_gpus = state.get_available_gpu_slots();
+        // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
+        let mut state = shared_state.write().await;
 
+        let mut available_gpus = state.get_available_gpu_slots();
         let finished_jobs: std::collections::HashSet<u32> = state
             .jobs
             .values()
@@ -408,12 +438,7 @@ pub async fn run(shared_state: SharedState) {
             .map(|j| j.id)
             .collect();
 
-        // Sort all queued jobs by priority, time limit, and submission order
-        // Priority hierarchy:
-        // 1. User priority (highest priority wins)
-        // 2. Time limit bonus (time-limited jobs preferred, shorter jobs first)
-        // 3. Submission order (earlier submissions first, using job ID as proxy)
-        // Note: Held jobs are not eligible for scheduling
+        // Collect and sort runnable jobs
         let mut runnable_jobs: Vec<_> = state
             .jobs
             .values()
@@ -428,25 +453,20 @@ pub async fn run(shared_state: SharedState) {
             .collect();
 
         runnable_jobs.sort_by_key(|job_id| {
-            // Safe to use get() since job_id came from state.jobs.values()
             state
                 .jobs
                 .get(job_id)
                 .map(|job| {
                     let time_bonus = Scheduler::calculate_time_bonus(&job.time_limit);
-                    // Tuples compare lexicographically: priority first, then time_bonus, then job_id
-                    // Use Reverse for descending order on priority and time_bonus
-                    // Use double Reverse on job_id for ascending order (FIFO)
                     std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
                 })
                 .unwrap_or(std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id))))
         });
 
-        // Easy backfilling loop
+        // Execute runnable jobs
         for job_id in runnable_jobs {
             if let Some(job) = state.jobs.get_mut(&job_id) {
                 if job.gpus as usize <= available_gpus.len() {
-                    // This job can run
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
@@ -467,6 +487,7 @@ pub async fn run(shared_state: SharedState) {
                 }
             }
         }
+        // Write lock released here
     }
 }
 
