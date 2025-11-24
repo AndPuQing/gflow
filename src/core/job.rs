@@ -107,6 +107,7 @@ pub struct Job {
     pub task_id: Option<u32>,
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub submitted_by: String,
+    pub redone_from: Option<u32>, // The job ID this job was redone from
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -129,6 +130,7 @@ pub struct JobBuilder {
     time_limit: Option<Duration>,
     submitted_by: Option<String>,
     run_name: Option<String>,
+    redone_from: Option<u32>,
 }
 
 impl JobBuilder {
@@ -191,6 +193,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn redone_from(mut self, redone_from: impl Into<Option<u32>>) -> Self {
+        self.redone_from = redone_from.into();
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -204,6 +211,7 @@ impl JobBuilder {
             time_limit: self.time_limit,
             submitted_by: self.submitted_by.unwrap_or_else(|| "unknown".into()),
             run_name: self.run_name,
+            redone_from: self.redone_from,
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
@@ -287,6 +295,12 @@ impl Job {
     #[cfg(test)]
     pub fn with_id(mut self, id: u32) -> Self {
         self.id = id;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_redone_from(mut self, redone_from: Option<u32>) -> Self {
+        self.redone_from = redone_from;
         self
     }
 }

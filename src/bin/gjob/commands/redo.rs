@@ -95,6 +95,9 @@ pub async fn handle_redo(
     builder = builder.run_dir(original_job.run_dir.clone());
     builder = builder.task_id(original_job.task_id);
 
+    // Track that this job was redone from the original job
+    builder = builder.redone_from(Some(original_job.id));
+
     // Set the submitter to current user
     let username = gflow::core::get_current_username();
     builder = builder.submitted_by(username);

@@ -5,11 +5,15 @@ use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 use tabled::{builder::Builder, settings::style::Style};
 
-// Tree rendering constants
+// Tree rendering constants - solid lines for dependencies
 const TREE_BRANCH: &str = "├─";
-const TREE_EDGE: &str = "└─";
+const TREE_EDGE: &str = "╰─";
 const TREE_PIPE: &str = "│ ";
 const TREE_EMPTY: &str = "  ";
+
+// Tree rendering constants - dashed lines for redo relationships
+const TREE_BRANCH_DASHED: &str = "├┄";
+const TREE_EDGE_DASHED: &str = "╰┄";
 
 pub struct ListOptions {
     pub states: Option<String>,
@@ -307,7 +311,7 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
 /// Tree structure for dependency visualization
 struct JobNode {
     job: gflow::core::job::Job,
-    children: Vec<JobNode>,
+    children: Vec<(JobNode, bool)>, // (node, is_redo_relationship)
 }
 
 /// Builds a dependency tree from a list of jobs, with cycle detection
@@ -316,11 +320,18 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     let job_map: HashMap<u32, gflow::core::job::Job> =
         jobs.iter().map(|j| (j.id, j.clone())).collect();
 
-    // Create a map of parent_id -> child jobs
+    // Create a map of parent_id -> child jobs (for dependency relationships)
     let mut children_map: HashMap<Option<u32>, Vec<u32>> = HashMap::new();
+
+    // Create a map of original_job_id -> redo jobs (for redo relationships)
+    let mut redo_map: HashMap<u32, Vec<u32>> = HashMap::new();
 
     for job in &jobs {
         children_map.entry(job.depends_on).or_default().push(job.id);
+
+        if let Some(redone_from) = job.redone_from {
+            redo_map.entry(redone_from).or_default().push(job.id);
+        }
     }
 
     // Build tree nodes recursively with cycle detection
@@ -328,6 +339,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
         job_id: u32,
         job_map: &HashMap<u32, gflow::core::job::Job>,
         children_map: &HashMap<Option<u32>, Vec<u32>>,
+        redo_map: &HashMap<u32, Vec<u32>>,
         visited: &mut HashSet<u32>,
         recursion_stack: &mut HashSet<u32>,
     ) -> Option<JobNode> {
@@ -347,12 +359,30 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
         visited.insert(job_id);
         recursion_stack.insert(job_id);
 
-        let child_ids = children_map.get(&Some(job_id)).cloned().unwrap_or_default();
-
-        let children: Vec<JobNode> = child_ids
+        let dep_iter = children_map
+            .get(&Some(job_id))
             .into_iter()
-            .filter_map(|child_id| {
-                build_node(child_id, job_map, children_map, visited, recursion_stack)
+            .flatten()
+            .map(|&id| (id, false));
+
+        let redo_iter = redo_map
+            .get(&job_id)
+            .into_iter()
+            .flatten()
+            .map(|&id| (id, true));
+
+        let children: Vec<(JobNode, bool)> = dep_iter
+            .chain(redo_iter)
+            .filter_map(|(child_id, is_redo)| {
+                build_node(
+                    child_id,
+                    job_map,
+                    children_map,
+                    redo_map,
+                    visited,
+                    recursion_stack,
+                )
+                .map(|child_node| (child_node, is_redo))
             })
             .collect();
 
@@ -363,7 +393,18 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     }
 
     // Find root jobs (jobs with no dependencies or dependencies not in the list)
-    let root_ids = children_map.get(&None).cloned().unwrap_or_default();
+    let mut root_ids = children_map.get(&None).cloned().unwrap_or_default();
+
+    // Exclude jobs that have redone_from relationships where the original job exists in the list
+    // These jobs will be displayed as children of their original jobs with dashed lines
+    root_ids.retain(|job_id| {
+        let parent_exists = job_map
+            .get(job_id)
+            .and_then(|job| job.redone_from)
+            .is_some_and(|parent_id| job_map.contains_key(&parent_id));
+
+        !parent_exists
+    });
 
     let mut visited = HashSet::new();
     let mut recursion_stack = HashSet::new();
@@ -375,6 +416,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
                 job_id,
                 &job_map,
                 &children_map,
+                &redo_map,
                 &mut visited,
                 &mut recursion_stack,
             )
@@ -405,7 +447,7 @@ fn display_jobs_tree(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
 
     // Collect all tree rows
     for node in &tree {
-        collect_tree_rows(&mut builder, node, &headers, "", true, true);
+        collect_tree_rows(&mut builder, node, &headers, "", true, true, false);
     }
 
     let mut table = builder.build();
@@ -422,14 +464,25 @@ fn collect_tree_rows(
     prefix: &str,
     is_last: bool,
     is_root: bool,
+    is_redo: bool,
 ) {
     let job = &node.job;
     let tree_prefix = if is_root {
         String::new()
-    } else if is_last {
-        TREE_EDGE.to_string()
+    } else if is_redo {
+        // Use dashed lines for redo relationships
+        if is_last {
+            TREE_EDGE_DASHED.to_string()
+        } else {
+            TREE_BRANCH_DASHED.to_string()
+        }
     } else {
-        TREE_BRANCH.to_string()
+        // Use solid lines for dependency relationships
+        if is_last {
+            TREE_EDGE.to_string()
+        } else {
+            TREE_BRANCH.to_string()
+        }
     };
 
     // Build the row
@@ -450,19 +503,30 @@ fn collect_tree_rows(
 
     // Collect children with updated prefix
     let child_count = node.children.len();
-    for (idx, child) in node.children.iter().enumerate() {
+    for (idx, (child, child_is_redo)) in node.children.iter().enumerate() {
         let is_last_child = idx == child_count - 1;
         // Root nodes should not add any prefix to their children
         // Non-root nodes add TREE_PIPE if not last, TREE_EMPTY if last (to maintain tree structure)
         let child_prefix = if is_root {
             String::new()
-        } else if is_last {
-            format!("{}{}", prefix, TREE_EMPTY)
         } else {
-            format!("{}{}", prefix, TREE_PIPE)
+            // Use solid pipe for dependency relationships
+            if is_last {
+                format!("{}{}", prefix, TREE_EMPTY)
+            } else {
+                format!("{}{}", prefix, TREE_PIPE)
+            }
         };
 
-        collect_tree_rows(builder, child, headers, &child_prefix, is_last_child, false);
+        collect_tree_rows(
+            builder,
+            child,
+            headers,
+            &child_prefix,
+            is_last_child,
+            false,
+            *child_is_redo,
+        );
     }
 }
 
@@ -490,6 +554,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             submitted_by: "testuser".to_string(),
+            redone_from: None,
         }
     }
 
@@ -511,6 +576,29 @@ mod tests {
             finished_at: None,
             time_limit: None,
             submitted_by: "testuser".to_string(),
+            redone_from: None,
+        }
+    }
+
+    fn create_test_job_with_redo(id: u32, name: &str, redone_from: Option<u32>) -> Job {
+        Job {
+            id,
+            script: None,
+            command: Some(format!("test command {}", id)),
+            gpus: 1,
+            conda_env: None,
+            run_dir: PathBuf::from("/tmp"),
+            priority: 10,
+            depends_on: None,
+            task_id: None,
+            run_name: Some(name.to_string()),
+            state: JobState::Finished,
+            gpu_ids: Some(vec![0]),
+            started_at: None,
+            finished_at: None,
+            time_limit: None,
+            submitted_by: "testuser".to_string(),
+            redone_from,
         }
     }
 
@@ -621,6 +709,46 @@ mod tests {
             create_test_job(3, "short", Some(1)),
         ];
         println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_redo_relationship() {
+        // Test showing redo relationships with dashed lines
+        let jobs = vec![
+            create_test_job(1, "original-job", None),
+            create_test_job(2, "dependent-job", Some(1)),
+            create_test_job_with_redo(3, "redo-of-job-1", Some(1)),
+        ];
+        println!();
+        println!("Test: Redo relationship (job 3 is redone from job 1)");
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_mixed_dependencies_and_redo() {
+        // Test showing both dependency (solid) and redo (dashed) relationships
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job(2, "child-dep", Some(1)), // Depends on 1 (solid line)
+            create_test_job_with_redo(3, "redo-1", Some(1)), // Redone from 1 (dashed line)
+            create_test_job(4, "grandchild", Some(2)), // Depends on 2 (solid line)
+        ];
+        println!();
+        println!("Test: Mixed dependencies and redo relationships");
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_mixed_dependencies_and_redo_2() {
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job_with_redo(2, "redo-1", Some(1)), // Depends on 1 (solid line)
+            create_test_job_with_redo(3, "redo-1", Some(1)), // Redone from 1 (dashed line)
+            create_test_job(4, "grandchild", Some(2)),       // Depends on 2 (solid line)
+        ];
+        println!();
+        println!("Test: Mixed dependencies and redo relationships");
         display_jobs_tree(jobs, None);
     }
 }
