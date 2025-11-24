@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState};
+use gflow::{client::Client, core::job::JobState, tmux::is_session_exist};
 use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
@@ -279,7 +279,7 @@ fn get_pending_reason(job: &gflow::core::job::Job) -> String {
 fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
     match header {
         "JOBID" => job.id.to_string(),
-        "NAME" => job.run_name.as_deref().unwrap_or("-").to_string(),
+        "NAME" => format_job_name_with_session_status(job),
         "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
         "NODELIST(REASON)" => {
@@ -305,6 +305,19 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
             .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
         "USER" => job.submitted_by.clone(),
         _ => String::new(),
+    }
+}
+
+/// Formats the job name with a visual indicator for tmux session status
+fn format_job_name_with_session_status(job: &gflow::core::job::Job) -> String {
+    let Some(name) = &job.run_name else {
+        return "-".to_string();
+    };
+
+    if is_session_exist(name) {
+        format!("{} {}", name, "●".green())
+    } else {
+        name.to_string()
     }
 }
 
