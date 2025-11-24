@@ -1,4 +1,6 @@
 use crate::cli::Commands;
+use clap::CommandFactory;
+use clap_complete::generate;
 
 pub mod attach;
 pub mod hold;
@@ -47,6 +49,10 @@ pub async fn handle_commands(
                 clear_deps,
             )
             .await?;
+        }
+        Commands::Completion { shell } => {
+            let mut cmd = crate::cli::GJob::command();
+            generate(shell, &mut cmd, "gjob", &mut std::io::stdout());
         }
     }
 

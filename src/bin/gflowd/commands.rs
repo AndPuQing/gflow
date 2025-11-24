@@ -1,4 +1,6 @@
 use crate::cli::Commands;
+use clap::CommandFactory;
+use clap_complete::generate;
 
 pub mod down;
 pub mod status;
@@ -23,6 +25,10 @@ pub async fn handle_commands(
         }
         Commands::Status => {
             status::handle_status(config_path).await?;
+        }
+        Commands::Completion { shell } => {
+            let mut cmd = crate::cli::GFlowd::command();
+            generate(shell, &mut cmd, "gflowd", &mut std::io::stdout());
         }
     }
 

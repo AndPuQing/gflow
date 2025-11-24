@@ -1,4 +1,5 @@
 use clap::Parser;
+use clap_complete::Shell;
 use gflow::core::version;
 
 #[derive(Debug, Parser)]
@@ -18,6 +19,12 @@ pub struct GBatch {
 pub enum Commands {
     /// Create a new job script template
     New(NewArgs),
+    /// Generate shell completion scripts
+    Completion {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 #[derive(Debug, Parser)]

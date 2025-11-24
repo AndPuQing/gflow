@@ -4,7 +4,7 @@ use gflow::{client::Client, config::Config};
 pub mod list;
 use list::ListOptions;
 
-pub async fn handle_commands(config: &Config, args: &crate::cli::GQueue) -> Result<()> {
+pub async fn handle_commands(config: &Config, args: &crate::cli::ListArgs) -> Result<()> {
     let client = Client::build(config)?;
 
     let options = ListOptions {

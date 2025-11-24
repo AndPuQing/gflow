@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use clap_complete::Shell;
 
 #[derive(Debug, Parser)]
 #[command(name = "gflowd", author, version = gflow::core::version(), about = "GFlow Daemon")]
@@ -30,4 +31,10 @@ pub enum Commands {
     Restart,
     /// Show the daemon status
     Status,
+    /// Generate shell completion scripts
+    Completion {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }

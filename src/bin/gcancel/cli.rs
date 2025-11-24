@@ -1,5 +1,7 @@
 use clap::Parser;
+use clap_complete::Shell;
 use gflow::core::version;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "gcancel",
@@ -8,9 +10,28 @@ use gflow::core::version;
     about = "Controls job states in the gflow scheduler."
 )]
 pub struct GCancel {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    #[command(flatten)]
+    pub cancel_args: CancelArgs,
+
     #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
+}
 
+#[derive(Debug, Parser)]
+pub enum Commands {
+    /// Generate shell completion scripts
+    Completion {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+}
+
+#[derive(Debug, Parser)]
+pub struct CancelArgs {
     /// Mark job as finished (internal use)
     #[arg(long, hide = true)]
     pub finish: Option<u32>,
@@ -34,7 +55,7 @@ pub enum CancelCommand {
     Fail { id: u32 },
 }
 
-impl GCancel {
+impl CancelArgs {
     pub fn get_command(&self) -> anyhow::Result<CancelCommand> {
         if let Some(job_id) = self.finish {
             Ok(CancelCommand::Finish { id: job_id })

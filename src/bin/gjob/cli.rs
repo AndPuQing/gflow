@@ -1,4 +1,5 @@
 use clap::Parser;
+use clap_complete::Shell;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -89,5 +90,11 @@ pub enum Commands {
 
         #[arg(long, help = "Clear dependency from original job")]
         clear_deps: bool,
+    },
+    /// Generate shell completion scripts
+    Completion {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
