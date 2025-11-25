@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use commands::handle_commands;
 use gflow::config::load_config;
+use std::io::{self, IsTerminal};
 mod cli;
 mod commands;
 
@@ -13,10 +14,18 @@ async fn main() -> Result<()> {
     if let Some(commands) = args.commands {
         handle_commands(&config, commands).await
     } else {
-        // Validate that script_or_command is provided when not using a subcommand
-        if args.add_args.script_or_command.is_empty() {
-            anyhow::bail!("The following required arguments were not provided:\n  <SCRIPT_OR_COMMAND>...\n\nUsage: gbatch <SCRIPT_OR_COMMAND>...\n\nFor more information, try 'gbatch --help'");
+        // Check if stdin is available (not a terminal)
+        let stdin_available = !io::stdin().is_terminal();
+
+        // Check if user explicitly requested stdin with "-"
+        let explicit_stdin =
+            args.add_args.script_or_command.len() == 1 && args.add_args.script_or_command[0] == "-";
+
+        // Validate that either we have args, stdin is available, or "-" was specified
+        if args.add_args.script_or_command.is_empty() && !stdin_available {
+            anyhow::bail!("The following required arguments were not provided:\n  <SCRIPT_OR_COMMAND>...\n\nUsage: gbatch <SCRIPT_OR_COMMAND>...\n       gbatch < script.sh\n       gbatch -\n\nFor more information, try 'gbatch --help'");
         }
-        commands::add::handle_add(&config, args.add_args).await
+
+        commands::add::handle_add(&config, args.add_args, stdin_available || explicit_stdin).await
     }
 }

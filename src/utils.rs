@@ -141,7 +141,7 @@ pub fn parse_memory_limit(memory_str: &str) -> Result<u64> {
 /// use gflow::utils::format_memory;
 ///
 /// assert_eq!(format_memory(100), "100M");
-/// assert_eq!(format_memory(1024), "1.0G");
+/// assert_eq!(format_memory(1024), "1G");
 /// assert_eq!(format_memory(2560), "2.5G");
 /// ```
 pub fn format_memory(memory_mb: u64) -> String {
