@@ -318,7 +318,7 @@ fn format_job_name_with_session_status(job: &gflow::core::job::Job) -> String {
     };
 
     if is_session_exist(name) {
-        format!("{} {}", name, "●".green())
+        format!("{} {}", name, "○".green())
     } else {
         name.to_string()
     }
