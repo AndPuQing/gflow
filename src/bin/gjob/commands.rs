@@ -35,6 +35,7 @@ pub async fn handle_commands(
             priority,
             depends_on,
             time,
+            memory,
             conda_env,
             clear_deps,
         } => {
@@ -45,6 +46,7 @@ pub async fn handle_commands(
                 priority,
                 depends_on,
                 time,
+                memory,
                 conda_env,
                 clear_deps,
             )

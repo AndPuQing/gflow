@@ -55,6 +55,12 @@ fn print_job_details(job: &Job) {
     if let Some(ref gpu_ids) = job.gpu_ids {
         println!("  GPU IDs:       {}", format_gpu_ids(gpu_ids));
     }
+    if let Some(memory_mb) = job.memory_limit_mb {
+        println!(
+            "  Memory limit:  {}",
+            gflow::utils::format_memory(memory_mb)
+        );
+    }
     if let Some(ref conda_env) = job.conda_env {
         println!("  Conda env:     {}", conda_env);
     }

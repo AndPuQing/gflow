@@ -282,6 +282,9 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
         "NAME" => format_job_name_with_session_status(job),
         "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
+        "MEMORY" => job
+            .memory_limit_mb
+            .map_or_else(|| "-".to_string(), gflow::utils::format_memory),
         "NODELIST(REASON)" => {
             // For running jobs, show GPU IDs
             // For queued/held jobs, show pending reason
@@ -566,6 +569,7 @@ mod tests {
             started_at: None,
             finished_at: None,
             time_limit: None,
+            memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from: None,
         }
@@ -588,6 +592,7 @@ mod tests {
             started_at: None,
             finished_at: None,
             time_limit: None,
+            memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from: None,
         }
@@ -610,6 +615,7 @@ mod tests {
             started_at: None,
             finished_at: None,
             time_limit: None,
+            memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from,
         }
@@ -686,6 +692,17 @@ mod tests {
         let jobs = vec![
             create_test_job(1, "job-1", None),
             create_test_job(2, "job-2", Some(99)), // Parent 99 doesn't exist
+            create_test_job(3, "job-3", Some(1)),
+        ];
+        println!();
+        display_jobs_tree(jobs, None);
+    }
+
+    #[test]
+    fn test_gap_job() {
+        let jobs = vec![
+            create_test_job(1, "job-1", None),
+            create_test_job(2, "job-2", None), // Parent 99 doesn't exist
             create_test_job(3, "job-3", Some(1)),
         ];
         println!();

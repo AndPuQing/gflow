@@ -23,6 +23,7 @@
 # GFLOW --depends-on=123
 # GFLOW --array=1-10
 # GFLOW --time=1:30:00
+# GFLOW --memory=value
 # GFLOW --name=your-custom-job-name
 # --- Your script starts here ---
 echo "Starting gflow job..."

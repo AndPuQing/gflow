@@ -11,6 +11,7 @@ pub async fn handle_redo(
     priority_override: Option<u8>,
     depends_on_override: Option<String>,
     time_override: Option<String>,
+    memory_override: Option<String>,
     conda_env_override: Option<String>,
     clear_deps: bool,
 ) -> Result<()> {
@@ -73,6 +74,17 @@ pub async fn handle_redo(
     builder = builder.time_limit(time_limit);
     if let Some(limit) = time_limit {
         println!("  Time limit:   {}", gflow::utils::format_duration(limit));
+    }
+
+    // Apply memory limit (override or original)
+    let memory_limit_mb = if let Some(ref memory_str) = memory_override {
+        Some(gflow::utils::parse_memory_limit(memory_str)?)
+    } else {
+        original_job.memory_limit_mb
+    };
+    builder = builder.memory_limit_mb(memory_limit_mb);
+    if let Some(memory_mb) = memory_limit_mb {
+        println!("  Memory limit: {}", gflow::utils::format_memory(memory_mb));
     }
 
     // Handle dependency

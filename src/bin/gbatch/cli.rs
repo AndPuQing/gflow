@@ -65,6 +65,10 @@ pub struct AddArgs {
     #[arg(short = 't', long, value_hint = clap::ValueHint::Other)]
     pub time: Option<String>,
 
+    /// Memory limit for the job (formats: "100G", "1024M", or "512" for MB)
+    #[arg(short = 'm', long, value_hint = clap::ValueHint::Other)]
+    pub memory: Option<String>,
+
     /// Custom run name for the job (used as tmux session name)
     #[arg(short = 'n', long, value_hint = clap::ValueHint::Other)]
     pub name: Option<String>,

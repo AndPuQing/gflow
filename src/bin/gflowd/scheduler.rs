@@ -20,6 +20,10 @@ pub struct Scheduler {
     gpu_slots: HashMap<UUID, GPUSlot>,
     #[serde(skip)]
     nvml: Option<Nvml>,
+    #[serde(skip)]
+    total_memory_mb: u64,
+    #[serde(skip)]
+    available_memory_mb: u64,
     state_path: PathBuf,
     next_job_id: u32,
 }
@@ -31,11 +35,14 @@ impl Default for Scheduler {
                 "Failed to create scheduler: {}. Creating minimal scheduler.",
                 e
             );
+            let total_memory_mb = Self::get_total_system_memory_mb();
             // Fallback to a minimal scheduler without GPU support
             Self {
                 jobs: HashMap::new(),
                 gpu_slots: HashMap::new(),
                 nvml: None,
+                total_memory_mb,
+                available_memory_mb: total_memory_mb,
                 state_path: PathBuf::from("state.json"),
                 next_job_id: 1,
             }
@@ -65,10 +72,13 @@ impl Scheduler {
             }
         };
 
+        let total_memory_mb = Self::get_total_system_memory_mb();
         let mut scheduler = Self {
             jobs: HashMap::new(),
             gpu_slots,
             nvml,
+            total_memory_mb,
+            available_memory_mb: total_memory_mb,
             state_path,
             next_job_id: 1,
         };
@@ -82,10 +92,13 @@ impl Scheduler {
     pub fn new_without_nvml() -> Self {
         let state_path =
             std::env::temp_dir().join(format!("gflow_test_state_{}.json", std::process::id()));
+        let total_memory_mb = Self::get_total_system_memory_mb();
         Self {
             jobs: HashMap::new(),
             gpu_slots: HashMap::new(),
             nvml: None,
+            total_memory_mb,
+            available_memory_mb: total_memory_mb,
             state_path,
             next_job_id: 1,
         }
@@ -169,6 +182,10 @@ impl Scheduler {
                             scheduler.nvml = None;
                         }
                     }
+                    // Initialize memory tracking
+                    scheduler.total_memory_mb = Self::get_total_system_memory_mb();
+                    scheduler.available_memory_mb = scheduler.total_memory_mb;
+                    scheduler.refresh_available_memory();
                     *self = scheduler;
                 }
             }
@@ -177,6 +194,7 @@ impl Scheduler {
 
     pub fn refresh(&mut self) {
         self.refresh_gpu_slots();
+        self.refresh_available_memory();
     }
 
     fn refresh_gpu_slots(&mut self) {
@@ -329,6 +347,41 @@ impl Scheduler {
             }
         }
     }
+
+    /// Get total system memory in MB by reading /proc/meminfo (Linux)
+    /// Returns a default value if reading fails
+    fn get_total_system_memory_mb() -> u64 {
+        // Try to read /proc/meminfo on Linux
+        if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+            for line in content.lines() {
+                if line.starts_with("MemTotal:") {
+                    // MemTotal:       32864256 kB
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<u64>() {
+                            return kb / 1024; // Convert KB to MB
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: assume 16GB if we can't read system memory
+        log::warn!("Could not read system memory from /proc/meminfo, assuming 16GB");
+        16 * 1024
+    }
+
+    /// Refresh available memory by calculating memory used by running jobs
+    fn refresh_available_memory(&mut self) {
+        let memory_used: u64 = self
+            .jobs
+            .values()
+            .filter(|j| j.state == JobState::Running)
+            .filter_map(|j| j.memory_limit_mb)
+            .sum();
+
+        self.available_memory_mb = self.total_memory_mb.saturating_sub(memory_used);
+    }
 }
 
 impl GPU for Scheduler {
@@ -464,9 +517,19 @@ pub async fn run(shared_state: SharedState) {
         });
 
         // Execute runnable jobs
+        let available_memory = state.available_memory_mb;
         for job_id in runnable_jobs {
             if let Some(job) = state.jobs.get_mut(&job_id) {
-                if job.gpus as usize <= available_gpus.len() {
+                // Check if sufficient GPUs are available
+                let has_enough_gpus = job.gpus as usize <= available_gpus.len();
+
+                // Check if sufficient memory is available
+                // If job has no memory limit, treat it as requiring 0 MB
+                let required_memory = job.memory_limit_mb.unwrap_or(0);
+                let has_enough_memory = required_memory <= available_memory;
+
+                // Only execute if both GPU and memory requirements are met
+                if has_enough_gpus && has_enough_memory {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
@@ -478,12 +541,22 @@ pub async fn run(shared_state: SharedState) {
                             job.state = JobState::Running;
                             job.started_at = Some(std::time::SystemTime::now());
                             log::info!("Executing job: {job:?}");
+                            // Reserve memory for this job
+                            state.available_memory_mb =
+                                state.available_memory_mb.saturating_sub(required_memory);
                         }
                         Err(e) => {
                             log::error!("Failed to execute job: {e:?}");
                             job.state = JobState::Failed;
                         }
                     }
+                } else if !has_enough_memory {
+                    log::debug!(
+                        "Job {} waiting for memory: needs {}MB, available {}MB",
+                        job.id,
+                        required_memory,
+                        available_memory
+                    );
                 }
             }
         }

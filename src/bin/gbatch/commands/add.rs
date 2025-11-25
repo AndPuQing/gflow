@@ -62,6 +62,13 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
         None
     };
 
+    // Parse memory limit if provided
+    let memory_limit_mb = if let Some(memory_str) = &args.memory {
+        Some(gflow::utils::parse_memory_limit(memory_str)?)
+    } else {
+        None
+    };
+
     // Determine if it's a script or command
     let is_script =
         args.script_or_command.len() == 1 && PathBuf::from(&args.script_or_command[0]).exists();
@@ -89,6 +96,16 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
             None
         };
         builder = builder.time_limit(final_time_limit);
+
+        // CLI memory limit takes precedence over script memory limit
+        let final_memory_limit = if memory_limit_mb.is_some() {
+            memory_limit_mb
+        } else if let Some(script_memory_str) = &script_args.memory {
+            Some(gflow::utils::parse_memory_limit(script_memory_str)?)
+        } else {
+            None
+        };
+        builder = builder.memory_limit_mb(final_memory_limit);
     } else {
         // Command mode
         let command = args
@@ -108,6 +125,7 @@ async fn build_job(args: cli::AddArgs, task_id: Option<u32>, client: &Client) ->
         let depends_on = resolve_dependency(args.depends_on, client).await?;
         builder = builder.depends_on(depends_on);
         builder = builder.time_limit(time_limit);
+        builder = builder.memory_limit_mb(memory_limit_mb);
     }
 
     Ok(builder.build())
@@ -150,6 +168,7 @@ fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
             depends_on: None,
             array: None,
             time: None,
+            memory: None,
             name: None,
         });
     }

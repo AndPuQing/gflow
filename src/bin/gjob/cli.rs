@@ -89,6 +89,14 @@ pub enum Commands {
         )]
         time: Option<String>,
 
+        #[arg(
+            short = 'm',
+            long,
+            help = "Override memory limit (formats: 100G, 1024M, or 512 for MB)",
+            value_hint = clap::ValueHint::Other
+        )]
+        memory: Option<String>,
+
         #[arg(short = 'e', long, help = "Override conda environment", value_hint = clap::ValueHint::Other)]
         conda_env: Option<String>,
 

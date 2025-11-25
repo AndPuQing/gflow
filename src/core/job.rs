@@ -106,6 +106,7 @@ pub struct Job {
     pub depends_on: Option<u32>,
     pub task_id: Option<u32>,
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
+    pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: String,
     pub redone_from: Option<u32>, // The job ID this job was redone from
 
@@ -128,6 +129,7 @@ pub struct JobBuilder {
     depends_on: Option<u32>,
     task_id: Option<u32>,
     time_limit: Option<Duration>,
+    memory_limit_mb: Option<u64>,
     submitted_by: Option<String>,
     run_name: Option<String>,
     redone_from: Option<u32>,
@@ -183,6 +185,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn memory_limit_mb(mut self, memory_limit_mb: impl Into<Option<u64>>) -> Self {
+        self.memory_limit_mb = memory_limit_mb.into();
+        self
+    }
+
     pub fn submitted_by(mut self, submitted_by: impl Into<String>) -> Self {
         self.submitted_by = Some(submitted_by.into());
         self
@@ -209,6 +216,7 @@ impl JobBuilder {
             depends_on: self.depends_on,
             task_id: self.task_id,
             time_limit: self.time_limit,
+            memory_limit_mb: self.memory_limit_mb,
             submitted_by: self.submitted_by.unwrap_or_else(|| "unknown".into()),
             run_name: self.run_name,
             redone_from: self.redone_from,

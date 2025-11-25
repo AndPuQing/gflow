@@ -86,6 +86,77 @@ pub fn format_duration(duration: Duration) -> String {
     }
 }
 
+/// Parse memory limit string into megabytes.
+///
+/// Supported formats:
+/// - `"100G"` or `"100g"` — gigabytes (converted to MB)
+/// - `"1024M"` or `"1024m"` — megabytes
+/// - `"100"` — megabytes (default unit)
+///
+/// # Examples
+///
+/// ```
+/// use gflow::utils::parse_memory_limit;
+///
+/// assert_eq!(parse_memory_limit("100").unwrap(), 100);
+/// assert_eq!(parse_memory_limit("1024M").unwrap(), 1024);
+/// assert_eq!(parse_memory_limit("2G").unwrap(), 2048);
+/// ```
+pub fn parse_memory_limit(memory_str: &str) -> Result<u64> {
+    let memory_str = memory_str.trim();
+
+    if memory_str.is_empty() {
+        return Err(anyhow!("Memory limit cannot be empty"));
+    }
+
+    // Check if ends with 'G' or 'g' (gigabytes)
+    if memory_str.ends_with('G') || memory_str.ends_with('g') {
+        let value = memory_str[..memory_str.len() - 1]
+            .trim()
+            .parse::<u64>()
+            .context("Invalid memory value in GB format")?;
+        Ok(value * 1024) // Convert GB to MB
+    }
+    // Check if ends with 'M' or 'm' (megabytes)
+    else if memory_str.ends_with('M') || memory_str.ends_with('m') {
+        let value = memory_str[..memory_str.len() - 1]
+            .trim()
+            .parse::<u64>()
+            .context("Invalid memory value in MB format")?;
+        Ok(value)
+    }
+    // Otherwise, treat as megabytes
+    else {
+        memory_str
+            .parse::<u64>()
+            .context("Invalid memory format. Expected formats: 100G, 1024M, or 100 (MB)")
+    }
+}
+
+/// Format memory in MB for display (e.g., `"2.5G"`, `"1024M"`, `"512M"`).
+///
+/// # Examples
+///
+/// ```
+/// use gflow::utils::format_memory;
+///
+/// assert_eq!(format_memory(100), "100M");
+/// assert_eq!(format_memory(1024), "1.0G");
+/// assert_eq!(format_memory(2560), "2.5G");
+/// ```
+pub fn format_memory(memory_mb: u64) -> String {
+    if memory_mb >= 1024 {
+        let gb = memory_mb as f64 / 1024.0;
+        if gb.fract() < 0.01 {
+            format!("{:.0}G", gb)
+        } else {
+            format!("{:.1}G", gb)
+        }
+    } else {
+        format!("{}M", memory_mb)
+    }
+}
+
 /// Parse job IDs from string inputs, supporting ranges like "1-3" or comma-separated "1,2,3".
 ///
 /// # Examples
