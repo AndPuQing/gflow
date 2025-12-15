@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState, tmux::is_session_exist};
+use gflow::{client::Client, core::job::JobState, tmux::get_all_session_names};
 use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
@@ -118,13 +118,16 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
         }
     }
 
+    // Get all tmux sessions once upfront for efficiency
+    let tmux_sessions = get_all_session_names();
+
     // Group by state if requested
     if options.group {
-        display_grouped_jobs(jobs_vec, options.format.as_deref());
+        display_grouped_jobs(jobs_vec, options.format.as_deref(), &tmux_sessions);
     } else if options.tree {
-        display_jobs_tree(jobs_vec, options.format.as_deref());
+        display_jobs_tree(jobs_vec, options.format.as_deref(), &tmux_sessions);
     } else {
-        display_jobs_table(jobs_vec, options.format.as_deref());
+        display_jobs_table(jobs_vec, options.format.as_deref(), &tmux_sessions);
     }
 
     Ok(())
@@ -155,7 +158,11 @@ fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
 }
 
 /// Displays jobs in a standard table format
-fn display_jobs_table(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
+fn display_jobs_table(
+    jobs: Vec<gflow::core::job::Job>,
+    format: Option<&str>,
+    tmux_sessions: &HashSet<String>,
+) {
     if jobs.is_empty() {
         println!("No jobs to display.");
         return;
@@ -176,7 +183,7 @@ fn display_jobs_table(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
     for job in jobs {
         let row: Vec<String> = headers
             .iter()
-            .map(|header| format_job_cell(&job, header))
+            .map(|header| format_job_cell(&job, header, tmux_sessions))
             .collect();
         builder.push_record(row);
     }
@@ -187,7 +194,11 @@ fn display_jobs_table(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
     println!("{}", table);
 }
 
-fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
+fn display_grouped_jobs(
+    jobs: Vec<gflow::core::job::Job>,
+    format: Option<&str>,
+    tmux_sessions: &HashSet<String>,
+) {
     use gflow::core::job::JobState;
 
     let mut grouped = std::collections::HashMap::new();
@@ -214,7 +225,7 @@ fn display_grouped_jobs(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) 
 
             println!("{} ({})", state, state_jobs.len());
             println!("{}", "─".repeat(60));
-            display_jobs_table(state_jobs.clone(), format);
+            display_jobs_table(state_jobs.clone(), format, tmux_sessions);
         }
     }
 }
@@ -276,10 +287,14 @@ fn get_pending_reason(job: &gflow::core::job::Job) -> String {
 }
 
 /// Formats a job field value for display
-fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
+fn format_job_cell(
+    job: &gflow::core::job::Job,
+    header: &str,
+    tmux_sessions: &HashSet<String>,
+) -> String {
     match header {
         "JOBID" => job.id.to_string(),
-        "NAME" => format_job_name_with_session_status(job),
+        "NAME" => format_job_name_with_session_status(job, tmux_sessions),
         "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
         "MEMORY" => job
@@ -312,12 +327,15 @@ fn format_job_cell(job: &gflow::core::job::Job, header: &str) -> String {
 }
 
 /// Formats the job name with a visual indicator for tmux session status
-fn format_job_name_with_session_status(job: &gflow::core::job::Job) -> String {
+fn format_job_name_with_session_status(
+    job: &gflow::core::job::Job,
+    tmux_sessions: &HashSet<String>,
+) -> String {
     let Some(name) = &job.run_name else {
         return "-".to_string();
     };
 
-    if is_session_exist(name) {
+    if tmux_sessions.contains(name) {
         format!("{} {}", name, "○".green())
     } else {
         name.to_string()
@@ -328,6 +346,12 @@ fn format_job_name_with_session_status(job: &gflow::core::job::Job) -> String {
 struct JobNode {
     job: gflow::core::job::Job,
     children: Vec<(JobNode, bool)>, // (node, is_redo_relationship)
+}
+
+/// Context for rendering jobs with formatting and session information
+struct RenderContext<'a> {
+    headers: &'a [&'a str],
+    tmux_sessions: &'a HashSet<String>,
 }
 
 /// Builds a dependency tree from a list of jobs, with cycle detection
@@ -441,7 +465,11 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
 }
 
 /// Displays jobs in a tree format showing dependency relationships
-fn display_jobs_tree(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
+fn display_jobs_tree(
+    jobs: Vec<gflow::core::job::Job>,
+    format: Option<&str>,
+    tmux_sessions: &HashSet<String>,
+) {
     if jobs.is_empty() {
         println!("No jobs to display.");
         return;
@@ -461,9 +489,15 @@ fn display_jobs_tree(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
     // Add header row
     builder.push_record(headers.clone());
 
+    // Create render context
+    let ctx = RenderContext {
+        headers: &headers,
+        tmux_sessions,
+    };
+
     // Collect all tree rows
     for node in &tree {
-        collect_tree_rows(&mut builder, node, &headers, "", true, true, false);
+        collect_tree_rows(&mut builder, node, &ctx, "", true, true, false);
     }
 
     let mut table = builder.build();
@@ -476,7 +510,7 @@ fn display_jobs_tree(jobs: Vec<gflow::core::job::Job>, format: Option<&str>) {
 fn collect_tree_rows(
     builder: &mut Builder,
     node: &JobNode,
-    headers: &[&str],
+    ctx: &RenderContext,
     prefix: &str,
     is_last: bool,
     is_root: bool,
@@ -502,7 +536,8 @@ fn collect_tree_rows(
     };
 
     // Build the row
-    let row: Vec<String> = headers
+    let row: Vec<String> = ctx
+        .headers
         .iter()
         .enumerate()
         .map(|(idx, header)| {
@@ -510,7 +545,7 @@ fn collect_tree_rows(
                 // Add tree prefix to JOBID column
                 format!("{}{}{}", prefix, tree_prefix, job.id)
             } else {
-                format_job_cell(job, header)
+                format_job_cell(job, header, ctx.tmux_sessions)
             }
         })
         .collect();
@@ -537,7 +572,7 @@ fn collect_tree_rows(
         collect_tree_rows(
             builder,
             child,
-            headers,
+            ctx,
             &child_prefix,
             is_last_child,
             false,
@@ -633,7 +668,7 @@ mod tests {
             create_test_job_with_state(7, "job-7", JobState::Cancelled),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -644,7 +679,7 @@ mod tests {
             create_test_job(3, "child-job-2", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -656,7 +691,7 @@ mod tests {
             create_test_job(4, "level-3-job", Some(3)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -669,7 +704,7 @@ mod tests {
             create_test_job(5, "child-2-2", Some(3)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -684,7 +719,7 @@ mod tests {
             // this in our current structure without modifying the data after creation
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -695,7 +730,7 @@ mod tests {
             create_test_job(3, "job-3", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -706,7 +741,7 @@ mod tests {
             create_test_job(3, "job-3", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -721,14 +756,14 @@ mod tests {
             create_test_job(7, "deep-child", Some(4)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
     fn test_empty_job_list() {
         let jobs: Vec<Job> = vec![];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -739,7 +774,7 @@ mod tests {
             create_test_job(3, "short", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -752,7 +787,7 @@ mod tests {
         ];
         println!();
         println!("Test: Redo relationship (job 3 is redone from job 1)");
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -766,7 +801,7 @@ mod tests {
         ];
         println!();
         println!("Test: Mixed dependencies and redo relationships");
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -779,6 +814,6 @@ mod tests {
         ];
         println!();
         println!("Test: Mixed dependencies and redo relationships");
-        display_jobs_tree(jobs, None);
+        display_jobs_tree(jobs, None, &HashSet::new());
     }
 }

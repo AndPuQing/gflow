@@ -75,6 +75,23 @@ pub fn is_session_exist(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Get all existing tmux session names in a single call
+/// This is much more efficient than checking each session individually
+pub fn get_all_session_names() -> std::collections::HashSet<String> {
+    Tmux::with_command(tmux_interface::ListSessions::new().format("#{session_name}"))
+        .output()
+        .map(|output| {
+            if output.success() {
+                let stdout_bytes = output.stdout();
+                let stdout_str = String::from_utf8_lossy(&stdout_bytes);
+                stdout_str.lines().map(|line| line.to_string()).collect()
+            } else {
+                std::collections::HashSet::new()
+            }
+        })
+        .unwrap_or_else(|_| std::collections::HashSet::new())
+}
+
 pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
     Tmux::with_command(SendKeys::new().target_pane(name).key("C-c"))
         .output()
