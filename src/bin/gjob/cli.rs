@@ -27,21 +27,19 @@ pub enum Commands {
     /// Attach to a job's tmux session
     #[command(visible_alias = "a")]
     Attach {
-        #[arg(short, long, help = "Job ID to attach to")]
+        #[arg(help = "Job ID to attach to")]
         job: u32,
     },
     /// View a job's log output
     #[command(visible_alias = "l")]
     Log {
-        #[arg(short, long, help = "Job ID to view the log for")]
+        #[arg(help = "Job ID to view the log for")]
         job: u32,
     },
     /// Put a queued job on hold
     #[command(visible_alias = "h")]
     Hold {
         #[arg(
-            short,
-            long,
             help = "Job ID(s) to hold. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
             value_hint = clap::ValueHint::Other
         )]
@@ -51,8 +49,6 @@ pub enum Commands {
     #[command(visible_alias = "r")]
     Release {
         #[arg(
-            short,
-            long,
             help = "Job ID(s) to release. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
             value_hint = clap::ValueHint::Other
         )]
@@ -62,8 +58,6 @@ pub enum Commands {
     #[command(visible_alias = "s")]
     Show {
         #[arg(
-            short,
-            long,
             help = "Job ID(s) to show details for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
             value_hint = clap::ValueHint::Other
         )]
