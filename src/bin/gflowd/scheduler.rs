@@ -228,8 +228,22 @@ impl Scheduler {
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.jobs.get_mut(&job_id) {
+            let should_close_tmux = job.auto_close_tmux;
+            let run_name = job.run_name.clone();
+
             job.try_transition(job_id, JobState::Finished);
             self.save_state().await;
+
+            // Close tmux session if auto_close is enabled
+            if should_close_tmux {
+                if let Some(name) = run_name {
+                    log::info!("Auto-closing tmux session '{}' for job {}", name, job_id);
+                    if let Err(e) = gflow::tmux::kill_session(&name) {
+                        log::warn!("Failed to auto-close tmux session '{}': {}", name, e);
+                    }
+                }
+            }
+
             true
         } else {
             false

@@ -106,6 +106,7 @@ pub async fn handle_redo(
     // Preserve other parameters
     builder = builder.run_dir(original_job.run_dir.clone());
     builder = builder.task_id(original_job.task_id);
+    builder = builder.auto_close_tmux(original_job.auto_close_tmux);
 
     // Track that this job was redone from the original job
     builder = builder.redone_from(Some(original_job.id));

@@ -607,6 +607,7 @@ mod tests {
             memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from: None,
+            auto_close_tmux: false,
         }
     }
 
@@ -630,6 +631,7 @@ mod tests {
             memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from: None,
+            auto_close_tmux: false,
         }
     }
 
@@ -653,6 +655,7 @@ mod tests {
             memory_limit_mb: None,
             submitted_by: "testuser".to_string(),
             redone_from,
+            auto_close_tmux: false,
         }
     }
 

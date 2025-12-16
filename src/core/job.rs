@@ -109,6 +109,7 @@ pub struct Job {
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: String,
     pub redone_from: Option<u32>, // The job ID this job was redone from
+    pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -133,6 +134,7 @@ pub struct JobBuilder {
     submitted_by: Option<String>,
     run_name: Option<String>,
     redone_from: Option<u32>,
+    auto_close_tmux: Option<bool>,
 }
 
 impl JobBuilder {
@@ -205,6 +207,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn auto_close_tmux(mut self, auto_close_tmux: bool) -> Self {
+        self.auto_close_tmux = Some(auto_close_tmux);
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -220,6 +227,7 @@ impl JobBuilder {
             submitted_by: self.submitted_by.unwrap_or_else(|| "unknown".into()),
             run_name: self.run_name,
             redone_from: self.redone_from,
+            auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),

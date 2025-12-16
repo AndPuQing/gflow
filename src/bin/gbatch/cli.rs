@@ -73,4 +73,8 @@ pub struct AddArgs {
     /// Custom run name for the job (used as tmux session name)
     #[arg(short = 'n', long, value_hint = clap::ValueHint::Other)]
     pub name: Option<String>,
+
+    /// Automatically close tmux session on successful completion
+    #[arg(long)]
+    pub auto_close: bool,
 }

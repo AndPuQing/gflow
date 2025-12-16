@@ -189,6 +189,9 @@ async fn build_job(
         }
     }
 
+    // Set auto-close tmux flag
+    builder = builder.auto_close_tmux(args.auto_close);
+
     Ok(builder.build())
 }
 
@@ -235,6 +238,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             time: None,
             memory: None,
             name: None,
+            auto_close: false,
         });
     }
 

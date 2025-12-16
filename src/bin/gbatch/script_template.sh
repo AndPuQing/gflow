@@ -25,6 +25,7 @@
 # GFLOW --time=1:30:00
 # GFLOW --memory=value
 # GFLOW --name=your-custom-job-name
+# GFLOW --auto-close=value
 # --- Your script starts here ---
 echo "Starting gflow job..."
 echo "Running on node: $HOSTNAME"
