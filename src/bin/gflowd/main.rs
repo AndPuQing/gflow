@@ -16,6 +16,13 @@ async fn main() -> anyhow::Result<()> {
         return commands::handle_commands(&gflowd.config, command).await;
     }
 
-    let config = gflow::config::load_config(gflowd.config.as_ref())?;
+    let mut config = gflow::config::load_config(gflowd.config.as_ref())?;
+
+    // CLI flag overrides config file
+    if let Some(ref gpu_spec) = gflowd.gpus_internal {
+        let indices = gflow::utils::parse_gpu_indices(gpu_spec)?;
+        config.daemon.gpus = Some(indices);
+    }
+
     server::run(config).await
 }

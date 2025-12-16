@@ -10,4 +10,6 @@ pub struct GpuInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerInfo {
     pub gpus: Vec<GpuInfo>,
+    /// GPU indices that scheduler is configured to use (None = all GPUs)
+    pub allowed_gpu_indices: Option<Vec<u32>>,
 }

@@ -38,6 +38,10 @@ path = "src/bin/gcancel/main.rs"
 name = "gjob"
 path = "src/bin/gjob/main.rs"
 
+[[bin]]
+name = "gctl"
+path = "src/bin/gctl/main.rs"
+
 
 [dependencies]
 tmux_interface = { version = "0.3.2" }

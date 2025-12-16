@@ -174,13 +174,35 @@ pub fn format_memory(memory_mb: u64) -> String {
 /// assert_eq!(parse_job_ids("1-3,5").unwrap(), vec![1, 2, 3, 5]);
 /// ```
 pub fn parse_job_ids(id_strings: &str) -> Result<Vec<u32>> {
-    let mut parsed_ids: Vec<u32> =
-        parse::<u32>(id_strings.trim()).context(format!("Invalid ID or range: {}", id_strings))?;
+    parse_indices(id_strings, "job ID")
+}
 
-    parsed_ids.sort_unstable();
-    parsed_ids.dedup();
+/// Parse GPU indices from string inputs, supporting ranges like "0-2" or comma-separated "0,1,2".
+///
+/// # Examples
+///
+/// ```
+/// use gflow::utils::parse_gpu_indices;
+///
+/// assert_eq!(parse_gpu_indices("0").unwrap(), vec![0]);
+/// assert_eq!(parse_gpu_indices("0,2,4").unwrap(), vec![0, 2, 4]);
+/// assert_eq!(parse_gpu_indices("0-2").unwrap(), vec![0, 1, 2]);
+/// assert_eq!(parse_gpu_indices("0-1,3").unwrap(), vec![0, 1, 3]);
+/// ```
+pub fn parse_gpu_indices(gpu_string: &str) -> Result<Vec<u32>> {
+    parse_indices(gpu_string, "GPU index")
+}
 
-    Ok(parsed_ids)
+/// Helper function to parse indices from string inputs.
+/// Supports ranges like "1-3" or comma-separated "1,2,3".
+fn parse_indices(input: &str, item_type: &str) -> Result<Vec<u32>> {
+    let mut parsed: Vec<u32> =
+        parse::<u32>(input.trim()).context(format!("Invalid {} or range: {}", item_type, input))?;
+
+    parsed.sort_unstable();
+    parsed.dedup();
+
+    Ok(parsed)
 }
 
 pub const STYLES: Styles = Styles::styled()
@@ -188,3 +210,67 @@ pub const STYLES: Styles = Styles::styled()
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
     .placeholder(AnsiColor::Cyan.on_default());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_gpu_indices_single() {
+        assert_eq!(parse_gpu_indices("0").unwrap(), vec![0]);
+        assert_eq!(parse_gpu_indices("5").unwrap(), vec![5]);
+        assert_eq!(parse_gpu_indices("10").unwrap(), vec![10]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_comma_separated() {
+        assert_eq!(parse_gpu_indices("0,2,4").unwrap(), vec![0, 2, 4]);
+        assert_eq!(parse_gpu_indices("1,3,5,7").unwrap(), vec![1, 3, 5, 7]);
+        // Test unsorted input gets sorted
+        assert_eq!(parse_gpu_indices("3,1,2").unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_range() {
+        assert_eq!(parse_gpu_indices("0-2").unwrap(), vec![0, 1, 2]);
+        assert_eq!(parse_gpu_indices("5-7").unwrap(), vec![5, 6, 7]);
+        assert_eq!(parse_gpu_indices("0-0").unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_mixed() {
+        assert_eq!(parse_gpu_indices("0-1,3").unwrap(), vec![0, 1, 3]);
+        assert_eq!(parse_gpu_indices("0-1,3,5-6").unwrap(), vec![0, 1, 3, 5, 6]);
+        assert_eq!(parse_gpu_indices("0,2-4,7").unwrap(), vec![0, 2, 3, 4, 7]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_duplicates() {
+        // Duplicates should be removed
+        assert_eq!(parse_gpu_indices("0,0,1,1").unwrap(), vec![0, 1]);
+        assert_eq!(parse_gpu_indices("0-2,1-3").unwrap(), vec![0, 1, 2, 3]);
+        assert_eq!(parse_gpu_indices("5,5,5").unwrap(), vec![5]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_whitespace() {
+        assert_eq!(parse_gpu_indices("  0  ").unwrap(), vec![0]);
+        assert_eq!(parse_gpu_indices(" 0,2,4 ").unwrap(), vec![0, 2, 4]);
+        assert_eq!(parse_gpu_indices("  0-2  ").unwrap(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_empty() {
+        assert!(parse_gpu_indices("").is_err());
+        assert!(parse_gpu_indices("  ").is_err());
+        assert!(parse_gpu_indices("\t").is_err());
+    }
+
+    #[test]
+    fn test_parse_gpu_indices_invalid() {
+        assert!(parse_gpu_indices("abc").is_err());
+        assert!(parse_gpu_indices("gpu0").is_err());
+        assert!(parse_gpu_indices("0..2").is_err());
+        assert!(parse_gpu_indices("-1").is_err());
+    }
+}

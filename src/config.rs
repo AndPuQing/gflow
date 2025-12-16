@@ -14,6 +14,9 @@ pub struct DaemonConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Limit which GPUs the scheduler can use (None = all GPUs)
+    #[serde(default)]
+    pub gpus: Option<Vec<u32>>,
 }
 
 fn default_host() -> String {
@@ -29,6 +32,7 @@ impl Default for DaemonConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            gpus: None,
         }
     }
 }

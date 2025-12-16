@@ -18,6 +18,10 @@ pub struct GFlowd {
     #[arg(long, global = true)]
     pub cleanup: bool,
 
+    /// GPU indices restriction (internal use, set by 'gflowd up --gpus')
+    #[arg(long, hide = true)]
+    pub gpus_internal: Option<String>,
+
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,
 }
@@ -25,11 +29,19 @@ pub struct GFlowd {
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Start the daemon in a tmux session
-    Up,
+    Up {
+        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
+        #[arg(long, value_name = "INDICES")]
+        gpus: Option<String>,
+    },
     /// Stop the daemon
     Down,
     /// Restart the daemon
-    Restart,
+    Restart {
+        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
+        #[arg(long, value_name = "INDICES")]
+        gpus: Option<String>,
+    },
     /// Show the daemon status
     Status,
     /// Generate shell completion scripts

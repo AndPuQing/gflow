@@ -70,18 +70,94 @@ port = 59000        # Listen port
 
 #### GPU Selection
 
-Limit which GPUs gflow can use:
+Limit which GPUs gflow can use through config files, CLI flags, or runtime commands.
 
+**Config file** (`~/.config/gflow/gflow.toml`):
 ```toml
 [daemon]
 # Use only GPUs 0 and 2
 gpus = [0, 2]
 ```
 
+**CLI flag** (overrides config file):
+```bash
+# Start daemon with GPU restriction
+gflowd up --gpus 0,2
+
+# Restart with different GPUs
+gflowd restart --gpus 0-3
+```
+
+**Runtime control** (change GPUs while daemon is running):
+```bash
+# Restrict to specific GPUs
+gctl set-gpus 0,2
+
+# Use GPU range
+gctl set-gpus 0-3
+
+# Allow all GPUs
+gctl set-gpus all
+
+# Check current configuration
+gctl show-gpus
+```
+
+**Supported syntax**:
+- Single GPU: `0`
+- Comma-separated: `0,2,4`
+- Range: `0-3` (expands to 0,1,2,3)
+- Mixed: `0-1,3,5-6`
+
+**How it works**:
+- Scheduler only allocates jobs to allowed GPUs
+- Invalid GPU indices are logged as warnings and ignored
+- Running jobs continue unchanged when restrictions change
+- Restrictions persist across daemon restarts
+- CLI flags override config file settings
+
 **Use cases**:
 - Reserve specific GPUs for other applications
 - Test with subset of GPUs
 - Isolate gflow from other workloads
+- Dynamically adjust GPU availability without restarting
+
+**Examples**:
+
+View current GPU configuration:
+```bash
+$ gctl show-gpus
+=== GPU Configuration ===
+
+GPU Restriction: Only GPUs [0, 2] are allowed
+
+=== Detected GPUs ===
+
+GPU 0: Available
+GPU 1: In Use (RESTRICTED)
+GPU 2: Available
+GPU 3: Available (RESTRICTED)
+```
+
+Change restriction at runtime:
+```bash
+# Currently using GPUs 0,2
+$ gctl show-gpus
+GPU Restriction: Only GPUs [0, 2] are allowed
+
+# Change to use only GPU 0
+$ gctl set-gpus 0
+GPU restriction updated: only GPUs [0] will be used
+
+# Jobs now can only use GPU 0
+# Running jobs on GPU 2 continue, but new jobs won't use it
+```
+
+Priority order (highest to lowest):
+1. CLI flag: `gflowd up --gpus 0,2`
+2. Environment variable: `GFLOW_DAEMON__GPUS='[0,2]'`
+3. Config file: `gpus = [0, 2]`
+4. Default: All detected GPUs
 
 **Default**: All detected GPUs are available
 
@@ -307,6 +383,9 @@ Each user runs their own daemon instance.
 # Default config (creates/uses tmux session)
 gflowd up
 
+# With GPU restriction
+gflowd up --gpus 0,2
+
 # Custom config
 gflowd --config /path/to/config.toml up
 
@@ -338,6 +417,46 @@ $ ginfo
 ```
 
 `ginfo` prints scheduler metadata, GPU availability, and which jobs currently occupy each device.
+
+### Runtime GPU Control
+
+Control GPU allocation while the daemon is running using `gctl`:
+
+```bash
+# Set GPU restriction
+gctl set-gpus 0,2
+
+# Remove restriction (use all GPUs)
+gctl set-gpus all
+
+# View current GPU configuration
+gctl show-gpus
+```
+
+The `gctl` tool communicates with the running daemon via HTTP API, allowing you to:
+- Change which GPUs are available without restarting
+- Check current GPU configuration and status
+- Temporarily reserve GPUs for other applications
+
+**Example workflow**:
+```bash
+# Start daemon with all GPUs
+gflowd up
+
+# Submit some jobs
+gbatch --gpus 1 train.py
+
+# Need to reserve GPU 2 for testing
+gctl set-gpus 0,1,3
+# Scheduler now only uses GPUs 0, 1, and 3
+
+# Check what happened
+gctl show-gpus
+# Shows GPU 2 is restricted
+
+# When done testing, restore GPU 2
+gctl set-gpus all
+```
 
 ### Daemon Persistence
 

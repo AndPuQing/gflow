@@ -10,7 +10,12 @@ use gflow::core::job::Job;
 use std::sync::Arc;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
-    let scheduler = SharedState::default();
+    let state_path = gflow::core::get_data_dir()?.join("state.json");
+    let allowed_gpus = config.daemon.gpus.clone();
+
+    let scheduler = Arc::new(tokio::sync::RwLock::new(
+        scheduler::Scheduler::with_state_path(state_path, allowed_gpus)?,
+    ));
     let scheduler_clone = Arc::clone(&scheduler);
 
     tokio::spawn(async move {
@@ -31,6 +36,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/{id}/log", get(get_job_log))
         .route("/info", get(info))
         .route("/health", get(get_health))
+        .route("/gpus", post(set_allowed_gpus))
         .with_state(scheduler);
     let host = &config.daemon.host;
     let port = config.daemon.port;
@@ -203,4 +209,51 @@ struct ResolveDependencyQuery {
 #[axum::debug_handler]
 async fn get_health() -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+}
+
+#[derive(serde::Deserialize)]
+struct SetGpusRequest {
+    allowed_indices: Option<Vec<u32>>,
+}
+
+#[axum::debug_handler]
+async fn set_allowed_gpus(
+    State(state): State<SharedState>,
+    Json(request): Json<SetGpusRequest>,
+) -> impl IntoResponse {
+    let mut state = state.write().await;
+
+    // Validate GPU indices
+    let detected_count = state.gpu_slots_count();
+    if let Some(ref allowed) = request.allowed_indices {
+        let invalid: Vec<_> = allowed
+            .iter()
+            .filter(|&&idx| idx >= detected_count as u32)
+            .copied()
+            .collect();
+
+        if !invalid.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Invalid GPU indices {:?} (only {} GPUs detected)",
+                        invalid, detected_count
+                    )
+                })),
+            );
+        }
+    }
+
+    state.set_allowed_gpu_indices(request.allowed_indices.clone());
+    state.save_state().await;
+
+    log::info!("GPU configuration updated: {:?}", request.allowed_indices);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "allowed_gpu_indices": request.allowed_indices
+        })),
+    )
 }

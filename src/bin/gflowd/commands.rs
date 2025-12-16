@@ -13,15 +13,15 @@ pub async fn handle_commands(
     command: Commands,
 ) -> anyhow::Result<()> {
     match command {
-        Commands::Up => {
-            up::handle_up().await?;
+        Commands::Up { gpus } => {
+            up::handle_up(gpus).await?;
         }
         Commands::Down => {
             down::handle_down().await?;
         }
-        Commands::Restart => {
+        Commands::Restart { gpus } => {
             down::handle_down().await?;
-            up::handle_up().await?;
+            up::handle_up(gpus).await?;
         }
         Commands::Status => {
             status::handle_status(config_path).await?;

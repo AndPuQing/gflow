@@ -139,6 +139,7 @@ mod tests {
                     uuid: "GPU-0002".to_string(),
                 },
             ],
+            allowed_gpu_indices: None,
         };
         let jobs = vec![JobBuilder::new().build(), JobBuilder::new().build()];
 

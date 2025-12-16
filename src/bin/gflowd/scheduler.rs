@@ -26,6 +26,8 @@ pub struct Scheduler {
     available_memory_mb: u64,
     state_path: PathBuf,
     next_job_id: u32,
+    /// GPU indices that scheduler is allowed to use (None = all GPUs)
+    allowed_gpu_indices: Option<Vec<u32>>,
 }
 
 impl Default for Scheduler {
@@ -45,6 +47,7 @@ impl Default for Scheduler {
                 available_memory_mb: total_memory_mb,
                 state_path: PathBuf::from("state.json"),
                 next_job_id: 1,
+                allowed_gpu_indices: None,
             }
         })
     }
@@ -53,10 +56,13 @@ impl Default for Scheduler {
 impl Scheduler {
     pub fn new() -> anyhow::Result<Self> {
         let state_path = get_data_dir()?.join("state.json");
-        Self::with_state_path(state_path)
+        Self::with_state_path(state_path, None)
     }
 
-    pub fn with_state_path(state_path: PathBuf) -> anyhow::Result<Self> {
+    pub fn with_state_path(
+        state_path: PathBuf,
+        allowed_gpu_indices: Option<Vec<u32>>,
+    ) -> anyhow::Result<Self> {
         // Try to initialize NVML, but continue without it if it fails
         let (nvml, gpu_slots) = match Nvml::init() {
             Ok(nvml) => {
@@ -72,6 +78,26 @@ impl Scheduler {
             }
         };
 
+        // Validate allowed GPU indices
+        if let Some(ref allowed) = allowed_gpu_indices {
+            let detected_count = gpu_slots.len();
+            let invalid: Vec<_> = allowed
+                .iter()
+                .filter(|&&idx| idx >= detected_count as u32)
+                .copied()
+                .collect();
+
+            if !invalid.is_empty() {
+                log::warn!(
+                    "Invalid GPU indices {:?} specified (only {} GPUs detected). These will be ignored.",
+                    invalid,
+                    detected_count
+                );
+            }
+
+            log::info!("GPU restriction enabled: allowing only GPUs {:?}", allowed);
+        }
+
         let total_memory_mb = Self::get_total_system_memory_mb();
         let mut scheduler = Self {
             jobs: HashMap::new(),
@@ -81,6 +107,7 @@ impl Scheduler {
             available_memory_mb: total_memory_mb,
             state_path,
             next_job_id: 1,
+            allowed_gpu_indices,
         };
         scheduler.load_state();
         Ok(scheduler)
@@ -101,6 +128,7 @@ impl Scheduler {
             available_memory_mb: total_memory_mb,
             state_path,
             next_job_id: 1,
+            allowed_gpu_indices: None,
         }
     }
 
@@ -110,6 +138,13 @@ impl Scheduler {
             .values()
             .filter(|slot| slot.available)
             .map(|slot| slot.index)
+            .filter(|&index| {
+                // Apply GPU restriction filter
+                match &self.allowed_gpu_indices {
+                    None => true, // No restriction, all GPUs allowed
+                    Some(allowed) => allowed.contains(&index),
+                }
+            })
             .collect();
         slots.sort_unstable();
         slots
@@ -127,7 +162,18 @@ impl Scheduler {
             .collect();
         // Sort by index for stable output
         gpus.sort_by_key(|g| g.index);
-        SchedulerInfo { gpus }
+        SchedulerInfo {
+            gpus,
+            allowed_gpu_indices: self.allowed_gpu_indices.clone(),
+        }
+    }
+
+    pub fn gpu_slots_count(&self) -> usize {
+        self.gpu_slots.len()
+    }
+
+    pub fn set_allowed_gpu_indices(&mut self, indices: Option<Vec<u32>>) {
+        self.allowed_gpu_indices = indices;
     }
 
     pub async fn submit_job(&mut self, mut job: Job) -> (u32, String) {
@@ -170,6 +216,10 @@ impl Scheduler {
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(path) {
                 if let Ok(mut scheduler) = serde_json::from_str::<Scheduler>(&json) {
+                    // Preserve GPU restriction from current instance
+                    // (CLI/config takes precedence over saved state)
+                    scheduler.allowed_gpu_indices = self.allowed_gpu_indices.clone();
+
                     // Try to initialize NVML, but continue without it if it fails
                     match Nvml::init() {
                         Ok(nvml) => {

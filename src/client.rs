@@ -239,4 +239,27 @@ impl Client {
 
         Ok(job_id)
     }
+
+    pub async fn set_allowed_gpus(&self, allowed_indices: Option<Vec<u32>>) -> anyhow::Result<()> {
+        log::debug!("Setting allowed GPU indices: {:?}", allowed_indices);
+
+        let request_body = serde_json::json!({
+            "allowed_indices": allowed_indices
+        });
+
+        let response = self
+            .client
+            .post(format!("{}/gpus", self.base_url))
+            .json(&request_body)
+            .send()
+            .await
+            .context("Failed to send set GPUs request")?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to set GPU configuration: {}", error_msg));
+        }
+
+        Ok(())
+    }
 }
