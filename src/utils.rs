@@ -1,4 +1,8 @@
 use anyhow::{anyhow, Context, Result};
+use clap::builder::{
+    styling::{AnsiColor, Effects},
+    Styles,
+};
 use range_parser::parse;
 use std::time::Duration;
 
@@ -178,3 +182,9 @@ pub fn parse_job_ids(id_strings: &str) -> Result<Vec<u32>> {
 
     Ok(parsed_ids)
 }
+
+pub const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default());

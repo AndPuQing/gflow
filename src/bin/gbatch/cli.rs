@@ -4,6 +4,7 @@ use gflow::core::version;
 
 #[derive(Debug, Parser)]
 #[command(name = "gbatch", author, version = version(), about = "Submits jobs to the gflow scheduler. Inspired by sbatch.")]
+#[command(styles=gflow::utils::STYLES)]
 pub struct GBatch {
     #[command(subcommand)]
     pub commands: Option<Commands>,

@@ -5,6 +5,7 @@ use clap_complete::Shell;
 
 #[derive(Debug, Parser)]
 #[command(name = "gflowd", author, version = gflow::core::version(), about = "GFlow Daemon")]
+#[command(styles=gflow::utils::STYLES)]
 pub struct GFlowd {
     #[command(subcommand)]
     pub command: Option<Commands>,

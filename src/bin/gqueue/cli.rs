@@ -8,6 +8,7 @@ use clap_complete::Shell;
     version=gflow::core::version(),
     about = "Lists jobs in the gflow scheduler."
 )]
+#[command(styles=gflow::utils::STYLES)]
 pub struct GQueue {
     #[command(subcommand)]
     pub command: Option<Commands>,

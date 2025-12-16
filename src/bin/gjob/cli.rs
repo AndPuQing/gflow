@@ -1,13 +1,15 @@
 use clap::Parser;
 use clap_complete::Shell;
+use gflow::utils::STYLES;
 
 #[derive(Debug, Parser)]
 #[command(
     name = "gjob",
     author,
     version=gflow::core::version(),
-    about = "Controls and manages jobs in the gflow scheduler."
+    about = "Controls and manages jobs in the gflow scheduler.",
 )]
+#[command(styles=STYLES)]
 pub struct GJob {
     #[command(flatten)]
     pub verbose: clap_verbosity_flag::Verbosity,

@@ -8,6 +8,7 @@ use clap_complete::Shell;
     version=gflow::core::version(),
     about = "Displays gflow scheduler and GPU information."
 )]
+#[command(styles=gflow::utils::STYLES)]
 pub struct GInfoCli {
     #[command(subcommand)]
     pub command: Option<Commands>,

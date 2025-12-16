@@ -9,6 +9,7 @@ use gflow::core::version;
     version=version(),
     about = "Controls job states in the gflow scheduler."
 )]
+#[command(styles=gflow::utils::STYLES)]
 pub struct GCancel {
     #[command(subcommand)]
     pub command: Option<Commands>,
