@@ -38,7 +38,7 @@ View the job queue:
 
 ```shell
 $ gqueue
-<!-- cmdrun gqueue -->
+<!-- cmdrun gqueue -a -->
 ```
 
 Job states:
@@ -55,7 +55,7 @@ Job output is automatically logged:
 
 ```shell
 $ sleep 6
-$ gjob log -j 1
+$ gjob log 1
 ```
 
 ## Submitting Jobs with Options

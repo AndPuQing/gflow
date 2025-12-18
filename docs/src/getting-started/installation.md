@@ -188,16 +188,6 @@ If you get "command not found" after installation:
    source ~/.bashrc  # or ~/.zshrc
    ```
 
-### Issue: Permission denied
-
-If you get permission errors:
-
-```bash
-# Make binaries executable
-chmod +x ~/.cargo/bin/gflow*
-```
-
-
 ### Issue: GPU not detected
 
 1. **Check NVIDIA drivers**:
