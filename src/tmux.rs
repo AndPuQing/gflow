@@ -113,6 +113,18 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to kill tmux session: {}", e))
 }
 
+/// Kill multiple tmux sessions in batch
+/// Returns a vector of tuples: (session_name, result)
+pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)> {
+    names
+        .iter()
+        .map(|name| {
+            let result = kill_session(name);
+            (name.clone(), result)
+        })
+        .collect()
+}
+
 pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
     // Check if session exists before attaching
     if !is_session_exist(name) {

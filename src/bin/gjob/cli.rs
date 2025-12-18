@@ -99,6 +99,38 @@ pub enum Commands {
         #[arg(long, help = "Clear dependency from original job")]
         clear_deps: bool,
     },
+    /// Close tmux sessions for jobs in batch
+    #[command(visible_alias = "close")]
+    CloseSessions {
+        #[arg(
+            short = 'j',
+            long,
+            help = "Job ID(s) to close sessions for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
+            value_delimiter = ',',
+            value_hint = clap::ValueHint::Other
+        )]
+        jobs: Option<Vec<u32>>,
+
+        #[arg(
+            short = 's',
+            long,
+            help = "Close sessions for jobs in specific state(s). Accepts: queued, hold, running, finished, failed, cancelled, timeout",
+            value_delimiter = ',',
+            value_hint = clap::ValueHint::Other
+        )]
+        state: Option<Vec<gflow::core::job::JobState>>,
+
+        #[arg(
+            short = 'p',
+            long,
+            help = "Close sessions matching this pattern (substring match on session name)",
+            value_hint = clap::ValueHint::Other
+        )]
+        pattern: Option<String>,
+
+        #[arg(short = 'a', long, help = "Close all gflow-managed sessions")]
+        all: bool,
+    },
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for

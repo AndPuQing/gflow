@@ -3,6 +3,7 @@ use clap::CommandFactory;
 use clap_complete::generate;
 
 pub mod attach;
+pub mod close_sessions;
 pub mod hold;
 pub mod log;
 pub mod redo;
@@ -51,6 +52,15 @@ pub async fn handle_commands(
                 clear_deps,
             )
             .await?;
+        }
+        Commands::CloseSessions {
+            jobs,
+            state,
+            pattern,
+            all,
+        } => {
+            close_sessions::handle_close_sessions(config_path, &jobs, &state, &pattern, all)
+                .await?;
         }
         Commands::Completion { shell } => {
             let mut cmd = crate::cli::GJob::command();
