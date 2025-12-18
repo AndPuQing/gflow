@@ -2,7 +2,6 @@ pub mod executor;
 pub mod info;
 pub mod job;
 
-use names::{Generator, Name};
 use std::{collections::HashMap, env, path::PathBuf};
 pub type UUID = String;
 
@@ -68,11 +67,6 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&log_dir)?;
     }
     Ok(log_dir.join(format!("{job_id}.log")))
-}
-
-pub fn random_run_name() -> String {
-    let mut generator = Generator::with_naming(Name::Numbered);
-    generator.next().unwrap()
 }
 
 pub fn get_current_username() -> String {

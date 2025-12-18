@@ -184,7 +184,7 @@ impl Scheduler {
             gpu_ids: None,
             run_name: job
                 .run_name
-                .or_else(|| Some(gflow::core::random_run_name())),
+                .or_else(|| Some(format!("gflow-job-{}", job.id))),
             ..job
         };
         let job_id = job_.id;
