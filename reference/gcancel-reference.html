@@ -1,0 +1,699 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>gcancel Reference - gflow Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A lightweight, single-node job scheduler inspired by Slurm">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">gflow Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="gcancel-command-reference"><a class="header" href="#gcancel-command-reference">gcancel Command Reference</a></h1>
+<p>Complete reference for the <code>gcancel</code> command - gflow's job cancellation tool.</p>
+<h2 id="synopsis"><a class="header" href="#synopsis">Synopsis</a></h2>
+<pre><code class="language-bash">gcancel [OPTIONS] [IDS...]
+gcancel --dry-run [IDS...]
+gcancel --finish &lt;ID&gt;
+gcancel --fail &lt;ID&gt;
+</code></pre>
+<h2 id="description"><a class="header" href="#description">Description</a></h2>
+<p><code>gcancel</code> cancels one or more jobs in the gflow queue. It supports individual job IDs, ranges, and lists. The command also provides a dry-run mode to preview the impact of cancellation before executing it.</p>
+<h2 id="options"><a class="header" href="#options">Options</a></h2>
+<h3 id="job-selection"><a class="header" href="#job-selection">Job Selection</a></h3>
+<h4 id="ids"><a class="header" href="#ids"><code>[IDS...]</code></a></h4>
+<p>Job ID(s) to cancel. Supports multiple formats:</p>
+<p><strong>Formats</strong>:</p>
+<ul>
+<li>Single ID: <code>42</code></li>
+<li>Multiple IDs: <code>1 2 3</code> or <code>1,2,3</code></li>
+<li>Ranges: <code>1-5</code> (IDs 1, 2, 3, 4, 5)</li>
+<li>Mixed: <code>1,3,5-7,10</code></li>
+</ul>
+<p><strong>Examples</strong>:</p>
+<pre><code class="language-bash"># Cancel single job
+gcancel 42
+
+# Cancel multiple jobs
+gcancel 1 2 3
+gcancel 1,2,3
+
+# Cancel range
+gcancel 1-5
+
+# Cancel mixed
+gcancel 1,3,5-7,10
+</code></pre>
+<h3 id="preview-mode"><a class="header" href="#preview-mode">Preview Mode</a></h3>
+<h4 id="--dry-run"><a class="header" href="#--dry-run"><code>--dry-run</code></a></h4>
+<p>Preview cancellation without executing.</p>
+<p><strong>Features</strong>:</p>
+<ul>
+<li>Shows which jobs would be cancelled</li>
+<li>Identifies dependent jobs that will be affected</li>
+<li>Validates job IDs before cancellation</li>
+<li>Safe to run - makes no changes</li>
+</ul>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">$ gcancel --dry-run 1
+Would cancel job 1 (data-prep)
+
+⚠️  Warning: The following jobs depend on job 1:
+  - Job 2 (train-model)
+  - Job 3 (evaluate)
+
+These jobs will never start if job 1 is cancelled.
+
+To proceed with cancellation, run:
+  gcancel 1
+</code></pre>
+<p><strong>Use cases</strong>:</p>
+<ul>
+<li>Check impact before cancelling</li>
+<li>Verify job IDs are correct</li>
+<li>Understand dependency chains</li>
+<li>Plan cleanup operations</li>
+</ul>
+<h3 id="internal-state-management-hidden"><a class="header" href="#internal-state-management-hidden">Internal State Management (Hidden)</a></h3>
+<p>These options are used internally by gflow and are not intended for direct user interaction.</p>
+<h4 id="--finish-id"><a class="header" href="#--finish-id"><code>--finish &lt;ID&gt;</code></a></h4>
+<p>Mark job as finished (internal use only).</p>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">gcancel --finish 42
+</code></pre>
+<p><strong>Note</strong>: Used by the system to transition job states. Not recommended for manual use.</p>
+<h4 id="--fail-id"><a class="header" href="#--fail-id"><code>--fail &lt;ID&gt;</code></a></h4>
+<p>Mark job as failed (internal use only).</p>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">gcancel --fail 42
+</code></pre>
+<p><strong>Note</strong>: Used by the system to transition job states. Not recommended for manual use.</p>
+<h3 id="global-options"><a class="header" href="#global-options">Global Options</a></h3>
+<h4 id="--config-path"><a class="header" href="#--config-path"><code>--config &lt;PATH&gt;</code></a></h4>
+<p>Use custom configuration file (hidden option).</p>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">gcancel --config /path/to/custom.toml 42
+</code></pre>
+<h4 id="--help--h"><a class="header" href="#--help--h"><code>--help</code>, <code>-h</code></a></h4>
+<p>Display help message.</p>
+<pre><code class="language-bash">$ gcancel --help
+Controls job states in the gflow scheduler.
+
+Usage: gcancel [OPTIONS] [IDS] [COMMAND]
+
+Commands:
+  completion  Generate shell completion scripts
+  help        Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [IDS]  Job ID(s) to cancel. Supports ranges like "1-3" or individual IDs like "1,2,3"
+
+Options:
+      --dry-run  If set, the job will not be cancelled, but the action will be printed
+  -h, --help     Print help
+  -V, --version  Print version
+</code></pre>
+<h4 id="--version--v"><a class="header" href="#--version--v"><code>--version</code>, <code>-V</code></a></h4>
+<p>Display version information.</p>
+<pre><code class="language-bash">$ gcancel --version
+gcancel 0.4.3 (2025-12-18T05:58:22.901454588Z)
+Branch: main
+Commit: f9d97af90f4d10c44b89a956380b0143047d2104
+Authors: PuQing &lt;me@puqing.work&gt;
+</code></pre>
+<h2 id="behavior"><a class="header" href="#behavior">Behavior</a></h2>
+<h3 id="successful-cancellation"><a class="header" href="#successful-cancellation">Successful Cancellation</a></h3>
+<p>When a job is successfully cancelled:</p>
+<ol>
+<li>Job state changes to <code>Cancelled</code> (CA)</li>
+<li>If the job is running:
+<ul>
+<li>tmux session receives <code>Ctrl-C</code> (SIGINT)</li>
+<li>Job process is gracefully interrupted</li>
+<li>Session is cleaned up</li>
+</ul>
+</li>
+<li>If the job is queued:
+<ul>
+<li>Job is removed from the run queue</li>
+<li>State changes immediately</li>
+</ul>
+</li>
+<li>Output is captured to log file</li>
+<li>Finish time is recorded</li>
+</ol>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">$ gcancel 42
+Job 42 cancelled successfully
+
+$ gqueue -j 42
+JOBID    NAME      ST    TIME
+42       my-job    CA    00:05:23
+</code></pre>
+<h3 id="dependent-jobs"><a class="header" href="#dependent-jobs">Dependent Jobs</a></h3>
+<p>Cancelling a job affects dependent jobs:</p>
+<ul>
+<li>Dependent jobs remain in <code>Queued</code> state</li>
+<li>They will <strong>never</strong> start automatically</li>
+<li>You must manually cancel them</li>
+</ul>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash"># Job 2 depends on Job 1
+$ gqueue -t
+JOBID    NAME      ST
+1        prep      R
+└─ 2     train     PD
+
+# Cancel job 1
+$ gcancel 1
+Job 1 cancelled
+
+# Job 2 is now orphaned
+$ gqueue -t
+JOBID    NAME      ST
+1        prep      CA
+└─ 2     train     PD    # Will never start
+
+# Must cancel job 2 manually
+$ gcancel 2
+</code></pre>
+<h3 id="already-completed-jobs"><a class="header" href="#already-completed-jobs">Already Completed Jobs</a></h3>
+<p>Cannot cancel finished jobs:</p>
+<pre><code class="language-bash">$ gcancel 42
+Error: Job 42 is already in terminal state (Finished)
+</code></pre>
+<p><strong>Terminal states</strong> (cannot be cancelled):</p>
+<ul>
+<li><code>Finished</code> (CD)</li>
+<li><code>Failed</code> (F)</li>
+<li><code>Cancelled</code> (CA)</li>
+<li><code>Timeout</code> (TO)</li>
+</ul>
+<h3 id="non-existent-jobs"><a class="header" href="#non-existent-jobs">Non-existent Jobs</a></h3>
+<pre><code class="language-bash">$ gcancel 999
+Error: Job 999 not found
+</code></pre>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<h3 id="basic-cancellation"><a class="header" href="#basic-cancellation">Basic Cancellation</a></h3>
+<pre><code class="language-bash"># Cancel single job
+gcancel 42
+
+# Cancel multiple jobs
+gcancel 1 2 3
+gcancel 1,2,3
+
+# Cancel range
+gcancel 10-20
+
+# Cancel mixed
+gcancel 1,5,10-15,20
+</code></pre>
+<h3 id="preview-before-cancelling"><a class="header" href="#preview-before-cancelling">Preview Before Cancelling</a></h3>
+<pre><code class="language-bash"># Check what would happen
+gcancel --dry-run 5
+
+# Read output carefully
+# If acceptable, proceed
+gcancel 5
+</code></pre>
+<h3 id="cancel-pipeline"><a class="header" href="#cancel-pipeline">Cancel Pipeline</a></h3>
+<pre><code class="language-bash"># View pipeline
+$ gqueue -t
+JOBID    NAME      ST
+1        prep      R
+├─ 2     train-a   PD
+└─ 3     train-b   PD
+
+# Cancel entire pipeline
+gcancel 1,2,3
+
+# Or cancel parent and children separately
+gcancel 1
+gcancel 2 3
+</code></pre>
+<h3 id="cancel-all-running-jobs"><a class="header" href="#cancel-all-running-jobs">Cancel All Running Jobs</a></h3>
+<pre><code class="language-bash"># Get running job IDs
+RUNNING=$(gqueue -s Running -f JOBID | tail -n +2 | tr '\n' ',' | sed 's/,$//')
+
+# Cancel them
+gcancel $RUNNING
+</code></pre>
+<h3 id="cancel-queued-jobs"><a class="header" href="#cancel-queued-jobs">Cancel Queued Jobs</a></h3>
+<pre><code class="language-bash"># Get queued job IDs
+QUEUED=$(gqueue -s Queued -f JOBID | tail -n +2)
+
+# Cancel each one
+for job in $QUEUED; do
+    gcancel $job
+done
+</code></pre>
+<h3 id="conditional-cancellation"><a class="header" href="#conditional-cancellation">Conditional Cancellation</a></h3>
+<pre><code class="language-bash"># Cancel if job is taking too long
+JOB_ID=42
+ELAPSED=$(gqueue -j $JOB_ID -f TIME | tail -n 1 | cut -d: -f1)
+
+if [ "$ELAPSED" -gt 2 ]; then
+    echo "Job taking too long, cancelling..."
+    gcancel $JOB_ID
+fi
+</code></pre>
+<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
+<h3 id="cancel-and-resubmit"><a class="header" href="#cancel-and-resubmit">Cancel and Resubmit</a></h3>
+<pre><code class="language-bash"># Cancel old job
+gcancel 42
+
+# Resubmit with corrections
+gbatch --gpus 1 --time 2:00:00 python train.py --fixed
+</code></pre>
+<h3 id="cancel-failed-dependencies"><a class="header" href="#cancel-failed-dependencies">Cancel Failed Dependencies</a></h3>
+<pre><code class="language-bash"># Find failed job
+$ gqueue -s Failed
+JOBID    NAME      ST
+5        prep      F
+
+# Cancel dependent jobs (they won't start anyway)
+$ gqueue -t | grep -A10 "^5"
+5        prep      F
+└─ 6     train     PD
+
+$ gcancel 6
+</code></pre>
+<h3 id="emergency-stop"><a class="header" href="#emergency-stop">Emergency Stop</a></h3>
+<pre><code class="language-bash"># Stop all running and queued jobs
+gcancel $(gqueue -s Running,Queued -f JOBID | tail -n +2)
+</code></pre>
+<h3 id="selective-cancellation"><a class="header" href="#selective-cancellation">Selective Cancellation</a></h3>
+<pre><code class="language-bash"># Cancel low-priority queued jobs
+gqueue -s Queued -r priority -f JOBID,PRIORITY | awk '$2 &lt; 10 {print $1}' | xargs gcancel
+</code></pre>
+<h2 id="integration-examples"><a class="header" href="#integration-examples">Integration Examples</a></h2>
+<h3 id="script-safe-cancellation"><a class="header" href="#script-safe-cancellation">Script: Safe Cancellation</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# safe_cancel.sh - Cancel with dependency check
+
+JOB_ID=$1
+
+# Check dependencies
+gcancel --dry-run $JOB_ID
+
+read -p "Proceed with cancellation? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gcancel $JOB_ID
+    echo "Job $JOB_ID cancelled"
+else
+    echo "Cancellation aborted"
+fi
+</code></pre>
+<h3 id="script-cancel-pipeline"><a class="header" href="#script-cancel-pipeline">Script: Cancel Pipeline</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# cancel_pipeline.sh - Cancel all jobs in a pipeline
+
+ROOT_JOB=$1
+
+# Get all dependent jobs
+JOBS=$(gqueue -t | awk -v root=$ROOT_JOB '
+    $1 == root || seen {
+        seen = 1
+        print $1
+    }
+')
+
+echo "Jobs to cancel: $JOBS"
+gcancel $JOBS
+</code></pre>
+<h3 id="script-timeout-watcher"><a class="header" href="#script-timeout-watcher">Script: Timeout Watcher</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# timeout_watcher.sh - Cancel jobs exceeding expected time
+
+MAX_TIME=120  # 2 hours in minutes
+
+gqueue -s Running -f JOBID,TIME | tail -n +2 | while read -r jobid time; do
+    # Convert time to minutes
+    IFS=: read -r h m s &lt;&lt;&lt; "$time"
+    minutes=$((10#$h * 60 + 10#$m))
+
+    if [ $minutes -gt $MAX_TIME ]; then
+        echo "Job $jobid exceeded $MAX_TIME minutes, cancelling..."
+        gcancel $jobid
+    fi
+done
+</code></pre>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h3 id="issue-cannot-cancel-job"><a class="header" href="#issue-cannot-cancel-job">Issue: Cannot cancel job</a></h3>
+<p><strong>Possible causes</strong>:</p>
+<ol>
+<li>Job already in terminal state</li>
+<li>Job ID doesn't exist</li>
+<li>Permission issues</li>
+</ol>
+<p><strong>Solutions</strong>:</p>
+<pre><code class="language-bash"># Check job state
+gqueue -j &lt;job_id&gt; -f JOBID,ST
+
+# Verify job exists
+gqueue -a | grep &lt;job_id&gt;
+
+# Check daemon status
+ginfo
+</code></pre>
+<h3 id="issue-dependent-jobs-not-cancelled"><a class="header" href="#issue-dependent-jobs-not-cancelled">Issue: Dependent jobs not cancelled</a></h3>
+<p><strong>Expected behavior</strong>: gcancel only cancels specified jobs, not dependents.</p>
+<p><strong>Solution</strong>: Cancel dependents manually:</p>
+<pre><code class="language-bash"># Use dry-run to see dependents
+gcancel --dry-run 1
+
+# Cancel parent and children
+gcancel 1,2,3
+</code></pre>
+<h3 id="issue-job-still-running-after-cancellation"><a class="header" href="#issue-job-still-running-after-cancellation">Issue: Job still running after cancellation</a></h3>
+<p><strong>Possible causes</strong>:</p>
+<ol>
+<li>Job is handling SIGINT gracefully (saving state)</li>
+<li>tmux session cleanup delay</li>
+<li>Job process not responding</li>
+</ol>
+<p><strong>Solutions</strong>:</p>
+<pre><code class="language-bash"># Wait a few seconds
+sleep 5
+gqueue -j &lt;job_id&gt;
+
+# Check tmux session
+tmux ls
+
+# Force kill tmux session if needed
+tmux kill-session -t &lt;session_name&gt;
+</code></pre>
+<h3 id="issue-range-parsing-error"><a class="header" href="#issue-range-parsing-error">Issue: Range parsing error</a></h3>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-bash">gcancel 1-5,10
+</code></pre>
+<p><strong>Solution</strong>: Check range syntax:</p>
+<ul>
+<li>Ranges: <code>1-5</code> (valid)</li>
+<li>Lists: <code>1,2,3</code> (valid)</li>
+<li>Mixed: <code>1-5,10</code> (depends on implementation)</li>
+</ul>
+<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<ol>
+<li>
+<p><strong>Use dry-run first</strong> for important cancellations</p>
+<pre><code class="language-bash">gcancel --dry-run 42
+gcancel 42
+</code></pre>
+</li>
+<li>
+<p><strong>Check dependencies</strong> before cancelling parent jobs</p>
+<pre><code class="language-bash">gqueue -t
+</code></pre>
+</li>
+<li>
+<p><strong>Cancel gracefully</strong> during development/testing</p>
+<ul>
+<li>Jobs can save checkpoints</li>
+<li>Logs are preserved</li>
+</ul>
+</li>
+<li>
+<p><strong>Clean up dependents</strong> when cancelling parent jobs</p>
+<pre><code class="language-bash">gcancel 1,2,3  # parent and children
+</code></pre>
+</li>
+<li>
+<p><strong>Monitor cancellation</strong> to ensure it completes</p>
+<pre><code class="language-bash">gcancel 42
+watch -n 1 'gqueue -j 42'
+</code></pre>
+</li>
+<li>
+<p><strong>Log cancellations</strong> for audit trail</p>
+<pre><code class="language-bash">echo "$(date): Cancelled job 42" &gt;&gt; ~/gflow-cancellations.log
+gcancel 42
+</code></pre>
+</li>
+<li>
+<p><strong>Use job names</strong> to identify which jobs to cancel</p>
+<pre><code class="language-bash">gqueue -N "old-experiment*"
+gcancel &lt;identified_ids&gt;
+</code></pre>
+</li>
+<li>
+<p><strong>Avoid cancelling system jobs</strong> (if any)</p>
+<ul>
+<li>Be careful with automated cancellation scripts</li>
+</ul>
+</li>
+</ol>
+<h2 id="error-messages"><a class="header" href="#error-messages">Error Messages</a></h2>
+<h3 id="common-errors"><a class="header" href="#common-errors">Common Errors</a></h3>
+<pre><code class="language-bash"># Job not found
+Error: Job 999 not found
+</code></pre>
+<pre><code class="language-bash"># Job already terminal
+Error: Job 42 is already in terminal state (Finished)
+</code></pre>
+<pre><code class="language-bash"># Invalid job ID
+Error: Invalid job ID: abc
+</code></pre>
+<pre><code class="language-bash"># No job ID provided
+Error: No job IDs specified
+Usage: gcancel [OPTIONS] [IDS...]
+</code></pre>
+<pre><code class="language-bash"># Daemon not running
+Error: Could not connect to gflowd (connection refused)
+</code></pre>
+<h2 id="exit-codes"><a class="header" href="#exit-codes">Exit Codes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td>0</td><td>Success</td></tr>
+<tr><td>1</td><td>Error (job not found, already terminal, etc.)</td></tr>
+<tr><td>2</td><td>Invalid arguments</td></tr>
+</tbody></table>
+</div>
+<h2 id="see-also"><a class="header" href="#see-also">See Also</a></h2>
+<ul>
+<li><a href="./gbatch-reference.html">gbatch</a> - Job submission reference</li>
+<li><a href="./gqueue-reference.html">gqueue</a> - Job queue reference</li>
+<li><a href="./ginfo-reference.html">ginfo</a> - Scheduler inspection reference</li>
+<li><a href="./quick-reference.html">Quick Reference</a> - Command cheat sheet</li>
+<li><a href="../user-guide/job-submission.html">Job Submission</a> - Job submission guide</li>
+<li><a href="../user-guide/job-dependencies.html">Job Dependencies</a> - Dependency management</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../reference/gqueue-reference.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../reference/ginfo-reference.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../reference/gqueue-reference.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../reference/ginfo-reference.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
