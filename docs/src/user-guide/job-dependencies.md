@@ -31,7 +31,13 @@ Submitted batch job 2 (train)
 - If Job 1 fails, Job 2 remains in `Queued` state indefinitely
 - You must manually cancel Job 2 if Job 1 fails
 
-**Tip**: You can reference recent submissions without copying IDs. Use `--depends-on @` for the most recent job or `--depends-on @~N` for the Nth submission from the end.
+**@ Syntax Sugar**: You can reference recent submissions without copying IDs:
+- `--depends-on @` - Most recent submission (last job submitted)
+- `--depends-on @~1` - Second most recent submission
+- `--depends-on @~2` - Third most recent submission
+- And so on...
+
+This makes creating pipelines much simpler!
 
 ### Checking Dependencies
 
@@ -51,20 +57,20 @@ The tree view (`-t`) shows the dependency hierarchy with ASCII art.
 
 ### Linear Pipeline
 
-Execute jobs in sequence:
+Execute jobs in sequence using @ syntax:
 
 ```bash
 # Stage 1: Data collection
-ID1=$(gbatch --time 10 python collect_data.py | grep -oP '\d+')
+gbatch --time 10 python collect_data.py
 
 # Stage 2: Data preprocessing (depends on stage 1)
-ID2=$(gbatch --time 30 --depends-on $ID1 python preprocess.py | grep -oP '\d+')
+gbatch --time 30 --depends-on @ python preprocess.py
 
 # Stage 3: Training (depends on stage 2)
-ID3=$(gbatch --time 4:00:00 --gpus 1 --depends-on $ID2 python train.py | grep -oP '\d+')
+gbatch --time 4:00:00 --gpus 1 --depends-on @ python train.py
 
 # Stage 4: Evaluation (depends on stage 3)
-gbatch --time 10 --depends-on $ID3 python evaluate.py
+gbatch --time 10 --depends-on @ python evaluate.py
 ```
 
 **Watch the pipeline**:
@@ -72,23 +78,23 @@ gbatch --time 10 --depends-on $ID3 python evaluate.py
 watch -n 5 gqueue -t
 ```
 
+**How it works**: Each `--depends-on @` references the job submitted immediately before it, creating a clean sequential pipeline.
+
 ### Parallel Processing with Join
 
 Multiple jobs feeding into one:
 
 ```bash
 # Parallel data processing tasks
-ID1=$(gbatch --time 30 python process_part1.py | grep -oP '\d+')
-ID2=$(gbatch --time 30 python process_part2.py | grep -oP '\d+')
-ID3=$(gbatch --time 30 python process_part3.py | grep -oP '\d+')
+gbatch --time 30 python process_part1.py
+gbatch --time 30 python process_part2.py
+gbatch --time 30 python process_part3.py
 
-# Merge results (waits for all three)
-# Note: Currently gflow supports single dependency per job
-# For multiple dependencies, you'll need to chain them
-gbatch --depends-on $ID3 python merge_results.py
+# Merge results (waits for the last parallel task)
+gbatch --depends-on @ python merge_results.py
 ```
 
-**Current limitation**: gflow currently supports only one dependency per job. For multiple dependencies, create intermediate coordination jobs.
+**Current limitation**: gflow currently supports only one dependency per job. The example above shows `merge_results.py` depending on the last parallel task (`process_part3.py`). For true multi-parent dependencies (waiting for ALL parallel tasks), you need intermediate coordination jobs or submit merge after checking all parallel jobs completed.
 
 ### Branching Workflow
 
@@ -96,13 +102,18 @@ One job triggering multiple downstream jobs:
 
 ```bash
 # Main processing
-ID1=$(gbatch --time 1:00:00 python main_process.py | grep -oP '\d+')
+gbatch --time 1:00:00 python main_process.py
 
-# Multiple analysis jobs (all depend on ID1)
-gbatch --depends-on $ID1 --time 30 python analysis_a.py
-gbatch --depends-on $ID1 --time 30 python analysis_b.py
-gbatch --depends-on $ID1 --time 30 python analysis_c.py
+# Multiple analysis jobs (all depend on the main job)
+gbatch --depends-on @ --time 30 python analysis_a.py
+gbatch --depends-on @~1 --time 30 python analysis_b.py
+gbatch --depends-on @~2 --time 30 python analysis_c.py
 ```
+
+**Explanation**:
+- First analysis depends on `@` (the main_process job)
+- Second analysis depends on `@~1` (skipping analysis_a, back to main_process)
+- Third analysis depends on `@~2` (skipping analysis_a and analysis_b, back to main_process)
 
 ## Dependency States and Behavior
 
@@ -256,14 +267,16 @@ Create job arrays that depend on a preprocessing job:
 
 ```bash
 # Preprocessing
-ID=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
+gbatch --time 30 python preprocess.py
 
 # Array of training jobs (all depend on preprocessing)
 for i in {1..5}; do
-    gbatch --depends-on $ID --gpus 1 --time 2:00:00 \
+    gbatch --depends-on @ --gpus 1 --time 2:00:00 \
            python train.py --fold $i
 done
 ```
+
+**Note**: All array jobs use `--depends-on @` which references the preprocessing job since it's always the most recent non-array submission before the loop starts.
 
 ### Resource-Efficient Pipeline
 
@@ -271,14 +284,13 @@ Release GPUs between stages:
 
 ```bash
 # Stage 1: CPU-only preprocessing
-ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
+gbatch --time 30 python preprocess.py
 
 # Stage 2: GPU training
-ID2=$(gbatch --depends-on $ID1 --gpus 2 --time 4:00:00 \
-             python train.py | grep -oP '\d+')
+gbatch --depends-on @ --gpus 2 --time 4:00:00 python train.py
 
 # Stage 3: CPU-only evaluation
-gbatch --depends-on $ID2 --time 10 python evaluate.py
+gbatch --depends-on @ --time 10 python evaluate.py
 ```
 
 **Benefit**: GPUs are only allocated when needed, maximizing resource utilization.
@@ -349,17 +361,16 @@ During execution:
 ### Example 1: ML Training Pipeline
 
 ```bash
-# Complete ML pipeline
-PREP=$(gbatch --time 20 python prepare_dataset.py | grep -oP '\d+')
+# Complete ML pipeline using @ syntax
+gbatch --time 20 python prepare_dataset.py
 
-TRAIN=$(gbatch --depends-on $PREP --gpus 1 --time 8:00:00 \
-               python train.py --output model.pth | grep -oP '\d+')
+gbatch --depends-on @ --gpus 1 --time 8:00:00 \
+       python train.py --output model.pth
 
-EVAL=$(gbatch --depends-on $TRAIN --time 15 \
-              python evaluate.py --model model.pth | grep -oP '\d+')
+gbatch --depends-on @ --time 15 \
+       python evaluate.py --model model.pth
 
-gbatch --depends-on $EVAL --time 5 \
-       python generate_report.py
+gbatch --depends-on @ --time 5 python generate_report.py
 ```
 
 ### Example 2: Data Processing Pipeline
@@ -371,20 +382,16 @@ gbatch --depends-on $EVAL --time 5 \
 echo "Submitting data processing pipeline..."
 
 # Download data
-ID1=$(gbatch --time 1:00:00 --name "download" \
-             python download_data.py | grep -oP '\d+')
+gbatch --time 1:00:00 --name "download" python download_data.py
 
 # Validate data
-ID2=$(gbatch --depends-on $ID1 --time 30 --name "validate" \
-             python validate_data.py | grep -oP '\d+')
+gbatch --depends-on @ --time 30 --name "validate" python validate_data.py
 
 # Transform data
-ID3=$(gbatch --depends-on $ID2 --time 45 --name "transform" \
-             python transform_data.py | grep -oP '\d+')
+gbatch --depends-on @ --time 45 --name "transform" python transform_data.py
 
 # Upload results
-gbatch --depends-on $ID3 --time 30 --name "upload" \
-       python upload_results.py
+gbatch --depends-on @ --time 30 --name "upload" python upload_results.py
 
 echo "Pipeline submitted. Monitor with: watch gqueue -t"
 ```
@@ -393,19 +400,20 @@ echo "Pipeline submitted. Monitor with: watch gqueue -t"
 
 ```bash
 # Train multiple models
-MODELS=()
 for lr in 0.001 0.01 0.1; do
-    ID=$(gbatch --gpus 1 --time 2:00:00 \
-                python train.py --lr $lr --output model_$lr.pth | grep -oP '\d+')
-    MODELS+=($ID)
+    gbatch --gpus 1 --time 2:00:00 \
+           python train.py --lr $lr --output model_$lr.pth
 done
 
 # Wait for all models, then evaluate
-# (Create a dummy job that depends on the last model)
-LAST_MODEL=${MODELS[-1]}
-gbatch --depends-on $LAST_MODEL --time 30 \
+# (Depends on the last model trained)
+gbatch --depends-on @ --time 30 \
        python compare_models.py --models model_*.pth
 ```
+
+**Note**: For true multi-dependency support (waiting for ALL models), you would need to either:
+- Use a script that checks job status before submitting
+- Submit the comparison job manually after all training completes
 
 ## Troubleshooting
 
@@ -467,8 +475,8 @@ gqueue -j 1,2,3,4,5 -t
 ## Best Practices
 
 1. **Plan workflows** before submitting jobs
-2. **Use meaningful names** for jobs in pipelines
-3. **Extract job IDs** for reliable dependency tracking
+2. **Use meaningful names** for jobs in pipelines (`--name` flag)
+3. **Use @ syntax** for simpler dependency chains
 4. **Set appropriate time limits** for each stage
 5. **Monitor pipelines** with `watch gqueue -t`
 6. **Handle failures** by checking dependency status

@@ -174,14 +174,16 @@ Set by gflow in job environment:
 ### Sequential Jobs (Pipeline)
 ```bash
 # Step 1: Preprocessing
-ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
+gbatch --time 30 python preprocess.py
 
 # Step 2: Training (depends on step 1)
-ID2=$(gbatch --time 4:00:00 --depends-on $ID1 python train.py | grep -oP '\d+')
+gbatch --time 4:00:00 --depends-on @ python train.py
 
 # Step 3: Evaluation (depends on step 2)
-gbatch --time 10 --depends-on $ID2 python evaluate.py
+gbatch --time 10 --depends-on @ python evaluate.py
 ```
+
+The `@` symbol references the most recently submitted job, making pipelines simple.
 
 ### Parallel Jobs (Array)
 ```bash

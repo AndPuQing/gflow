@@ -14,7 +14,21 @@ View system GPU information:
 
 ```bash
 $ ginfo
-<!-- cmdrun ginfo -->
+```
+
+Example output:
+```
+Scheduler Status: Running
+Total GPUs: 2
+Available GPUs: 1
+
+GPU 0: NVIDIA GeForce RTX 3090
+  UUID: GPU-xxxxx...
+  Status: In use by job 5
+
+GPU 1: NVIDIA GeForce RTX 3090
+  UUID: GPU-yyyyy...
+  Status: Available
 ```
 
 **Information displayed**:
@@ -184,7 +198,6 @@ View GPU allocation for running jobs:
 
 ```bash
 $ gqueue -s Running -f JOBID,NAME,NODES,NODELIST
-<!-- cmdrun gqueue -s Running -f JOBID,NAME,NODES,NODELIST -->
 ```
 
 **Example output** (when jobs are running):

@@ -8,20 +8,30 @@ First, start the gflow daemon:
 
 ```shell
 $ gflowd up
-<!-- cmdrun gflowd up -->
+```
+
+This command starts the daemon in a tmux session. If you want to run it in the background, you can use:
+```shell
+$ gflowd up --detach
 ```
 
 Run this in its own terminal or tmux session and leave it running. You can confirm that it started successfully with:
 ```shell
 $ gflowd status
-<!-- cmdrun gflowd status -->
+```
+
+Example output:
+```
+Status: Running
+The gflowd daemon is running in tmux session 'gflow_server'.
 ```
 
 Verify it's reachable from another terminal:
 ```shell
 $ ginfo
-<!-- cmdrun ginfo -->
 ```
+
+Output will show scheduler status and GPU information.
 
 ## Your First Job
 
@@ -29,8 +39,9 @@ Let's submit a simple job:
 
 ```shell
 $ gbatch echo 'Hello from gflow!'
-<!-- cmdrun gbatch echo 'Hello from gflow!' -->
 ```
+
+This will submit a job that prints "Hello from gflow!" to the log.
 
 ## Checking Job Status
 
@@ -38,7 +49,12 @@ View the job queue:
 
 ```shell
 $ gqueue
-<!-- cmdrun gqueue -a -->
+```
+
+Example output:
+```
+JOBID   NAME            ST   TIME       NODES   NODELIST(REASON)
+1       gflow-job-1     CD   00:00:00   0       -
 ```
 
 Job states:
@@ -108,19 +124,20 @@ gbatch my_job.sh
 
 ## Job Dependencies
 
-Run jobs in sequence:
+Run jobs in sequence using the @ syntax:
 
 ```shell
 # Job 1: Preprocessing
 gbatch --name "prep" python preprocess.py
-# Note the job ID, e.g., 2
 
-# Job 2: Training (depends on job 2)
-gbatch --name --depends-on 2 "train" python train.py
+# Job 2: Training (depends on job 1)
+gbatch --depends-on @ --name "train" python train.py
 
-# Job 3: Evaluation (depends on job 3)
-gbatch --depends-on 3 --name "eval" python evaluate.py
+# Job 3: Evaluation (depends on job 2)
+gbatch --depends-on @ --name "eval" python evaluate.py
 ```
+
+The `@` symbol always references the most recently submitted job, making it easy to chain dependencies.
 
 View dependency tree:
 ```shell
@@ -149,7 +166,13 @@ gqueue -s Running,Queued
 
 ```shell
 $ gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
-<!-- cmdrun gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT -n 10 -->
+```
+
+Example output:
+```
+JOBID   NAME            ST   TIME       TIMELIMIT
+1       gflow-job-1     CD   00:00:05   00:01:00
+2       gflow-job-2     R    00:00:10   UNLIMITED
 ```
 
 ### View Specific Jobs
@@ -210,23 +233,32 @@ gflowd up
 
 # 2. Submit preprocessing job
 gbatch --time 10 --name prep python preprocess.py
-# Job ID: 1
 
-# 3. Submit training jobs (depend on preprocessing)
-gbatch --time 2:00:00 --gpus 1 --depends-on 1 python train.py --lr 0.001 --name train_lr001
-gbatch --time 2:00:00 --gpus 1 --depends-on @ python train.py --lr 0.01 --name train_lr01
-# @ depends on the last submitted job (train_lr001)
+# 3. Submit training jobs that depend on preprocessing
+gbatch --time 2:00:00 --gpus 1 --depends-on @ --name train_lr001 python train.py --lr 0.001
+
+gbatch --time 2:00:00 --gpus 1 --depends-on @~1 --name train_lr01 python train.py --lr 0.01
+
+# Note: Both training jobs depend on @~1 (the prep job), skipping each other
+
 # 4. Monitor jobs
-watch gqueue
+watch gqueue -t
 
 # 5. Check logs when done
-cat ~/.local/share/gflow/logs/1.log
-cat ~/.local/share/gflow/logs/2.log
-cat ~/.local/share/gflow/logs/3.log
+gjob log 1
+gjob log 2
+gjob log 3
 
 # 6. Stop scheduler
 gflowd down
 ```
+
+**@ Syntax Explained**:
+- `@` - Most recently submitted job
+- `@~1` - Second most recently submitted job
+- `@~2` - Third most recently submitted job
+
+This makes it easy to create complex workflows without manually tracking job IDs!
 
 ## Common Patterns
 

@@ -64,26 +64,37 @@ Every job runs in its own tmux session, allowing you to:
 ```bash
 # Start the scheduler (run in a separate terminal)
 $ gflowd up
-<!-- cmdrun gflowd up -->
+```
 
+Once started, you can submit jobs:
+
+```bash
 # Submit a training job with 1 GPU and 2-hour time limit
 $ gbatch --gpus 1 --time 2:00:00 python train.py
-<!-- cmdrun gbatch --gpus 1 --time 2:00:00 python train.py -->
+```
 
-# Check the job queue
+Check the job queue:
+
+```bash
 $ gqueue
-<!-- cmdrun gqueue -->
+```
 
-# Inspect scheduler status and GPU usage
+Inspect scheduler status and GPU usage:
+
+```bash
 $ ginfo
-<!-- cmdrun ginfo -->
+```
 
-# Watch jobs in real-time
+Watch jobs in real-time:
+
+```bash
 $ watch gqueue
+```
 
-# Stop the scheduler
+Stop the scheduler:
+
+```bash
 $ gflowd down
-<!-- cmdrun gflowd down -->
 ```
 
 ## Architecture Overview

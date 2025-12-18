@@ -458,10 +458,14 @@ gbatch python script.py  # Automatically uses 'myenv'
 
 ```bash
 # Sequential pipeline
-ID1=$(gbatch --time 30 python prep.py | grep -oP '\d+')
-ID2=$(gbatch --depends-on $ID1 --gpus 1 python train.py | grep -oP '\d+')
-gbatch --depends-on $ID2 python eval.py
+gbatch --time 30 python prep.py
+
+gbatch --depends-on @ --gpus 1 python train.py
+
+gbatch --depends-on @ python eval.py
 ```
+
+Using `@` references the most recently submitted job.
 
 ### Job Arrays
 
@@ -562,19 +566,16 @@ set -e
 echo "Submitting pipeline..."
 
 # Stage 1: Download
-ID1=$(gbatch --time 1:00:00 --name "download" \
-             python download.py | grep -oP '\d+')
-echo "Job $ID1 (download) submitted"
+gbatch --time 1:00:00 --name "download" python download.py
+echo "Job download submitted"
 
 # Stage 2: Process (depends on download)
-ID2=$(gbatch --depends-on $ID1 --time 2:00:00 --name "process" \
-             python process.py | grep -oP '\d+')
-echo "Job $ID2 (process) submitted"
+gbatch --depends-on @ --time 2:00:00 --name "process" python process.py
+echo "Job process submitted"
 
 # Stage 3: Train (depends on process)
-ID3=$(gbatch --depends-on $ID2 --gpus 1 --time 8:00:00 --name "train" \
-             python train.py | grep -oP '\d+')
-echo "Job $ID3 (train) submitted"
+gbatch --depends-on @ --gpus 1 --time 8:00:00 --name "train" python train.py
+echo "Job train submitted"
 
 echo "Pipeline submitted! Monitor with: watch gqueue -t"
 ```
@@ -646,8 +647,8 @@ print(f"Pipeline: {prep_id} -> {train_id} -> {eval_id}")
 
 5. **Use dependencies** for workflows
    ```bash
-   ID=$(gbatch python prep.py | grep -oP '\d+')
-   gbatch --depends-on $ID python train.py
+   gbatch python prep.py
+   gbatch --depends-on @ python train.py
    ```
 
 6. **Use job arrays** for parallel tasks

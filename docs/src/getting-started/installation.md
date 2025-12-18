@@ -111,7 +111,6 @@ $ gcancel --version
 Verify commands are in PATH:
 ```bash
 $ which ginfo
-<!-- cmdrun which ginfo -->
 ```
 
 All commands are properly installed and available in your PATH.
@@ -133,17 +132,14 @@ If you have NVIDIA GPUs, verify they're detected:
 ```bash
 # Start the daemon
 $ gflowd up
-<!-- cmdrun gflowd up -->
 
 # Verify it started
 $ gflowd status
-<!-- cmdrun gflowd status -->
 ```
 
 Check system info and GPU allocation:
 ```bash
 $ ginfo
-<!-- cmdrun ginfo -->
 ```
 
 The daemon shows GPU information if NVIDIA GPUs are available.

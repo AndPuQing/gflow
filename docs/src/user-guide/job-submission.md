@@ -382,15 +382,16 @@ done
 
 ```bash
 # Step 1: Data preprocessing
-ID1=$(gbatch --time 30 python preprocess.py | grep -oP '\d+')
+gbatch --time 30 python preprocess.py
 
 # Step 2: Training
-ID2=$(gbatch --time 4:00:00 --gpus 1 --depends-on $ID1 \
-             python train.py | grep -oP '\d+')
+gbatch --time 4:00:00 --gpus 1 --depends-on @ python train.py
 
 # Step 3: Evaluation
-gbatch --time 10 --depends-on $ID2 python evaluate.py
+gbatch --time 10 --depends-on @ python evaluate.py
 ```
+
+The `@` symbol references the most recently submitted job, making pipelines simple and clean.
 
 ### Multi-stage Job Script
 
