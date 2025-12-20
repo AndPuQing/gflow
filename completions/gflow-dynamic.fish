@@ -30,11 +30,17 @@ function __gflow_get_conda_envs
     end
 end
 
-# gjob attach - complete with running jobs
-complete -c gjob -n "__fish_seen_subcommand_from attach a" -s j -l job -d "Job ID to attach to" -a "(__gflow_get_job_ids_by_state Running)"
+# gjob attach - complete with running jobs and @ syntax
+complete -c gjob -n "__fish_seen_subcommand_from attach a" -d "Job ID to attach to" -a "(__gflow_get_job_ids_by_state Running)"
+complete -c gjob -n "__fish_seen_subcommand_from attach a" -d "Most recent job" -a "@"
+complete -c gjob -n "__fish_seen_subcommand_from attach a" -d "2nd most recent" -a "@~1"
+complete -c gjob -n "__fish_seen_subcommand_from attach a" -d "3rd most recent" -a "@~2"
 
-# gjob log - complete with running jobs
-complete -c gjob -n "__fish_seen_subcommand_from log l" -s j -l job -d "Job ID to view log" -a "(__gflow_get_job_ids_by_state Running)"
+# gjob log - complete with running jobs and @ syntax
+complete -c gjob -n "__fish_seen_subcommand_from log l" -d "Job ID to view log" -a "(__gflow_get_job_ids_by_state Running)"
+complete -c gjob -n "__fish_seen_subcommand_from log l" -d "Most recent job" -a "@"
+complete -c gjob -n "__fish_seen_subcommand_from log l" -d "2nd most recent" -a "@~1"
+complete -c gjob -n "__fish_seen_subcommand_from log l" -d "3rd most recent" -a "@~2"
 
 # gjob hold - complete with queued jobs
 complete -c gjob -n "__fish_seen_subcommand_from hold h" -s j -l job -d "Job IDs to hold" -a "(__gflow_get_job_ids_by_state Queued)"

@@ -16,10 +16,10 @@ pub async fn handle_commands(
 ) -> anyhow::Result<()> {
     match command {
         Commands::Attach { job } => {
-            attach::handle_attach(config_path, job).await?;
+            attach::handle_attach(config_path, &job).await?;
         }
         Commands::Log { job } => {
-            log::handle_log(config_path, job).await?;
+            log::handle_log(config_path, &job).await?;
         }
         Commands::Hold { job } => {
             hold::handle_hold(config_path, job).await?;

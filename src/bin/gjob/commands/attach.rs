@@ -1,10 +1,16 @@
 use anyhow::Result;
 use gflow::{client::Client, tmux::attach_to_session};
 
-pub async fn handle_attach(config_path: &Option<std::path::PathBuf>, job_id: u32) -> Result<()> {
+pub async fn handle_attach(
+    config_path: &Option<std::path::PathBuf>,
+    job_id_str: &str,
+) -> Result<()> {
     // Load config and create client
     let config = gflow::config::load_config(config_path.as_ref())?;
     let client = Client::build(&config)?;
+
+    // Resolve job ID (handle @ shorthand)
+    let job_id = crate::utils::resolve_job_id(&client, job_id_str).await?;
 
     // Get the job from the daemon
     let job = client.get_job(job_id).await?;

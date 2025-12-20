@@ -27,14 +27,14 @@ pub enum Commands {
     /// Attach to a job's tmux session
     #[command(visible_alias = "a")]
     Attach {
-        #[arg(help = "Job ID to attach to")]
-        job: u32,
+        #[arg(help = "Job ID to attach to (supports @ for most recent job)", value_hint = clap::ValueHint::Other)]
+        job: String,
     },
     /// View a job's log output
     #[command(visible_alias = "l")]
     Log {
-        #[arg(help = "Job ID to view the log for")]
-        job: u32,
+        #[arg(help = "Job ID to view the log for (supports @ for most recent job)", value_hint = clap::ValueHint::Other)]
+        job: String,
     },
     /// Put a queued job on hold
     #[command(visible_alias = "h")]
