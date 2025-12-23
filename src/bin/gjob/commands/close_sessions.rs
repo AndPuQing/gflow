@@ -1,10 +1,10 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState, tmux};
+use gflow::{client::Client, core::job::JobState, tmux, utils::parse_job_ids};
 use std::collections::HashSet;
 
 pub async fn handle_close_sessions(
     config_path: &Option<std::path::PathBuf>,
-    job_ids: &Option<Vec<u32>>,
+    job_ids_str: &Option<String>,
     states: &Option<Vec<JobState>>,
     pattern: &Option<String>,
     all: bool,
@@ -27,6 +27,13 @@ pub async fn handle_close_sessions(
         }
     }
 
+    // Parse job IDs if provided
+    let job_ids = if let Some(ids_str) = job_ids_str {
+        Some(parse_job_ids(ids_str)?)
+    } else {
+        None
+    };
+
     // If job_ids, states, or pattern are specified, query jobs from daemon
     if job_ids.is_some() || states.is_some() || pattern.is_some() {
         let jobs = client.list_jobs().await?;
@@ -38,7 +45,7 @@ pub async fn handle_close_sessions(
             };
 
             // Filter by job IDs
-            if let Some(ids) = job_ids {
+            if let Some(ref ids) = job_ids {
                 if ids.contains(&job.id) {
                     sessions_to_close.insert(session_name.clone());
                     continue;

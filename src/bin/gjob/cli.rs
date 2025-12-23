@@ -106,10 +106,9 @@ pub enum Commands {
             short = 'j',
             long,
             help = "Job ID(s) to close sessions for. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
-            value_delimiter = ',',
             value_hint = clap::ValueHint::Other
         )]
-        jobs: Option<Vec<u32>>,
+        jobs: Option<String>,
 
         #[arg(
             short = 's',
