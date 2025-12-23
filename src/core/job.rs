@@ -94,6 +94,7 @@ impl JobState {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default)]
 pub struct Job {
     /// Required fields at submission time
     pub id: u32,
@@ -237,6 +238,32 @@ impl JobBuilder {
     }
 }
 
+impl Default for Job {
+    fn default() -> Self {
+        Job {
+            id: 0,
+            script: None,
+            command: None,
+            gpus: 0,
+            conda_env: None,
+            run_dir: PathBuf::from("."),
+            priority: 10,
+            depends_on: None,
+            task_id: None,
+            time_limit: None,
+            memory_limit_mb: None,
+            submitted_by: String::from("unknown"),
+            redone_from: None,
+            auto_close_tmux: false,
+            run_name: None,
+            state: JobState::Queued,
+            gpu_ids: None,
+            started_at: None,
+            finished_at: None,
+        }
+    }
+}
+
 impl Job {
     pub fn builder() -> JobBuilder {
         JobBuilder::new()
@@ -318,5 +345,147 @@ impl Job {
     pub fn with_redone_from(mut self, redone_from: Option<u32>) -> Self {
         self.redone_from = redone_from;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backward_compatibility_missing_auto_close_tmux() {
+        // Simulate an old state.json that doesn't have auto_close_tmux field
+        let old_json = r#"{
+            "id": 1,
+            "script": "/tmp/test.sh",
+            "command": null,
+            "gpus": 0,
+            "conda_env": null,
+            "run_dir": "/tmp",
+            "priority": 10,
+            "depends_on": null,
+            "task_id": null,
+            "time_limit": null,
+            "memory_limit_mb": null,
+            "submitted_by": "test",
+            "run_name": "test-job-1",
+            "state": "Finished",
+            "gpu_ids": [],
+            "started_at": null,
+            "finished_at": null
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(old_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize old JSON format: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(job.id, 1);
+        assert_eq!(job.auto_close_tmux, false); // Should use default value
+        assert_eq!(job.redone_from, None); // Should be None by default
+    }
+
+    #[test]
+    fn test_backward_compatibility_missing_redone_from() {
+        // Simulate an old state.json that doesn't have redone_from field
+        let old_json = r#"{
+            "id": 2,
+            "script": null,
+            "command": "echo test",
+            "gpus": 1,
+            "conda_env": "myenv",
+            "run_dir": "/home/user",
+            "priority": 5,
+            "depends_on": null,
+            "task_id": null,
+            "time_limit": null,
+            "memory_limit_mb": null,
+            "submitted_by": "alice",
+            "auto_close_tmux": true,
+            "run_name": "test-job-2",
+            "state": "Running",
+            "gpu_ids": [0],
+            "started_at": null,
+            "finished_at": null
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(old_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize JSON without redone_from: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(job.id, 2);
+        assert_eq!(job.auto_close_tmux, true);
+        assert_eq!(job.redone_from, None); // Should use default value
+    }
+
+    #[test]
+    fn test_backward_compatibility_missing_memory_limit() {
+        // Simulate an old state.json that doesn't have memory_limit_mb field
+        let old_json = r#"{
+            "id": 3,
+            "script": "/tmp/script.sh",
+            "command": null,
+            "gpus": 2,
+            "conda_env": null,
+            "run_dir": "/workspace",
+            "priority": 8,
+            "depends_on": 1,
+            "task_id": null,
+            "time_limit": null,
+            "submitted_by": "bob",
+            "redone_from": null,
+            "auto_close_tmux": false,
+            "run_name": "test-job-3",
+            "state": "Queued",
+            "gpu_ids": null,
+            "started_at": null,
+            "finished_at": null
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(old_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize JSON without memory_limit_mb: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(job.id, 3);
+        assert_eq!(job.memory_limit_mb, None); // Should use default value
+    }
+
+    #[test]
+    fn test_backward_compatibility_minimal_json() {
+        // Test with absolute minimal JSON - only required fields from old version
+        let minimal_json = r#"{
+            "id": 4,
+            "gpus": 0,
+            "run_dir": "/tmp",
+            "priority": 10,
+            "submitted_by": "minimal",
+            "state": "Queued"
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(minimal_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize minimal JSON: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(job.id, 4);
+        assert_eq!(job.auto_close_tmux, false);
+        assert_eq!(job.redone_from, None);
+        assert_eq!(job.memory_limit_mb, None);
+        assert_eq!(job.script, None);
+        assert_eq!(job.command, None);
     }
 }

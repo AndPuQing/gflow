@@ -14,6 +14,7 @@ pub type SharedState = Arc<RwLock<Scheduler>>;
 use gflow::core::info::{GpuInfo, SchedulerInfo};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Scheduler {
     pub jobs: HashMap<u32, Job>,
     #[serde(skip)]
@@ -212,33 +213,61 @@ impl Scheduler {
     }
 
     pub fn load_state(&mut self) {
-        let path = &self.state_path;
+        let path = self.state_path.clone();
         if path.exists() {
-            if let Ok(json) = std::fs::read_to_string(path) {
-                if let Ok(mut scheduler) = serde_json::from_str::<Scheduler>(&json) {
-                    // Preserve GPU restriction from current instance
-                    // (CLI/config takes precedence over saved state)
-                    scheduler.allowed_gpu_indices = self.allowed_gpu_indices.clone();
+            if let Ok(json) = std::fs::read_to_string(&path) {
+                match serde_json::from_str::<Scheduler>(&json) {
+                    Ok(mut scheduler) => {
+                        // Preserve GPU restriction from current instance
+                        // (CLI/config takes precedence over saved state)
+                        scheduler.allowed_gpu_indices = self.allowed_gpu_indices.clone();
 
-                    // Try to initialize NVML, but continue without it if it fails
-                    match Nvml::init() {
-                        Ok(nvml) => {
-                            scheduler.gpu_slots = Self::get_gpus(&nvml);
-                            scheduler.nvml = Some(nvml);
+                        // Try to initialize NVML, but continue without it if it fails
+                        match Nvml::init() {
+                            Ok(nvml) => {
+                                scheduler.gpu_slots = Self::get_gpus(&nvml);
+                                scheduler.nvml = Some(nvml);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
+                                scheduler.gpu_slots = HashMap::new();
+                                scheduler.nvml = None;
+                            }
                         }
-                        Err(e) => {
-                            log::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
-                            scheduler.gpu_slots = HashMap::new();
-                            scheduler.nvml = None;
+                        // Initialize memory tracking
+                        scheduler.total_memory_mb = Self::get_total_system_memory_mb();
+                        scheduler.available_memory_mb = scheduler.total_memory_mb;
+                        scheduler.refresh_available_memory();
+                        *self = scheduler;
+                        log::info!("Successfully loaded state from {}", path.display());
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "Failed to deserialize state file {}: {}. Starting with fresh state.",
+                            path.display(),
+                            e
+                        );
+                        log::warn!(
+                            "Your job history may have been lost. The old state file will be backed up to {}.backup",
+                            path.display()
+                        );
+                        // Try to backup the corrupted state file
+                        let backup_path = path.with_extension("json.backup");
+                        if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
+                            log::error!("Failed to backup corrupted state file: {}", backup_err);
+                        } else {
+                            log::info!("Backed up old state file to {}", backup_path.display());
                         }
                     }
-                    // Initialize memory tracking
-                    scheduler.total_memory_mb = Self::get_total_system_memory_mb();
-                    scheduler.available_memory_mb = scheduler.total_memory_mb;
-                    scheduler.refresh_available_memory();
-                    *self = scheduler;
                 }
+            } else {
+                log::error!("Failed to read state file from {}", path.display());
             }
+        } else {
+            log::info!(
+                "No existing state file found at {}, starting fresh",
+                path.display()
+            );
         }
     }
 
