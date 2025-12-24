@@ -608,6 +608,7 @@ mod tests {
             submitted_by: "testuser".to_string(),
             redone_from: None,
             auto_close_tmux: false,
+            parameters: std::collections::HashMap::new(),
         }
     }
 
@@ -632,6 +633,7 @@ mod tests {
             submitted_by: "testuser".to_string(),
             redone_from: None,
             auto_close_tmux: false,
+            parameters: std::collections::HashMap::new(),
         }
     }
 
@@ -656,6 +658,7 @@ mod tests {
             submitted_by: "testuser".to_string(),
             redone_from,
             auto_close_tmux: false,
+            parameters: std::collections::HashMap::new(),
         }
     }
 
