@@ -771,6 +771,7 @@ dependencies = [
  "nvml-wrapper",
  "owo-colors",
  "range-parser",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

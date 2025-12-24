@@ -82,6 +82,7 @@ range-parser = "0.1.2"
 tabled = { version = "0.20.0", features = ["ansi"] }
 owo-colors = "4.1.0"
 shell-escape = "0.1.5"
+regex = "1"
 
 [build-dependencies]
 anyhow = "1.0.95"

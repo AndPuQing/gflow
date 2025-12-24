@@ -21,11 +21,20 @@ async fn main() -> Result<()> {
         let explicit_stdin =
             args.add_args.script_or_command.len() == 1 && args.add_args.script_or_command[0] == "-";
 
-        // Validate that either we have args, stdin is available, or "-" was specified
-        if args.add_args.script_or_command.is_empty() && !stdin_available {
+        // Validate that either we have args, stdin is available, "--param" is specified, or "-" was specified
+        if args.add_args.script_or_command.is_empty()
+            && !stdin_available
+            && args.add_args.param.is_empty()
+        {
             anyhow::bail!("The following required arguments were not provided:\n  <SCRIPT_OR_COMMAND>...\n\nUsage: gbatch <SCRIPT_OR_COMMAND>...\n       gbatch < script.sh\n       gbatch -\n\nFor more information, try 'gbatch --help'");
         }
 
-        commands::add::handle_add(&config, args.add_args, stdin_available || explicit_stdin).await
+        // Use stdin only if:
+        // 1. Explicitly requested with "-", OR
+        // 2. stdin is available AND no command args provided (or only "-")
+        let use_stdin =
+            explicit_stdin || (stdin_available && args.add_args.script_or_command.is_empty());
+
+        commands::add::handle_add(&config, args.add_args, use_stdin).await
     }
 }

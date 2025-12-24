@@ -1,7 +1,35 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use gflow::core::{executor::Executor, job::Job};
 use gflow::tmux::TmuxSession;
+use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
+
+/// Substitute {param_name} patterns in command with actual values
+fn substitute_parameters(command: &str, parameters: &HashMap<String, String>) -> Result<String> {
+    let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
+    let mut result = command.to_string();
+    let mut missing_params = Vec::new();
+
+    for cap in re.captures_iter(command) {
+        let param_name = &cap[1];
+        if let Some(value) = parameters.get(param_name) {
+            let pattern = format!("{{{}}}", param_name);
+            result = result.replace(&pattern, value);
+        } else {
+            missing_params.push(param_name.to_string());
+        }
+    }
+
+    if !missing_params.is_empty() {
+        return Err(anyhow!(
+            "Missing parameter values: {}",
+            missing_params.join(", ")
+        ));
+    }
+
+    Ok(result)
+}
 
 pub struct TmuxExecutor;
 
@@ -14,7 +42,9 @@ impl TmuxExecutor {
                 user_command.push_str(&format!("bash {script_str}"));
             }
         } else if let Some(cmd) = &job.command {
-            user_command.push_str(cmd);
+            // Apply parameter substitution
+            let substituted = substitute_parameters(cmd, &job.parameters)?;
+            user_command.push_str(&substituted);
         }
 
         let wrapped_command = format!(

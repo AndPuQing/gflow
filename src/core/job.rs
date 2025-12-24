@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -111,6 +112,8 @@ pub struct Job {
     pub submitted_by: String,
     pub redone_from: Option<u32>, // The job ID this job was redone from
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
+    #[serde(default)]
+    pub parameters: HashMap<String, String>, // Parameter values for template substitution
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -136,6 +139,7 @@ pub struct JobBuilder {
     run_name: Option<String>,
     redone_from: Option<u32>,
     auto_close_tmux: Option<bool>,
+    parameters: Option<HashMap<String, String>>,
 }
 
 impl JobBuilder {
@@ -213,6 +217,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn parameters(mut self, parameters: HashMap<String, String>) -> Self {
+        self.parameters = Some(parameters);
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -229,6 +238,7 @@ impl JobBuilder {
             run_name: self.run_name,
             redone_from: self.redone_from,
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
+            parameters: self.parameters.unwrap_or_default(),
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
@@ -255,6 +265,7 @@ impl Default for Job {
             submitted_by: String::from("unknown"),
             redone_from: None,
             auto_close_tmux: false,
+            parameters: HashMap::new(),
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,

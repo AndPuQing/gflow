@@ -77,4 +77,13 @@ pub struct AddArgs {
     /// Automatically close tmux session on successful completion
     #[arg(long)]
     pub auto_close: bool,
+
+    /// Parameter specification (e.g., "scale=2.0,1.9,1.8")
+    /// Can be specified multiple times for cartesian product
+    #[arg(long, value_hint = clap::ValueHint::Other)]
+    pub param: Vec<String>,
+
+    /// Preview what would be submitted without actually submitting
+    #[arg(long)]
+    pub dry_run: bool,
 }
