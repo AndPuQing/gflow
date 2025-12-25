@@ -609,6 +609,8 @@ mod tests {
             redone_from: None,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),
+            group_id: None,
+            max_concurrent: None,
         }
     }
 
@@ -634,6 +636,8 @@ mod tests {
             redone_from: None,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),
+            group_id: None,
+            max_concurrent: None,
         }
     }
 
@@ -659,6 +663,8 @@ mod tests {
             redone_from,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),
+            group_id: None,
+            max_concurrent: None,
         }
     }
 

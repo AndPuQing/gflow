@@ -612,17 +612,56 @@ pub async fn run(shared_state: SharedState) {
         // Execute runnable jobs
         let available_memory = state.available_memory_mb;
         for job_id in runnable_jobs {
-            if let Some(job) = state.jobs.get_mut(&job_id) {
-                // Check if sufficient GPUs are available
-                let has_enough_gpus = job.gpus as usize <= available_gpus.len();
+            // First, do immutable checks to determine if job can run
+            let (has_enough_gpus, has_enough_memory, within_group_limit, required_memory) =
+                if let Some(job) = state.jobs.get(&job_id) {
+                    let has_enough_gpus = job.gpus as usize <= available_gpus.len();
+                    let required_memory = job.memory_limit_mb.unwrap_or(0);
+                    let has_enough_memory = required_memory <= available_memory;
 
-                // Check if sufficient memory is available
-                // If job has no memory limit, treat it as requiring 0 MB
-                let required_memory = job.memory_limit_mb.unwrap_or(0);
-                let has_enough_memory = required_memory <= available_memory;
+                    // Check group concurrency limit
+                    let within_group_limit = if let Some(ref group_id) = job.group_id {
+                        if let Some(max_concurrent) = job.max_concurrent {
+                            // Count running jobs in this group
+                            let running_in_group = state
+                                .jobs
+                                .values()
+                                .filter(|j| j.group_id.as_ref() == Some(group_id))
+                                .filter(|j| j.state == JobState::Running)
+                                .count();
 
-                // Only execute if both GPU and memory requirements are met
-                if has_enough_gpus && has_enough_memory {
+                            if running_in_group >= max_concurrent {
+                                log::debug!(
+                                    "Job {} waiting: group {} has {}/{} running jobs",
+                                    job.id,
+                                    group_id,
+                                    running_in_group,
+                                    max_concurrent
+                                );
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            true // No limit specified
+                        }
+                    } else {
+                        true // Not part of a group
+                    };
+
+                    (
+                        has_enough_gpus,
+                        has_enough_memory,
+                        within_group_limit,
+                        required_memory,
+                    )
+                } else {
+                    continue;
+                };
+
+            // Now get mutable borrow if all checks pass
+            if has_enough_gpus && has_enough_memory && within_group_limit {
+                if let Some(job) = state.jobs.get_mut(&job_id) {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
@@ -643,7 +682,9 @@ pub async fn run(shared_state: SharedState) {
                             job.state = JobState::Failed;
                         }
                     }
-                } else if !has_enough_memory {
+                }
+            } else if !has_enough_memory {
+                if let Some(job) = state.jobs.get(&job_id) {
                     log::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
                         job.id,

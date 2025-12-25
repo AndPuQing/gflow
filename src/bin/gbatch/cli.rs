@@ -86,4 +86,17 @@ pub struct AddArgs {
     /// Preview what would be submitted without actually submitting
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Maximum number of jobs from this submission that can run concurrently
+    #[arg(long, value_hint = clap::ValueHint::Other)]
+    pub max_concurrent: Option<usize>,
+
+    /// Load parameters from a CSV file (header row required)
+    #[arg(long, value_hint = clap::ValueHint::FilePath)]
+    pub param_file: Option<std::path::PathBuf>,
+
+    /// Template for job names when using --param or --param-file
+    /// Use {param_name} to substitute parameter values
+    #[arg(long, value_hint = clap::ValueHint::Other)]
+    pub name_template: Option<String>,
 }

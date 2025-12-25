@@ -95,7 +95,6 @@ impl JobState {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
 pub struct Job {
     /// Required fields at submission time
     pub id: u32,
@@ -110,10 +109,16 @@ pub struct Job {
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: String,
+    #[serde(default)]
     pub redone_from: Option<u32>, // The job ID this job was redone from
-    pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
+    #[serde(default)]
+    pub auto_close_tmux: bool, // Whether to automatically close tmux on successful completion
     #[serde(default)]
     pub parameters: HashMap<String, String>, // Parameter values for template substitution
+    #[serde(default)]
+    pub group_id: Option<String>, // UUID for job group (for batch submissions)
+    #[serde(default)]
+    pub max_concurrent: Option<usize>, // Max concurrent jobs in this group
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
@@ -140,6 +145,8 @@ pub struct JobBuilder {
     redone_from: Option<u32>,
     auto_close_tmux: Option<bool>,
     parameters: Option<HashMap<String, String>>,
+    group_id: Option<String>,
+    max_concurrent: Option<usize>,
 }
 
 impl JobBuilder {
@@ -222,6 +229,16 @@ impl JobBuilder {
         self
     }
 
+    pub fn group_id(mut self, group_id: Option<String>) -> Self {
+        self.group_id = group_id;
+        self
+    }
+
+    pub fn max_concurrent(mut self, max_concurrent: Option<usize>) -> Self {
+        self.max_concurrent = max_concurrent;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -239,6 +256,8 @@ impl JobBuilder {
             redone_from: self.redone_from,
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
             parameters: self.parameters.unwrap_or_default(),
+            group_id: self.group_id,
+            max_concurrent: self.max_concurrent,
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
@@ -266,6 +285,8 @@ impl Default for Job {
             redone_from: None,
             auto_close_tmux: false,
             parameters: HashMap::new(),
+            group_id: None,
+            max_concurrent: None,
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,
@@ -395,7 +416,7 @@ mod tests {
 
         let job = result.unwrap();
         assert_eq!(job.id, 1);
-        assert_eq!(job.auto_close_tmux, false); // Should use default value
+        assert!(!job.auto_close_tmux); // Should use default value
         assert_eq!(job.redone_from, None); // Should be None by default
     }
 
@@ -432,7 +453,7 @@ mod tests {
 
         let job = result.unwrap();
         assert_eq!(job.id, 2);
-        assert_eq!(job.auto_close_tmux, true);
+        assert!(job.auto_close_tmux);
         assert_eq!(job.redone_from, None); // Should use default value
     }
 
@@ -493,7 +514,7 @@ mod tests {
 
         let job = result.unwrap();
         assert_eq!(job.id, 4);
-        assert_eq!(job.auto_close_tmux, false);
+        assert!(!job.auto_close_tmux);
         assert_eq!(job.redone_from, None);
         assert_eq!(job.memory_limit_mb, None);
         assert_eq!(job.script, None);

@@ -15,6 +15,108 @@ fn preview_substitute(command: &str, parameters: &HashMap<String, String>) -> St
     result
 }
 
+/// Substitute {param_name} patterns in template with actual values
+fn substitute_template(template: &str, parameters: &HashMap<String, String>) -> String {
+    let mut result = template.to_string();
+    for (param_name, value) in parameters {
+        let pattern = format!("{{{}}}", param_name);
+        // Sanitize value for use in tmux session names (replace spaces with underscores)
+        let sanitized_value = value.replace([' ', '/'], "_");
+        result = result.replace(&pattern, &sanitized_value);
+    }
+    result
+}
+
+/// Parse range specification (start:stop or start:stop:step)
+/// Returns a vector of stringified values
+fn parse_range_spec(spec: &str) -> Result<Vec<String>> {
+    let parts: Vec<&str> = spec.split(':').collect();
+
+    match parts.len() {
+        2 => {
+            // start:stop (default step = 1)
+            let start = parts[0].trim().parse::<f64>()?;
+            let stop = parts[1].trim().parse::<f64>()?;
+            let step = if start <= stop { 1.0 } else { -1.0 };
+            generate_range(start, stop, step)
+        }
+        3 => {
+            // start:stop:step
+            let start = parts[0].trim().parse::<f64>()?;
+            let stop = parts[1].trim().parse::<f64>()?;
+            let step = parts[2].trim().parse::<f64>()?;
+
+            if step == 0.0 {
+                return Err(anyhow!("Step cannot be zero"));
+            }
+
+            generate_range(start, stop, step)
+        }
+        _ => Err(anyhow!(
+            "Invalid range format. Expected 'start:stop' or 'start:stop:step'"
+        )),
+    }
+}
+
+/// Generate range values from start to stop with given step
+fn generate_range(start: f64, stop: f64, step: f64) -> Result<Vec<String>> {
+    if (step > 0.0 && start > stop) || (step < 0.0 && start < stop) {
+        return Err(anyhow!("Step direction doesn't match start/stop"));
+    }
+
+    // Determine decimal places to use for formatting based on step
+    let step_str = format!("{}", step.abs());
+    let decimal_places = if let Some(dot_pos) = step_str.find('.') {
+        let after_dot = &step_str[dot_pos + 1..];
+        // Remove trailing zeros and count
+        after_dot.trim_end_matches('0').len()
+    } else {
+        0
+    };
+
+    let mut values = Vec::new();
+    let mut index = 0;
+
+    // Use epsilon for float comparison
+    const EPSILON: f64 = 1e-10;
+
+    loop {
+        // Calculate current value from index to avoid accumulation of floating point errors
+        let current = start + step * (index as f64);
+
+        // Check if we've exceeded the stop value
+        if step > 0.0 && current > stop + EPSILON {
+            break;
+        }
+        if step < 0.0 && current < stop - EPSILON {
+            break;
+        }
+
+        // Round to avoid floating point precision issues
+        let power = 10_f64.powi(decimal_places.max(10) as i32);
+        let rounded = (current * power).round() / power;
+
+        // Format as integer if it's a whole number, otherwise as float with appropriate precision
+        let formatted = if (rounded - rounded.round()).abs() < EPSILON {
+            format!("{}", rounded.round() as i64)
+        } else if decimal_places > 0 {
+            format!("{:.prec$}", rounded, prec = decimal_places)
+        } else {
+            format!("{}", rounded)
+        };
+
+        values.push(formatted);
+        index += 1;
+
+        // Safety limit
+        if values.len() > 10000 {
+            return Err(anyhow!("Range too large (max 10000 values)"));
+        }
+    }
+
+    Ok(values)
+}
+
 /// Parse a single parameter spec like "name=val1,val2,val3"
 /// Returns (param_name, vec_of_values)
 fn parse_param_spec(spec: &str) -> Result<(String, Vec<String>)> {
@@ -30,12 +132,22 @@ fn parse_param_spec(spec: &str) -> Result<(String, Vec<String>)> {
         return Err(anyhow!("Parameter name cannot be empty"));
     }
 
-    // Parse comma-separated values
-    let values: Vec<String> = parts[1]
-        .split(',')
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .collect();
+    let value_spec = parts[1];
+
+    // Detect range syntax (contains : but not just in the middle of values)
+    // Check if it looks like a range (has exactly 1 or 2 colons)
+    let colon_count = value_spec.matches(':').count();
+    let values = if (1..=2).contains(&colon_count) && !value_spec.contains(',') {
+        // Range syntax: start:stop or start:stop:step
+        parse_range_spec(value_spec)?
+    } else {
+        // Comma-separated syntax
+        value_spec
+            .split(',')
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect()
+    };
 
     if values.is_empty() {
         return Err(anyhow!("Parameter must have at least one value"));
@@ -71,6 +183,42 @@ fn generate_param_combinations(
     combinations
 }
 
+/// Parse parameter file (CSV format)
+/// Returns a vector of parameter sets, one per row
+fn parse_param_file(path: &PathBuf) -> Result<Vec<HashMap<String, String>>> {
+    let mut reader = csv::Reader::from_path(path).context("Failed to read parameter file")?;
+
+    let headers: Vec<String> = reader
+        .headers()?
+        .iter()
+        .map(|h| h.trim().to_string())
+        .collect();
+
+    if headers.is_empty() {
+        return Err(anyhow!("CSV file must have a header row"));
+    }
+
+    let mut param_sets = Vec::new();
+    for result in reader.records() {
+        let record = result?;
+        let mut params = HashMap::new();
+
+        for (i, value) in record.iter().enumerate() {
+            if let Some(header) = headers.get(i) {
+                params.insert(header.clone(), value.trim().to_string());
+            }
+        }
+
+        param_sets.push(params);
+    }
+
+    if param_sets.is_empty() {
+        return Err(anyhow!("CSV file contains no data rows"));
+    }
+
+    Ok(param_sets)
+}
+
 pub(crate) async fn handle_add(
     config: &gflow::config::Config,
     add_args: cli::AddArgs,
@@ -97,16 +245,41 @@ pub(crate) async fn handle_add(
         anyhow::bail!("Cannot use both --param and --array together");
     }
 
-    // Handle --param mode
-    if !add_args.param.is_empty() {
-        // Parse all parameter specs
-        let mut param_specs = Vec::new();
-        for spec in &add_args.param {
-            param_specs.push(parse_param_spec(spec)?);
+    // Validation: --param-file and --array are mutually exclusive
+    if add_args.param_file.is_some() && add_args.array.is_some() {
+        anyhow::bail!("Cannot use both --param-file and --array together");
+    }
+
+    // Handle --param-file mode
+    if let Some(ref param_file) = add_args.param_file {
+        let mut param_combinations = parse_param_file(param_file)?;
+
+        // If --param flags are also provided, merge them with cartesian product
+        if !add_args.param.is_empty() {
+            let mut param_specs = Vec::new();
+            for spec in &add_args.param {
+                param_specs.push(parse_param_spec(spec)?);
+            }
+            let cli_combinations = generate_param_combinations(&param_specs);
+
+            // Cartesian product of file params with CLI params
+            let mut merged = Vec::new();
+            for file_params in &param_combinations {
+                for cli_params in &cli_combinations {
+                    let mut combined = file_params.clone();
+                    combined.extend(cli_params.clone());
+                    merged.push(combined);
+                }
+            }
+            param_combinations = merged;
         }
 
-        // Generate cartesian product
-        let param_combinations = generate_param_combinations(&param_specs);
+        // Generate group_id if max_concurrent is specified
+        let group_id = if add_args.max_concurrent.is_some() {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
 
         // Dry-run mode: preview without submitting
         if add_args.dry_run {
@@ -137,9 +310,77 @@ pub(crate) async fn handle_add(
 
         // Submit all jobs
         for params in param_combinations {
-            let job =
+            let mut job =
                 build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
                     .await?;
+            // Assign group_id and max_concurrent if needed
+            job.group_id = group_id.clone();
+            job.max_concurrent = add_args.max_concurrent;
+
+            let response = client.add_job(job).await.context("Failed to add job")?;
+            println!(
+                "Submitted batch job {} ({})",
+                response.id, response.run_name
+            );
+        }
+
+        return Ok(());
+    }
+
+    // Handle --param mode
+    if !add_args.param.is_empty() {
+        // Parse all parameter specs
+        let mut param_specs = Vec::new();
+        for spec in &add_args.param {
+            param_specs.push(parse_param_spec(spec)?);
+        }
+
+        // Generate cartesian product
+        let param_combinations = generate_param_combinations(&param_specs);
+
+        // Generate group_id if max_concurrent is specified
+        let group_id = if add_args.max_concurrent.is_some() {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+
+        // Dry-run mode: preview without submitting
+        if add_args.dry_run {
+            println!("Would submit {} batch job(s):", param_combinations.len());
+            for (idx, params) in param_combinations.iter().enumerate() {
+                let job = build_job_with_params(
+                    add_args.clone(),
+                    params.clone(),
+                    &client,
+                    stdin_content.as_ref(),
+                )
+                .await?;
+
+                // Show preview
+                let mut cmd = if let Some(c) = &job.command {
+                    c.clone()
+                } else if let Some(s) = &job.script {
+                    s.to_string_lossy().to_string()
+                } else {
+                    String::new()
+                };
+                // Apply substitution for preview
+                cmd = preview_substitute(&cmd, params);
+                println!("  [{}] {} (GPUs: {})", idx + 1, cmd, job.gpus);
+            }
+            return Ok(());
+        }
+
+        // Submit all jobs
+        for params in param_combinations {
+            let mut job =
+                build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
+                    .await?;
+            // Assign group_id and max_concurrent if needed
+            job.group_id = group_id.clone();
+            job.max_concurrent = add_args.max_concurrent;
+
             let response = client.add_job(job).await.context("Failed to add job")?;
             println!(
                 "Submitted batch job {} ({})",
@@ -153,6 +394,13 @@ pub(crate) async fn handle_add(
     // Existing --array mode
     if let Some(array_spec) = &add_args.array {
         let task_ids = parse_array_spec(array_spec)?;
+
+        // Generate group_id if max_concurrent is specified
+        let group_id = if add_args.max_concurrent.is_some() {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
 
         // Dry-run mode for array jobs
         if add_args.dry_run {
@@ -186,13 +434,17 @@ pub(crate) async fn handle_add(
 
         // Submit array jobs
         for task_id in task_ids {
-            let job = build_job(
+            let mut job = build_job(
                 add_args.clone(),
                 Some(task_id),
                 &client,
                 stdin_content.as_ref(),
             )
             .await?;
+            // Assign group_id and max_concurrent if needed
+            job.group_id = group_id.clone();
+            job.max_concurrent = add_args.max_concurrent;
+
             let response = client.add_job(job).await.context("Failed to add job")?;
             println!(
                 "Submitted batch job {} ({})",
@@ -378,14 +630,20 @@ async fn build_job_with_params(
     builder = builder.run_dir(run_dir);
     // Parameters are for array-like submissions but without task_id
     builder = builder.task_id(None);
-    builder = builder.parameters(parameters);
+    builder = builder.parameters(parameters.clone());
 
     // Get the username of the submitter
     let username = gflow::core::get_current_username();
     builder = builder.submitted_by(username);
 
-    // Set custom run name if provided
-    builder = builder.run_name(args.name.clone());
+    // Apply name template if provided, otherwise use custom name if provided
+    let run_name = if let Some(ref template) = args.name_template {
+        Some(substitute_template(template, &parameters))
+    } else {
+        args.name.clone()
+    };
+
+    builder = builder.run_name(run_name);
 
     // Parse time limit if provided
     let time_limit = if let Some(time_str) = &args.time {
@@ -547,6 +805,9 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             auto_close: false,
             param: vec![],
             dry_run: false,
+            max_concurrent: None,
+            param_file: None,
+            name_template: None,
         });
     }
 

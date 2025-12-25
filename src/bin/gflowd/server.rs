@@ -66,6 +66,11 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.write().await;
     log::info!("Received job: {input:?}");
+    log::info!(
+        "Job group_id: {:?}, max_concurrent: {:?}",
+        input.group_id,
+        input.max_concurrent
+    );
 
     // Validate that dependency job exists if specified
     if let Some(dep_id) = input.depends_on {

@@ -28,6 +28,9 @@
 # GFLOW --auto-close=value
 # GFLOW --param=value
 # GFLOW --dry-run=value
+# GFLOW --max-concurrent=value
+# GFLOW --param-file=value
+# GFLOW --name-template=value
 # --- Your script starts here ---
 echo "Starting gflow job..."
 echo "Running on node: $HOSTNAME"
