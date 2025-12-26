@@ -1,6 +1,5 @@
 use crate::executor::TmuxExecutor;
 use gflow::core::executor::Executor;
-use gflow::core::get_data_dir;
 use gflow::core::{
     job::{Job, JobState},
     GPUSlot, GPU, UUID,
@@ -33,33 +32,23 @@ pub struct Scheduler {
 
 impl Default for Scheduler {
     fn default() -> Self {
-        Self::new().unwrap_or_else(|e| {
-            log::error!(
-                "Failed to create scheduler: {}. Creating minimal scheduler.",
-                e
-            );
-            let total_memory_mb = Self::get_total_system_memory_mb();
-            // Fallback to a minimal scheduler without GPU support
-            Self {
-                jobs: HashMap::new(),
-                gpu_slots: HashMap::new(),
-                nvml: None,
-                total_memory_mb,
-                available_memory_mb: total_memory_mb,
-                state_path: PathBuf::from("state.json"),
-                next_job_id: 1,
-                allowed_gpu_indices: None,
-            }
-        })
+        // Return a minimal scheduler without GPU support or state loading
+        // This prevents infinite recursion during serde deserialization
+        let total_memory_mb = Self::get_total_system_memory_mb();
+        Self {
+            jobs: HashMap::new(),
+            gpu_slots: HashMap::new(),
+            nvml: None,
+            total_memory_mb,
+            available_memory_mb: total_memory_mb,
+            state_path: PathBuf::from("state.json"),
+            next_job_id: 1,
+            allowed_gpu_indices: None,
+        }
     }
 }
 
 impl Scheduler {
-    pub fn new() -> anyhow::Result<Self> {
-        let state_path = get_data_dir()?.join("state.json");
-        Self::with_state_path(state_path, None)
-    }
-
     pub fn with_state_path(
         state_path: PathBuf,
         allowed_gpu_indices: Option<Vec<u32>>,

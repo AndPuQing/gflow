@@ -95,6 +95,7 @@ impl JobState {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default)]
 pub struct Job {
     /// Required fields at submission time
     pub id: u32,
@@ -109,15 +110,10 @@ pub struct Job {
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: String,
-    #[serde(default)]
     pub redone_from: Option<u32>, // The job ID this job was redone from
-    #[serde(default)]
-    pub auto_close_tmux: bool, // Whether to automatically close tmux on successful completion
-    #[serde(default)]
+    pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
     pub parameters: HashMap<String, String>, // Parameter values for template substitution
-    #[serde(default)]
     pub group_id: Option<String>, // UUID for job group (for batch submissions)
-    #[serde(default)]
     pub max_concurrent: Option<usize>, // Max concurrent jobs in this group
 
     /// Optional fields that get populated by gflowd
