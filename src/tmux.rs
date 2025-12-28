@@ -139,18 +139,20 @@ pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tmux_interface::{HasSession, KillSession, Tmux};
 
     use super::*;
 
     #[test]
     fn test_tmux_session() {
-        // Skip test if tmux is not usable (not just installed, but actually functional)
-        // Try to list sessions - this will fail if tmux can't connect/start
-        let tmux_usable = std::process::Command::new("tmux")
-            .arg("list-sessions")
+        // Skip test if tmux is not usable (not just installed, but actually functional).
+        // `tmux start-server` will fail in sandboxes where tmux can't connect/spawn.
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
             .output()
-            .map(|output| output.status.success() || output.status.code() == Some(1))
+            .map(|output| output.status.success())
             .unwrap_or(false);
 
         if !tmux_usable {
@@ -160,14 +162,22 @@ mod tests {
             return;
         }
 
-        TmuxSession::new("test".to_string());
-        let has_session = Tmux::with_command(HasSession::new().target_session("test"))
+        let session_name = format!(
+            "gflow-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        TmuxSession::new(session_name.clone());
+        let has_session = Tmux::with_command(HasSession::new().target_session(&session_name))
             .output()
             .unwrap();
 
         assert!(has_session.success());
 
-        Tmux::with_command(KillSession::new().target_session("test"))
+        Tmux::with_command(KillSession::new().target_session(&session_name))
             .output()
             .unwrap();
     }
