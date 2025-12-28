@@ -2,7 +2,7 @@ use clap::Parser;
 mod cli;
 mod commands;
 mod executor;
-mod scheduler;
+mod scheduler_runtime;
 mod server;
 
 #[tokio::main]

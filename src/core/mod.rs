@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod info;
 pub mod job;
+pub mod scheduler;
 
 use std::{collections::HashMap, env, path::PathBuf};
 pub type UUID = String;
@@ -30,7 +31,7 @@ Authors: {author}"
     })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GPUSlot {
     pub index: u32,
     pub available: bool,

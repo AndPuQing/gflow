@@ -1,4 +1,5 @@
-use crate::scheduler::{self, SharedState};
+use crate::executor::TmuxExecutor;
+use crate::scheduler_runtime::{self, SharedState};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -13,14 +14,17 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_path = gflow::core::get_data_dir()?.join("state.json");
     let allowed_gpus = config.daemon.gpus.clone();
 
+    // Inject TmuxExecutor
+    let executor = Box::new(TmuxExecutor);
+
     let scheduler = Arc::new(tokio::sync::RwLock::new(
-        scheduler::Scheduler::with_state_path(state_path, allowed_gpus)?,
+        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_path, allowed_gpus)?,
     ));
     let scheduler_clone = Arc::clone(&scheduler);
 
     tokio::spawn(async move {
         log::info!("Starting scheduler...");
-        scheduler::run(scheduler_clone).await;
+        scheduler_runtime::run(scheduler_clone).await;
     });
 
     let app = Router::new()
@@ -57,7 +61,7 @@ async fn info(State(state): State<SharedState>) -> impl IntoResponse {
 #[axum::debug_handler]
 async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
     let state = state.read().await;
-    let mut jobs: Vec<_> = state.jobs.values().cloned().collect();
+    let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
     jobs.sort_by_key(|j| j.id);
     (StatusCode::OK, Json(jobs))
 }
@@ -74,7 +78,7 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 
     // Validate that dependency job exists if specified
     if let Some(dep_id) = input.depends_on {
-        if !state.jobs.contains_key(&dep_id) {
+        if !state.jobs().contains_key(&dep_id) {
             log::warn!(
                 "Job submission failed: dependency job {} does not exist",
                 dep_id
@@ -102,7 +106,7 @@ async fn get_job(
 ) -> Result<Json<Job>, StatusCode> {
     let state = state.read().await;
     state
-        .jobs
+        .jobs()
         .get(&id)
         .cloned()
         .map(Json)
@@ -123,7 +127,7 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 #[axum::debug_handler]
 async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let state = state.read().await;
-    if state.jobs.contains_key(&id) {
+    if state.jobs().contains_key(&id) {
         match gflow::core::get_log_file_path(id) {
             Ok(path) => {
                 if path.exists() {
