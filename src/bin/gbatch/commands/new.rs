@@ -8,17 +8,20 @@ const SCRIPT_TEMPLATE: &str = include_str!("../script_template.sh");
 
 pub(crate) fn handle_new(new_args: cli::NewArgs) -> Result<()> {
     let job_name = &new_args.name;
-    let job_dir = Path::new(job_name);
 
-    if job_dir.exists() {
-        anyhow::bail!("Directory '{}' already exists.", job_name);
+    // Add .sh extension if not present
+    let script_path = if job_name.ends_with(".sh") {
+        Path::new(job_name).to_path_buf()
+    } else {
+        Path::new(&format!("{}.sh", job_name)).to_path_buf()
+    };
+
+    if script_path.exists() {
+        anyhow::bail!("File '{}' already exists.", script_path.display());
     }
 
-    fs::create_dir(job_dir).with_context(|| format!("Failed to create directory '{job_name}'"))?;
-
-    let script_path = job_dir.join("run.sh");
     fs::write(&script_path, SCRIPT_TEMPLATE)
-        .with_context(|| format!("Failed to write to script file '{script_path:?}'"))?;
+        .with_context(|| format!("Failed to write to script file '{}'", script_path.display()))?;
 
     // Make the script executable
     #[cfg(unix)]
@@ -29,6 +32,6 @@ pub(crate) fn handle_new(new_args: cli::NewArgs) -> Result<()> {
         fs::set_permissions(&script_path, perms)?;
     }
 
-    log::info!("Successfully created new job '{job_name}' in directory '{job_dir:?}'.");
+    log::info!("Created template: {}", script_path.display());
     Ok(())
 }
