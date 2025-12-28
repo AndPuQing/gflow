@@ -145,13 +145,18 @@ mod tests {
 
     #[test]
     fn test_tmux_session() {
-        // Skip test if tmux is not available
-        if std::process::Command::new("tmux")
-            .arg("-V")
+        // Skip test if tmux is not usable (not just installed, but actually functional)
+        // Try to list sessions - this will fail if tmux can't connect/start
+        let tmux_usable = std::process::Command::new("tmux")
+            .arg("list-sessions")
             .output()
-            .is_err()
-        {
-            eprintln!("Skipping test_tmux_session: tmux not available");
+            .map(|output| output.status.success() || output.status.code() == Some(1))
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!(
+                "Skipping test_tmux_session: tmux not usable (not installed or can't connect)"
+            );
             return;
         }
 
