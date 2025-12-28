@@ -145,6 +145,16 @@ mod tests {
 
     #[test]
     fn test_tmux_session() {
+        // Skip test if tmux is not available
+        if std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .is_err()
+        {
+            eprintln!("Skipping test_tmux_session: tmux not available");
+            return;
+        }
+
         TmuxSession::new("test".to_string());
         let has_session = Tmux::with_command(HasSession::new().target_session("test"))
             .output()

@@ -362,7 +362,8 @@ impl Scheduler {
                         }
                         Err(e) => {
                             log::error!("Failed to execute job: {e:?}");
-                            job.state = JobState::Failed;
+                            // Use try_transition for consistent timestamps
+                            job.try_transition(job_id, JobState::Failed);
                             // Return GPUs to available pool on failure
                             if let Some(gpu_ids) = job.gpu_ids.take() {
                                 available_gpus.extend(gpu_ids);
