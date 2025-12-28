@@ -287,8 +287,8 @@ impl Scheduler {
                 .unwrap_or(std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id))))
         });
 
-        // Execute runnable jobs
-        let available_memory = self.available_memory_mb;
+        // Execute runnable jobs - track memory locally to prevent over-allocation
+        let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
             // First, do immutable checks to determine if job can run
             let (has_enough_gpus, has_enough_memory, within_group_limit, required_memory) =
@@ -345,14 +345,17 @@ impl Scheduler {
                         .collect::<Vec<_>>();
                     job.gpu_ids = Some(gpus_for_job);
 
+                    // Set state to Running BEFORE execute() to prevent race with fast jobs
+                    job.state = JobState::Running;
+                    job.started_at = Some(std::time::SystemTime::now());
+
                     // Execute job using injected executor
                     let executor = self.executor.as_ref().unwrap();
                     match executor.execute(job) {
                         Ok(_) => {
-                            job.state = JobState::Running;
-                            job.started_at = Some(std::time::SystemTime::now());
                             log::info!("Executing job: {job:?}");
-                            // Reserve memory for this job
+                            // Reserve memory for this job (using local tracker)
+                            available_memory = available_memory.saturating_sub(required_memory);
                             self.available_memory_mb =
                                 self.available_memory_mb.saturating_sub(required_memory);
                             results.push((job_id, Ok(())));
@@ -360,6 +363,11 @@ impl Scheduler {
                         Err(e) => {
                             log::error!("Failed to execute job: {e:?}");
                             job.state = JobState::Failed;
+                            // Return GPUs to available pool on failure
+                            if let Some(gpu_ids) = job.gpu_ids.take() {
+                                available_gpus.extend(gpu_ids);
+                                available_gpus.sort_unstable();
+                            }
                             results.push((job_id, Err(e.to_string())));
                         }
                     }

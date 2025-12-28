@@ -36,25 +36,32 @@ impl SchedulerRuntime {
             }
         };
 
-        // Validate allowed GPU indices
-        if let Some(ref allowed) = allowed_gpu_indices {
+        // Validate and filter allowed GPU indices
+        let validated_gpu_indices = if let Some(ref allowed) = allowed_gpu_indices {
             let detected_count = gpu_slots.len();
-            let invalid: Vec<_> = allowed
+            let (valid, invalid): (Vec<_>, Vec<_>) = allowed
                 .iter()
-                .filter(|&&idx| idx >= detected_count as u32)
                 .copied()
-                .collect();
+                .partition(|&idx| idx < detected_count as u32);
 
             if !invalid.is_empty() {
                 log::warn!(
-                    "Invalid GPU indices {:?} specified (only {} GPUs detected). These will be ignored.",
+                    "Invalid GPU indices {:?} specified (only {} GPUs detected). These will be filtered out.",
                     invalid,
                     detected_count
                 );
             }
 
-            log::info!("GPU restriction enabled: allowing only GPUs {:?}", allowed);
-        }
+            if valid.is_empty() {
+                log::warn!("No valid GPU indices remaining after filtering. Allowing all GPUs.");
+                None
+            } else {
+                log::info!("GPU restriction enabled: allowing only GPUs {:?}", valid);
+                Some(valid)
+            }
+        } else {
+            None
+        };
 
         let total_memory_mb = Self::get_total_system_memory_mb();
         let scheduler = SchedulerBuilder::new()
@@ -62,7 +69,7 @@ impl SchedulerRuntime {
             .with_gpu_slots(gpu_slots)
             .with_state_path(state_path)
             .with_total_memory_mb(total_memory_mb)
-            .with_allowed_gpu_indices(allowed_gpu_indices)
+            .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
 
         let mut runtime = Self { scheduler, nvml };
@@ -75,15 +82,55 @@ impl SchedulerRuntime {
         let path = self.scheduler.state_path();
         let tmp_path = path.with_extension("json.tmp");
 
-        if let Ok(json) = serde_json::to_string_pretty(&self.scheduler) {
-            if let Ok(mut file) = tokio::fs::File::create(&tmp_path).await {
-                if tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes())
-                    .await
-                    .is_ok()
-                {
-                    // Atomic rename
-                    let _ = tokio::fs::rename(&tmp_path, path).await;
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                log::error!(
+                    "Failed to create state directory {}: {}",
+                    parent.display(),
+                    e
+                );
+                return;
+            }
+        }
+
+        match serde_json::to_string_pretty(&self.scheduler) {
+            Ok(json) => {
+                match tokio::fs::File::create(&tmp_path).await {
+                    Ok(mut file) => {
+                        match tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await
+                        {
+                            Ok(_) => {
+                                // Atomic rename
+                                if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
+                                    log::error!(
+                                        "Failed to rename state file from {} to {}: {}",
+                                        tmp_path.display(),
+                                        path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to write state to {}: {}",
+                                    tmp_path.display(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "Failed to create temporary state file {}: {}",
+                            tmp_path.display(),
+                            e
+                        );
+                    }
                 }
+            }
+            Err(e) => {
+                log::error!("Failed to serialize scheduler state: {}", e);
             }
         }
     }
@@ -94,29 +141,29 @@ impl SchedulerRuntime {
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(&path) {
                 match serde_json::from_str::<Scheduler>(&json) {
-                    Ok(mut loaded_scheduler) => {
-                        // Try to initialize NVML, but continue without it if it fails
+                    Ok(loaded_scheduler) => {
+                        // Update jobs and next_job_id from loaded state
+                        let next_id = loaded_scheduler.next_job_id();
+                        self.scheduler.jobs = loaded_scheduler.jobs;
+                        self.scheduler.set_next_job_id(next_id);
+
+                        // Re-initialize NVML and GPU slots (fresh detection)
                         match Nvml::init() {
                             Ok(nvml) => {
-                                loaded_scheduler.update_gpu_slots(Self::get_gpus(&nvml));
+                                self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
                                 self.nvml = Some(nvml);
                             }
                             Err(e) => {
                                 log::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
-                                loaded_scheduler.update_gpu_slots(HashMap::new());
+                                self.scheduler.update_gpu_slots(HashMap::new());
                                 self.nvml = None;
                             }
                         }
 
-                        // Initialize memory tracking
+                        // Re-initialize memory tracking with current system values
                         let total_memory_mb = Self::get_total_system_memory_mb();
-                        loaded_scheduler.update_memory(total_memory_mb);
-                        loaded_scheduler.refresh_available_memory();
-
-                        // Update jobs in current scheduler but preserve configuration
-                        let next_id = loaded_scheduler.next_job_id();
-                        self.scheduler.jobs = loaded_scheduler.jobs;
-                        self.scheduler.set_next_job_id(next_id);
+                        self.scheduler.update_memory(total_memory_mb);
+                        self.scheduler.refresh_available_memory();
 
                         log::info!("Successfully loaded state from {}", path.display());
                     }
@@ -358,7 +405,7 @@ pub async fn run(shared_state: SharedState) {
         }
 
         // Update zombie jobs (write lock - brief)
-        if !zombie_job_ids.is_empty() {
+        let needs_save_zombies = if !zombie_job_ids.is_empty() {
             let mut state = shared_state.write().await;
             for job_id in zombie_job_ids {
                 if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
@@ -366,7 +413,13 @@ pub async fn run(shared_state: SharedState) {
                     job.finished_at = Some(std::time::SystemTime::now());
                 }
             }
-            state.save_state().await;
+            true
+        } else {
+            false
+        };
+        // Release lock before I/O
+        if needs_save_zombies {
+            shared_state.read().await.save_state().await;
         }
 
         // Step 3: Check for timed-out jobs (read lock to identify, then handle)
@@ -391,21 +444,24 @@ pub async fn run(shared_state: SharedState) {
                 }
             }
 
-            // Update job state (brief write lock per job)
-            let mut state = shared_state.write().await;
-            if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
-                job.try_transition(job_id, JobState::Timeout);
+            // Update job state (brief write lock)
+            {
+                let mut state = shared_state.write().await;
+                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                    job.try_transition(job_id, JobState::Timeout);
+                }
             }
-            state.save_state().await;
+            // Release lock before I/O
+            shared_state.read().await.save_state().await;
         }
 
         // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
         {
             let mut state = shared_state.write().await;
             state.scheduler.schedule_jobs();
-            // Note: schedule_jobs() internally updates job states, so we save after
-            state.save_state().await;
         }
+        // Release lock before I/O
+        shared_state.read().await.save_state().await;
         // Write lock released here
     }
 }
