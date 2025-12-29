@@ -3,7 +3,14 @@ use gflow::tmux::TmuxSession;
 use std::process::Command;
 use std::time::Duration;
 
-pub async fn handle_reload(gpus: Option<String>) -> Result<()> {
+pub async fn handle_reload(
+    config_path: &Option<std::path::PathBuf>,
+    gpus: Option<String>,
+) -> Result<()> {
+    // Load config to get daemon URL
+    let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
+    let client = gflow::client::Client::build(&config)?;
+
     // 1. Check if daemon is running
     let pid = get_daemon_pid().await?;
     log::info!("Found running daemon at PID {}", pid);
@@ -20,20 +27,35 @@ pub async fn handle_reload(gpus: Option<String>) -> Result<()> {
 
     session.send_command(&command);
 
-    // 3. Wait for new instance to bind socket (SO_REUSEPORT allows this)
+    // 3. Wait for new instance to initialize and bind socket
     log::info!("Waiting for new instance to initialize...");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // 4. Verify new instance is healthy
-    if !is_daemon_healthy().await {
-        log::error!("New daemon instance failed health check, aborting reload");
-        // Kill the new session
-        gflow::tmux::kill_session(&new_session_name).ok();
-        return Err(anyhow!(
-            "New daemon instance failed health check. Old daemon is still running."
-        ));
+    // Note: With SO_REUSEPORT, both old and new daemons can accept connections
+    // We check multiple times to increase confidence we're hitting the new daemon
+    let mut health_checks_passed = 0;
+    for i in 0..5 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        if is_daemon_healthy(&client).await {
+            health_checks_passed += 1;
+        }
+        if i == 4 && health_checks_passed < 3 {
+            log::error!(
+                "New daemon instance health checks failed ({}/5), aborting reload",
+                health_checks_passed
+            );
+            // Kill the new session
+            gflow::tmux::kill_session(&new_session_name).ok();
+            return Err(anyhow!(
+                "New daemon instance failed health checks. Old daemon is still running."
+            ));
+        }
     }
-    log::info!("New daemon instance is healthy");
+    log::info!(
+        "New daemon instance health checks passed ({}/5)",
+        health_checks_passed
+    );
 
     // 5. Signal old process to shutdown (SIGUSR2)
     log::info!("Signaling old daemon (PID {}) to shutdown", pid);
@@ -102,29 +124,29 @@ pub async fn handle_reload(gpus: Option<String>) -> Result<()> {
 }
 
 async fn get_daemon_pid() -> Result<u32> {
-    // Get PID from tmux session
-    let output = Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            super::TMUX_SESSION_NAME,
-            "-F",
-            "#{pane_pid}",
-        ])
-        .output()?;
+    // Use pgrep to find the actual gflowd process (not the shell)
+    // This is more reliable than tmux #{pane_pid} which returns the shell PID
+    let output = Command::new("pgrep").args(["-f", "gflowd -vvv"]).output()?;
 
     if !output.status.success() {
         return Err(anyhow!(
-            "gflowd is not running (tmux session '{}' not found)",
-            super::TMUX_SESSION_NAME
+            "gflowd daemon process not found (tried pgrep). Is the daemon running?"
         ));
     }
 
-    let pid_str = String::from_utf8(output.stdout)?;
-    let pid = pid_str
+    let stdout = String::from_utf8(output.stdout)?;
+    let pids: Vec<&str> = stdout.trim().lines().collect();
+
+    if pids.is_empty() {
+        return Err(anyhow!("No gflowd daemon process found"));
+    }
+
+    // If multiple PIDs found, use the first one (oldest)
+    let pid = pids[0]
         .trim()
         .parse::<u32>()
-        .map_err(|e| anyhow!("Failed to parse PID from tmux: {}", e))?;
+        .map_err(|e| anyhow!("Failed to parse PID from pgrep: {}", e))?;
+
     Ok(pid)
 }
 
@@ -132,10 +154,10 @@ fn is_process_running(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
-async fn is_daemon_healthy() -> bool {
-    // Try to connect to health endpoint
-    match reqwest::get("http://localhost:59000/health").await {
-        Ok(resp) => resp.status().is_success(),
+async fn is_daemon_healthy(client: &gflow::client::Client) -> bool {
+    // Try to connect to health endpoint via the configured client
+    match client.get_health().await {
+        Ok(resp) => resp.is_success(),
         Err(_) => false,
     }
 }

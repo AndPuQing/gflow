@@ -25,7 +25,7 @@ pub async fn handle_commands(
             up::handle_up(gpus).await?;
         }
         Commands::Reload { gpus } => {
-            reload::handle_reload(gpus).await?;
+            reload::handle_reload(config_path, gpus).await?;
         }
         Commands::Status => {
             status::handle_status(config_path).await?;

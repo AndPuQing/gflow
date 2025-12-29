@@ -11,6 +11,7 @@ use std::time::Duration;
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Scheduler {
+    #[serde(default)]
     pub version: u32,
     pub jobs: HashMap<u32, Job>,
     #[serde(skip)]
@@ -30,7 +31,7 @@ pub struct Scheduler {
 impl Default for Scheduler {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: crate::core::migrations::CURRENT_VERSION,
             jobs: HashMap::new(),
             executor: None,
             gpu_slots: HashMap::new(),
@@ -469,7 +470,7 @@ impl SchedulerBuilder {
 
     pub fn build(self) -> Scheduler {
         Scheduler {
-            version: 1,
+            version: crate::core::migrations::CURRENT_VERSION,
             jobs: HashMap::new(),
             executor: self.executor,
             gpu_slots: self.gpu_slots,

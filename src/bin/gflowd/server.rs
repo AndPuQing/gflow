@@ -9,7 +9,6 @@ use axum::{
 };
 use gflow::core::job::Job;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -48,9 +47,22 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     // Create socket with SO_REUSEPORT for hot reload support
     let host = &config.daemon.host;
     let port = config.daemon.port;
-    let addr: SocketAddr = format!("{host}:{port}").parse()?;
+    let bind_addr = format!("{host}:{port}");
 
-    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+    // Resolve hostname to socket address (supports "localhost", IPv4, and IPv6)
+    let addr = tokio::net::lookup_host(&bind_addr)
+        .await?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Failed to resolve address: {}", bind_addr))?;
+
+    // Determine domain from resolved address
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
     socket.set_reuse_address(true)?;
     socket.set_reuse_port(true)?; // Enable SO_REUSEPORT for hot reload
     socket.set_nonblocking(true)?;
