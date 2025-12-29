@@ -204,6 +204,32 @@ impl Client {
         Ok(health)
     }
 
+    pub async fn get_health_with_pid(&self) -> anyhow::Result<Option<u32>> {
+        log::debug!("Getting health status with PID");
+        let response = self
+            .client
+            .get(format!("{}/health", self.base_url))
+            .send()
+            .await
+            .context("Failed to send health request")?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        let health_data: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse health response")?;
+
+        let pid = health_data
+            .get("pid")
+            .and_then(|p| p.as_u64())
+            .map(|p| p as u32);
+
+        Ok(pid)
+    }
+
     pub async fn resolve_dependency(&self, username: &str, shorthand: &str) -> anyhow::Result<u32> {
         log::debug!(
             "Resolving dependency '{}' for user '{}'",

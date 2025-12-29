@@ -31,31 +31,43 @@ pub async fn handle_reload(
     log::info!("Waiting for new instance to initialize...");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // 4. Verify new instance is healthy
-    // Note: With SO_REUSEPORT, both old and new daemons can accept connections
-    // We check multiple times to increase confidence we're hitting the new daemon
-    let mut health_checks_passed = 0;
-    for i in 0..5 {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        if is_daemon_healthy(&client).await {
-            health_checks_passed += 1;
-        }
-        if i == 4 && health_checks_passed < 3 {
-            log::error!(
-                "New daemon instance health checks failed ({}/5), aborting reload",
-                health_checks_passed
-            );
-            // Kill the new session
-            gflow::tmux::kill_session(&new_session_name).ok();
-            return Err(anyhow!(
-                "New daemon instance failed health checks. Old daemon is still running."
-            ));
+    // 4. Verify new instance is healthy and has a different PID
+    // With SO_REUSEPORT, we need to verify we're hitting the new daemon
+    log::info!(
+        "Verifying new daemon instance (distinct from old PID {})...",
+        pid
+    );
+    let mut new_daemon_verified = false;
+
+    for attempt in 1..=10 {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        if let Ok(Some(health_pid)) = client.get_health_with_pid().await {
+            if health_pid != pid {
+                log::info!(
+                    "Confirmed new daemon instance at PID {} (attempt {})",
+                    health_pid,
+                    attempt
+                );
+                new_daemon_verified = true;
+                break;
+            } else {
+                log::debug!(
+                    "Health check returned old PID {} (attempt {})",
+                    pid,
+                    attempt
+                );
+            }
         }
     }
-    log::info!(
-        "New daemon instance health checks passed ({}/5)",
-        health_checks_passed
-    );
+
+    if !new_daemon_verified {
+        log::error!("Failed to verify new daemon instance (could not confirm distinct PID)");
+        gflow::tmux::kill_session(&new_session_name).ok();
+        return Err(anyhow!(
+            "New daemon instance could not be verified. Old daemon is still running."
+        ));
+    }
 
     // 5. Signal old process to shutdown (SIGUSR2)
     log::info!("Signaling old daemon (PID {}) to shutdown", pid);
@@ -124,9 +136,41 @@ pub async fn handle_reload(
 }
 
 async fn get_daemon_pid() -> Result<u32> {
-    // Use pgrep to find the actual gflowd process (not the shell)
-    // This is more reliable than tmux #{pane_pid} which returns the shell PID
-    let output = Command::new("pgrep").args(["-f", "gflowd -vvv"]).output()?;
+    // Strategy: Find gflowd process that is a descendant of the gflow_server tmux session
+    // This is more reliable than just pgrep when multiple daemons might be running
+
+    // First, verify tmux session exists
+    if !gflow::tmux::is_session_exist(super::TMUX_SESSION_NAME) {
+        return Err(anyhow!(
+            "gflowd tmux session '{}' not found. Is the daemon running?",
+            super::TMUX_SESSION_NAME
+        ));
+    }
+
+    // Get the session's pane PID (this will be the shell)
+    let pane_pid_output = Command::new("tmux")
+        .args([
+            "list-panes",
+            "-t",
+            super::TMUX_SESSION_NAME,
+            "-F",
+            "#{pane_pid}",
+        ])
+        .output()?;
+
+    if !pane_pid_output.status.success() {
+        return Err(anyhow!("Failed to get tmux pane PID"));
+    }
+
+    let shell_pid = String::from_utf8(pane_pid_output.stdout)?
+        .trim()
+        .parse::<u32>()
+        .map_err(|e| anyhow!("Failed to parse shell PID: {}", e))?;
+
+    // Use pgrep to find gflowd processes
+    let output = Command::new("pgrep")
+        .args(["-f", "^gflowd -vvv"])
+        .output()?;
 
     if !output.status.success() {
         return Err(anyhow!(
@@ -135,29 +179,65 @@ async fn get_daemon_pid() -> Result<u32> {
     }
 
     let stdout = String::from_utf8(output.stdout)?;
-    let pids: Vec<&str> = stdout.trim().lines().collect();
+    let pids: Vec<u32> = stdout
+        .trim()
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect();
 
     if pids.is_empty() {
         return Err(anyhow!("No gflowd daemon process found"));
     }
 
-    // If multiple PIDs found, use the first one (oldest)
-    let pid = pids[0]
-        .trim()
-        .parse::<u32>()
-        .map_err(|e| anyhow!("Failed to parse PID from pgrep: {}", e))?;
+    // For each candidate PID, check if it's a child of the shell PID
+    for pid in &pids {
+        if is_process_descendant_of(*pid, shell_pid) {
+            log::debug!(
+                "Found gflowd PID {} as descendant of tmux session (shell PID {})",
+                pid,
+                shell_pid
+            );
+            return Ok(*pid);
+        }
+    }
 
-    Ok(pid)
+    // Fallback: if no descendant found, use the first PID (for backward compatibility)
+    log::warn!(
+        "Could not verify gflowd PID via tmux session ancestry, using first match: {}",
+        pids[0]
+    );
+    Ok(pids[0])
+}
+
+fn is_process_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
+    let mut current_pid = pid;
+
+    // Walk up the process tree up to 10 levels
+    for _ in 0..10 {
+        if current_pid == ancestor_pid {
+            return true;
+        }
+
+        // Get parent PID from /proc/<pid>/stat
+        let stat_path = format!("/proc/{}/stat", current_pid);
+        if let Ok(stat) = std::fs::read_to_string(&stat_path) {
+            // Parent PID is the 4th field in /proc/pid/stat
+            if let Some(ppid_str) = stat.split_whitespace().nth(3) {
+                if let Ok(ppid) = ppid_str.parse::<u32>() {
+                    if ppid <= 1 {
+                        break; // Reached init
+                    }
+                    current_pid = ppid;
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    false
 }
 
 fn is_process_running(pid: u32) -> bool {
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-}
-
-async fn is_daemon_healthy(client: &gflow::client::Client) -> bool {
-    // Try to connect to health endpoint via the configured client
-    match client.get_health().await {
-        Ok(resp) => resp.is_success(),
-        Err(_) => false,
-    }
 }

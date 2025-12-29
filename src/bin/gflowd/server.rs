@@ -47,7 +47,14 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     // Create socket with SO_REUSEPORT for hot reload support
     let host = &config.daemon.host;
     let port = config.daemon.port;
-    let bind_addr = format!("{host}:{port}");
+
+    // Handle IPv6 literal addresses (e.g., "::1" -> "[::1]")
+    let bind_addr = if host.contains(':') && !host.starts_with('[') {
+        // IPv6 literal without brackets
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
 
     // Resolve hostname to socket address (supports "localhost", IPv4, and IPv6)
     let addr = tokio::net::lookup_host(&bind_addr)
@@ -275,7 +282,11 @@ struct ResolveDependencyQuery {
 
 #[axum::debug_handler]
 async fn get_health() -> impl IntoResponse {
-    (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+    let pid = std::process::id();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "ok", "pid": pid })),
+    )
 }
 
 #[derive(serde::Deserialize)]
