@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod info;
 pub mod job;
+pub mod migrations;
 pub mod scheduler;
 
 use std::{collections::HashMap, env, path::PathBuf};

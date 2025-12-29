@@ -50,6 +50,7 @@ tokio = { version = "1.43.0", default-features = false, features = [
     "fs",
     "macros",
     "sync",
+    "signal",
 ] }
 clap = { version = "4.5.28", features = ["cargo", "derive"] }
 clap-verbosity-flag = { version = "3.0.2", features = [
@@ -84,6 +85,8 @@ owo-colors = "4.1.0"
 shell-escape = "0.1.5"
 regex = "1"
 csv = "1.3"
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
 
 [build-dependencies]
 anyhow = "1.0.95"

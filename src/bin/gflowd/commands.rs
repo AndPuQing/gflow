@@ -3,6 +3,7 @@ use clap::CommandFactory;
 use clap_complete::generate;
 
 pub mod down;
+pub mod reload;
 pub mod status;
 pub mod up;
 
@@ -22,6 +23,9 @@ pub async fn handle_commands(
         Commands::Restart { gpus } => {
             down::handle_down().await?;
             up::handle_up(gpus).await?;
+        }
+        Commands::Reload { gpus } => {
+            reload::handle_reload(gpus).await?;
         }
         Commands::Status => {
             status::handle_status(config_path).await?;

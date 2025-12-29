@@ -8,6 +8,8 @@ use axum::{
     Json, Router,
 };
 use gflow::core::job::Job;
+use socket2::{Domain, Protocol, Socket, Type};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -42,13 +44,57 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/health", get(get_health))
         .route("/gpus", post(set_allowed_gpus))
         .with_state(scheduler);
+
+    // Create socket with SO_REUSEPORT for hot reload support
     let host = &config.daemon.host;
     let port = config.daemon.port;
-    let addr = format!("{host}:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    log::info!("Listening on: {addr}");
-    axum::serve(listener, app).await?;
+    let addr: SocketAddr = format!("{host}:{port}").parse()?;
+
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_reuse_address(true)?;
+    socket.set_reuse_port(true)?; // Enable SO_REUSEPORT for hot reload
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+
+    // Convert to tokio TcpListener
+    let std_listener: std::net::TcpListener = socket.into();
+    std_listener.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+
+    log::info!("Listening on: {addr} (SO_REUSEPORT enabled)");
+
+    // Create shutdown signal handler
+    let shutdown_signal = create_shutdown_signal();
+
+    // Start Axum server with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await?;
+
+    log::info!("Server shutdown complete");
     Ok(())
+}
+
+async fn create_shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+    let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+    let mut sigusr2 =
+        signal(SignalKind::user_defined2()).expect("Failed to register SIGUSR2 handler");
+
+    tokio::select! {
+        _ = sigterm.recv() => {
+            log::info!("Received SIGTERM, initiating graceful shutdown");
+        }
+        _ = sigint.recv() => {
+            log::info!("Received SIGINT, initiating graceful shutdown");
+        }
+        _ = sigusr2.recv() => {
+            log::info!("Received SIGUSR2 (reload signal), initiating graceful shutdown");
+        }
+    }
 }
 
 #[axum::debug_handler]

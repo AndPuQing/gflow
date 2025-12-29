@@ -42,6 +42,12 @@ pub enum Commands {
         #[arg(long, value_name = "INDICES")]
         gpus: Option<String>,
     },
+    /// Reload the daemon with zero downtime
+    Reload {
+        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
+        #[arg(long, value_name = "INDICES")]
+        gpus: Option<String>,
+    },
     /// Show the daemon status
     Status,
     /// Generate shell completion scripts

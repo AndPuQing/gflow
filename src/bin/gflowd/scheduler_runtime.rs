@@ -142,9 +142,36 @@ impl SchedulerRuntime {
             if let Ok(json) = std::fs::read_to_string(&path) {
                 match serde_json::from_str::<Scheduler>(&json) {
                     Ok(loaded_scheduler) => {
-                        // Update jobs and next_job_id from loaded state
-                        let next_id = loaded_scheduler.next_job_id();
-                        self.scheduler.jobs = loaded_scheduler.jobs;
+                        // Apply migrations
+                        let migrated_scheduler =
+                            match gflow::core::migrations::migrate_state(loaded_scheduler) {
+                                Ok(migrated) => migrated,
+                                Err(e) => {
+                                    log::error!(
+                                        "State migration failed: {}. Starting with fresh state.",
+                                        e
+                                    );
+                                    log::warn!(
+                                        "The old state file will be backed up to {}.backup",
+                                        path.display()
+                                    );
+                                    // Try to backup the state file
+                                    let backup_path = path.with_extension("json.backup");
+                                    if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
+                                        log::error!("Failed to backup state file: {}", backup_err);
+                                    } else {
+                                        log::info!(
+                                            "Backed up state file to {}",
+                                            backup_path.display()
+                                        );
+                                    }
+                                    return; // Exit early, keep default state
+                                }
+                            };
+
+                        // Update jobs and next_job_id from migrated state
+                        let next_id = migrated_scheduler.next_job_id();
+                        self.scheduler.jobs = migrated_scheduler.jobs;
                         self.scheduler.set_next_job_id(next_id);
 
                         // Re-initialize NVML and GPU slots (fresh detection)
