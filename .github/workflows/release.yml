@@ -17,7 +17,7 @@ jobs:
       version: ${{ steps.extract_version.outputs.version }}
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -102,7 +102,7 @@ jobs:
           - target: x86_64-unknown-linux-musl
             archive: tar.gz tar.xz tar.zst
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build binaries with rust-build
         uses: rust-build/rust-build.action@v1.4.5
@@ -174,7 +174,7 @@ jobs:
     needs: create-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Configure AWS CLI for R2
         uses: aws-actions/configure-aws-credentials@v4
