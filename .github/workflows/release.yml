@@ -1,30 +1,210 @@
+name: Release
+
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
+permissions:
+  contents: write
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --oneline --pretty=format:"* %s" $PREV_TAG..HEAD)
+          else
+            CHANGES=$(git log --oneline --pretty=format:"* %s")
+          fi
+
+          cat << 'EOF' > release_notes.md
+          ## What's Changed
+
+          EOF
+          echo "$CHANGES" >> release_notes.md
+          cat << 'EOF' >> release_notes.md
+
+          ## Installation
+
+          ### Quick Install (Linux x86_64) - Recommended
+
+          Install from our global CDN (faster, works in restricted regions):
+          ```bash
+          curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
+          ```
+
+          Or from GitHub:
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+          ```
+
+          The installer automatically tries the CDN first and falls back to GitHub if needed.
+
+          ### Alternative: Cargo
+          ```bash
+          cargo install gflow
+          ```
+
+          ### Manual Download
+
+          Download pre-built binaries from the Assets section below or from our CDN:
+          - CDN: https://gflow-releases.puqing.work/releases/${{ steps.extract_version.outputs.version }}/
+          EOF
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "" >> release_notes.md
+            echo "**Full Changelog**: https://github.com/AndPuQing/gflow/compare/$PREV_TAG...${{ steps.extract_version.outputs.version }}" >> release_notes.md
+          fi
+
+          cat release_notes.md
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.extract_version.outputs.version }}
+          name: Release ${{ steps.extract_version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-upload:
+    name: Build and Upload Binaries
+    needs: create-release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # - target: x86_64-pc-windows-gnu
-          #   archive: zip
           - target: x86_64-unknown-linux-musl
             archive: tar.gz tar.xz tar.zst
-          # - target: x86_64-apple-darwin
-          #   archive: zip
     steps:
-      - uses: actions/checkout@master
-      - name: Compile and release
+      - uses: actions/checkout@v4
+
+      - name: Build binaries with rust-build
         uses: rust-build/rust-build.action@v1.4.5
+        id: build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           TOOLCHAIN_VERSION: stable
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
+          UPLOAD_MODE: none
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: |
+            output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS CLI for R2
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws-region: auto
+
+      - name: Upload binaries to R2
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "Uploading binaries to R2..."
+
+          # Upload all archive files to versioned directory
+          for archive in output/*; do
+            if [ -f "$archive" ]; then
+              BASENAME=$(basename "$archive")
+              echo "  Uploading ${BASENAME}..."
+              aws s3 cp "$archive" \
+                "s3://${R2_BUCKET}/releases/${VERSION}/${BASENAME}" \
+                --endpoint-url "${R2_ENDPOINT}"
+            fi
+          done
+
+          echo "✓ Binaries uploaded to R2: ${R2_BUCKET}/releases/${VERSION}/"
+
+      - name: Update latest release in R2
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "Updating latest release pointer..."
+
+          # Sync files to 'latest' directory
+          aws s3 sync \
+            "s3://${R2_BUCKET}/releases/${VERSION}/" \
+            "s3://${R2_BUCKET}/releases/latest/" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --delete
+
+          echo "✓ Latest release updated in R2"
+
+  upload-installer:
+    name: Upload Installer to R2
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS CLI for R2
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws-region: auto
+
+      - name: Upload install.sh to R2
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "Uploading install.sh to R2..."
+
+          # Upload install.sh to root of bucket
+          aws s3 cp install.sh \
+            "s3://${R2_BUCKET}/install.sh" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "text/x-shellscript" \
+            --cache-control "max-age=300"
+
+          # Create version metadata file
+          echo "${VERSION}" > latest-version.txt
+          aws s3 cp latest-version.txt \
+            "s3://${R2_BUCKET}/latest-version.txt" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "text/plain" \
+            --cache-control "max-age=60"
+
+          echo "✓ install.sh uploaded to R2"
+          echo "✓ latest-version.txt uploaded to R2"

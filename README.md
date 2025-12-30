@@ -31,18 +31,26 @@ The `gflow` suite consists of several command-line tools:
 
 ## Installation
 
-### Quick Install (Linux x86_64)
+### Quick Install (Linux x86_64) - Recommended
 
-Install gflow with a single command:
+Install gflow with a single command using our global CDN (faster, works in restricted regions):
+
+```bash
+curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
+```
+
+Or use GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
 ```
 
-This will download and install the latest release binaries to `~/.cargo/bin`. You can customize the installation directory by setting the `GFLOW_INSTALL_DIR` environment variable:
+The installer automatically tries the CDN first and falls back to GitHub if needed. This will download and install the latest release binaries to `~/.cargo/bin`.
+
+You can customize the installation directory by setting the `GFLOW_INSTALL_DIR` environment variable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
 ```
 
 ### Install via `cargo`

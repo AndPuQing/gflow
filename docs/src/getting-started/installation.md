@@ -35,24 +35,48 @@ source $HOME/.cargo/env
 
 ## Installation Methods
 
-### Method 1: Install via Cargo (Recommended)
+### Method 1: Quick Install with Pre-built Binaries (Recommended)
 
-This is the easiest way to install gflow:
+This is the fastest way to install gflow on Linux x86_64:
+
+**Using our global CDN** (faster, works in GitHub-restricted regions):
+```bash
+curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
+```
+
+**Or using GitHub**:
+```bash
+curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+```
+
+The installer automatically:
+- Tries the CDN first, falls back to GitHub if needed
+- Downloads the latest release binaries
+- Installs to `~/.cargo/bin/` (customizable with `GFLOW_INSTALL_DIR`)
+- Installs all binaries: `gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`, `gctl`
+
+**Custom installation directory**:
+```bash
+curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+```
+
+**Benefits of CDN installation**:
+- ⚡ Faster downloads via Cloudflare global network
+- 🌍 Works in regions where GitHub is restricted or slow
+- 🔄 Automatic fallback to GitHub for reliability
+- 📦 Same binaries as GitHub Releases
+
+### Method 2: Install via Cargo
+
+Build and install from crates.io:
 
 ```bash
 cargo install gflow
 ```
 
-This will install all five binaries:
-- `gflowd` - The scheduler daemon
-- `ginfo` - Scheduler inspection tool
-- `gbatch` - Job submission tool
-- `gqueue` - Job query tool
-- `gcancel` - Job cancellation tool
+This will compile and install all binaries to `~/.cargo/bin/`, which should be in your `PATH`.
 
-The binaries will be installed to `~/.cargo/bin/`, which should be in your `PATH`.
-
-### Method 2: Build from Source
+### Method 3: Build from Source
 
 If you want to build from the latest source code:
 
@@ -74,9 +98,18 @@ If you want to build from the latest source code:
    cargo install --path .
    ```
 
-### Method 3: Download Pre-built Binaries
+### Method 4: Manual Download from CDN or GitHub
 
-Check the [Releases page](https://github.com/AndPuQing/gflow/releases) for pre-built binaries (if available).
+Download pre-built binaries directly:
+
+**From CDN**:
+- Latest release: `https://gflow-releases.puqing.work/releases/latest/`
+- Specific version: `https://gflow-releases.puqing.work/releases/v0.4.5/` (replace with desired version)
+
+**From GitHub**:
+- Visit the [Releases page](https://github.com/AndPuQing/gflow/releases)
+- Download the `gflow_vX.X.X_x86_64-unknown-linux-musl.tar.gz` archive
+- Extract and copy binaries to a directory in your `PATH`
 
 ## Verify Installation
 

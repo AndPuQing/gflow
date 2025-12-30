@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gflow installer script
+# gflow installer script with R2 CDN support
 
 set -e
 
@@ -12,6 +12,13 @@ NC='\033[0m' # No Color
 # Configuration
 REPO="AndPuQing/gflow"
 INSTALL_DIR="${GFLOW_INSTALL_DIR:-${HOME}/.cargo/bin}"
+
+# Primary source: R2 CDN (faster, better availability in restricted regions)
+R2_BUCKET_URL="https://gflow-releases.puqing.work"
+R2_RELEASES="${R2_BUCKET_URL}/releases"
+R2_VERSION_URL="${R2_BUCKET_URL}/latest-version.txt"
+
+# Fallback source: GitHub
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 GITHUB_DOWNLOAD="https://github.com/${REPO}/releases/download"
 
@@ -95,21 +102,67 @@ download() {
     local output="$2"
 
     if check_cmd curl; then
-        curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$output"
+        curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$output" 2>/dev/null
     elif check_cmd wget; then
-        wget --https-only --secure-protocol=TLSv1_2 -q "$url" -O "$output"
+        wget --https-only --secure-protocol=TLSv1_2 -q "$url" -O "$output" 2>/dev/null
     fi
 }
 
-# Get latest version
+# Download with R2/GitHub fallback
+download_with_fallback() {
+    local filename="$1"
+    local version="$2"
+    local output="$3"
+    local success=false
+    local source=""
+
+    # Try R2 first
+    local r2_url="${R2_RELEASES}/${version}/${filename}"
+    if download "$r2_url" "$output"; then
+        if [ -f "$output" ] && [ -s "$output" ]; then
+            success=true
+            source="R2 CDN"
+        fi
+    fi
+
+    # Fallback to GitHub
+    if [ "$success" = false ]; then
+        local github_url="${GITHUB_DOWNLOAD}/${version}/${filename}"
+        if download "$github_url" "$output"; then
+            if [ -f "$output" ] && [ -s "$output" ]; then
+                success=true
+                source="GitHub"
+            fi
+        fi
+    fi
+
+    if [ "$success" = false ]; then
+        error "Failed to download from both R2 CDN and GitHub"
+    fi
+
+    echo "$source"
+}
+
+# Get latest version (try R2 first, fallback to GitHub API)
 get_latest_version() {
     info "Fetching latest version..."
 
-    local version
+    local version=""
+
+    # Try to get version from R2 metadata
     if check_cmd curl; then
-        version=$(curl -sSL "$GITHUB_API" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(curl -fsSL "$R2_VERSION_URL" 2>/dev/null | tr -d '\n\r' || echo "")
     elif check_cmd wget; then
-        version=$(wget -qO- "$GITHUB_API" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(wget -qO- "$R2_VERSION_URL" 2>/dev/null | tr -d '\n\r' || echo "")
+    fi
+
+    # Fallback to GitHub API
+    if [ -z "$version" ] || [ "$version" = "" ]; then
+        if check_cmd curl; then
+            version=$(curl -fsSL "$GITHUB_API" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        elif check_cmd wget; then
+            version=$(wget -qO- "$GITHUB_API" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
     fi
 
     if [ -z "$version" ]; then
@@ -134,15 +187,14 @@ install_gflow() {
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
 
-    # Download archive
+    # Download archive with R2/GitHub fallback
     local archive_name="gflow_${version}_${platform}.tar.gz"
-    local download_url="${GITHUB_DOWNLOAD}/${version}/${archive_name}"
     local archive_path="${tmp_dir}/${archive_name}"
 
-    info "Downloading from ${download_url}..."
-    if ! download "$download_url" "$archive_path"; then
-        error "Failed to download gflow"
-    fi
+    info "Downloading ${archive_name}..."
+    local download_source
+    download_source=$(download_with_fallback "$archive_name" "$version" "$archive_path")
+    info "Downloaded from: ${download_source}"
 
     # Extract archive
     info "Extracting archive..."
@@ -151,9 +203,9 @@ install_gflow() {
     # Create install directory if it doesn't exist
     mkdir -p "$INSTALL_DIR"
 
-    # Install binaries
+    # Install binaries (including gctl which was previously missing)
     info "Installing binaries to ${INSTALL_DIR}..."
-    for binary in gbatch gcancel gflowd ginfo gjob gqueue; do
+    for binary in gbatch gcancel gctl gflowd ginfo gjob gqueue; do
         if [ -f "${tmp_dir}/${binary}" ]; then
             install -m 755 "${tmp_dir}/${binary}" "${INSTALL_DIR}/${binary}"
             info "  ✓ ${binary}"
@@ -172,6 +224,8 @@ install_gflow() {
     fi
 
     info "gflow ${version} has been successfully installed!"
+    echo ""
+    echo "Download source: ${download_source} (automatic fallback enabled)"
     echo ""
     echo "To get started, run:"
     echo "    gflowd up      # Start the scheduler daemon"
