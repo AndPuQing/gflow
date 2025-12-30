@@ -120,9 +120,22 @@ jobs:
         with:
           tag_name: ${{ needs.create-release.outputs.version }}
           files: |
-            output/*
+            output/*.tar.gz
+            output/*.tar.xz
+            output/*.tar.zst
+            output/*.sha256sum
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare R2 upload (archives only)
+        run: |
+          mkdir -p r2-upload
+          # Copy only archive files and checksums, not individual binaries
+          cp output/*.tar.gz r2-upload/ 2>/dev/null || true
+          cp output/*.tar.xz r2-upload/ 2>/dev/null || true
+          cp output/*.tar.zst r2-upload/ 2>/dev/null || true
+          cp output/*.sha256sum r2-upload/ 2>/dev/null || true
+          ls -lh r2-upload/
 
       - name: Upload binaries to R2 (versioned)
         uses: ryand56/r2-upload-action@latest
@@ -131,7 +144,7 @@ jobs:
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: output
+          source-dir: r2-upload
           destination-dir: releases/${{ needs.create-release.outputs.version }}
           multipart-size: 100
           max-retries: 5
@@ -143,7 +156,7 @@ jobs:
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: output
+          source-dir: r2-upload
           destination-dir: releases/latest
           multipart-size: 100
           max-retries: 5
