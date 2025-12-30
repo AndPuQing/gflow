@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use gflow::tmux::TmuxSession;
 use std::process::Command;
 use std::time::Duration;
+use tmux_interface::{ListPanes, RenameSession, Tmux};
 
 pub async fn handle_reload(
     config_path: &Option<std::path::PathBuf>,
@@ -31,51 +32,72 @@ pub async fn handle_reload(
     log::info!("Waiting for new instance to initialize...");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // 4. Verify new instance is healthy and has a different PID
-    // With SO_REUSEPORT, we need to verify we're hitting the new daemon
+    // 4. Verify new instance is running by checking the tmux session directly
+    // NOTE: We cannot rely on HTTP health checks with SO_REUSEPORT because
+    // the kernel load-balances requests between old and new daemon, making
+    // it unreliable to detect the new instance via HTTP.
     log::info!(
         "Verifying new daemon instance (distinct from old PID {})...",
         pid
     );
-    let mut new_daemon_verified = false;
 
+    let new_pid = match get_daemon_pid_from_session(&new_session_name).await {
+        Ok(new_pid) if new_pid != pid => {
+            log::info!("Confirmed new daemon instance at PID {}", new_pid);
+            new_pid
+        }
+        Ok(same_pid) => {
+            log::error!(
+                "New daemon PID {} is the same as old daemon PID {}",
+                same_pid,
+                pid
+            );
+            gflow::tmux::kill_session(&new_session_name).ok();
+            return Err(anyhow!(
+                "New daemon PID matches old daemon PID. Reload failed."
+            ));
+        }
+        Err(e) => {
+            log::error!("Failed to get new daemon PID: {}", e);
+            gflow::tmux::kill_session(&new_session_name).ok();
+            return Err(anyhow!("Could not verify new daemon instance: {}", e));
+        }
+    };
+
+    // 5. Verify the new daemon is responsive (make a few health check attempts)
+    // This is a best-effort check - we already know the daemon process exists
+    log::info!("Checking new daemon responsiveness...");
+    let mut health_check_passed = false;
     for attempt in 1..=10 {
         tokio::time::sleep(Duration::from_millis(300)).await;
-
         if let Ok(Some(health_pid)) = client.get_health_with_pid().await {
-            if health_pid != pid {
+            if health_pid == new_pid {
                 log::info!(
-                    "Confirmed new daemon instance at PID {} (attempt {})",
+                    "New daemon is responsive (health check returned PID {}, attempt {})",
                     health_pid,
                     attempt
                 );
-                new_daemon_verified = true;
+                health_check_passed = true;
                 break;
-            } else {
-                log::debug!(
-                    "Health check returned old PID {} (attempt {})",
-                    pid,
-                    attempt
-                );
             }
         }
     }
 
-    if !new_daemon_verified {
-        log::error!("Failed to verify new daemon instance (could not confirm distinct PID)");
-        gflow::tmux::kill_session(&new_session_name).ok();
-        return Err(anyhow!(
-            "New daemon instance could not be verified. Old daemon is still running."
-        ));
+    if !health_check_passed {
+        log::warn!(
+            "Could not confirm new daemon responsiveness via health checks, \
+             but process exists at PID {}. Continuing with reload...",
+            new_pid
+        );
     }
 
-    // 5. Signal old process to shutdown (SIGUSR2)
+    // 6. Signal old process to shutdown (SIGUSR2)
     log::info!("Signaling old daemon (PID {}) to shutdown", pid);
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGUSR2);
     }
 
-    // 6. Wait for old process to exit
+    // 7. Wait for old process to exit
     let mut exited = false;
     for i in 0..30 {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -92,21 +114,19 @@ pub async fn handle_reload(
         }
     }
 
-    // 7. Rename new tmux session to standard name
+    // 8. Rename new tmux session to standard name
     // First, ensure old session is gone
     gflow::tmux::kill_session(super::TMUX_SESSION_NAME).ok();
 
-    let rename_result = Command::new("tmux")
-        .args([
-            "rename-session",
-            "-t",
-            &new_session_name,
-            super::TMUX_SESSION_NAME,
-        ])
-        .output();
+    let rename_result = Tmux::with_command(
+        RenameSession::new()
+            .target_session(&new_session_name)
+            .new_name(super::TMUX_SESSION_NAME),
+    )
+    .output();
 
     match rename_result {
-        Ok(output) if output.status.success() => {
+        Ok(output) if output.success() => {
             println!("gflowd reloaded successfully.");
             if !exited {
                 println!(
@@ -117,15 +137,11 @@ pub async fn handle_reload(
             }
             Ok(())
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(anyhow!(
-                "Failed to rename new session: {}. \
+        Ok(_) => Err(anyhow!(
+            "Failed to rename new session. \
                  New daemon is running as session '{}', you may need to rename it manually.",
-                stderr,
-                new_session_name
-            ))
-        }
+            new_session_name
+        )),
         Err(e) => Err(anyhow!(
             "Failed to execute tmux rename: {}. \
              New daemon is running as session '{}', you may need to rename it manually.",
@@ -148,21 +164,18 @@ async fn get_daemon_pid() -> Result<u32> {
     }
 
     // Get the session's pane PID (this will be the shell)
-    let pane_pid_output = Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            super::TMUX_SESSION_NAME,
-            "-F",
-            "#{pane_pid}",
-        ])
-        .output()?;
+    let pane_pid_output = Tmux::with_command(
+        ListPanes::new()
+            .target(super::TMUX_SESSION_NAME)
+            .format("#{pane_pid}"),
+    )
+    .output()?;
 
-    if !pane_pid_output.status.success() {
+    if !pane_pid_output.success() {
         return Err(anyhow!("Failed to get tmux pane PID"));
     }
 
-    let shell_pid = String::from_utf8(pane_pid_output.stdout)?
+    let shell_pid = String::from_utf8(pane_pid_output.stdout().to_vec())?
         .trim()
         .parse::<u32>()
         .map_err(|e| anyhow!("Failed to parse shell PID: {}", e))?;
@@ -207,6 +220,70 @@ async fn get_daemon_pid() -> Result<u32> {
         pids[0]
     );
     Ok(pids[0])
+}
+
+async fn get_daemon_pid_from_session(session_name: &str) -> Result<u32> {
+    // Strategy: Find gflowd process that is a descendant of the specified tmux session
+    // This allows us to find the daemon in the new temporary session
+
+    // First, verify tmux session exists
+    if !gflow::tmux::is_session_exist(session_name) {
+        return Err(anyhow!("tmux session '{}' not found", session_name));
+    }
+
+    // Get the session's pane PID (this will be the shell)
+    let pane_pid_output =
+        Tmux::with_command(ListPanes::new().target(session_name).format("#{pane_pid}")).output()?;
+
+    if !pane_pid_output.success() {
+        return Err(anyhow!(
+            "Failed to get tmux pane PID for session '{}'",
+            session_name
+        ));
+    }
+
+    let shell_pid = String::from_utf8(pane_pid_output.stdout().to_vec())?
+        .trim()
+        .parse::<u32>()
+        .map_err(|e| anyhow!("Failed to parse shell PID: {}", e))?;
+
+    // Use pgrep to find gflowd processes
+    let output = Command::new("pgrep")
+        .args(["-f", "^gflowd -vvv"])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow!("gflowd daemon process not found (tried pgrep)"));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let pids: Vec<u32> = stdout
+        .trim()
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect();
+
+    if pids.is_empty() {
+        return Err(anyhow!("No gflowd daemon process found"));
+    }
+
+    // For each candidate PID, check if it's a child of the shell PID
+    for pid in &pids {
+        if is_process_descendant_of(*pid, shell_pid) {
+            log::debug!(
+                "Found gflowd PID {} as descendant of tmux session '{}' (shell PID {})",
+                pid,
+                session_name,
+                shell_pid
+            );
+            return Ok(*pid);
+        }
+    }
+
+    Err(anyhow!(
+        "Could not find gflowd process as descendant of tmux session '{}'",
+        session_name
+    ))
 }
 
 fn is_process_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
