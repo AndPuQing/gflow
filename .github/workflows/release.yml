@@ -49,7 +49,6 @@ jobs:
 
           ### Quick Install (Linux x86_64) - Recommended
 
-          Install from our global CDN (faster, works in restricted regions):
           ```bash
           curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
           ```
@@ -59,17 +58,11 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
           ```
 
-          The installer automatically tries the CDN first and falls back to GitHub if needed.
-
           ### Alternative: Cargo
           ```bash
           cargo install gflow
           ```
 
-          ### Manual Download
-
-          Download pre-built binaries from the Assets section below or from our CDN:
-          - CDN: https://gflow-releases.puqing.work/releases/${{ steps.extract_version.outputs.version }}/
           EOF
 
           if [ -n "$PREV_TAG" ]; then
