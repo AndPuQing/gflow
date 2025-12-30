@@ -124,50 +124,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure AWS CLI for R2
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Upload binaries to R2 (versioned)
+        uses: ryand56/r2-upload-action@latest
         with:
-          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: output
+          destination-dir: releases/${{ needs.create-release.outputs.version }}
+          multipart-size: 100
+          max-retries: 5
 
-      - name: Upload binaries to R2
-        env:
-          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          VERSION: ${{ needs.create-release.outputs.version }}
-        run: |
-          echo "Uploading binaries to R2..."
-
-          # Upload all archive files to versioned directory
-          for archive in output/*; do
-            if [ -f "$archive" ]; then
-              BASENAME=$(basename "$archive")
-              echo "  Uploading ${BASENAME}..."
-              aws s3 cp "$archive" \
-                "s3://${R2_BUCKET}/releases/${VERSION}/${BASENAME}" \
-                --endpoint-url "${R2_ENDPOINT}"
-            fi
-          done
-
-          echo "✓ Binaries uploaded to R2: ${R2_BUCKET}/releases/${VERSION}/"
-
-      - name: Update latest release in R2
-        env:
-          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          VERSION: ${{ needs.create-release.outputs.version }}
-        run: |
-          echo "Updating latest release pointer..."
-
-          # Sync files to 'latest' directory
-          aws s3 sync \
-            "s3://${R2_BUCKET}/releases/${VERSION}/" \
-            "s3://${R2_BUCKET}/releases/latest/" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --delete
-
-          echo "✓ Latest release updated in R2"
+      - name: Upload binaries to R2 (latest)
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: output
+          destination-dir: releases/latest
+          multipart-size: 100
+          max-retries: 5
 
   upload-installer:
     name: Upload Installer to R2
@@ -176,35 +155,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS CLI for R2
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+      - name: Create version metadata file
+        run: echo "${{ needs.create-release.outputs.version }}" > latest-version.txt
 
-      - name: Upload install.sh to R2
-        env:
-          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          VERSION: ${{ needs.create-release.outputs.version }}
+      - name: Prepare installer files
         run: |
-          echo "Uploading install.sh to R2..."
+          mkdir -p installer-files
+          cp install.sh installer-files/
+          cp latest-version.txt installer-files/
 
-          # Upload install.sh to root of bucket
-          aws s3 cp install.sh \
-            "s3://${R2_BUCKET}/install.sh" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --content-type "text/x-shellscript" \
-            --cache-control "max-age=300"
-
-          # Create version metadata file
-          echo "${VERSION}" > latest-version.txt
-          aws s3 cp latest-version.txt \
-            "s3://${R2_BUCKET}/latest-version.txt" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --content-type "text/plain" \
-            --cache-control "max-age=60"
-
-          echo "✓ install.sh uploaded to R2"
-          echo "✓ latest-version.txt uploaded to R2"
+      - name: Upload installer files to R2
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: installer-files
+          destination-dir: .
+          max-retries: 5
