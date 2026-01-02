@@ -1,3 +1,13 @@
+//! Prometheus metrics for gflow scheduler
+//!
+//! # Cardinality Warning
+//! Per-user labels on counters can lead to high cardinality in environments with many users.
+//! In high-scale deployments, consider:
+//! - Using unlabelled totals for aggregate metrics
+//! - Implementing optional per-user breakdown via configuration
+//! - Setting up metric relabeling in your Prometheus scraper
+//! - Monitoring cardinality with Prometheus queries like `count({__name__=~"gflow_.*"})`
+
 #[cfg(feature = "metrics")]
 use lazy_static::lazy_static;
 #[cfg(feature = "metrics")]
@@ -8,7 +18,7 @@ use prometheus::{
 
 #[cfg(feature = "metrics")]
 lazy_static! {
-    // Job lifecycle counters
+    // Job lifecycle counters (labeled by user - watch for high cardinality)
     pub static ref JOB_SUBMISSIONS: CounterVec = register_counter_vec!(
         "gflow_jobs_submitted_total",
         "Total jobs submitted",

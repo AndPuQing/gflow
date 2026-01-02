@@ -54,7 +54,6 @@ tokio = { version = "1.43.0", default-features = false, features = [
 ] }
 clap = { version = "4.5.28", features = ["cargo", "derive"] }
 clap_complete = "4.5.44"
-env_logger = "0.11.6"
 log = "0.4.25"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "ansi", "json"] }
@@ -91,7 +90,7 @@ socket2 = { version = "0.5", features = ["all"] }
 libc = "0.2"
 
 [features]
-default = ["metrics"]
+default = []
 metrics = ["prometheus", "lazy_static"]
 
 [build-dependencies]

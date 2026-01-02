@@ -2,7 +2,6 @@ use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
-use gflow::metrics;
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
@@ -515,6 +514,7 @@ pub async fn run(shared_state: SharedState) {
         // Step 5: Update metrics (read lock for state snapshot)
         #[cfg(feature = "metrics")]
         {
+            use gflow::metrics;
             let state = shared_state.read().await;
 
             // Update job state metrics

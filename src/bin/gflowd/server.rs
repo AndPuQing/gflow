@@ -1,3 +1,11 @@
+//! HTTP server for the gflow daemon
+//!
+//! # Security Note
+//! The `/debug/*` endpoints expose full job details and per-user statistics without
+//! authentication. In production environments, ensure the daemon is bound to localhost
+//! only and protected by firewall rules. Consider gating these endpoints behind a
+//! feature flag or configuration option for production deployments.
+
 use crate::executor::TmuxExecutor;
 use crate::scheduler_runtime::{self, SharedState};
 use axum::{
@@ -164,13 +172,13 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
         }
     }
 
-    let submitted_by = input.submitted_by.clone();
+    let _submitted_by = input.submitted_by.clone();
     let (job_id, run_name) = state.submit_job(input).await;
 
     // Record metrics
     #[cfg(feature = "metrics")]
     metrics::JOB_SUBMISSIONS
-        .with_label_values(&[&submitted_by])
+        .with_label_values(&[&_submitted_by])
         .inc();
 
     tracing::info!(job_id = job_id, run_name = %run_name, "Job created");
@@ -200,15 +208,23 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
     let mut state = state.write().await;
     tracing::info!(job_id = id, "Finishing job");
 
-    // Record metrics before finishing
+    // Get user before finishing (for metrics)
     #[cfg(feature = "metrics")]
-    if let Some(job) = state.jobs().get(&id) {
-        metrics::JOB_FINISHED
-            .with_label_values(&[&job.submitted_by])
-            .inc();
+    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+
+    let success = state.finish_job(id).await;
+
+    // Record metrics only on successful transition
+    #[cfg(feature = "metrics")]
+    if success {
+        if let Some(submitted_by) = user {
+            metrics::JOB_FINISHED
+                .with_label_values(&[&submitted_by])
+                .inc();
+        }
     }
 
-    if state.finish_job(id).await {
+    if success {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -239,15 +255,23 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
     let mut state = state.write().await;
     tracing::info!(job_id = id, "Failing job");
 
-    // Record metrics before failing
+    // Get user before failing (for metrics)
     #[cfg(feature = "metrics")]
-    if let Some(job) = state.jobs().get(&id) {
-        metrics::JOB_FAILED
-            .with_label_values(&[&job.submitted_by])
-            .inc();
+    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+
+    let success = state.fail_job(id).await;
+
+    // Record metrics only on successful transition
+    #[cfg(feature = "metrics")]
+    if success {
+        if let Some(submitted_by) = user {
+            metrics::JOB_FAILED
+                .with_label_values(&[&submitted_by])
+                .inc();
+        }
     }
 
-    if state.fail_job(id).await {
+    if success {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -259,15 +283,23 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
     let mut state = state.write().await;
     tracing::info!(job_id = id, "Cancelling job");
 
-    // Record metrics before cancelling
+    // Get user before cancelling (for metrics)
     #[cfg(feature = "metrics")]
-    if let Some(job) = state.jobs().get(&id) {
-        metrics::JOB_CANCELLED
-            .with_label_values(&[&job.submitted_by])
-            .inc();
+    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+
+    let success = state.cancel_job(id).await;
+
+    // Record metrics only on successful transition
+    #[cfg(feature = "metrics")]
+    if success {
+        if let Some(submitted_by) = user {
+            metrics::JOB_CANCELLED
+                .with_label_values(&[&submitted_by])
+                .inc();
+        }
     }
 
-    if state.cancel_job(id).await {
+    if success {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))

@@ -26,7 +26,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Bridge log crate to tracing for dependencies (after tracing is initialized)
-    tracing_log::LogTracer::init().ok();
+    if let Err(e) = tracing_log::LogTracer::init() {
+        eprintln!("Warning: Failed to set log→tracing bridge: {}", e);
+    }
 
     if let Some(command) = gflowd.command {
         return commands::handle_commands(&gflowd.config, command).await;
