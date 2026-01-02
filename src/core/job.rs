@@ -326,11 +326,11 @@ impl Job {
     pub fn try_transition(&mut self, job_id: u32, next: JobState) -> bool {
         match self.transition_to(next) {
             Ok(_) => {
-                log::debug!("Job {} transitioned to {}", job_id, next);
+                tracing::debug!("Job {} transitioned to {}", job_id, next);
                 true
             }
             Err(JobError::AlreadyInState(state)) => {
-                log::warn!(
+                tracing::warn!(
                     "Job {} already in state {}, ignoring transition",
                     job_id,
                     state
@@ -338,11 +338,11 @@ impl Job {
                 false
             }
             Err(JobError::InvalidTransition { from, to }) => {
-                log::error!("Job {} invalid transition: {} → {}", job_id, from, to);
+                tracing::error!("Job {} invalid transition: {} → {}", job_id, from, to);
                 false
             }
             Err(e) => {
-                log::error!("Unexpected error transitioning job {}: {}", job_id, e);
+                tracing::error!("Unexpected error transitioning job {}: {}", job_id, e);
                 false
             }
         }

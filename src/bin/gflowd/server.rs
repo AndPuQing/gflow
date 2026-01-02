@@ -7,8 +7,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use gflow::core::job::Job;
+use gflow::core::job::{Job, JobState};
+use gflow::{debug, metrics};
 use socket2::{Domain, Protocol, Socket, Type};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -24,7 +26,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let scheduler_clone = Arc::clone(&scheduler);
 
     tokio::spawn(async move {
-        log::info!("Starting scheduler...");
+        tracing::info!("Starting scheduler...");
         scheduler_runtime::run(scheduler_clone).await;
     });
 
@@ -42,6 +44,10 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/info", get(info))
         .route("/health", get(get_health))
         .route("/gpus", post(set_allowed_gpus))
+        .route("/metrics", get(get_metrics))
+        .route("/debug/state", get(debug_state))
+        .route("/debug/jobs/{id}", get(debug_job))
+        .route("/debug/metrics", get(debug_metrics))
         .with_state(scheduler);
 
     // Create socket with SO_REUSEPORT for hot reload support
@@ -81,7 +87,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     std_listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
 
-    log::info!("Listening on: {addr} (SO_REUSEPORT enabled)");
+    tracing::info!("Listening on: {addr} (SO_REUSEPORT enabled)");
 
     // Create shutdown signal handler
     let shutdown_signal = create_shutdown_signal();
@@ -91,7 +97,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal)
         .await?;
 
-    log::info!("Server shutdown complete");
+    tracing::info!("Server shutdown complete");
     Ok(())
 }
 
@@ -105,13 +111,13 @@ async fn create_shutdown_signal() {
 
     tokio::select! {
         _ = sigterm.recv() => {
-            log::info!("Received SIGTERM, initiating graceful shutdown");
+            tracing::info!("Received SIGTERM, initiating graceful shutdown");
         }
         _ = sigint.recv() => {
-            log::info!("Received SIGINT, initiating graceful shutdown");
+            tracing::info!("Received SIGINT, initiating graceful shutdown");
         }
         _ = sigusr2.recv() => {
-            log::info!("Received SIGUSR2 (reload signal), initiating graceful shutdown");
+            tracing::info!("Received SIGUSR2 (reload signal), initiating graceful shutdown");
         }
     }
 }
@@ -134,19 +140,20 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 #[axum::debug_handler]
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Received job: {input:?}");
-    log::info!(
-        "Job group_id: {:?}, max_concurrent: {:?}",
-        input.group_id,
-        input.max_concurrent
+    tracing::info!(
+        user = %input.submitted_by,
+        gpus = input.gpus,
+        group_id = ?input.group_id,
+        max_concurrent = ?input.max_concurrent,
+        "Received job submission"
     );
 
     // Validate that dependency job exists if specified
     if let Some(dep_id) = input.depends_on {
         if !state.jobs().contains_key(&dep_id) {
-            log::warn!(
-                "Job submission failed: dependency job {} does not exist",
-                dep_id
+            tracing::warn!(
+                dep_id = dep_id,
+                "Job submission failed: dependency job does not exist"
             );
             return (
                 StatusCode::BAD_REQUEST,
@@ -157,7 +164,17 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
         }
     }
 
+    let submitted_by = input.submitted_by.clone();
     let (job_id, run_name) = state.submit_job(input).await;
+
+    // Record metrics
+    #[cfg(feature = "metrics")]
+    metrics::JOB_SUBMISSIONS
+        .with_label_values(&[&submitted_by])
+        .inc();
+
+    tracing::info!(job_id = job_id, run_name = %run_name, "Job created");
+
     (
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": job_id, "run_name": run_name })),
@@ -181,7 +198,16 @@ async fn get_job(
 #[axum::debug_handler]
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Finishing job with ID: {id}");
+    tracing::info!(job_id = id, "Finishing job");
+
+    // Record metrics before finishing
+    #[cfg(feature = "metrics")]
+    if let Some(job) = state.jobs().get(&id) {
+        metrics::JOB_FINISHED
+            .with_label_values(&[&job.submitted_by])
+            .inc();
+    }
+
     if state.finish_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
@@ -211,7 +237,16 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 #[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Failing job with ID: {id}");
+    tracing::info!(job_id = id, "Failing job");
+
+    // Record metrics before failing
+    #[cfg(feature = "metrics")]
+    if let Some(job) = state.jobs().get(&id) {
+        metrics::JOB_FAILED
+            .with_label_values(&[&job.submitted_by])
+            .inc();
+    }
+
     if state.fail_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
@@ -222,7 +257,16 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 #[axum::debug_handler]
 async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Cancelling job with ID: {id}");
+    tracing::info!(job_id = id, "Cancelling job");
+
+    // Record metrics before cancelling
+    #[cfg(feature = "metrics")]
+    if let Some(job) = state.jobs().get(&id) {
+        metrics::JOB_CANCELLED
+            .with_label_values(&[&job.submitted_by])
+            .inc();
+    }
+
     if state.cancel_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
@@ -233,7 +277,7 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 #[axum::debug_handler]
 async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Holding job with ID: {id}");
+    tracing::info!(job_id = id, "Holding job");
     if state.hold_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
@@ -244,7 +288,7 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 #[axum::debug_handler]
 async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
-    log::info!("Releasing job with ID: {id}");
+    tracing::info!(job_id = id, "Releasing job");
     if state.release_job(id).await {
         (StatusCode::OK, Json(()))
     } else {
@@ -326,7 +370,7 @@ async fn set_allowed_gpus(
     state.set_allowed_gpu_indices(request.allowed_indices.clone());
     state.save_state().await;
 
-    log::info!("GPU configuration updated: {:?}", request.allowed_indices);
+    tracing::info!(allowed_indices = ?request.allowed_indices, "GPU configuration updated");
 
     (
         StatusCode::OK,
@@ -334,4 +378,104 @@ async fn set_allowed_gpus(
             "allowed_gpu_indices": request.allowed_indices
         })),
     )
+}
+
+// Metrics endpoint
+#[axum::debug_handler]
+async fn get_metrics() -> impl IntoResponse {
+    match metrics::export_metrics() {
+        Ok(text) => (
+            StatusCode::OK,
+            [("Content-Type", "text/plain; version=0.0.4")],
+            text,
+        ),
+        Err(e) => {
+            tracing::error!("Failed to export metrics: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [("Content-Type", "text/plain; version=0.0.4")],
+                String::from("Error exporting metrics"),
+            )
+        }
+    }
+}
+
+// Debug endpoints
+#[axum::debug_handler]
+async fn debug_state(State(state): State<SharedState>) -> impl IntoResponse {
+    let state = state.read().await;
+
+    // Get GPU info from the info() method
+    let info = state.info();
+    let gpu_slots: Vec<debug::DebugGpuSlot> = info
+        .gpus
+        .iter()
+        .map(|gpu_info| debug::DebugGpuSlot {
+            uuid: gpu_info.uuid.clone(),
+            index: gpu_info.index,
+            available: gpu_info.available,
+        })
+        .collect();
+
+    let debug_state = debug::DebugState {
+        jobs: state.jobs().clone(),
+        next_job_id: state.next_job_id(),
+        total_memory_mb: state.total_memory_mb(),
+        available_memory_mb: state.available_memory_mb(),
+        gpu_slots,
+        allowed_gpu_indices: info.allowed_gpu_indices,
+    };
+
+    (StatusCode::OK, Json(debug_state))
+}
+
+#[axum::debug_handler]
+async fn debug_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+    let state = state.read().await;
+
+    state
+        .jobs()
+        .get(&id)
+        .cloned()
+        .map(debug::DebugJobInfo::from_job)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+#[axum::debug_handler]
+async fn debug_metrics(State(state): State<SharedState>) -> impl IntoResponse {
+    let state = state.read().await;
+
+    let jobs_by_state: HashMap<JobState, usize> =
+        state.jobs().values().fold(HashMap::new(), |mut acc, job| {
+            *acc.entry(job.state).or_insert(0) += 1;
+            acc
+        });
+
+    let jobs_by_user: HashMap<String, debug::UserJobStats> =
+        state.jobs().values().fold(HashMap::new(), |mut acc, job| {
+            let stats = acc
+                .entry(job.submitted_by.clone())
+                .or_insert(debug::UserJobStats {
+                    submitted: 0,
+                    running: 0,
+                    finished: 0,
+                    failed: 0,
+                });
+            stats.submitted += 1;
+            match job.state {
+                JobState::Running => stats.running += 1,
+                JobState::Finished => stats.finished += 1,
+                JobState::Failed => stats.failed += 1,
+                _ => {}
+            }
+            acc
+        });
+
+    let debug_metrics = debug::DebugMetrics {
+        jobs_by_state,
+        jobs_by_user,
+    };
+
+    (StatusCode::OK, Json(debug_metrics))
 }

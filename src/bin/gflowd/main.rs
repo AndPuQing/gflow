@@ -1,4 +1,6 @@
 use clap::Parser;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
 mod cli;
 mod commands;
 mod executor;
@@ -8,9 +10,23 @@ mod server;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let gflowd = cli::GFlowd::parse();
-    env_logger::Builder::new()
-        .filter_level(gflowd.verbose.log_level_filter())
+
+    // Map verbosity flag to log level
+    let filter = match gflowd.verbose {
+        0 => "gflow=info,gflowd=info",
+        1 => "gflow=debug,gflowd=debug",
+        2 => "gflow=trace,gflowd=trace",
+        _ => "trace",
+    };
+
+    // Initialize tracing with log bridge
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
+        .with(tracing_subscriber::fmt::layer())
         .init();
+
+    // Bridge log crate to tracing for dependencies (after tracing is initialized)
+    tracing_log::LogTracer::init().ok();
 
     if let Some(command) = gflowd.command {
         return commands::handle_commands(&gflowd.config, command).await;

@@ -22,8 +22,9 @@ pub struct GFlowd {
     #[arg(long, hide = true)]
     pub gpus_internal: Option<String>,
 
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity,
+    /// Increase logging verbosity (-v for debug, -vv for trace)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
 }
 
 #[derive(Debug, Parser)]

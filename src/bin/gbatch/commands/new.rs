@@ -152,6 +152,6 @@ pub(crate) fn handle_new(new_args: cli::NewArgs) -> Result<()> {
         fs::set_permissions(&script_path, perms)?;
     }
 
-    log::info!("Created template: {}", script_path.display());
+    tracing::info!("Created template: {}", script_path.display());
     Ok(())
 }

@@ -2,6 +2,7 @@ use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
+use gflow::metrics;
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
@@ -28,7 +29,7 @@ impl SchedulerRuntime {
                 (Some(nvml), gpu_slots)
             }
             Err(e) => {
-                log::warn!(
+                tracing::warn!(
                     "Failed to initialize NVML: {}. Running without GPU support.",
                     e
                 );
@@ -45,7 +46,7 @@ impl SchedulerRuntime {
                 .partition(|&idx| idx < detected_count as u32);
 
             if !invalid.is_empty() {
-                log::warn!(
+                tracing::warn!(
                     "Invalid GPU indices {:?} specified (only {} GPUs detected). These will be filtered out.",
                     invalid,
                     detected_count
@@ -53,10 +54,12 @@ impl SchedulerRuntime {
             }
 
             if valid.is_empty() {
-                log::warn!("No valid GPU indices remaining after filtering. Allowing all GPUs.");
+                tracing::warn!(
+                    "No valid GPU indices remaining after filtering. Allowing all GPUs."
+                );
                 None
             } else {
-                log::info!("GPU restriction enabled: allowing only GPUs {:?}", valid);
+                tracing::info!("GPU restriction enabled: allowing only GPUs {:?}", valid);
                 Some(valid)
             }
         } else {
@@ -85,7 +88,7 @@ impl SchedulerRuntime {
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                log::error!(
+                tracing::error!(
                     "Failed to create state directory {}: {}",
                     parent.display(),
                     e
@@ -103,7 +106,7 @@ impl SchedulerRuntime {
                             Ok(_) => {
                                 // Atomic rename
                                 if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
-                                    log::error!(
+                                    tracing::error!(
                                         "Failed to rename state file from {} to {}: {}",
                                         tmp_path.display(),
                                         path.display(),
@@ -112,7 +115,7 @@ impl SchedulerRuntime {
                                 }
                             }
                             Err(e) => {
-                                log::error!(
+                                tracing::error!(
                                     "Failed to write state to {}: {}",
                                     tmp_path.display(),
                                     e
@@ -121,7 +124,7 @@ impl SchedulerRuntime {
                         }
                     }
                     Err(e) => {
-                        log::error!(
+                        tracing::error!(
                             "Failed to create temporary state file {}: {}",
                             tmp_path.display(),
                             e
@@ -130,7 +133,7 @@ impl SchedulerRuntime {
                 }
             }
             Err(e) => {
-                log::error!("Failed to serialize scheduler state: {}", e);
+                tracing::error!("Failed to serialize scheduler state: {}", e);
             }
         }
     }
@@ -147,20 +150,23 @@ impl SchedulerRuntime {
                             match gflow::core::migrations::migrate_state(loaded_scheduler) {
                                 Ok(migrated) => migrated,
                                 Err(e) => {
-                                    log::error!(
+                                    tracing::error!(
                                         "State migration failed: {}. Starting with fresh state.",
                                         e
                                     );
-                                    log::warn!(
+                                    tracing::warn!(
                                         "The old state file will be backed up to {}.backup",
                                         path.display()
                                     );
                                     // Try to backup the state file
                                     let backup_path = path.with_extension("json.backup");
                                     if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                                        log::error!("Failed to backup state file: {}", backup_err);
+                                        tracing::error!(
+                                            "Failed to backup state file: {}",
+                                            backup_err
+                                        );
                                     } else {
-                                        log::info!(
+                                        tracing::info!(
                                             "Backed up state file to {}",
                                             backup_path.display()
                                         );
@@ -181,7 +187,7 @@ impl SchedulerRuntime {
                                 self.nvml = Some(nvml);
                             }
                             Err(e) => {
-                                log::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
+                                tracing::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
                                 self.scheduler.update_gpu_slots(HashMap::new());
                                 self.nvml = None;
                             }
@@ -192,32 +198,35 @@ impl SchedulerRuntime {
                         self.scheduler.update_memory(total_memory_mb);
                         self.scheduler.refresh_available_memory();
 
-                        log::info!("Successfully loaded state from {}", path.display());
+                        tracing::info!("Successfully loaded state from {}", path.display());
                     }
                     Err(e) => {
-                        log::error!(
+                        tracing::error!(
                             "Failed to deserialize state file {}: {}. Starting with fresh state.",
                             path.display(),
                             e
                         );
-                        log::warn!(
+                        tracing::warn!(
                             "Your job history may have been lost. The old state file will be backed up to {}.backup",
                             path.display()
                         );
                         // Try to backup the corrupted state file
                         let backup_path = path.with_extension("json.backup");
                         if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                            log::error!("Failed to backup corrupted state file: {}", backup_err);
+                            tracing::error!(
+                                "Failed to backup corrupted state file: {}",
+                                backup_err
+                            );
                         } else {
-                            log::info!("Backed up old state file to {}", backup_path.display());
+                            tracing::info!("Backed up old state file to {}", backup_path.display());
                         }
                     }
                 }
             } else {
-                log::error!("Failed to read state file from {}", path.display());
+                tracing::error!("Failed to read state file from {}", path.display());
             }
         } else {
-            log::info!(
+            tracing::info!(
                 "No existing state file found at {}, starting fresh",
                 path.display()
             );
@@ -279,7 +288,7 @@ impl SchedulerRuntime {
         }
 
         // Fallback: assume 16GB if we can't read system memory
-        log::warn!("Could not read system memory from /proc/meminfo, assuming 16GB");
+        tracing::warn!("Could not read system memory from /proc/meminfo, assuming 16GB");
         16 * 1024
     }
 
@@ -298,9 +307,9 @@ impl SchedulerRuntime {
             // Close tmux session if auto_close is enabled
             if should_close_tmux {
                 if let Some(name) = run_name {
-                    log::info!("Auto-closing tmux session '{}' for job {}", name, job_id);
+                    tracing::info!("Auto-closing tmux session '{}' for job {}", name, job_id);
                     if let Err(e) = gflow::tmux::kill_session(&name) {
-                        log::warn!("Failed to auto-close tmux session '{}': {}", name, e);
+                        tracing::warn!("Failed to auto-close tmux session '{}': {}", name, e);
                     }
                 }
             }
@@ -325,7 +334,7 @@ impl SchedulerRuntime {
             if was_running {
                 if let Some(name) = run_name {
                     if let Err(e) = gflow::tmux::send_ctrl_c(&name) {
-                        log::error!("Failed to send C-c to tmux session {}: {}", name, e);
+                        tracing::error!("Failed to send C-c to tmux session {}: {}", name, e);
                     }
                 }
             }
@@ -373,6 +382,19 @@ impl SchedulerRuntime {
     // Direct access to jobs for server handlers
     pub fn jobs(&self) -> &HashMap<u32, Job> {
         &self.scheduler.jobs
+    }
+
+    // Debug/metrics accessors
+    pub fn next_job_id(&self) -> u32 {
+        self.scheduler.next_job_id()
+    }
+
+    pub fn total_memory_mb(&self) -> u64 {
+        self.scheduler.total_memory_mb()
+    }
+
+    pub fn available_memory_mb(&self) -> u64 {
+        self.scheduler.available_memory_mb()
     }
 }
 
@@ -425,7 +447,7 @@ pub async fn run(shared_state: SharedState) {
         for (job_id, run_name) in running_jobs {
             if let Some(rn) = run_name {
                 if !gflow::tmux::is_session_exist(&rn) {
-                    log::warn!("Found zombie job (id: {}), marking as Failed.", job_id);
+                    tracing::warn!("Found zombie job (id: {}), marking as Failed.", job_id);
                     zombie_job_ids.push(job_id);
                 }
             }
@@ -457,7 +479,7 @@ pub async fn run(shared_state: SharedState) {
                 .values()
                 .filter(|job| job.has_exceeded_time_limit())
                 .map(|job| {
-                    log::warn!("Job {} has exceeded time limit, terminating...", job.id);
+                    tracing::warn!("Job {} has exceeded time limit, terminating...", job.id);
                     (job.id, job.run_name.clone())
                 })
                 .collect::<Vec<_>>()
@@ -467,7 +489,7 @@ pub async fn run(shared_state: SharedState) {
         for (job_id, run_name) in timed_out_jobs {
             if let Some(run_name) = run_name {
                 if let Err(e) = gflow::tmux::send_ctrl_c(&run_name) {
-                    log::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
+                    tracing::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
                 }
             }
 
@@ -489,6 +511,34 @@ pub async fn run(shared_state: SharedState) {
         }
         // Release lock before I/O
         shared_state.read().await.save_state().await;
+
+        // Step 5: Update metrics (read lock for state snapshot)
+        #[cfg(feature = "metrics")]
+        {
+            let state = shared_state.read().await;
+
+            // Update job state metrics
+            metrics::update_job_state_metrics(state.jobs());
+
+            // Update GPU metrics
+            let info = state.info();
+            let available_gpus = info.gpus.iter().filter(|g| g.available).count();
+            let total_gpus = info.gpus.len();
+            metrics::GPU_AVAILABLE
+                .with_label_values(&[])
+                .set(available_gpus as f64);
+            metrics::GPU_TOTAL
+                .with_label_values(&[])
+                .set(total_gpus as f64);
+
+            // Update memory metrics
+            metrics::MEMORY_AVAILABLE_MB
+                .with_label_values(&[])
+                .set(state.available_memory_mb() as f64);
+            metrics::MEMORY_TOTAL_MB
+                .with_label_values(&[])
+                .set(state.total_memory_mb() as f64);
+        }
         // Write lock released here
     }
 }

@@ -253,7 +253,7 @@ impl Scheduler {
     /// Note: Caller is responsible for persisting state after scheduling
     pub fn schedule_jobs(&mut self) -> Vec<(u32, Result<(), String>)> {
         if self.executor.is_none() {
-            log::warn!("Scheduler has no executor, cannot schedule jobs");
+            tracing::warn!("Scheduler has no executor, cannot schedule jobs");
             return Vec::new();
         }
 
@@ -312,7 +312,7 @@ impl Scheduler {
                                 .count();
 
                             if running_in_group >= max_concurrent {
-                                log::debug!(
+                                tracing::debug!(
                                     "Job {} waiting: group {} has {}/{} running jobs",
                                     job.id,
                                     group_id,
@@ -356,7 +356,7 @@ impl Scheduler {
                     let executor = self.executor.as_ref().unwrap();
                     match executor.execute(job) {
                         Ok(_) => {
-                            log::info!("Executing job: {job:?}");
+                            tracing::info!("Executing job: {job:?}");
                             // Reserve memory for this job (using local tracker)
                             available_memory = available_memory.saturating_sub(required_memory);
                             self.available_memory_mb =
@@ -364,7 +364,7 @@ impl Scheduler {
                             results.push((job_id, Ok(())));
                         }
                         Err(e) => {
-                            log::error!("Failed to execute job: {e:?}");
+                            tracing::error!("Failed to execute job: {e:?}");
                             // Use try_transition for consistent timestamps
                             job.try_transition(job_id, JobState::Failed);
                             // Return GPUs to available pool on failure
@@ -378,7 +378,7 @@ impl Scheduler {
                 }
             } else if !has_enough_memory {
                 if let Some(job) = self.jobs.get(&job_id) {
-                    log::debug!(
+                    tracing::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
                         job.id,
                         required_memory,
@@ -415,6 +415,16 @@ impl Scheduler {
     /// Get the next job ID
     pub fn next_job_id(&self) -> u32 {
         self.next_job_id
+    }
+
+    /// Get total memory in MB
+    pub fn total_memory_mb(&self) -> u64 {
+        self.total_memory_mb
+    }
+
+    /// Get available memory in MB
+    pub fn available_memory_mb(&self) -> u64 {
+        self.available_memory_mb
     }
 
     /// Set the next job ID

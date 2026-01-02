@@ -11,8 +11,9 @@ use gflow::utils::STYLES;
 )]
 #[command(styles=STYLES)]
 pub struct GJob {
-    #[command(flatten)]
-    pub verbose: clap_verbosity_flag::Verbosity,
+    /// Increase logging verbosity (-v for debug, -vv for trace)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
 
     #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,

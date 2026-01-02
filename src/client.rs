@@ -56,7 +56,7 @@ impl Client {
     }
 
     pub async fn get_job(&self, job_id: u32) -> anyhow::Result<Option<Job>> {
-        log::debug!("Getting job {job_id}");
+        tracing::debug!("Getting job {job_id}");
         let response = self
             .client
             .get(format!("{}/jobs/{}", self.base_url, job_id))
@@ -76,7 +76,7 @@ impl Client {
     }
 
     pub async fn add_job(&self, job: Job) -> anyhow::Result<JobSubmitResponse> {
-        log::debug!("Adding job: {job:?}");
+        tracing::debug!("Adding job: {job:?}");
         let response = self
             .client
             .post(format!("{}/jobs", self.base_url))
@@ -99,7 +99,7 @@ impl Client {
     }
 
     pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<()> {
-        log::debug!("Finishing job {job_id}");
+        tracing::debug!("Finishing job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/finish", self.base_url, job_id))
             .send()
@@ -109,7 +109,7 @@ impl Client {
     }
 
     pub async fn fail_job(&self, job_id: u32) -> anyhow::Result<()> {
-        log::debug!("Failing job {job_id}");
+        tracing::debug!("Failing job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/fail", self.base_url, job_id))
             .send()
@@ -119,7 +119,7 @@ impl Client {
     }
 
     pub async fn cancel_job(&self, job_id: u32) -> anyhow::Result<()> {
-        log::debug!("Cancelling job {job_id}");
+        tracing::debug!("Cancelling job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/cancel", self.base_url, job_id))
             .send()
@@ -129,7 +129,7 @@ impl Client {
     }
 
     pub async fn hold_job(&self, job_id: u32) -> anyhow::Result<()> {
-        log::debug!("Holding job {job_id}");
+        tracing::debug!("Holding job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/hold", self.base_url, job_id))
             .send()
@@ -139,7 +139,7 @@ impl Client {
     }
 
     pub async fn release_job(&self, job_id: u32) -> anyhow::Result<()> {
-        log::debug!("Releasing job {job_id}");
+        tracing::debug!("Releasing job {job_id}");
         self.client
             .post(format!("{}/jobs/{}/release", self.base_url, job_id))
             .send()
@@ -149,7 +149,7 @@ impl Client {
     }
 
     pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Option<String>> {
-        log::debug!("Getting log path for job {job_id}");
+        tracing::debug!("Getting log path for job {job_id}");
         let response = self
             .client
             .get(format!("{}/jobs/{}/log", self.base_url, job_id))
@@ -179,7 +179,7 @@ impl Client {
     }
 
     pub async fn get_info(&self) -> anyhow::Result<SchedulerInfo> {
-        log::debug!("Getting scheduler info");
+        tracing::debug!("Getting scheduler info");
         let info = self
             .client
             .get(format!("{}/info", self.base_url))
@@ -193,7 +193,7 @@ impl Client {
     }
 
     pub async fn get_health(&self) -> anyhow::Result<StatusCode> {
-        log::debug!("Getting health status");
+        tracing::debug!("Getting health status");
         let health = self
             .client
             .get(format!("{}/health", self.base_url))
@@ -205,7 +205,7 @@ impl Client {
     }
 
     pub async fn get_health_with_pid(&self) -> anyhow::Result<Option<u32>> {
-        log::debug!("Getting health status with PID");
+        tracing::debug!("Getting health status with PID");
         let response = self
             .client
             .get(format!("{}/health", self.base_url))
@@ -231,7 +231,7 @@ impl Client {
     }
 
     pub async fn resolve_dependency(&self, username: &str, shorthand: &str) -> anyhow::Result<u32> {
-        log::debug!(
+        tracing::debug!(
             "Resolving dependency '{}' for user '{}'",
             shorthand,
             username
@@ -267,7 +267,7 @@ impl Client {
     }
 
     pub async fn set_allowed_gpus(&self, allowed_indices: Option<Vec<u32>>) -> anyhow::Result<()> {
-        log::debug!("Setting allowed GPU indices: {:?}", allowed_indices);
+        tracing::debug!("Setting allowed GPU indices: {:?}", allowed_indices);
 
         let request_body = serde_json::json!({
             "allowed_indices": allowed_indices

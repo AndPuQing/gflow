@@ -19,7 +19,7 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
         return Ok(scheduler); // No migration needed
     }
 
-    log::info!(
+    tracing::info!(
         "Migrating state from version {} to {}",
         from_version,
         CURRENT_VERSION
@@ -40,7 +40,7 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
 
 /// Migrate from version 0 (no version field) to version 1
 fn migrate_v0_to_v1(mut scheduler: Scheduler) -> Result<Scheduler> {
-    log::info!("Migrating from v0 to v1: adding version field");
+    tracing::info!("Migrating from v0 to v1: adding version field");
     scheduler.version = 1;
     Ok(scheduler)
 }

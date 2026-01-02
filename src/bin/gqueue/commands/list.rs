@@ -385,7 +385,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     ) -> Option<JobNode> {
         // Check for circular dependency
         if recursion_stack.contains(&job_id) {
-            log::warn!(
+            tracing::warn!(
                 "Circular dependency detected for job {}, skipping subtree",
                 job_id
             );
