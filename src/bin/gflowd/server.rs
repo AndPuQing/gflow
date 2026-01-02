@@ -283,8 +283,9 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 
     let success = state.finish_job(id).await;
 
-    // Force immediate save for user operations
+    // Force immediate save for user operations and clear dirty flag
     state.save_state().await;
+    state.clear_dirty();
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -333,8 +334,9 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 
     let success = state.fail_job(id).await;
 
-    // Force immediate save for user operations
+    // Force immediate save for user operations and clear dirty flag
     state.save_state().await;
+    state.clear_dirty();
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -364,8 +366,9 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 
     let success = state.cancel_job(id).await;
 
-    // Force immediate save for user operations
+    // Force immediate save for user operations and clear dirty flag
     state.save_state().await;
+    state.clear_dirty();
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -390,8 +393,9 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
     tracing::info!(job_id = id, "Holding job");
     let success = state.hold_job(id).await;
 
-    // Force immediate save for user operations
+    // Force immediate save for user operations and clear dirty flag
     state.save_state().await;
+    state.clear_dirty();
 
     if success {
         (StatusCode::OK, Json(()))
@@ -406,8 +410,9 @@ async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> i
     tracing::info!(job_id = id, "Releasing job");
     let success = state.release_job(id).await;
 
-    // Force immediate save for user operations
+    // Force immediate save for user operations and clear dirty flag
     state.save_state().await;
+    state.clear_dirty();
 
     if success {
         (StatusCode::OK, Json(()))
@@ -489,6 +494,7 @@ async fn set_allowed_gpus(
 
     state.set_allowed_gpu_indices(request.allowed_indices.clone());
     state.save_state().await;
+    state.clear_dirty(); // Clear dirty flag to avoid redundant save
 
     tracing::info!(allowed_indices = ?request.allowed_indices, "GPU configuration updated");
 

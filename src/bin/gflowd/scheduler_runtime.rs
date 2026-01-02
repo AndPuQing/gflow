@@ -147,6 +147,11 @@ impl SchedulerRuntime {
         self.dirty = true;
     }
 
+    /// Clear the dirty flag (used after immediate saves to avoid redundant writes)
+    pub fn clear_dirty(&mut self) {
+        self.dirty = false;
+    }
+
     /// Save state only if dirty flag is set, then clear flag
     async fn save_state_if_dirty(&mut self) {
         if self.dirty {
@@ -309,15 +314,17 @@ impl SchedulerRuntime {
         16 * 1024
     }
 
-    // Delegated methods with async state persistence
+    // Job mutation methods with immediate or deferred persistence
 
     pub async fn submit_job(&mut self, job: Job) -> (u32, String) {
         let result = self.scheduler.submit_job(job);
-        self.mark_dirty();
+        // Immediate save to ensure "201 Created" means durable
+        self.save_state().await;
+        self.clear_dirty(); // Clear dirty flag to avoid redundant save
         result
     }
 
-    /// Submit multiple jobs in a batch with a single state save
+    /// Submit multiple jobs in a batch with immediate persistence
     /// Returns: Vec<(job_id, run_name, submitted_by)>
     pub async fn submit_jobs(&mut self, jobs: Vec<Job>) -> Vec<(u32, String, String)> {
         let mut results = Vec::with_capacity(jobs.len());
@@ -328,8 +335,9 @@ impl SchedulerRuntime {
             results.push((job_id, run_name, submitted_by));
         }
 
-        // Single mark for entire batch
-        self.mark_dirty();
+        // Immediate save to ensure "201 Created" means durable
+        self.save_state().await;
+        self.clear_dirty(); // Clear dirty flag to avoid redundant save
         results
     }
 
@@ -533,8 +541,11 @@ pub async fn run(shared_state: SharedState) {
         // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
         {
             let mut state = shared_state.write().await;
-            state.scheduler.schedule_jobs();
-            state.mark_dirty();
+            let scheduled = state.scheduler.schedule_jobs();
+            // Only mark dirty if jobs were actually scheduled
+            if !scheduled.is_empty() {
+                state.mark_dirty();
+            }
         }
 
         // Step 5: Flush state if dirty (single save per loop iteration)
