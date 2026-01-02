@@ -57,7 +57,7 @@ clap_complete = "4.5.44"
 log = "0.4.25"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "ansi", "json"] }
-prometheus = { version = "0.13.4", optional = true }
+prometheus = { version = "0.14.0", optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 reqwest = { version = "0.12.12", features = [
     "json",
