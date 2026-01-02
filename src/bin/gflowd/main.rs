@@ -1,5 +1,4 @@
 use clap::Parser;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod cli;
 mod commands;
@@ -11,24 +10,10 @@ mod server;
 async fn main() -> anyhow::Result<()> {
     let gflowd = cli::GFlowd::parse();
 
-    // Map verbosity flag to log level
-    let filter = match gflowd.verbose {
-        0 => "gflow=info,gflowd=info",
-        1 => "gflow=debug,gflowd=debug",
-        2 => "gflow=trace,gflowd=trace",
-        _ => "trace",
-    };
-
-    // Initialize tracing with log bridge
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
-        .with(tracing_subscriber::fmt::layer())
+    // Initialize tracing subscriber
+    tracing_subscriber::fmt()
+        .with_max_level(gflowd.verbosity)
         .init();
-
-    // Bridge log crate to tracing for dependencies (after tracing is initialized)
-    if let Err(e) = tracing_log::LogTracer::init() {
-        eprintln!("Warning: Failed to set log→tracing bridge: {}", e);
-    }
 
     if let Some(command) = gflowd.command {
         return commands::handle_commands(&gflowd.config, command).await;

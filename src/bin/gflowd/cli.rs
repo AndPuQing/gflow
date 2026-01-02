@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap_complete::Shell;
+use clap_verbosity_flag::Verbosity;
 
 #[derive(Debug, Parser)]
 #[command(name = "gflowd", author, version = gflow::core::version(), about = "GFlow Daemon")]
@@ -22,9 +23,8 @@ pub struct GFlowd {
     #[arg(long, hide = true)]
     pub gpus_internal: Option<String>,
 
-    /// Increase logging verbosity (-v for debug, -vv for trace)
-    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
-    pub verbose: u8,
+    #[command(flatten)]
+    pub verbosity: Verbosity,
 }
 
 #[derive(Debug, Parser)]

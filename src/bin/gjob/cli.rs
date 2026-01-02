@@ -1,5 +1,6 @@
 use clap::Parser;
 use clap_complete::Shell;
+use clap_verbosity_flag::Verbosity;
 use gflow::utils::STYLES;
 
 #[derive(Debug, Parser)]
@@ -11,9 +12,8 @@ use gflow::utils::STYLES;
 )]
 #[command(styles=STYLES)]
 pub struct GJob {
-    /// Increase logging verbosity (-v for debug, -vv for trace)
-    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
-    pub verbose: u8,
+    #[command(flatten)]
+    pub verbosity: Verbosity,
 
     #[arg(long, global = true, help = "Path to the config file", hide = true)]
     pub config: Option<std::path::PathBuf>,
