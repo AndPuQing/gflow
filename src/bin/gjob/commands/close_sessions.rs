@@ -16,13 +16,15 @@ pub async fn handle_close_sessions(
     // Collect session names to close
     let mut sessions_to_close = HashSet::new();
 
-    // If --all flag is set, get all gflow sessions
+    // If --all flag is set, get sessions for all completed jobs
     if all {
-        let all_sessions = tmux::get_all_session_names();
-        // Filter for gflow-managed sessions (those that start with "gflow-")
-        for session in all_sessions {
-            if session.starts_with("gflow-") {
-                sessions_to_close.insert(session);
+        let jobs = client.list_jobs().await?;
+        for job in jobs {
+            // Only close sessions for completed jobs
+            if let Some(session_name) = &job.run_name {
+                if job.state.is_final() {
+                    sessions_to_close.insert(session_name.clone());
+                }
             }
         }
     }
@@ -44,27 +46,30 @@ pub async fn handle_close_sessions(
                 None => continue, // Skip jobs without tmux sessions
             };
 
+            let mut should_close = false;
+
             // Filter by job IDs
             if let Some(ref ids) = job_ids {
                 if ids.contains(&job.id) {
-                    sessions_to_close.insert(session_name.clone());
-                    continue;
+                    should_close = true;
                 }
             }
 
-            // Filter by states
+            // Filter by states (explicit state selection overrides completed-only default)
             if let Some(state_filter) = states {
-                if state_filter.contains(&job.state) {
-                    sessions_to_close.insert(session_name.clone());
-                    continue;
-                }
+                should_close = state_filter.contains(&job.state);
             }
 
             // Filter by pattern
             if let Some(pat) = pattern {
                 if session_name.contains(pat.as_str()) {
-                    sessions_to_close.insert(session_name.clone());
+                    should_close = true;
                 }
+            }
+
+            // Only close sessions for completed jobs unless states are explicitly specified
+            if should_close && (states.is_some() || job.state.is_final()) {
+                sessions_to_close.insert(session_name.clone());
             }
         }
     }

@@ -100,7 +100,7 @@ pub enum Commands {
         #[arg(long, help = "Clear dependency from original job")]
         clear_deps: bool,
     },
-    /// Close tmux sessions for jobs in batch
+    /// Close tmux sessions for completed jobs (by default). Use --state to close sessions in other states.
     #[command(visible_alias = "close")]
     CloseSessions {
         #[arg(
@@ -128,7 +128,11 @@ pub enum Commands {
         )]
         pattern: Option<String>,
 
-        #[arg(short = 'a', long, help = "Close all gflow-managed sessions")]
+        #[arg(
+            short = 'a',
+            long,
+            help = "Close sessions for all completed jobs (finished, failed, cancelled, timeout)"
+        )]
         all: bool,
     },
     /// Generate shell completion scripts

@@ -92,6 +92,13 @@ impl JobState {
                 | (Running, Timeout)
         )
     }
+
+    pub fn is_final(&self) -> bool {
+        matches!(
+            self,
+            JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout
+        )
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
