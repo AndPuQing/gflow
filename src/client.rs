@@ -98,6 +98,34 @@ impl Client {
         Ok(job_response)
     }
 
+    /// Submit multiple jobs in a batch
+    pub async fn add_jobs(&self, jobs: Vec<Job>) -> anyhow::Result<Vec<JobSubmitResponse>> {
+        if jobs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        tracing::debug!("Adding {} jobs in batch", jobs.len());
+        let response = self
+            .client
+            .post(format!("{}/jobs/batch", self.base_url))
+            .json(&jobs)
+            .send()
+            .await
+            .context("Failed to send batch jobs request")?;
+
+        // Check if the response is successful
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow::anyhow!("Failed to add batch jobs: {}", error_msg));
+        }
+
+        let job_responses: Vec<JobSubmitResponse> = response
+            .json()
+            .await
+            .context("Failed to parse batch response json")?;
+        Ok(job_responses)
+    }
+
     pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Finishing job {job_id}");
         self.client

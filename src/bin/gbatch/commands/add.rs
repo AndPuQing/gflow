@@ -308,7 +308,8 @@ pub(crate) async fn handle_add(
             return Ok(());
         }
 
-        // Submit all jobs
+        // Build all jobs first
+        let mut jobs = Vec::with_capacity(param_combinations.len());
         for params in param_combinations {
             let mut job =
                 build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
@@ -316,8 +317,15 @@ pub(crate) async fn handle_add(
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
+            jobs.push(job);
+        }
 
-            let response = client.add_job(job).await.context("Failed to add job")?;
+        // Submit in batch
+        let responses = client
+            .add_jobs(jobs)
+            .await
+            .context("Failed to add batch jobs")?;
+        for response in responses {
             println!(
                 "Submitted batch job {} ({})",
                 response.id, response.run_name
@@ -372,7 +380,8 @@ pub(crate) async fn handle_add(
             return Ok(());
         }
 
-        // Submit all jobs
+        // Build all jobs first
+        let mut jobs = Vec::with_capacity(param_combinations.len());
         for params in param_combinations {
             let mut job =
                 build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
@@ -380,8 +389,15 @@ pub(crate) async fn handle_add(
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
+            jobs.push(job);
+        }
 
-            let response = client.add_job(job).await.context("Failed to add job")?;
+        // Submit in batch
+        let responses = client
+            .add_jobs(jobs)
+            .await
+            .context("Failed to add batch jobs")?;
+        for response in responses {
             println!(
                 "Submitted batch job {} ({})",
                 response.id, response.run_name
@@ -432,7 +448,8 @@ pub(crate) async fn handle_add(
             return Ok(());
         }
 
-        // Submit array jobs
+        // Build all array jobs first
+        let mut jobs = Vec::with_capacity(task_ids.len());
         for task_id in task_ids {
             let mut job = build_job(
                 add_args.clone(),
@@ -444,8 +461,15 @@ pub(crate) async fn handle_add(
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
+            jobs.push(job);
+        }
 
-            let response = client.add_job(job).await.context("Failed to add job")?;
+        // Submit in batch
+        let responses = client
+            .add_jobs(jobs)
+            .await
+            .context("Failed to add batch jobs")?;
+        for response in responses {
             println!(
                 "Submitted batch job {} ({})",
                 response.id, response.run_name

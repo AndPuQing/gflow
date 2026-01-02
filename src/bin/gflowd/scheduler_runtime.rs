@@ -12,6 +12,7 @@ pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     nvml: Option<Nvml>,
+    dirty: bool, // Tracks if state has changed since last save
 }
 
 impl SchedulerRuntime {
@@ -74,7 +75,11 @@ impl SchedulerRuntime {
             .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
 
-        let mut runtime = Self { scheduler, nvml };
+        let mut runtime = Self {
+            scheduler,
+            nvml,
+            dirty: false,
+        };
         runtime.load_state();
         Ok(runtime)
     }
@@ -134,6 +139,19 @@ impl SchedulerRuntime {
             Err(e) => {
                 tracing::error!("Failed to serialize scheduler state: {}", e);
             }
+        }
+    }
+
+    /// Mark state as dirty without saving immediately
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Save state only if dirty flag is set, then clear flag
+    async fn save_state_if_dirty(&mut self) {
+        if self.dirty {
+            self.save_state().await;
+            self.dirty = false;
         }
     }
 
@@ -295,13 +313,29 @@ impl SchedulerRuntime {
 
     pub async fn submit_job(&mut self, job: Job) -> (u32, String) {
         let result = self.scheduler.submit_job(job);
-        self.save_state().await;
+        self.mark_dirty();
         result
+    }
+
+    /// Submit multiple jobs in a batch with a single state save
+    /// Returns: Vec<(job_id, run_name, submitted_by)>
+    pub async fn submit_jobs(&mut self, jobs: Vec<Job>) -> Vec<(u32, String, String)> {
+        let mut results = Vec::with_capacity(jobs.len());
+
+        for job in jobs {
+            let submitted_by = job.submitted_by.clone();
+            let (job_id, run_name) = self.scheduler.submit_job(job);
+            results.push((job_id, run_name, submitted_by));
+        }
+
+        // Single mark for entire batch
+        self.mark_dirty();
+        results
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
-            self.save_state().await;
+            self.mark_dirty();
 
             // Close tmux session if auto_close is enabled
             if should_close_tmux {
@@ -322,7 +356,7 @@ impl SchedulerRuntime {
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
         let result = self.scheduler.fail_job(job_id);
         if result {
-            self.save_state().await;
+            self.mark_dirty();
         }
         result
     }
@@ -337,7 +371,7 @@ impl SchedulerRuntime {
                     }
                 }
             }
-            self.save_state().await;
+            self.mark_dirty();
             true
         } else {
             false
@@ -347,7 +381,7 @@ impl SchedulerRuntime {
     pub async fn hold_job(&mut self, job_id: u32) -> bool {
         let result = self.scheduler.hold_job(job_id);
         if result {
-            self.save_state().await;
+            self.mark_dirty();
         }
         result
     }
@@ -355,7 +389,7 @@ impl SchedulerRuntime {
     pub async fn release_job(&mut self, job_id: u32) -> bool {
         let result = self.scheduler.release_job(job_id);
         if result {
-            self.save_state().await;
+            self.mark_dirty();
         }
         result
     }
@@ -453,7 +487,7 @@ pub async fn run(shared_state: SharedState) {
         }
 
         // Update zombie jobs (write lock - brief)
-        let needs_save_zombies = if !zombie_job_ids.is_empty() {
+        if !zombie_job_ids.is_empty() {
             let mut state = shared_state.write().await;
             for job_id in zombie_job_ids {
                 if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
@@ -461,13 +495,7 @@ pub async fn run(shared_state: SharedState) {
                     job.finished_at = Some(std::time::SystemTime::now());
                 }
             }
-            true
-        } else {
-            false
-        };
-        // Release lock before I/O
-        if needs_save_zombies {
-            shared_state.read().await.save_state().await;
+            state.mark_dirty();
         }
 
         // Step 3: Check for timed-out jobs (read lock to identify, then handle)
@@ -498,20 +526,24 @@ pub async fn run(shared_state: SharedState) {
                 if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
                     job.try_transition(job_id, JobState::Timeout);
                 }
+                state.mark_dirty();
             }
-            // Release lock before I/O
-            shared_state.read().await.save_state().await;
         }
 
         // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
         {
             let mut state = shared_state.write().await;
             state.scheduler.schedule_jobs();
+            state.mark_dirty();
         }
-        // Release lock before I/O
-        shared_state.read().await.save_state().await;
 
-        // Step 5: Update metrics (read lock for state snapshot)
+        // Step 5: Flush state if dirty (single save per loop iteration)
+        {
+            let mut state = shared_state.write().await;
+            state.save_state_if_dirty().await;
+        }
+
+        // Step 6: Update metrics (read lock for state snapshot)
         #[cfg(feature = "metrics")]
         {
             use gflow::metrics;

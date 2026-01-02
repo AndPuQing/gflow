@@ -41,6 +41,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/jobs", get(list_jobs).post(create_job))
+        .route("/jobs/batch", post(create_jobs_batch))
         .route("/jobs/resolve-dependency", get(resolve_dependency))
         .route("/jobs/{id}", get(get_job))
         .route("/jobs/{id}/finish", post(finish_job))
@@ -190,6 +191,74 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 }
 
 #[axum::debug_handler]
+async fn create_jobs_batch(
+    State(state): State<SharedState>,
+    Json(input): Json<Vec<Job>>,
+) -> impl IntoResponse {
+    if input.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Batch must contain at least one job"})),
+        );
+    }
+
+    if input.len() > 1000 {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({"error": "Batch size exceeds maximum of 1000 jobs"})),
+        );
+    }
+
+    let mut state = state.write().await;
+    tracing::info!(count = input.len(), "Received batch job submission");
+
+    // Validate all dependencies exist before submitting any (fail-fast)
+    for job in &input {
+        if let Some(dep_id) = job.depends_on {
+            if !state.jobs().contains_key(&dep_id) {
+                tracing::warn!(
+                    dep_id = dep_id,
+                    "Batch job submission failed: dependency job does not exist"
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!("Dependency job {} does not exist", dep_id)
+                    })),
+                );
+            }
+        }
+    }
+
+    let results = state.submit_jobs(input).await;
+
+    // Record metrics
+    #[cfg(feature = "metrics")]
+    for (_, _, submitted_by) in &results {
+        metrics::JOB_SUBMISSIONS
+            .with_label_values(&[submitted_by])
+            .inc();
+    }
+
+    tracing::info!(count = results.len(), "Batch jobs created");
+
+    let response: Vec<_> = results
+        .into_iter()
+        .map(|(job_id, run_name, _)| {
+            serde_json::json!({
+                "id": job_id,
+                "run_name": run_name
+            })
+        })
+        .collect();
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::Value::Array(response)),
+    )
+}
+
+#[axum::debug_handler]
 async fn get_job(
     State(state): State<SharedState>,
     Path(id): Path<u32>,
@@ -213,6 +282,9 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
     let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
 
     let success = state.finish_job(id).await;
+
+    // Force immediate save for user operations
+    state.save_state().await;
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -261,6 +333,9 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 
     let success = state.fail_job(id).await;
 
+    // Force immediate save for user operations
+    state.save_state().await;
+
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
     if success {
@@ -289,6 +364,9 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 
     let success = state.cancel_job(id).await;
 
+    // Force immediate save for user operations
+    state.save_state().await;
+
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
     if success {
@@ -310,7 +388,12 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     tracing::info!(job_id = id, "Holding job");
-    if state.hold_job(id).await {
+    let success = state.hold_job(id).await;
+
+    // Force immediate save for user operations
+    state.save_state().await;
+
+    if success {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -321,7 +404,12 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut state = state.write().await;
     tracing::info!(job_id = id, "Releasing job");
-    if state.release_job(id).await {
+    let success = state.release_job(id).await;
+
+    // Force immediate save for user operations
+    state.save_state().await;
+
+    if success {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
