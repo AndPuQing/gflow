@@ -103,7 +103,6 @@ mockall = "0.14.0"
 tempfile = "3.16.0"
 nvml-wrapper = "0.11.0"
 tower = "0.5"
-hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 
 [profile.release]
 strip = true
