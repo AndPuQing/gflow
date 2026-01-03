@@ -1,5 +1,5 @@
 use std::path::Path;
-use tmux_interface::{NewSession, SendKeys, Tmux};
+use tmux_interface::{KillSession, NewSession, PipePane, SendKeys, Tmux};
 
 /// A tmux session
 pub struct TmuxSession {
@@ -113,16 +113,43 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to kill tmux session: {}", e))
 }
 
-/// Kill multiple tmux sessions in batch
+/// Kill multiple tmux sessions in batch using a single tmux command
+/// This is much faster than killing sessions sequentially
 /// Returns a vector of tuples: (session_name, result)
 pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)> {
-    names
-        .iter()
-        .map(|name| {
-            let result = kill_session(name);
-            (name.clone(), result)
-        })
-        .collect()
+    if names.is_empty() {
+        return Vec::new();
+    }
+
+    // Build a single tmux command with multiple pipe-pane disables and kill-session commands
+    let mut tmux = Tmux::new();
+    for name in names {
+        tmux = tmux
+            // Disable pipe-pane first (ignore errors if already disabled)
+            .add_command(PipePane::new().target_pane(name))
+            // Kill the session
+            .add_command(KillSession::new().target_session(name));
+    }
+
+    // Execute all commands in a single tmux invocation
+    let batch_result = tmux.output();
+
+    // Map results back to individual sessions
+    // Note: If the batch command succeeds, all sessions were killed successfully
+    // If it fails, we can't easily determine which specific session failed in a batch operation
+    match batch_result {
+        Ok(_) => names.iter().map(|name| (name.clone(), Ok(()))).collect(),
+        Err(_) => {
+            // If batch fails, fall back to individual kills to get granular error info
+            names
+                .iter()
+                .map(|name| {
+                    let result = kill_session(name);
+                    (name.clone(), result)
+                })
+                .collect()
+        }
+    }
 }
 
 pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
