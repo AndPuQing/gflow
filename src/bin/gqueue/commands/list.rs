@@ -36,12 +36,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     // Default filter: exclude completed jobs unless --all flag is used
     // This makes gqueue behave like a queue, showing only active jobs
     if !options.all && options.states.is_none() {
-        jobs_vec.retain(|job| {
-            !matches!(
-                job.state,
-                JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout
-            )
-        });
+        jobs_vec.retain(|job| !job.state.is_final());
     }
 
     // Apply filters
