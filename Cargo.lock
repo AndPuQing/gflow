@@ -777,7 +777,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-escape",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "strum",
  "tabled",
  "tempfile",
