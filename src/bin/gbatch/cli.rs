@@ -37,8 +37,6 @@ pub struct NewArgs {
 #[derive(Debug, Parser, Clone)]
 pub struct AddArgs {
     /// The script or command to run (e.g., "script.sh" or "python train.py --epochs 100")
-    /// If a single argument that exists as a file, it's treated as a script.
-    /// Otherwise, all arguments are joined as a command.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_hint = clap::ValueHint::CommandWithArguments)]
     pub script_or_command: Vec<String>,
 

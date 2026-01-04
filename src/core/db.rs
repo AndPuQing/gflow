@@ -329,6 +329,12 @@ impl Database {
             .unchecked_transaction()
             .context("Failed to begin transaction")?;
 
+        // Defer foreign key checks until commit to allow jobs to reference each other
+        // This is necessary during migration when jobs may have depends_on or redone_from
+        // references to other jobs that haven't been inserted yet
+        tx.execute("PRAGMA defer_foreign_keys = ON", [])
+            .context("Failed to defer foreign key checks")?;
+
         for job in jobs {
             tx.execute(
                 "INSERT INTO jobs (
