@@ -1,0 +1,732 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Job Submission - gflow Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A lightweight, single-node job scheduler inspired by Slurm">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">gflow Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="job-submission"><a class="header" href="#job-submission">Job Submission</a></h1>
+<p>This guide covers all aspects of submitting jobs with <code>gbatch</code>, from basic usage to advanced features.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p><code>gbatch</code> is gflow's job submission tool, similar to Slurm's <code>sbatch</code>. It supports both direct command execution and script-based job submission.</p>
+<h2 id="basic-usage"><a class="header" href="#basic-usage">Basic Usage</a></h2>
+<h3 id="submitting-a-command"><a class="header" href="#submitting-a-command">Submitting a Command</a></h3>
+<p>The simplest way to submit a job is to provide the command directly:</p>
+<pre><code class="language-bash">gbatch python script.py
+</code></pre>
+<p>Output:</p>
+<pre><code>Submitted batch job 1 (silent-pump-6338)
+</code></pre>
+<p><strong>No quotes needed</strong> for simple commands! Arguments are automatically joined:</p>
+<pre><code class="language-bash">gbatch python train.py --epochs 100 --lr 0.01
+</code></pre>
+<h3 id="command-argument-safety"><a class="header" href="#command-argument-safety">Command Argument Safety</a></h3>
+<p>gflow automatically handles special characters in command arguments using shell escaping:</p>
+<pre><code class="language-bash"># Arguments with spaces
+gbatch python script.py --message "Hello World"
+
+# Arguments with special characters
+gbatch python script.py --pattern 'test_*.py'
+
+# Complex arguments
+gbatch bash -c 'echo $USER &amp;&amp; python script.py'
+</code></pre>
+<p><strong>How it works</strong>:</p>
+<ul>
+<li>Command arguments are properly escaped before execution</li>
+<li>Prevents shell injection and unintended command interpretation</li>
+<li>Special characters like spaces, quotes, and wildcards are handled safely</li>
+<li>Uses the <code>shell-escape</code> library to ensure safety</li>
+</ul>
+<p><strong>Best practice</strong>: While gflow handles escaping automatically, it's still recommended to:</p>
+<ul>
+<li>Test complex commands locally first</li>
+<li>Use explicit quoting for clarity</li>
+<li>Avoid overly complex inline commands (use script files instead)</li>
+</ul>
+<h3 id="submitting-a-script"><a class="header" href="#submitting-a-script">Submitting a Script</a></h3>
+<p>Create a script file and submit it:</p>
+<pre><code class="language-bash"># Create script
+cat &gt; my_job.sh &lt;&lt; 'EOF'
+#!/bin/bash
+echo "Hello from gflow!"
+python train.py
+EOF
+
+# Make executable
+chmod +x my_job.sh
+
+# Submit
+gbatch my_job.sh
+</code></pre>
+<h2 id="resource-allocation"><a class="header" href="#resource-allocation">Resource Allocation</a></h2>
+<h3 id="gpu-requests"><a class="header" href="#gpu-requests">GPU Requests</a></h3>
+<p>Request GPUs for your job:</p>
+<pre><code class="language-bash"># Request 1 GPU
+gbatch --gpus 1 python train.py
+
+# Request 2 GPUs
+gbatch --gpus 2 python multi_gpu_train.py
+</code></pre>
+<p>The scheduler sets <code>CUDA_VISIBLE_DEVICES</code> automatically to the allocated GPUs.</p>
+<p><strong>Check GPU allocation</strong>:</p>
+<pre><code class="language-bash">$ gqueue -f JOBID,NAME,NODES,NODELIST
+JOBID    NAME                NODES    NODELIST(REASON)
+42       silent-pump-6338    1        0
+43       brave-river-1234    2        1,2
+</code></pre>
+<h3 id="conda-environment"><a class="header" href="#conda-environment">Conda Environment</a></h3>
+<p>Activate a conda environment before running your job:</p>
+<pre><code class="language-bash">gbatch --conda-env myenv python script.py
+</code></pre>
+<p>This is equivalent to running:</p>
+<pre><code class="language-bash">conda activate myenv
+python script.py
+</code></pre>
+<h2 id="job-scheduling-options"><a class="header" href="#job-scheduling-options">Job Scheduling Options</a></h2>
+<h3 id="priority"><a class="header" href="#priority">Priority</a></h3>
+<p>Control when your job runs relative to others:</p>
+<pre><code class="language-bash"># High priority (runs first)
+gbatch --priority 100 python urgent.py
+
+# Default priority
+gbatch python normal.py  # priority = 10
+
+# Low priority (runs last)
+gbatch --priority 1 python background.py
+</code></pre>
+<p><strong>Priority details</strong>:</p>
+<ul>
+<li>Range: 0-255</li>
+<li>Default: 10</li>
+<li>Higher values = higher priority</li>
+<li>Jobs are scheduled based on a multi-factor priority system (see below)</li>
+</ul>
+<p><strong>Scheduling Priority Hierarchy</strong>:</p>
+<p>When resources become available, gflow schedules jobs using a three-level priority system:</p>
+<ol>
+<li><strong>User Priority</strong> (Primary): Jobs with higher <code>--priority</code> values run first</li>
+<li><strong>Time Limit Bonus</strong> (Secondary): Among jobs with equal priority:
+<ul>
+<li>Time-limited jobs are preferred over unlimited jobs</li>
+<li>Shorter jobs run before longer jobs</li>
+</ul>
+</li>
+<li><strong>Submission Order</strong> (Tertiary): Jobs submitted earlier run first (FIFO)</li>
+</ol>
+<p><strong>Examples</strong>:</p>
+<pre><code class="language-bash"># These jobs will run in the following order when GPUs become available:
+
+# 1st: High priority, even though unlimited
+gbatch --priority 20 python urgent.py
+
+# 2nd: Same priority, but 10-minute limit beats unlimited
+gbatch --priority 10 --time 10 python quick.py
+
+# 3rd: Same priority, but 1-hour limit (submitted first)
+gbatch --priority 10 --time 1:00:00 python train1.py  # Job ID 100
+
+# 4th: Same priority and limit, but submitted later
+gbatch --priority 10 --time 1:00:00 python train2.py  # Job ID 101
+
+# 5th: Same priority, unlimited (submitted first)
+gbatch --priority 10 python long1.py  # Job ID 102
+
+# 6th: Same priority, unlimited (submitted later)
+gbatch --priority 10 python long2.py  # Job ID 103
+</code></pre>
+<p><strong>Key Insights</strong>:</p>
+<ul>
+<li>Setting <code>--time</code> not only prevents runaway jobs but also improves scheduling priority</li>
+<li>Shorter time limits get slight preference, encouraging accurate estimates</li>
+<li>Submission order acts as a fair tie-breaker when all else is equal</li>
+</ul>
+<h3 id="time-limits"><a class="header" href="#time-limits">Time Limits</a></h3>
+<p>Set maximum runtime for jobs:</p>
+<pre><code class="language-bash"># 30 minutes
+gbatch --time 30 python quick.py
+
+# 2 hours
+gbatch --time 2:00:00 python train.py
+
+# 5 minutes 30 seconds
+gbatch --time 5:30 python test.py
+</code></pre>
+<p>See <a href="./time-limits.html">Time Limits</a> for comprehensive documentation.</p>
+<h3 id="job-names"><a class="header" href="#job-names">Job Names</a></h3>
+<p>By default, jobs get auto-generated names (e.g., "silent-pump-6338"). You can specify custom names:</p>
+<pre><code class="language-bash">gbatch --name "my-training-run" python train.py
+</code></pre>
+<p><strong>Note</strong>: The <code>--name</code> option is for custom naming. If not specified, a random name is generated.</p>
+<h2 id="job-dependencies"><a class="header" href="#job-dependencies">Job Dependencies</a></h2>
+<p>Make jobs wait for other jobs to complete:</p>
+<pre><code class="language-bash"># Job 1: Preprocessing
+gbatch --name "prep" python preprocess.py
+# Returns: Submitted batch job 1
+
+# Job 2: Training (waits for job 1)
+gbatch --depends-on 1 --name "train" python train.py
+
+# Job 3: Evaluation (waits for job 2)
+gbatch --depends-on 2 --name "eval" python evaluate.py
+</code></pre>
+<p>See <a href="./job-dependencies.html">Job Dependencies</a> for advanced dependency management.</p>
+<h2 id="job-arrays"><a class="header" href="#job-arrays">Job Arrays</a></h2>
+<p>Run multiple similar tasks in parallel:</p>
+<pre><code class="language-bash"># Create 10 jobs with task IDs 1-10
+gbatch --array 1-10 python process.py --task '$GFLOW_ARRAY_TASK_ID'
+</code></pre>
+<p><strong>How it works</strong>:</p>
+<ul>
+<li>Creates 10 separate jobs</li>
+<li>Each job has <code>$GFLOW_ARRAY_TASK_ID</code> set to its task number</li>
+<li>All jobs share the same resource requirements</li>
+<li>Useful for parameter sweeps, data processing, etc.</li>
+</ul>
+<p><strong>Example with different parameters</strong>:</p>
+<pre><code class="language-bash">gbatch --array 1-5 --gpus 1 --time 2:00:00 \
+       python train.py --lr '$(echo "0.001 0.01 0.1 0.5 1.0" | cut -d" " -f$GFLOW_ARRAY_TASK_ID)'
+</code></pre>
+<p><strong>Environment variable</strong>:</p>
+<ul>
+<li><code>GFLOW_ARRAY_TASK_ID</code>: Task ID for array jobs (1, 2, 3, ...)</li>
+<li>Set to 0 for non-array jobs</li>
+</ul>
+<h2 id="script-directives"><a class="header" href="#script-directives">Script Directives</a></h2>
+<p>Instead of command-line options, you can embed job requirements in your script using <code># GFLOW</code> directives:</p>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --gpus 1
+# GFLOW --time 2:00:00
+# GFLOW --priority 20
+# GFLOW --conda-env myenv
+
+echo "Starting training..."
+python train.py --epochs 100
+echo "Training complete!"
+</code></pre>
+<p>Submit the script:</p>
+<pre><code class="language-bash">gbatch my_script.sh
+</code></pre>
+<p><strong>Directive precedence</strong>:</p>
+<ul>
+<li>Command-line arguments override script directives</li>
+<li>Example: <code>gbatch --time 1:00:00 my_script.sh</code> overrides the <code>--time</code> directive in the script</li>
+</ul>
+<p><strong>Supported directives</strong>:</p>
+<ul>
+<li><code># GFLOW --gpus &lt;N&gt;</code></li>
+<li><code># GFLOW --time &lt;TIME&gt;</code></li>
+<li><code># GFLOW --priority &lt;N&gt;</code></li>
+<li><code># GFLOW --conda-env &lt;ENV&gt;</code></li>
+<li><code># GFLOW --depends-on &lt;ID&gt;</code></li>
+</ul>
+<h2 id="creating-script-templates"><a class="header" href="#creating-script-templates">Creating Script Templates</a></h2>
+<p>Use <code>gbatch new</code> to create a job script template:</p>
+<pre><code class="language-bash">$ gbatch new my_job
+</code></pre>
+<p>This creates <code>my_job.sh</code> with a template:</p>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --gpus 0
+# GFLOW --time 1:00:00
+# GFLOW --priority 10
+
+# Your commands here
+echo "Job started at $(date)"
+
+# Add your actual commands
+# python script.py
+
+echo "Job finished at $(date)"
+</code></pre>
+<p>Edit the template and submit:</p>
+<pre><code class="language-bash"># Edit the script
+vim my_job.sh
+
+# Make executable
+chmod +x my_job.sh
+
+# Submit
+gbatch my_job.sh
+</code></pre>
+<h3 id="automatic-template-generation"><a class="header" href="#automatic-template-generation">Automatic Template Generation</a></h3>
+<p>The job script template is <strong>automatically generated</strong> from the <code>gbatch</code> CLI definition to ensure it always reflects available options:</p>
+<ul>
+<li><strong>Template Source</strong>: The template is generated from <code>src/bin/gbatch/cli.rs</code></li>
+<li><strong>Automatic Sync</strong>: A pre-commit hook automatically regenerates the template when command-line options change</li>
+<li><strong>Always Current</strong>: You always get the latest available options in your templates</li>
+</ul>
+<p><strong>For developers</strong>: See <code>scripts/README.md</code> for details on how the template generation works.</p>
+<h2 id="environment-variables"><a class="header" href="#environment-variables">Environment Variables</a></h2>
+<p>gflow automatically sets these environment variables in your job:</p>
+<div class="table-wrapper"><table><thead><tr><th>Variable</th><th>Description</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>CUDA_VISIBLE_DEVICES</code></td><td>GPU IDs allocated to the job</td><td><code>0,1</code></td></tr>
+<tr><td><code>GFLOW_ARRAY_TASK_ID</code></td><td>Task ID for array jobs (0 for non-array)</td><td><code>5</code></td></tr>
+</tbody></table>
+</div>
+<p><strong>Example usage</strong>:</p>
+<pre><code class="language-bash">#!/bin/bash
+echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
+echo "Array task ID: $GFLOW_ARRAY_TASK_ID"
+python train.py
+</code></pre>
+<h2 id="output-and-logging"><a class="header" href="#output-and-logging">Output and Logging</a></h2>
+<p>Job output is automatically captured to log files:</p>
+<p><strong>Log location</strong>: <code>~/.local/share/gflow/logs/&lt;job_id&gt;.log</code></p>
+<p><strong>View logs</strong>:</p>
+<pre><code class="language-bash"># View completed job log
+cat ~/.local/share/gflow/logs/42.log
+
+# Follow running job log
+tail -f ~/.local/share/gflow/logs/42.log
+</code></pre>
+<p><strong>Attach to running job</strong> (via tmux):</p>
+<pre><code class="language-bash"># Get job session name
+gqueue -f JOBID,NAME
+
+# Attach to session
+tmux attach -t &lt;session_name&gt;
+
+# Detach without stopping (Ctrl-B, then D)
+</code></pre>
+<h2 id="advanced-examples"><a class="header" href="#advanced-examples">Advanced Examples</a></h2>
+<h3 id="parameter-sweep"><a class="header" href="#parameter-sweep">Parameter Sweep</a></h3>
+<p>Test multiple hyperparameters:</p>
+<pre><code class="language-bash"># Submit multiple training runs
+for lr in 0.001 0.01 0.1; do
+    gbatch --gpus 1 --time 4:00:00 \
+           --name "train-lr-$lr" \
+           python train.py --lr $lr
+done
+</code></pre>
+<h3 id="pipeline-with-dependencies"><a class="header" href="#pipeline-with-dependencies">Pipeline with Dependencies</a></h3>
+<pre><code class="language-bash"># Step 1: Data preprocessing
+gbatch --time 30 python preprocess.py
+
+# Step 2: Training
+gbatch --time 4:00:00 --gpus 1 --depends-on @ python train.py
+
+# Step 3: Evaluation
+gbatch --time 10 --depends-on @ python evaluate.py
+</code></pre>
+<p>The <code>@</code> symbol references the most recently submitted job, making pipelines simple and clean.</p>
+<h3 id="multi-stage-job-script"><a class="header" href="#multi-stage-job-script">Multi-stage Job Script</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --gpus 1
+# GFLOW --time 8:00:00
+
+set -e  # Exit on error
+
+echo "Stage 1: Data preparation"
+python prepare_data.py
+
+echo "Stage 2: Model training"
+python train.py --checkpoint model.pth
+
+echo "Stage 3: Evaluation"
+python evaluate.py --model model.pth
+
+echo "All stages complete!"
+</code></pre>
+<h3 id="conditional-job-submission"><a class="header" href="#conditional-job-submission">Conditional Job Submission</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# Submit job only if previous job succeeded
+
+PREV_JOB=42
+STATUS=$(gqueue -j $PREV_JOB -f ST | tail -n 1)
+
+if [ "$STATUS" = "CD" ]; then
+    gbatch python next_step.py
+else
+    echo "Previous job not completed successfully"
+fi
+</code></pre>
+<h2 id="common-patterns"><a class="header" href="#common-patterns">Common Patterns</a></h2>
+<h3 id="long-running-with-checkpointing"><a class="header" href="#long-running-with-checkpointing">Long-running with Checkpointing</a></h3>
+<pre><code class="language-python"># train.py with checkpoint support
+import signal
+import sys
+
+def save_checkpoint():
+    print("Saving checkpoint...")
+    # Save model state
+    torch.save(model.state_dict(), 'checkpoint.pth')
+
+def signal_handler(sig, frame):
+    save_checkpoint()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+# Training loop
+for epoch in range(epochs):
+    train_epoch()
+    if epoch % 10 == 0:
+        save_checkpoint()
+</code></pre>
+<p>Submit with time limit:</p>
+<pre><code class="language-bash">gbatch --time 8:00:00 --gpus 1 python train.py
+</code></pre>
+<h3 id="gpu-utilization-check"><a class="header" href="#gpu-utilization-check">GPU Utilization Check</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# GFLOW --gpus 1
+
+echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
+nvidia-smi --query-gpu=index,name,memory.total --format=csv
+python train.py
+</code></pre>
+<h2 id="validation-and-error-handling"><a class="header" href="#validation-and-error-handling">Validation and Error Handling</a></h2>
+<p><code>gbatch</code> validates your submission before accepting it:</p>
+<p><strong>Common validation errors</strong>:</p>
+<ul>
+<li>
+<p><strong>Invalid dependency</strong>: Job ID doesn't exist</p>
+<pre><code>Error: Dependency job 999 not found
+</code></pre>
+</li>
+<li>
+<p><strong>Circular dependency</strong>: Job depends on itself or creates a cycle</p>
+<pre><code>Error: Circular dependency detected
+</code></pre>
+</li>
+<li>
+<p><strong>Invalid time format</strong>: Malformed time specification</p>
+<pre><code>Error: Invalid time format. Use HH:MM:SS, MM:SS, or MM
+</code></pre>
+</li>
+<li>
+<p><strong>Script not found</strong>: File doesn't exist</p>
+<pre><code>Error: Script file not found: missing.sh
+</code></pre>
+</li>
+</ul>
+<h2 id="tips-and-best-practices"><a class="header" href="#tips-and-best-practices">Tips and Best Practices</a></h2>
+<ol>
+<li><strong>Always set time limits</strong> for production jobs to prevent runaway processes</li>
+<li><strong>Use meaningful names</strong> for easier job tracking</li>
+<li><strong>Test scripts locally</strong> before submitting</li>
+<li><strong>Add error handling</strong> (<code>set -e</code>) in bash scripts</li>
+<li><strong>Implement checkpointing</strong> for long-running jobs</li>
+<li><strong>Use job arrays</strong> for parallel independent tasks</li>
+<li><strong>Check dependencies</strong> before submitting dependent jobs</li>
+<li><strong>Monitor GPU usage</strong> when requesting multiple GPUs</li>
+<li><strong>Use conda environments</strong> for reproducibility</li>
+<li><strong>Add logging</strong> to your scripts for easier debugging</li>
+</ol>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h3 id="issue-job-submission-fails-with-dependency-not-found"><a class="header" href="#issue-job-submission-fails-with-dependency-not-found">Issue: Job submission fails with "dependency not found"</a></h3>
+<p><strong>Solution</strong>: Verify the dependency job exists:</p>
+<pre><code class="language-bash">gqueue -j &lt;dependency_id&gt;
+</code></pre>
+<h3 id="issue-job-doesnt-get-gpu"><a class="header" href="#issue-job-doesnt-get-gpu">Issue: Job doesn't get GPU</a></h3>
+<p><strong>Check</strong>:</p>
+<ol>
+<li>Did you request GPU? <code>--gpus 1</code></li>
+<li>Are GPUs available? <code>ginfo</code></li>
+<li>Are other jobs using all GPUs? <code>gqueue -s Running -f NODES,NODELIST</code></li>
+</ol>
+<h3 id="issue-conda-environment-not-activating"><a class="header" href="#issue-conda-environment-not-activating">Issue: Conda environment not activating</a></h3>
+<p><strong>Check</strong>:</p>
+<ol>
+<li>Environment name is correct: <code>conda env list</code></li>
+<li>Conda is initialized in your shell</li>
+<li>Check job logs for activation errors</li>
+</ol>
+<h3 id="issue-script-not-executable"><a class="header" href="#issue-script-not-executable">Issue: Script not executable</a></h3>
+<p><strong>Solution</strong>:</p>
+<pre><code class="language-bash">chmod +x my_script.sh
+gbatch my_script.sh
+</code></pre>
+<h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
+<p><strong>Full command syntax</strong>:</p>
+<pre><code class="language-bash">gbatch [OPTIONS] &lt;SCRIPT&gt;
+gbatch [OPTIONS] &lt;COMMAND&gt; [ARGS...]
+</code></pre>
+<p><strong>All options</strong>:</p>
+<ul>
+<li><code>--gpus &lt;N&gt;</code> or <code>-g &lt;N&gt;</code>: Number of GPUs</li>
+<li><code>--time &lt;TIME&gt;</code> or <code>-t &lt;TIME&gt;</code>: Time limit</li>
+<li><code>--priority &lt;N&gt;</code>: Job priority (0-255, default: 10)</li>
+<li><code>--depends-on &lt;ID&gt;</code>: Job dependency</li>
+<li><code>--conda-env &lt;ENV&gt;</code> or <code>-c &lt;ENV&gt;</code>: Conda environment</li>
+<li><code>--array &lt;SPEC&gt;</code>: Job array (e.g., "1-10")</li>
+<li><code>--name &lt;NAME&gt;</code>: Custom job name</li>
+<li><code>--config &lt;PATH&gt;</code>: Custom config file (hidden)</li>
+</ul>
+<p><strong>Get help</strong>:</p>
+<pre><code class="language-bash">$ gbatch --help
+Submits jobs to the gflow scheduler. Inspired by sbatch.
+
+Usage: gbatch [OPTIONS] [SCRIPT_OR_COMMAND]... [COMMAND]
+
+Commands:
+  new         Create a new job script template
+  completion  Generate shell completion scripts
+  help        Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [SCRIPT_OR_COMMAND]...  The script or command to run (e.g., "script.sh" or "python train.py --epochs 100") If a single argument that exists as a file, it's treated as a script. Otherwise, all arguments are joined as a command
+
+Options:
+  -c, --conda-env &lt;CONDA_ENV&gt;
+          The conda environment to use
+  -g, --gpus &lt;NUMS&gt;
+          The GPU count to request
+      --priority &lt;PRIORITY&gt;
+          The priority of the job
+      --depends-on &lt;DEPENDS_ON&gt;
+          Job dependency; accepts a job ID or shorthand like "@" / "@~N"
+      --array &lt;ARRAY&gt;
+          The job array specification (e.g., "1-10")
+  -t, --time &lt;TIME&gt;
+          Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
+  -m, --memory &lt;MEMORY&gt;
+          Memory limit for the job (formats: "100G", "1024M", or "512" for MB)
+  -n, --name &lt;NAME&gt;
+          Custom run name for the job (used as tmux session name)
+      --auto-close
+          Automatically close tmux session on successful completion
+      --param &lt;PARAM&gt;
+          Parameter specification (e.g., "scale=2.0,1.9,1.8") Can be specified multiple times for cartesian product
+      --dry-run
+          Preview what would be submitted without actually submitting
+      --max-concurrent &lt;MAX_CONCURRENT&gt;
+          Maximum number of jobs from this submission that can run concurrently
+      --param-file &lt;PARAM_FILE&gt;
+          Load parameters from a CSV file (header row required)
+      --name-template &lt;NAME_TEMPLATE&gt;
+          Template for job names when using --param or --param-file Use {param_name} to substitute parameter values
+  -h, --help
+          Print help
+  -V, --version
+          Print version
+</code></pre>
+<h2 id="see-also"><a class="header" href="#see-also">See Also</a></h2>
+<ul>
+<li><a href="./time-limits.html">Time Limits</a> - Detailed time limit documentation</li>
+<li><a href="./job-dependencies.html">Job Dependencies</a> - Advanced dependency workflows</li>
+<li><a href="./gpu-management.html">GPU Management</a> - GPU allocation and monitoring</li>
+<li><a href="../reference/quick-reference.html">Quick Reference</a> - Command cheat sheet</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../getting-started/quick-start.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../user-guide/job-dependencies.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../getting-started/quick-start.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../user-guide/job-dependencies.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
