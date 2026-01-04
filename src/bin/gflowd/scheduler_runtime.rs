@@ -1,3 +1,4 @@
+use gflow::core::db::Database;
 use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
@@ -12,16 +13,34 @@ pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     nvml: Option<Nvml>,
-    dirty: bool, // Tracks if state has changed since last save
+    dirty: bool,  // Tracks if state has changed since last save
+    db: Database, // SQLite database for persistence
 }
 
 impl SchedulerRuntime {
     /// Create a new scheduler runtime with state loading and NVML initialization
     pub fn with_state_path(
         executor: Box<dyn Executor>,
-        state_path: PathBuf,
+        state_dir: PathBuf,
         allowed_gpu_indices: Option<Vec<u32>>,
     ) -> anyhow::Result<Self> {
+        // Initialize database
+        let db_path = state_dir.join("state.db");
+        let json_path = state_dir.join("state.json");
+
+        tracing::info!("Initializing database at {:?}", db_path);
+        let db = Database::new(db_path.clone()).map_err(|e| {
+            tracing::error!("Failed to initialize database: {}", e);
+            e
+        })?;
+
+        // Check for migration from JSON to SQLite
+        if gflow::core::migrations::needs_migration(&json_path, &db_path) {
+            tracing::info!("Migrating from state.json to SQLite database...");
+            gflow::core::migrations::migrate_json_to_sqlite(&json_path, &db)?;
+            tracing::info!("Migration complete. Backup saved to state.json.backup");
+        }
+
         // Try to initialize NVML, but continue without it if it fails
         let (nvml, gpu_slots) = match Nvml::init() {
             Ok(nvml) => {
@@ -70,7 +89,7 @@ impl SchedulerRuntime {
         let scheduler = SchedulerBuilder::new()
             .with_executor(executor)
             .with_gpu_slots(gpu_slots)
-            .with_state_path(state_path)
+            .with_state_path(state_dir)
             .with_total_memory_mb(total_memory_mb)
             .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
@@ -79,65 +98,30 @@ impl SchedulerRuntime {
             scheduler,
             nvml,
             dirty: false,
+            db,
         };
         runtime.load_state();
         Ok(runtime)
     }
 
-    /// Save scheduler state to disk asynchronously
+    /// Save scheduler state to database
     pub async fn save_state(&self) {
-        let path = self.scheduler.state_path();
-        let tmp_path = path.with_extension("json.tmp");
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                tracing::error!(
-                    "Failed to create state directory {}: {}",
-                    parent.display(),
-                    e
-                );
-                return;
-            }
+        // Save all jobs to database
+        let jobs: Vec<_> = self.scheduler.jobs.values().cloned().collect();
+        if let Err(e) = self.db.update_jobs_batch(&jobs) {
+            tracing::error!("Failed to save jobs to database: {}", e);
+            return;
         }
 
-        match serde_json::to_string_pretty(&self.scheduler) {
-            Ok(json) => {
-                match tokio::fs::File::create(&tmp_path).await {
-                    Ok(mut file) => {
-                        match tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await
-                        {
-                            Ok(_) => {
-                                // Atomic rename
-                                if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
-                                    tracing::error!(
-                                        "Failed to rename state file from {} to {}: {}",
-                                        tmp_path.display(),
-                                        path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to write state to {}: {}",
-                                    tmp_path.display(),
-                                    e
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to create temporary state file {}: {}",
-                            tmp_path.display(),
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to serialize scheduler state: {}", e);
+        // Save metadata
+        let next_id = self.scheduler.next_job_id();
+        if let Err(e) = self.db.set_metadata("next_job_id", &next_id.to_string()) {
+            tracing::error!("Failed to save next_job_id: {}", e);
+        }
+
+        if let Some(ref indices) = self.scheduler.allowed_gpu_indices() {
+            if let Ok(json) = serde_json::to_string(indices) {
+                let _ = self.db.set_metadata("allowed_gpu_indices", &json);
             }
         }
     }
@@ -160,98 +144,52 @@ impl SchedulerRuntime {
         }
     }
 
-    /// Load scheduler state from disk
+    /// Load scheduler state from database
     pub fn load_state(&mut self) {
-        let path = self.scheduler.state_path().clone();
-        if path.exists() {
-            if let Ok(json) = std::fs::read_to_string(&path) {
-                match serde_json::from_str::<Scheduler>(&json) {
-                    Ok(loaded_scheduler) => {
-                        // Apply migrations
-                        let migrated_scheduler =
-                            match gflow::core::migrations::migrate_state(loaded_scheduler) {
-                                Ok(migrated) => migrated,
-                                Err(e) => {
-                                    tracing::error!(
-                                        "State migration failed: {}. Starting with fresh state.",
-                                        e
-                                    );
-                                    tracing::warn!(
-                                        "The old state file will be backed up to {}.backup",
-                                        path.display()
-                                    );
-                                    // Try to backup the state file
-                                    let backup_path = path.with_extension("json.backup");
-                                    if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                                        tracing::error!(
-                                            "Failed to backup state file: {}",
-                                            backup_err
-                                        );
-                                    } else {
-                                        tracing::info!(
-                                            "Backed up state file to {}",
-                                            backup_path.display()
-                                        );
-                                    }
-                                    return; // Exit early, keep default state
-                                }
-                            };
+        match self.db.get_all_jobs() {
+            Ok(jobs) => {
+                self.scheduler.jobs = jobs;
 
-                        // Update jobs and next_job_id from migrated state
-                        let next_id = migrated_scheduler.next_job_id();
-                        self.scheduler.jobs = migrated_scheduler.jobs;
+                // Load next_job_id from metadata
+                if let Ok(Some(next_id_str)) = self.db.get_metadata("next_job_id") {
+                    if let Ok(next_id) = next_id_str.parse::<u32>() {
                         self.scheduler.set_next_job_id(next_id);
-
-                        // Re-initialize NVML and GPU slots (fresh detection)
-                        match Nvml::init() {
-                            Ok(nvml) => {
-                                self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
-                                self.nvml = Some(nvml);
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
-                                self.scheduler.update_gpu_slots(HashMap::new());
-                                self.nvml = None;
-                            }
-                        }
-
-                        // Re-initialize memory tracking with current system values
-                        let total_memory_mb = Self::get_total_system_memory_mb();
-                        self.scheduler.update_memory(total_memory_mb);
-                        self.scheduler.refresh_available_memory();
-
-                        tracing::info!("Successfully loaded state from {}", path.display());
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to deserialize state file {}: {}. Starting with fresh state.",
-                            path.display(),
-                            e
-                        );
-                        tracing::warn!(
-                            "Your job history may have been lost. The old state file will be backed up to {}.backup",
-                            path.display()
-                        );
-                        // Try to backup the corrupted state file
-                        let backup_path = path.with_extension("json.backup");
-                        if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                            tracing::error!(
-                                "Failed to backup corrupted state file: {}",
-                                backup_err
-                            );
-                        } else {
-                            tracing::info!("Backed up old state file to {}", backup_path.display());
-                        }
                     }
                 }
-            } else {
-                tracing::error!("Failed to read state file from {}", path.display());
+
+                // Load allowed_gpu_indices
+                if let Ok(Some(gpu_indices_json)) = self.db.get_metadata("allowed_gpu_indices") {
+                    if let Ok(indices) = serde_json::from_str(&gpu_indices_json) {
+                        self.scheduler.set_allowed_gpu_indices(indices);
+                    }
+                }
+
+                // Re-initialize NVML and GPU slots (fresh detection)
+                match Nvml::init() {
+                    Ok(nvml) => {
+                        self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
+                        self.nvml = Some(nvml);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to initialize NVML during state load: {}. Running without GPU support.",
+                            e
+                        );
+                        self.scheduler.update_gpu_slots(HashMap::new());
+                        self.nvml = None;
+                    }
+                }
+
+                // Re-initialize memory tracking with current system values
+                let total_memory_mb = Self::get_total_system_memory_mb();
+                self.scheduler.update_memory(total_memory_mb);
+                self.scheduler.refresh_available_memory();
+
+                tracing::info!("Loaded {} jobs from database", self.scheduler.jobs.len());
             }
-        } else {
-            tracing::info!(
-                "No existing state file found at {}, starting fresh",
-                path.display()
-            );
+            Err(e) => {
+                tracing::error!("Failed to load state from database: {}", e);
+            }
         }
     }
 
@@ -317,27 +255,49 @@ impl SchedulerRuntime {
     // Job mutation methods with immediate or deferred persistence
 
     pub async fn submit_job(&mut self, job: Job) -> (u32, String) {
-        let result = self.scheduler.submit_job(job);
-        // Immediate save to ensure "201 Created" means durable
-        self.save_state().await;
-        self.clear_dirty(); // Clear dirty flag to avoid redundant save
-        result
+        let (job_id, run_name) = self.scheduler.submit_job(job);
+
+        // Insert into database immediately
+        if let Some(job) = self.scheduler.jobs.get(&job_id) {
+            if let Err(e) = self.db.insert_job(job) {
+                tracing::error!("Failed to insert job {} to database: {}", job_id, e);
+            }
+        }
+
+        // Update next_job_id metadata
+        let next_id = self.scheduler.next_job_id();
+        let _ = self.db.set_metadata("next_job_id", &next_id.to_string());
+
+        self.clear_dirty();
+        (job_id, run_name)
     }
 
     /// Submit multiple jobs in a batch with immediate persistence
     /// Returns: Vec<(job_id, run_name, submitted_by)>
     pub async fn submit_jobs(&mut self, jobs: Vec<Job>) -> Vec<(u32, String, String)> {
         let mut results = Vec::with_capacity(jobs.len());
+        let mut db_jobs = Vec::with_capacity(jobs.len());
 
         for job in jobs {
             let submitted_by = job.submitted_by.clone();
             let (job_id, run_name) = self.scheduler.submit_job(job);
             results.push((job_id, run_name, submitted_by));
+
+            if let Some(job) = self.scheduler.jobs.get(&job_id) {
+                db_jobs.push(job.clone());
+            }
         }
 
-        // Immediate save to ensure "201 Created" means durable
-        self.save_state().await;
-        self.clear_dirty(); // Clear dirty flag to avoid redundant save
+        // Batch insert to database
+        if let Err(e) = self.db.insert_jobs_batch(&db_jobs) {
+            tracing::error!("Failed to batch insert jobs: {}", e);
+        }
+
+        // Update next_job_id
+        let next_id = self.scheduler.next_job_id();
+        let _ = self.db.set_metadata("next_job_id", &next_id.to_string());
+
+        self.clear_dirty();
         results
     }
 

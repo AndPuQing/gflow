@@ -22,14 +22,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
-    let state_path = gflow::core::get_data_dir()?.join("state.json");
+    let state_dir = gflow::core::get_data_dir()?;
     let allowed_gpus = config.daemon.gpus.clone();
 
     // Inject TmuxExecutor
     let executor = Box::new(TmuxExecutor);
 
     let scheduler = Arc::new(tokio::sync::RwLock::new(
-        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_path, allowed_gpus)?,
+        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_dir, allowed_gpus)?,
     ));
     let scheduler_clone = Arc::clone(&scheduler);
 

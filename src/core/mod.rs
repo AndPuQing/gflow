@@ -1,3 +1,4 @@
+pub mod db;
 pub mod executor;
 pub mod info;
 pub mod job;

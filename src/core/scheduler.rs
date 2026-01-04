@@ -93,6 +93,11 @@ impl Scheduler {
         self.allowed_gpu_indices = indices;
     }
 
+    /// Get GPU restrictions
+    pub fn allowed_gpu_indices(&self) -> Option<&Vec<u32>> {
+        self.allowed_gpu_indices.as_ref()
+    }
+
     /// Submit a job and return (job_id, run_name)
     /// Note: Caller is responsible for persisting state after this
     pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
