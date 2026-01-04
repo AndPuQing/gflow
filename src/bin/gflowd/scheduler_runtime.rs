@@ -28,14 +28,17 @@ impl SchedulerRuntime {
         let db_path = state_dir.join("state.db");
         let json_path = state_dir.join("state.json");
 
+        // Check for migration BEFORE creating database to avoid data loss
+        let needs_migration = gflow::core::migrations::needs_migration(&json_path, &db_path);
+
         tracing::info!("Initializing database at {:?}", db_path);
         let db = Database::new(db_path.clone()).map_err(|e| {
             tracing::error!("Failed to initialize database: {}", e);
             e
         })?;
 
-        // Check for migration from JSON to SQLite
-        if gflow::core::migrations::needs_migration(&json_path, &db_path) {
+        // Run migration if needed (checked before database creation)
+        if needs_migration {
             tracing::info!("Migrating from state.json to SQLite database...");
             gflow::core::migrations::migrate_json_to_sqlite(&json_path, &db)?;
             tracing::info!("Migration complete. Backup saved to state.json.backup");
