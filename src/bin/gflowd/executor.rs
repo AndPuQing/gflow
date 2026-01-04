@@ -47,8 +47,12 @@ impl TmuxExecutor {
             user_command.push_str(&substituted);
         }
 
+        // Wrap the command in bash -c to ensure && and || operators work
+        // regardless of the user's default shell (fish, zsh, etc.)
+        // Escape single quotes in the user command by replacing ' with '\''
+        let escaped_command = user_command.replace('\'', r"'\''");
         let wrapped_command = format!(
-            "{user_command} && gcancel --finish {job_id} || gcancel --fail {job_id}",
+            "bash -c '{escaped_command} && gcancel --finish {job_id} || gcancel --fail {job_id}'",
             job_id = job.id,
         );
         Ok(wrapped_command)
@@ -91,5 +95,67 @@ impl Executor for TmuxExecutor {
             session.send_command(&wrapped_command);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::job::JobState;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_generate_wrapped_command_basic() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 123,
+            command: Some("echo hello".to_string()),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        assert_eq!(
+            wrapped,
+            "bash -c 'echo hello && gcancel --finish 123 || gcancel --fail 123'"
+        );
+    }
+
+    #[test]
+    fn test_generate_wrapped_command_with_quotes() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 456,
+            command: Some("echo 'hello world'".to_string()),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        // Single quotes in the command should be escaped as '\''
+        assert_eq!(
+            wrapped,
+            "bash -c 'echo '\\''hello world'\\'' && gcancel --finish 456 || gcancel --fail 456'"
+        );
+    }
+
+    #[test]
+    fn test_generate_wrapped_command_with_script() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 789,
+            script: Some(PathBuf::from("/tmp/script.sh")),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        assert_eq!(
+            wrapped,
+            "bash -c 'bash /tmp/script.sh && gcancel --finish 789 || gcancel --fail 789'"
+        );
     }
 }
