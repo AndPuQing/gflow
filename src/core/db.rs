@@ -203,74 +203,12 @@ impl Database {
 
     /// Update an existing job
     pub fn update_job(&self, job: &Job) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().context("Failed to begin transaction")?;
 
-        conn.execute(
-            "UPDATE jobs SET
-                script = ?2, command = ?3, gpus = ?4, conda_env = ?5, run_dir = ?6,
-                priority = ?7, depends_on = ?8, task_id = ?9, time_limit_secs = ?10,
-                memory_limit_mb = ?11, submitted_by = ?12, redone_from = ?13,
-                auto_close_tmux = ?14, group_id = ?15, max_concurrent = ?16,
-                run_name = ?17, state = ?18, started_at = ?19, finished_at = ?20,
-                updated_at = unixepoch()
-             WHERE id = ?1",
-            params![
-                job.id,
-                job.script.as_ref().map(|p| p.to_string_lossy().to_string()),
-                job.command,
-                job.gpus,
-                job.conda_env,
-                job.run_dir.to_string_lossy().to_string(),
-                job.priority,
-                job.depends_on,
-                job.task_id,
-                job.time_limit.as_ref().map(|d| d.as_secs() as i64),
-                job.memory_limit_mb.map(|m| m as i64),
-                job.submitted_by,
-                job.redone_from,
-                if job.auto_close_tmux { 1 } else { 0 },
-                job.group_id,
-                job.max_concurrent.map(|m| m as i64),
-                job.run_name,
-                job.state.to_string(),
-                job.started_at.as_ref().map(system_time_to_unix),
-                job.finished_at.as_ref().map(system_time_to_unix),
-            ],
-        )
-        .context("Failed to update job")?;
+        Self::update_job_tx(&tx, job)?;
 
-        // Update GPU assignments - delete and re-insert
-        conn.execute(
-            "DELETE FROM job_gpu_assignments WHERE job_id = ?1",
-            params![job.id],
-        )
-        .context("Failed to delete old GPU assignments")?;
-
-        if let Some(ref gpu_ids) = job.gpu_ids {
-            for &gpu_index in gpu_ids {
-                conn.execute(
-                    "INSERT INTO job_gpu_assignments (job_id, gpu_index) VALUES (?1, ?2)",
-                    params![job.id, gpu_index],
-                )
-                .context("Failed to insert GPU assignment")?;
-            }
-        }
-
-        // Update parameters - delete and re-insert
-        conn.execute(
-            "DELETE FROM job_parameters WHERE job_id = ?1",
-            params![job.id],
-        )
-        .context("Failed to delete old job parameters")?;
-
-        for (key, value) in &job.parameters {
-            conn.execute(
-                "INSERT INTO job_parameters (job_id, key, value) VALUES (?1, ?2, ?3)",
-                params![job.id, key, value],
-            )
-            .context("Failed to insert job parameter")?;
-        }
-
+        tx.commit().context("Failed to commit job update")?;
         Ok(())
     }
 
@@ -449,79 +387,90 @@ impl Database {
         Ok(())
     }
 
+    fn update_job_tx(tx: &rusqlite::Transaction<'_>, job: &Job) -> Result<()> {
+        tx.execute(
+            "UPDATE jobs SET
+            script = ?2, command = ?3, gpus = ?4, conda_env = ?5, run_dir = ?6,
+            priority = ?7, depends_on = ?8, task_id = ?9, time_limit_secs = ?10,
+            memory_limit_mb = ?11, submitted_by = ?12, redone_from = ?13,
+            auto_close_tmux = ?14, group_id = ?15, max_concurrent = ?16,
+            run_name = ?17, state = ?18, started_at = ?19, finished_at = ?20,
+            updated_at = unixepoch()
+         WHERE id = ?1",
+            params![
+                job.id,
+                job.script.as_ref().map(|p| p.to_string_lossy().to_string()),
+                job.command,
+                job.gpus,
+                job.conda_env,
+                job.run_dir.to_string_lossy().to_string(),
+                job.priority,
+                job.depends_on,
+                job.task_id,
+                job.time_limit.as_ref().map(|d| d.as_secs() as i64),
+                job.memory_limit_mb.map(|m| m as i64),
+                job.submitted_by,
+                job.redone_from,
+                if job.auto_close_tmux { 1 } else { 0 },
+                job.group_id,
+                job.max_concurrent.map(|m| m as i64),
+                job.run_name,
+                job.state.to_string(),
+                job.started_at.as_ref().map(system_time_to_unix),
+                job.finished_at.as_ref().map(system_time_to_unix),
+            ],
+        )
+        .context("Failed to update job")?;
+
+        // GPU assignments
+        tx.execute(
+            "DELETE FROM job_gpu_assignments WHERE job_id = ?1",
+            params![job.id],
+        )
+        .context("Failed to delete old GPU assignments")?;
+
+        if let Some(ref gpu_ids) = job.gpu_ids {
+            for &gpu_index in gpu_ids {
+                tx.execute(
+                    "INSERT INTO job_gpu_assignments (job_id, gpu_index)
+                 VALUES (?1, ?2)",
+                    params![job.id, gpu_index],
+                )
+                .context("Failed to insert GPU assignment")?;
+            }
+        }
+
+        // Parameters
+        tx.execute(
+            "DELETE FROM job_parameters WHERE job_id = ?1",
+            params![job.id],
+        )
+        .context("Failed to delete old job parameters")?;
+
+        for (key, value) in &job.parameters {
+            tx.execute(
+                "INSERT INTO job_parameters (job_id, key, value)
+             VALUES (?1, ?2, ?3)",
+                params![job.id, key, value],
+            )
+            .context("Failed to insert job parameter")?;
+        }
+
+        Ok(())
+    }
+
     /// Update multiple jobs in a single transaction
     pub fn update_jobs_batch(&self, jobs: &[Job]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        let tx = conn
-            .unchecked_transaction()
-            .context("Failed to begin transaction")?;
+        if jobs.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().context("Failed to begin transaction")?;
 
         for job in jobs {
-            tx.execute(
-                "UPDATE jobs SET
-                    script = ?2, command = ?3, gpus = ?4, conda_env = ?5, run_dir = ?6,
-                    priority = ?7, depends_on = ?8, task_id = ?9, time_limit_secs = ?10,
-                    memory_limit_mb = ?11, submitted_by = ?12, redone_from = ?13,
-                    auto_close_tmux = ?14, group_id = ?15, max_concurrent = ?16,
-                    run_name = ?17, state = ?18, started_at = ?19, finished_at = ?20,
-                    updated_at = unixepoch()
-                 WHERE id = ?1",
-                params![
-                    job.id,
-                    job.script.as_ref().map(|p| p.to_string_lossy().to_string()),
-                    job.command,
-                    job.gpus,
-                    job.conda_env,
-                    job.run_dir.to_string_lossy().to_string(),
-                    job.priority,
-                    job.depends_on,
-                    job.task_id,
-                    job.time_limit.as_ref().map(|d| d.as_secs() as i64),
-                    job.memory_limit_mb.map(|m| m as i64),
-                    job.submitted_by,
-                    job.redone_from,
-                    if job.auto_close_tmux { 1 } else { 0 },
-                    job.group_id,
-                    job.max_concurrent.map(|m| m as i64),
-                    job.run_name,
-                    job.state.to_string(),
-                    job.started_at.as_ref().map(system_time_to_unix),
-                    job.finished_at.as_ref().map(system_time_to_unix),
-                ],
-            )
-            .context("Failed to update job in batch")?;
-
-            // Update GPU assignments
-            tx.execute(
-                "DELETE FROM job_gpu_assignments WHERE job_id = ?1",
-                params![job.id],
-            )
-            .context("Failed to delete old GPU assignments in batch")?;
-
-            if let Some(ref gpu_ids) = job.gpu_ids {
-                for &gpu_index in gpu_ids {
-                    tx.execute(
-                        "INSERT INTO job_gpu_assignments (job_id, gpu_index) VALUES (?1, ?2)",
-                        params![job.id, gpu_index],
-                    )
-                    .context("Failed to insert GPU assignment in batch")?;
-                }
-            }
-
-            // Update parameters
-            tx.execute(
-                "DELETE FROM job_parameters WHERE job_id = ?1",
-                params![job.id],
-            )
-            .context("Failed to delete old job parameters in batch")?;
-
-            for (key, value) in &job.parameters {
-                tx.execute(
-                    "INSERT INTO job_parameters (job_id, key, value) VALUES (?1, ?2, ?3)",
-                    params![job.id, key, value],
-                )
-                .context("Failed to insert job parameter in batch")?;
-            }
+            Self::update_job_tx(&tx, job)
+                .with_context(|| format!("Failed to update job {}", job.id))?;
         }
 
         tx.commit().context("Failed to commit batch update")?;
