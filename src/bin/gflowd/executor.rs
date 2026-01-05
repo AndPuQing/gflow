@@ -49,10 +49,15 @@ impl TmuxExecutor {
 
         // Wrap the command in bash -c to ensure && and || operators work
         // regardless of the user's default shell (fish, zsh, etc.)
-        // Escape single quotes in the user command by replacing ' with '\''
-        let escaped_command = user_command.replace('\'', r"'\''");
+        // Use double quotes to avoid the ugly '\'' escaping pattern
+        // Need to escape: backslash, double-quote, dollar sign, backtick
+        let escaped_command = user_command
+            .replace('\\', r"\\")
+            .replace('"', r#"\""#)
+            .replace('$', r"\$")
+            .replace('`', r"\`");
         let wrapped_command = format!(
-            "bash -c '{escaped_command} && gcancel --finish {job_id} || gcancel --fail {job_id}'",
+            r#"bash -c "{escaped_command} && gcancel --finish {job_id} || gcancel --fail {job_id}""#,
             job_id = job.id,
         );
         Ok(wrapped_command)
@@ -118,7 +123,7 @@ mod tests {
         let wrapped = executor.generate_wrapped_command(&job).unwrap();
         assert_eq!(
             wrapped,
-            "bash -c 'echo hello && gcancel --finish 123 || gcancel --fail 123'"
+            r#"bash -c "echo hello && gcancel --finish 123 || gcancel --fail 123""#
         );
     }
 
@@ -134,10 +139,10 @@ mod tests {
         };
 
         let wrapped = executor.generate_wrapped_command(&job).unwrap();
-        // Single quotes in the command should be escaped as '\''
+        // Single quotes don't need escaping in double-quoted context
         assert_eq!(
             wrapped,
-            "bash -c 'echo '\\''hello world'\\'' && gcancel --finish 456 || gcancel --fail 456'"
+            r#"bash -c "echo 'hello world' && gcancel --finish 456 || gcancel --fail 456""#
         );
     }
 
@@ -155,7 +160,64 @@ mod tests {
         let wrapped = executor.generate_wrapped_command(&job).unwrap();
         assert_eq!(
             wrapped,
-            "bash -c 'bash /tmp/script.sh && gcancel --finish 789 || gcancel --fail 789'"
+            r#"bash -c "bash /tmp/script.sh && gcancel --finish 789 || gcancel --fail 789""#
+        );
+    }
+
+    #[test]
+    fn test_generate_wrapped_command_with_special_chars() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 527,
+            command: Some("lighteval vllm 'model_name=meta-llama/Llama-3.2-1B-Instruct,dtype=bfloat16' 'lighteval|gsm8k|5'".to_string()),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        // Single quotes are preserved in double-quoted context
+        assert_eq!(
+            wrapped,
+            r#"bash -c "lighteval vllm 'model_name=meta-llama/Llama-3.2-1B-Instruct,dtype=bfloat16' 'lighteval|gsm8k|5' && gcancel --finish 527 || gcancel --fail 527""#
+        );
+    }
+
+    #[test]
+    fn test_generate_wrapped_command_with_double_quotes() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 100,
+            command: Some(r#"echo "hello world""#.to_string()),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        // Double quotes should be escaped
+        assert_eq!(
+            wrapped,
+            r#"bash -c "echo \"hello world\" && gcancel --finish 100 || gcancel --fail 100""#
+        );
+    }
+
+    #[test]
+    fn test_generate_wrapped_command_with_dollar_sign() {
+        let executor = TmuxExecutor;
+        let job = Job {
+            id: 200,
+            command: Some("echo $HOME".to_string()),
+            state: JobState::Queued,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        };
+
+        let wrapped = executor.generate_wrapped_command(&job).unwrap();
+        // Dollar signs should be escaped to prevent variable expansion
+        assert_eq!(
+            wrapped,
+            r#"bash -c "echo \$HOME && gcancel --finish 200 || gcancel --fail 200""#
         );
     }
 }
