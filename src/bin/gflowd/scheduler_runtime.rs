@@ -13,8 +13,7 @@ pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     nvml: Option<Nvml>,
-    dirty: bool,  // Tracks if state has changed since last save
-    db: Database, // SQLite database for persistence
+    pub(crate) db: Database, // SQLite database for persistence
 }
 
 impl SchedulerRuntime {
@@ -100,14 +99,14 @@ impl SchedulerRuntime {
         let mut runtime = Self {
             scheduler,
             nvml,
-            dirty: false,
             db,
         };
         runtime.load_state();
         Ok(runtime)
     }
 
-    /// Save scheduler state to database
+    /// Save scheduler state to database (bulk operation)
+    #[allow(dead_code)]
     pub async fn save_state(&self) {
         // Save all jobs to database
         let jobs: Vec<_> = self.scheduler.jobs.values().cloned().collect();
@@ -126,24 +125,6 @@ impl SchedulerRuntime {
             if let Ok(json) = serde_json::to_string(indices) {
                 let _ = self.db.set_metadata("allowed_gpu_indices", &json);
             }
-        }
-    }
-
-    /// Mark state as dirty without saving immediately
-    fn mark_dirty(&mut self) {
-        self.dirty = true;
-    }
-
-    /// Clear the dirty flag (used after immediate saves to avoid redundant writes)
-    pub fn clear_dirty(&mut self) {
-        self.dirty = false;
-    }
-
-    /// Save state only if dirty flag is set, then clear flag
-    async fn save_state_if_dirty(&mut self) {
-        if self.dirty {
-            self.save_state().await;
-            self.dirty = false;
         }
     }
 
@@ -257,27 +238,26 @@ impl SchedulerRuntime {
 
     // Job mutation methods with immediate or deferred persistence
 
-    pub async fn submit_job(&mut self, job: Job) -> (u32, String) {
+    pub async fn submit_job(&mut self, job: Job) -> (u32, String, Job) {
         let (job_id, run_name) = self.scheduler.submit_job(job);
 
-        // Insert into database immediately
-        if let Some(job) = self.scheduler.jobs.get(&job_id) {
-            if let Err(e) = self.db.insert_job(job) {
-                tracing::error!("Failed to insert job {} to database: {}", job_id, e);
-            }
-        }
+        // Clone job for database persistence
+        let job_clone = self
+            .scheduler
+            .jobs
+            .get(&job_id)
+            .cloned()
+            .expect("Job should exist after submission");
 
-        // Update next_job_id metadata
-        let next_id = self.scheduler.next_job_id();
-        let _ = self.db.set_metadata("next_job_id", &next_id.to_string());
-
-        self.clear_dirty();
-        (job_id, run_name)
+        (job_id, run_name, job_clone)
     }
 
-    /// Submit multiple jobs in a batch with immediate persistence
-    /// Returns: Vec<(job_id, run_name, submitted_by)>
-    pub async fn submit_jobs(&mut self, jobs: Vec<Job>) -> Vec<(u32, String, String)> {
+    /// Submit multiple jobs in a batch
+    /// Returns: (results, jobs_to_persist, next_job_id)
+    pub async fn submit_jobs(
+        &mut self,
+        jobs: Vec<Job>,
+    ) -> (Vec<(u32, String, String)>, Vec<Job>, u32) {
         let mut results = Vec::with_capacity(jobs.len());
         let mut db_jobs = Vec::with_capacity(jobs.len());
 
@@ -291,23 +271,12 @@ impl SchedulerRuntime {
             }
         }
 
-        // Batch insert to database
-        if let Err(e) = self.db.insert_jobs_batch(&db_jobs) {
-            tracing::error!("Failed to batch insert jobs: {}", e);
-        }
-
-        // Update next_job_id
         let next_id = self.scheduler.next_job_id();
-        let _ = self.db.set_metadata("next_job_id", &next_id.to_string());
-
-        self.clear_dirty();
-        results
+        (results, db_jobs, next_id)
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
-            self.mark_dirty();
-
             // Close tmux session if auto_close is enabled
             if should_close_tmux {
                 if let Some(name) = run_name {
@@ -325,11 +294,7 @@ impl SchedulerRuntime {
     }
 
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
-        let result = self.scheduler.fail_job(job_id);
-        if result {
-            self.mark_dirty();
-        }
-        result
+        self.scheduler.fail_job(job_id)
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
@@ -342,7 +307,6 @@ impl SchedulerRuntime {
                     }
                 }
             }
-            self.mark_dirty();
             true
         } else {
             false
@@ -350,19 +314,11 @@ impl SchedulerRuntime {
     }
 
     pub async fn hold_job(&mut self, job_id: u32) -> bool {
-        let result = self.scheduler.hold_job(job_id);
-        if result {
-            self.mark_dirty();
-        }
-        result
+        self.scheduler.hold_job(job_id)
     }
 
     pub async fn release_job(&mut self, job_id: u32) -> bool {
-        let result = self.scheduler.release_job(job_id);
-        if result {
-            self.mark_dirty();
-        }
-        result
+        self.scheduler.release_job(job_id)
     }
 
     // Read-only delegated methods (no state changes)
@@ -459,14 +415,27 @@ pub async fn run(shared_state: SharedState) {
 
         // Update zombie jobs (write lock - brief)
         if !zombie_job_ids.is_empty() {
-            let mut state = shared_state.write().await;
-            for job_id in zombie_job_ids {
-                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
-                    job.state = JobState::Failed;
-                    job.finished_at = Some(std::time::SystemTime::now());
+            let dirty_jobs = {
+                let mut state = shared_state.write().await;
+                let mut dirty_jobs = Vec::new();
+                for job_id in zombie_job_ids {
+                    if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                        job.state = JobState::Failed;
+                        job.finished_at = Some(std::time::SystemTime::now());
+                        dirty_jobs.push(job.clone());
+                    }
                 }
+                dirty_jobs
+            }; // Lock released here
+
+            // Persist without holding lock
+            let db = {
+                let state = shared_state.read().await;
+                state.db.clone()
+            };
+            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
+                tracing::error!("Failed to persist zombie job updates: {}", e);
             }
-            state.mark_dirty();
         }
 
         // Step 3: Check for timed-out jobs (read lock to identify, then handle)
@@ -483,41 +452,68 @@ pub async fn run(shared_state: SharedState) {
                 .collect::<Vec<_>>()
         };
 
-        // Terminate timed-out jobs without lock, then update state
-        for (job_id, run_name) in timed_out_jobs {
-            if let Some(run_name) = run_name {
-                if let Err(e) = gflow::tmux::send_ctrl_c(&run_name) {
-                    tracing::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
+        // Terminate timed-out jobs and update state
+        if !timed_out_jobs.is_empty() {
+            // Send Ctrl-C to all timed-out jobs first (without lock)
+            for (job_id, run_name) in &timed_out_jobs {
+                if let Some(run_name) = run_name {
+                    if let Err(e) = gflow::tmux::send_ctrl_c(run_name) {
+                        tracing::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
+                    }
                 }
             }
 
-            // Update job state (brief write lock)
-            {
+            // Update all timed-out jobs in memory
+            let dirty_jobs = {
                 let mut state = shared_state.write().await;
-                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
-                    job.try_transition(job_id, JobState::Timeout);
+                let mut dirty_jobs = Vec::new();
+                for (job_id, _) in timed_out_jobs {
+                    if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                        job.try_transition(job_id, JobState::Timeout);
+                        dirty_jobs.push(job.clone());
+                    }
                 }
-                state.mark_dirty();
+                dirty_jobs
+            }; // Lock released here
+
+            // Persist without holding lock
+            let db = {
+                let state = shared_state.read().await;
+                state.db.clone()
+            };
+            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
+                tracing::error!("Failed to persist timeout updates: {}", e);
             }
         }
 
         // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
-        {
+        let dirty_jobs = {
             let mut state = shared_state.write().await;
             let scheduled = state.scheduler.schedule_jobs();
-            // Only mark dirty if jobs were actually scheduled
+
+            // Collect jobs that transitioned to Running or Failed
             if !scheduled.is_empty() {
-                state.mark_dirty();
+                scheduled
+                    .iter()
+                    .filter_map(|(job_id, _result)| state.scheduler.jobs.get(job_id).cloned())
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        }; // Lock released here
+
+        // Persist without holding lock
+        if !dirty_jobs.is_empty() {
+            let db = {
+                let state = shared_state.read().await;
+                state.db.clone()
+            };
+            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
+                tracing::error!("Failed to persist scheduled jobs: {}", e);
             }
         }
 
-        // Step 5: Flush state if dirty (single save per loop iteration)
-        {
-            let mut state = shared_state.write().await;
-            state.save_state_if_dirty().await;
-        }
-
-        // Step 6: Update metrics (read lock for state snapshot)
+        // Step 5: Update metrics (read lock for state snapshot)
         #[cfg(feature = "metrics")]
         {
             use gflow::metrics;

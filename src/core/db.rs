@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{params, OptionalExtension, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::job::{Job, JobState};
@@ -67,32 +69,45 @@ CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
 CREATE INDEX IF NOT EXISTS idx_jobs_group_id ON jobs(group_id) WHERE group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_jobs_depends_on ON jobs(depends_on) WHERE depends_on IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_submitted_by ON jobs(submitted_by);
+CREATE INDEX IF NOT EXISTS idx_jobs_state_created_at ON jobs(state, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_user_state ON jobs(submitted_by, state);
 "#;
 
-/// Database handle for managing gflow state
+/// Database handle for managing gflow state with connection pooling
 #[derive(Clone)]
 pub struct Database {
-    conn: Arc<Mutex<Connection>>,
+    pool: Arc<Pool<SqliteConnectionManager>>,
     #[allow(dead_code)]
     db_path: PathBuf,
 }
 
 impl Database {
-    /// Create a new database connection
+    /// Create a new database connection pool
     pub fn new(db_path: PathBuf) -> Result<Self> {
-        let conn = Connection::open(&db_path)
-            .with_context(|| format!("Failed to open database at {:?}", db_path))?;
+        // Create connection manager
+        let manager = SqliteConnectionManager::file(&db_path).with_init(|conn| {
+            // Enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON", [])?;
+            // Enable WAL mode for better read concurrency
+            conn.execute("PRAGMA journal_mode = WAL", [])?;
+            // Use NORMAL synchronous mode for better write performance
+            // Still safe with WAL mode - data is durable after checkpoint
+            conn.execute("PRAGMA synchronous = NORMAL", [])?;
+            // Set busy timeout to 5 seconds to handle write contention
+            conn.execute("PRAGMA busy_timeout = 5000", [])?;
+            Ok(())
+        });
 
-        // Enable foreign keys
-        conn.execute("PRAGMA foreign_keys = ON", [])
-            .context("Failed to enable foreign keys")?;
-
-        // Enable WAL mode for better concurrency and durability
-        conn.pragma_update(None, "journal_mode", "WAL")
-            .context("Failed to enable WAL mode")?;
+        // Create connection pool with configuration
+        let pool = Pool::builder()
+            .max_size(10) // Max 10 connections
+            .min_idle(Some(2)) // Keep at least 2 connections ready
+            .build(manager)
+            .context("Failed to create connection pool")?;
 
         let db = Self {
-            conn: Arc::new(Mutex::new(conn)),
+            pool: Arc::new(pool),
             db_path,
         };
 
@@ -102,7 +117,10 @@ impl Database {
 
     /// Initialize database schema
     pub fn initialize_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         conn.execute_batch(SCHEMA_SQL)
             .context("Failed to initialize database schema")?;
         Ok(())
@@ -110,7 +128,10 @@ impl Database {
 
     /// Health check - verify database connectivity
     pub fn health_check(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         conn.query_row("SELECT 1", [], |_| Ok(()))
             .context("Database health check failed")?;
         Ok(())
@@ -118,7 +139,10 @@ impl Database {
 
     /// Get metadata value by key
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         let result: Option<String> = conn
             .query_row(
                 "SELECT value FROM scheduler_metadata WHERE key = ?1",
@@ -132,7 +156,10 @@ impl Database {
 
     /// Set metadata value
     pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         conn.execute(
             "INSERT INTO scheduler_metadata (key, value, updated_at)
              VALUES (?1, ?2, unixepoch())
@@ -145,7 +172,10 @@ impl Database {
 
     /// Insert a new job
     pub fn insert_job(&self, job: &Job) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         conn.execute(
             "INSERT INTO jobs (
                 id, script, command, gpus, conda_env, run_dir, priority,
@@ -203,7 +233,10 @@ impl Database {
 
     /// Update an existing job
     pub fn update_job(&self, job: &Job) -> Result<()> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         let tx = conn.transaction().context("Failed to begin transaction")?;
 
         Self::update_job_tx(&tx, job)?;
@@ -214,7 +247,10 @@ impl Database {
 
     /// Get a single job by ID
     pub fn get_job(&self, id: u32) -> Result<Option<Job>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
 
         let job_opt: Option<Job> = conn
             .query_row("SELECT * FROM jobs WHERE id = ?1", params![id], |row| {
@@ -260,7 +296,10 @@ impl Database {
 
     /// Get all jobs
     pub fn get_all_jobs(&self) -> Result<HashMap<u32, Job>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
 
         let mut stmt = conn
             .prepare("SELECT * FROM jobs")
@@ -324,7 +363,10 @@ impl Database {
 
     /// Insert multiple jobs in a single transaction
     pub fn insert_jobs_batch(&self, jobs: &[Job]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         let tx = conn
             .unchecked_transaction()
             .context("Failed to begin transaction")?;
@@ -471,7 +513,10 @@ impl Database {
             return Ok(());
         }
 
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         let tx = conn.transaction().context("Failed to begin transaction")?;
 
         for job in jobs {
@@ -486,7 +531,10 @@ impl Database {
     /// Delete a job
     #[allow(dead_code)]
     pub fn delete_job(&self, id: u32) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .pool
+            .get()
+            .context("Failed to get connection from pool")?;
         // Foreign key CASCADE will handle job_gpu_assignments and job_parameters
         conn.execute("DELETE FROM jobs WHERE id = ?1", params![id])
             .context("Failed to delete job")?;

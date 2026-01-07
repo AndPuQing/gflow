@@ -148,7 +148,6 @@ async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
 
 #[axum::debug_handler]
 async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(
         user = %input.submitted_by,
         gpus = input.gpus,
@@ -157,24 +156,42 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
         "Received job submission"
     );
 
-    // Validate that dependency job exists if specified
-    if let Some(dep_id) = input.depends_on {
-        if !state.jobs().contains_key(&dep_id) {
-            tracing::warn!(
-                dep_id = dep_id,
-                "Job submission failed: dependency job does not exist"
-            );
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Dependency job {} does not exist", dep_id)
-                })),
-            );
-        }
-    }
+    // Validate dependency and submit job
+    let (job_id, run_name, job_to_save, next_job_id) = {
+        let mut state = state.write().await;
 
-    let _submitted_by = input.submitted_by.clone();
-    let (job_id, run_name) = state.submit_job(input).await;
+        // Validate that dependency job exists if specified
+        if let Some(dep_id) = input.depends_on {
+            if !state.jobs().contains_key(&dep_id) {
+                tracing::warn!(
+                    dep_id = dep_id,
+                    "Job submission failed: dependency job does not exist"
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!("Dependency job {} does not exist", dep_id)
+                    })),
+                );
+            }
+        }
+
+        let (job_id, run_name, job_clone) = state.submit_job(input).await;
+        let next_job_id = state.next_job_id();
+        (job_id, run_name, job_clone, next_job_id)
+    }; // Lock released here
+
+    let _submitted_by = job_to_save.submitted_by.clone();
+
+    // Persist without holding lock
+    let db = {
+        let state = state.read().await;
+        state.db.clone()
+    };
+    if let Err(e) = db.insert_job(&job_to_save) {
+        tracing::error!("Failed to insert job {} to database: {}", job_id, e);
+    }
+    let _ = db.set_metadata("next_job_id", &next_job_id.to_string());
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -209,28 +226,42 @@ async fn create_jobs_batch(
         );
     }
 
-    let mut state = state.write().await;
     tracing::info!(count = input.len(), "Received batch job submission");
 
-    // Validate all dependencies exist before submitting any (fail-fast)
-    for job in &input {
-        if let Some(dep_id) = job.depends_on {
-            if !state.jobs().contains_key(&dep_id) {
-                tracing::warn!(
-                    dep_id = dep_id,
-                    "Batch job submission failed: dependency job does not exist"
-                );
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": format!("Dependency job {} does not exist", dep_id)
-                    })),
-                );
+    // Validate and submit jobs
+    let (results, jobs_to_save, next_job_id) = {
+        let mut state = state.write().await;
+
+        // Validate all dependencies exist before submitting any (fail-fast)
+        for job in &input {
+            if let Some(dep_id) = job.depends_on {
+                if !state.jobs().contains_key(&dep_id) {
+                    tracing::warn!(
+                        dep_id = dep_id,
+                        "Batch job submission failed: dependency job does not exist"
+                    );
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": format!("Dependency job {} does not exist", dep_id)
+                        })),
+                    );
+                }
             }
         }
-    }
 
-    let results = state.submit_jobs(input).await;
+        state.submit_jobs(input).await
+    }; // Lock released here
+
+    // Persist without holding lock
+    let db = {
+        let state = state.read().await;
+        state.db.clone()
+    };
+    if let Err(e) = db.insert_jobs_batch(&jobs_to_save) {
+        tracing::error!("Failed to batch insert jobs: {}", e);
+    }
+    let _ = db.set_metadata("next_job_id", &next_job_id.to_string());
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -274,18 +305,36 @@ async fn get_job(
 
 #[axum::debug_handler]
 async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(job_id = id, "Finishing job");
 
     // Get user before finishing (for metrics)
     #[cfg(feature = "metrics")]
-    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+    let user = {
+        let state = state.read().await;
+        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+    };
 
-    let success = state.finish_job(id).await;
+    let (success, job_to_save) = {
+        let mut state = state.write().await;
+        let success = state.finish_job(id).await;
+        let job_to_save = if success {
+            state.jobs().get(&id).cloned()
+        } else {
+            None
+        };
+        (success, job_to_save)
+    }; // Lock released here
 
-    // Force immediate save for user operations and clear dirty flag
-    state.save_state().await;
-    state.clear_dirty();
+    // Save without holding lock
+    if let Some(job) = job_to_save {
+        let db = {
+            let state = state.read().await;
+            state.db.clone()
+        };
+        if let Err(e) = db.update_job(&job) {
+            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        }
+    }
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -325,18 +374,36 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 
 #[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(job_id = id, "Failing job");
 
     // Get user before failing (for metrics)
     #[cfg(feature = "metrics")]
-    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+    let user = {
+        let state = state.read().await;
+        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+    };
 
-    let success = state.fail_job(id).await;
+    let (success, job_to_save) = {
+        let mut state = state.write().await;
+        let success = state.fail_job(id).await;
+        let job_to_save = if success {
+            state.jobs().get(&id).cloned()
+        } else {
+            None
+        };
+        (success, job_to_save)
+    }; // Lock released here
 
-    // Force immediate save for user operations and clear dirty flag
-    state.save_state().await;
-    state.clear_dirty();
+    // Save without holding lock
+    if let Some(job) = job_to_save {
+        let db = {
+            let state = state.read().await;
+            state.db.clone()
+        };
+        if let Err(e) = db.update_job(&job) {
+            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        }
+    }
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -357,18 +424,36 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 
 #[axum::debug_handler]
 async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(job_id = id, "Cancelling job");
 
     // Get user before cancelling (for metrics)
     #[cfg(feature = "metrics")]
-    let user = state.jobs().get(&id).map(|j| j.submitted_by.clone());
+    let user = {
+        let state = state.read().await;
+        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+    };
 
-    let success = state.cancel_job(id).await;
+    let (success, job_to_save) = {
+        let mut state = state.write().await;
+        let success = state.cancel_job(id).await;
+        let job_to_save = if success {
+            state.jobs().get(&id).cloned()
+        } else {
+            None
+        };
+        (success, job_to_save)
+    }; // Lock released here
 
-    // Force immediate save for user operations and clear dirty flag
-    state.save_state().await;
-    state.clear_dirty();
+    // Save without holding lock
+    if let Some(job) = job_to_save {
+        let db = {
+            let state = state.read().await;
+            state.db.clone()
+        };
+        if let Err(e) = db.update_job(&job) {
+            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        }
+    }
 
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
@@ -389,13 +474,29 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 
 #[axum::debug_handler]
 async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(job_id = id, "Holding job");
-    let success = state.hold_job(id).await;
 
-    // Force immediate save for user operations and clear dirty flag
-    state.save_state().await;
-    state.clear_dirty();
+    let (success, job_to_save) = {
+        let mut state = state.write().await;
+        let success = state.hold_job(id).await;
+        let job_to_save = if success {
+            state.jobs().get(&id).cloned()
+        } else {
+            None
+        };
+        (success, job_to_save)
+    }; // Lock released here
+
+    // Save without holding lock
+    if let Some(job) = job_to_save {
+        let db = {
+            let state = state.read().await;
+            state.db.clone()
+        };
+        if let Err(e) = db.update_job(&job) {
+            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        }
+    }
 
     if success {
         (StatusCode::OK, Json(()))
@@ -406,13 +507,29 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 
 #[axum::debug_handler]
 async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let mut state = state.write().await;
     tracing::info!(job_id = id, "Releasing job");
-    let success = state.release_job(id).await;
 
-    // Force immediate save for user operations and clear dirty flag
-    state.save_state().await;
-    state.clear_dirty();
+    let (success, job_to_save) = {
+        let mut state = state.write().await;
+        let success = state.release_job(id).await;
+        let job_to_save = if success {
+            state.jobs().get(&id).cloned()
+        } else {
+            None
+        };
+        (success, job_to_save)
+    }; // Lock released here
+
+    // Save without holding lock
+    if let Some(job) = job_to_save {
+        let db = {
+            let state = state.read().await;
+            state.db.clone()
+        };
+        if let Err(e) = db.update_job(&job) {
+            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        }
+    }
 
     if success {
         (StatusCode::OK, Json(()))
@@ -493,8 +610,18 @@ async fn set_allowed_gpus(
     }
 
     state.set_allowed_gpu_indices(request.allowed_indices.clone());
-    state.save_state().await;
-    state.clear_dirty(); // Clear dirty flag to avoid redundant save
+
+    // Save only GPU metadata, not jobs
+    if let Some(ref indices) = request.allowed_indices {
+        if let Ok(json) = serde_json::to_string(indices) {
+            if let Err(e) = state.db.set_metadata("allowed_gpu_indices", &json) {
+                tracing::error!("Failed to persist GPU configuration: {}", e);
+            }
+        }
+    } else {
+        // Clear the metadata if no indices specified
+        let _ = state.db.set_metadata("allowed_gpu_indices", "null");
+    }
 
     tracing::info!(allowed_indices = ?request.allowed_indices, "GPU configuration updated");
 
