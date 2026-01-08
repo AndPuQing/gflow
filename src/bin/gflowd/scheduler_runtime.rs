@@ -1,6 +1,7 @@
 use gflow::core::db::Database;
+use gflow::core::db_writer::DatabaseWriter;
 use gflow::core::executor::Executor;
-use gflow::core::job::{Job, JobState};
+use gflow::core::job::{Job, JobEvent, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use nvml_wrapper::Nvml;
@@ -13,7 +14,8 @@ pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     nvml: Option<Nvml>,
-    pub(crate) db: Database, // SQLite database for persistence
+    pub(crate) db: Database,           // SQLite database for persistence
+    pub(crate) writer: DatabaseWriter, // Async database writer with micro-batching
 }
 
 impl SchedulerRuntime {
@@ -96,10 +98,14 @@ impl SchedulerRuntime {
             .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
 
+        // Initialize async database writer
+        let writer = DatabaseWriter::new(db.clone());
+
         let mut runtime = Self {
             scheduler,
             nvml,
             db,
+            writer,
         };
         runtime.load_state();
         Ok(runtime)
@@ -130,7 +136,9 @@ impl SchedulerRuntime {
 
     /// Load scheduler state from database
     pub fn load_state(&mut self) {
-        match self.db.get_all_jobs() {
+        // Load only active jobs (Queued, Hold, Running) for fast startup
+        // Completed/failed jobs are queried from DB on-demand
+        match self.db.get_active_jobs() {
             Ok(jobs) => {
                 self.scheduler.jobs = jobs;
 
@@ -169,7 +177,10 @@ impl SchedulerRuntime {
                 self.scheduler.update_memory(total_memory_mb);
                 self.scheduler.refresh_available_memory();
 
-                tracing::info!("Loaded {} jobs from database", self.scheduler.jobs.len());
+                tracing::info!(
+                    "Loaded {} active jobs from database (Queued/Hold/Running)",
+                    self.scheduler.jobs.len()
+                );
             }
             Err(e) => {
                 tracing::error!("Failed to load state from database: {}", e);
@@ -415,27 +426,31 @@ pub async fn run(shared_state: SharedState) {
 
         // Update zombie jobs (write lock - brief)
         if !zombie_job_ids.is_empty() {
-            let dirty_jobs = {
+            let (dirty_jobs, writer) = {
                 let mut state = shared_state.write().await;
                 let mut dirty_jobs = Vec::new();
                 for job_id in zombie_job_ids {
                     if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                        let old_state = job.state;
                         job.state = JobState::Failed;
                         job.finished_at = Some(std::time::SystemTime::now());
                         dirty_jobs.push(job.clone());
+
+                        // Queue event for zombie detection
+                        let event = JobEvent::state_transition(
+                            job_id,
+                            old_state,
+                            JobState::Failed,
+                            Some("Zombie job detected".to_string()),
+                        );
+                        state.writer.queue_event(event);
                     }
                 }
-                dirty_jobs
+                (dirty_jobs, state.writer.clone())
             }; // Lock released here
 
-            // Persist without holding lock
-            let db = {
-                let state = shared_state.read().await;
-                state.db.clone()
-            };
-            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
-                tracing::error!("Failed to persist zombie job updates: {}", e);
-            }
+            // Queue updates (non-blocking)
+            writer.queue_update_batch(dirty_jobs);
         }
 
         // Step 3: Check for timed-out jobs (read lock to identify, then handle)
@@ -464,53 +479,72 @@ pub async fn run(shared_state: SharedState) {
             }
 
             // Update all timed-out jobs in memory
-            let dirty_jobs = {
+            let (dirty_jobs, writer) = {
                 let mut state = shared_state.write().await;
                 let mut dirty_jobs = Vec::new();
                 for (job_id, _) in timed_out_jobs {
                     if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                        let old_state = job.state;
                         job.try_transition(job_id, JobState::Timeout);
                         dirty_jobs.push(job.clone());
+
+                        // Queue event for timeout
+                        let event = JobEvent::state_transition(
+                            job_id,
+                            old_state,
+                            JobState::Timeout,
+                            Some("Job exceeded time limit".to_string()),
+                        );
+                        state.writer.queue_event(event);
                     }
                 }
-                dirty_jobs
+                (dirty_jobs, state.writer.clone())
             }; // Lock released here
 
-            // Persist without holding lock
-            let db = {
-                let state = shared_state.read().await;
-                state.db.clone()
-            };
-            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
-                tracing::error!("Failed to persist timeout updates: {}", e);
-            }
+            // Queue updates (non-blocking)
+            writer.queue_update_batch(dirty_jobs);
         }
 
         // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
-        let dirty_jobs = {
+        let (dirty_jobs, writer) = {
             let mut state = shared_state.write().await;
             let scheduled = state.scheduler.schedule_jobs();
 
-            // Collect jobs that transitioned to Running or Failed
+            // Collect jobs that transitioned to Running or Failed and log events
+            let mut dirty_jobs = Vec::new();
             if !scheduled.is_empty() {
-                scheduled
-                    .iter()
-                    .filter_map(|(job_id, _result)| state.scheduler.jobs.get(job_id).cloned())
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
+                for (job_id, _result) in scheduled {
+                    if let Some(job) = state.scheduler.jobs.get(&job_id) {
+                        dirty_jobs.push(job.clone());
+
+                        // Log scheduling event (Queued -> Running or Failed)
+                        if job.state == JobState::Running {
+                            let event = JobEvent::state_transition(
+                                job_id,
+                                JobState::Queued,
+                                JobState::Running,
+                                None,
+                            );
+                            state.writer.queue_event(event);
+
+                            // Log GPU assignment if GPUs were assigned
+                            if let Some(ref gpu_ids) = job.gpu_ids {
+                                if !gpu_ids.is_empty() {
+                                    let gpu_event =
+                                        JobEvent::gpu_assignment(job_id, gpu_ids.clone());
+                                    state.writer.queue_event(gpu_event);
+                                }
+                            }
+                        }
+                    }
+                }
             }
+            (dirty_jobs, state.writer.clone())
         }; // Lock released here
 
-        // Persist without holding lock
+        // Queue updates (non-blocking)
         if !dirty_jobs.is_empty() {
-            let db = {
-                let state = shared_state.read().await;
-                state.db.clone()
-            };
-            if let Err(e) = db.update_jobs_batch(&dirty_jobs) {
-                tracing::error!("Failed to persist scheduled jobs: {}", e);
-            }
+            writer.queue_update_batch(dirty_jobs);
         }
 
         // Step 5: Update metrics (read lock for state snapshot)

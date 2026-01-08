@@ -9,17 +9,39 @@
 use crate::executor::TmuxExecutor;
 use crate::scheduler_runtime::{self, SharedState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use gflow::core::db::JobFilter;
 use gflow::core::job::{Job, JobState};
 use gflow::{debug, metrics};
+use serde::Deserialize;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+#[derive(Deserialize)]
+struct ListJobsQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
+    state: Option<String>, // Comma-separated states
+    #[serde(default)]
+    user: Option<String>, // Comma-separated users
+}
+
+#[derive(serde::Serialize)]
+struct PaginatedJobsResponse {
+    jobs: Vec<Job>,
+    total: usize,
+    limit: usize,
+    offset: usize,
+}
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_dir = gflow::core::get_data_dir()?;
@@ -50,6 +72,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/{id}/hold", post(hold_job))
         .route("/jobs/{id}/release", post(release_job))
         .route("/jobs/{id}/log", get(get_job_log))
+        .route("/jobs/{id}/events", get(get_job_events))
         .route("/info", get(info))
         .route("/health", get(get_health))
         .route("/gpus", post(set_allowed_gpus))
@@ -139,11 +162,65 @@ async fn info(State(state): State<SharedState>) -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-async fn list_jobs(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.read().await;
-    let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
-    jobs.sort_by_key(|j| j.id);
-    (StatusCode::OK, Json(jobs))
+async fn list_jobs(
+    State(state): State<SharedState>,
+    Query(query): Query<ListJobsQuery>,
+) -> impl IntoResponse {
+    // If no query parameters, return jobs from memory (backward compatibility)
+    if query.limit.is_none() && query.state.is_none() && query.user.is_none() {
+        let state = state.read().await;
+        let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
+        jobs.sort_by_key(|j| j.id);
+        return (StatusCode::OK, Json(jobs)).into_response();
+    }
+
+    // Build filter from query parameters
+    let mut filter = JobFilter::new();
+
+    if let Some(state_str) = query.state {
+        let states: Vec<JobState> = state_str
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if !states.is_empty() {
+            filter = filter.with_states(states);
+        }
+    }
+
+    if let Some(user_str) = query.user {
+        let users: Vec<String> = user_str.split(',').map(|s| s.trim().to_string()).collect();
+        if !users.is_empty() {
+            filter = filter.with_users(users);
+        }
+    }
+
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+
+    // Query from database
+    let db = {
+        let state = state.read().await;
+        state.db.clone()
+    };
+    match db.query_jobs_paginated(&filter, limit, offset) {
+        Ok((jobs, total)) => {
+            let response = PaginatedJobsResponse {
+                jobs,
+                total,
+                limit,
+                offset,
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to query jobs: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to query jobs"})),
+            )
+                .into_response()
+        }
+    }
 }
 
 #[axum::debug_handler]
@@ -183,15 +260,19 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 
     let _submitted_by = job_to_save.submitted_by.clone();
 
-    // Persist without holding lock
-    let db = {
+    // Persist without holding lock (using async writer)
+    let writer = {
         let state = state.read().await;
-        state.db.clone()
+        state.writer.clone()
     };
-    if let Err(e) = db.insert_job(&job_to_save) {
+    if let Err(e) = writer.insert_job(job_to_save.clone()).await {
         tracing::error!("Failed to insert job {} to database: {}", job_id, e);
     }
-    let _ = db.set_metadata("next_job_id", &next_job_id.to_string());
+    writer.set_metadata("next_job_id".to_string(), next_job_id.to_string());
+
+    // Log job creation event
+    let event = gflow::core::job::JobEvent::created(job_id, job_to_save.state);
+    writer.queue_event(event);
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -253,15 +334,21 @@ async fn create_jobs_batch(
         state.submit_jobs(input).await
     }; // Lock released here
 
-    // Persist without holding lock
-    let db = {
+    // Persist without holding lock (using async writer)
+    let writer = {
         let state = state.read().await;
-        state.db.clone()
+        state.writer.clone()
     };
-    if let Err(e) = db.insert_jobs_batch(&jobs_to_save) {
+    if let Err(e) = writer.insert_jobs_batch(jobs_to_save.clone()).await {
         tracing::error!("Failed to batch insert jobs: {}", e);
     }
-    let _ = db.set_metadata("next_job_id", &next_job_id.to_string());
+    writer.set_metadata("next_job_id".to_string(), next_job_id.to_string());
+
+    // Log creation events for all jobs
+    for job in &jobs_to_save {
+        let event = gflow::core::job::JobEvent::created(job.id, job.state);
+        writer.queue_event(event);
+    }
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -314,7 +401,7 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let (success, job_to_save) = {
+    let (success, job_to_save, writer) = {
         let mut state = state.write().await;
         let success = state.finish_job(id).await;
         let job_to_save = if success {
@@ -322,18 +409,18 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
         } else {
             None
         };
-        (success, job_to_save)
+        (success, job_to_save, state.writer.clone())
     }; // Lock released here
 
-    // Save without holding lock
+    // Save without holding lock (using async writer)
     if let Some(job) = job_to_save {
-        let db = {
-            let state = state.read().await;
-            state.db.clone()
-        };
-        if let Err(e) = db.update_job(&job) {
-            tracing::error!("Failed to persist job {} state change: {}", id, e);
-        }
+        let event = gflow::core::job::JobEvent::state_transition(
+            id,
+            JobState::Running,
+            JobState::Finished,
+            None,
+        );
+        writer.queue_update_with_event(job, event);
     }
 
     // Record metrics only on successful transition
@@ -373,6 +460,25 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 }
 
 #[axum::debug_handler]
+async fn get_job_events(
+    State(state): State<SharedState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
+    let db = {
+        let state = state.read().await;
+        state.db.clone()
+    };
+
+    match db.get_job_events(id) {
+        Ok(events) => (StatusCode::OK, Json(events)),
+        Err(e) => {
+            tracing::error!("Failed to get events for job {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(vec![]))
+        }
+    }
+}
+
+#[axum::debug_handler]
 async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     tracing::info!(job_id = id, "Failing job");
 
@@ -383,7 +489,7 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let (success, job_to_save) = {
+    let (success, job_to_save, writer) = {
         let mut state = state.write().await;
         let success = state.fail_job(id).await;
         let job_to_save = if success {
@@ -391,18 +497,18 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
         } else {
             None
         };
-        (success, job_to_save)
+        (success, job_to_save, state.writer.clone())
     }; // Lock released here
 
-    // Save without holding lock
+    // Save without holding lock (using async writer)
     if let Some(job) = job_to_save {
-        let db = {
-            let state = state.read().await;
-            state.db.clone()
-        };
-        if let Err(e) = db.update_job(&job) {
-            tracing::error!("Failed to persist job {} state change: {}", id, e);
-        }
+        let event = gflow::core::job::JobEvent::state_transition(
+            id,
+            JobState::Running,
+            JobState::Failed,
+            Some("Job marked as failed".to_string()),
+        );
+        writer.queue_update_with_event(job, event);
     }
 
     // Record metrics only on successful transition
@@ -433,25 +539,28 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let (success, job_to_save) = {
+    let (success, job_to_save, old_state, writer) = {
         let mut state = state.write().await;
+        let old_state = state.jobs().get(&id).map(|j| j.state);
         let success = state.cancel_job(id).await;
         let job_to_save = if success {
             state.jobs().get(&id).cloned()
         } else {
             None
         };
-        (success, job_to_save)
+        (success, job_to_save, old_state, state.writer.clone())
     }; // Lock released here
 
-    // Save without holding lock
+    // Save without holding lock (using async writer)
     if let Some(job) = job_to_save {
-        let db = {
-            let state = state.read().await;
-            state.db.clone()
-        };
-        if let Err(e) = db.update_job(&job) {
-            tracing::error!("Failed to persist job {} state change: {}", id, e);
+        if let Some(old) = old_state {
+            let event = gflow::core::job::JobEvent::state_transition(
+                id,
+                old,
+                JobState::Cancelled,
+                Some("Job cancelled by user".to_string()),
+            );
+            writer.queue_update_with_event(job, event);
         }
     }
 
@@ -476,7 +585,7 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     tracing::info!(job_id = id, "Holding job");
 
-    let (success, job_to_save) = {
+    let (success, job_to_save, writer) = {
         let mut state = state.write().await;
         let success = state.hold_job(id).await;
         let job_to_save = if success {
@@ -484,18 +593,13 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
         } else {
             None
         };
-        (success, job_to_save)
+        (success, job_to_save, state.writer.clone())
     }; // Lock released here
 
-    // Save without holding lock
+    // Save without holding lock (using async writer)
     if let Some(job) = job_to_save {
-        let db = {
-            let state = state.read().await;
-            state.db.clone()
-        };
-        if let Err(e) = db.update_job(&job) {
-            tracing::error!("Failed to persist job {} state change: {}", id, e);
-        }
+        let event = gflow::core::job::JobEvent::hold(id, Some("Job held by user".to_string()));
+        writer.queue_update_with_event(job, event);
     }
 
     if success {
@@ -509,7 +613,7 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     tracing::info!(job_id = id, "Releasing job");
 
-    let (success, job_to_save) = {
+    let (success, job_to_save, writer) = {
         let mut state = state.write().await;
         let success = state.release_job(id).await;
         let job_to_save = if success {
@@ -517,18 +621,14 @@ async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> i
         } else {
             None
         };
-        (success, job_to_save)
+        (success, job_to_save, state.writer.clone())
     }; // Lock released here
 
-    // Save without holding lock
+    // Save without holding lock (using async writer)
     if let Some(job) = job_to_save {
-        let db = {
-            let state = state.read().await;
-            state.db.clone()
-        };
-        if let Err(e) = db.update_job(&job) {
-            tracing::error!("Failed to persist job {} state change: {}", id, e);
-        }
+        let event =
+            gflow::core::job::JobEvent::release(id, Some("Job released by user".to_string()));
+        writer.queue_update_with_event(job, event);
     }
 
     if success {
@@ -611,16 +711,15 @@ async fn set_allowed_gpus(
 
     state.set_allowed_gpu_indices(request.allowed_indices.clone());
 
-    // Save only GPU metadata, not jobs
+    // Save GPU metadata asynchronously
+    let writer = state.writer.clone();
     if let Some(ref indices) = request.allowed_indices {
         if let Ok(json) = serde_json::to_string(indices) {
-            if let Err(e) = state.db.set_metadata("allowed_gpu_indices", &json) {
-                tracing::error!("Failed to persist GPU configuration: {}", e);
-            }
+            writer.set_metadata("allowed_gpu_indices".to_string(), json);
         }
     } else {
         // Clear the metadata if no indices specified
-        let _ = state.db.set_metadata("allowed_gpu_indices", "null");
+        writer.set_metadata("allowed_gpu_indices".to_string(), "null".to_string());
     }
 
     tracing::info!(allowed_indices = ?request.allowed_indices, "GPU configuration updated");
