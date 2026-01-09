@@ -253,16 +253,31 @@ impl Scheduler {
         self.available_memory_mb = self.total_memory_mb.saturating_sub(memory_used);
     }
 
-    /// Schedule and execute jobs based on current state
-    /// Returns list of (job_id, success) tuples indicating execution results
-    /// Note: Caller is responsible for persisting state after scheduling
-    pub fn schedule_jobs(&mut self) -> Vec<(u32, Result<(), String>)> {
-        if self.executor.is_none() {
-            tracing::warn!("Scheduler has no executor, cannot schedule jobs");
-            return Vec::new();
-        }
-
-        let mut results = Vec::new();
+    /// Prepare jobs for execution by allocating resources and marking them as Running
+    ///
+    /// # Warning
+    /// This method **mutates scheduler state** by:
+    /// - Transitioning jobs from Queued to Running
+    /// - Allocating GPU and memory resources
+    /// - Setting started_at timestamps
+    ///
+    /// **IMPORTANT**: You MUST either:
+    /// 1. Execute the returned jobs (via executor or `execute_jobs_no_lock`)
+    /// 2. Handle failures (via `handle_execution_failures`) if execution fails
+    ///
+    /// Failure to execute will leave jobs stuck in Running state with resources allocated.
+    ///
+    /// # Returns
+    /// Vector of jobs ready to execute with resources already allocated
+    ///
+    /// # Example
+    /// ```ignore
+    /// let jobs = scheduler.prepare_jobs_for_execution();
+    /// let results = scheduler.execute_jobs_no_lock(&jobs);
+    /// scheduler.handle_execution_failures(&results);
+    /// ```
+    pub fn prepare_jobs_for_execution(&mut self) -> Vec<Job> {
+        let mut jobs_to_execute = Vec::new();
         let mut available_gpus = self.get_available_gpu_slots();
         let finished_jobs: std::collections::HashSet<u32> = self
             .jobs
@@ -295,7 +310,7 @@ impl Scheduler {
                 .unwrap_or(std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id))))
         });
 
-        // Execute runnable jobs - track memory locally to prevent over-allocation
+        // Allocate resources for runnable jobs
         let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
             // First, do immutable checks to determine if job can run
@@ -345,7 +360,7 @@ impl Scheduler {
                     continue;
                 };
 
-            // Now get mutable borrow if all checks pass
+            // Now allocate resources if all checks pass
             if has_enough_gpus && has_enough_memory && within_group_limit {
                 if let Some(job) = self.jobs.get_mut(&job_id) {
                     let gpus_for_job = available_gpus
@@ -353,33 +368,16 @@ impl Scheduler {
                         .collect::<Vec<_>>();
                     job.gpu_ids = Some(gpus_for_job);
 
-                    // Set state to Running BEFORE execute() to prevent race with fast jobs
+                    // Set state to Running and allocate memory
                     job.state = JobState::Running;
                     job.started_at = Some(std::time::SystemTime::now());
 
-                    // Execute job using injected executor
-                    let executor = self.executor.as_ref().unwrap();
-                    match executor.execute(job) {
-                        Ok(_) => {
-                            tracing::info!("Executing job: {job:?}");
-                            // Reserve memory for this job (using local tracker)
-                            available_memory = available_memory.saturating_sub(required_memory);
-                            self.available_memory_mb =
-                                self.available_memory_mb.saturating_sub(required_memory);
-                            results.push((job_id, Ok(())));
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to execute job: {e:?}");
-                            // Use try_transition for consistent timestamps
-                            job.try_transition(job_id, JobState::Failed);
-                            // Return GPUs to available pool on failure
-                            if let Some(gpu_ids) = job.gpu_ids.take() {
-                                available_gpus.extend(gpu_ids);
-                                available_gpus.sort_unstable();
-                            }
-                            results.push((job_id, Err(e.to_string())));
-                        }
-                    }
+                    available_memory = available_memory.saturating_sub(required_memory);
+                    self.available_memory_mb =
+                        self.available_memory_mb.saturating_sub(required_memory);
+
+                    // Add to execution list
+                    jobs_to_execute.push(job.clone());
                 }
             } else if !has_enough_memory {
                 if let Some(job) = self.jobs.get(&job_id) {
@@ -393,6 +391,70 @@ impl Scheduler {
             }
         }
 
+        jobs_to_execute
+    }
+
+    /// Phase 2: Execute jobs (call executor - can be done WITHOUT holding lock)
+    /// This is separated so the caller can release locks before doing I/O
+    /// Returns execution results WITHOUT modifying state
+    pub fn execute_jobs_no_lock(&self, jobs: &[Job]) -> Vec<(u32, Result<(), String>)> {
+        if self.executor.is_none() {
+            tracing::warn!("Scheduler has no executor, cannot execute jobs");
+            return Vec::new();
+        }
+
+        let executor = self.executor.as_ref().unwrap();
+        let mut results = Vec::new();
+
+        for job in jobs {
+            match executor.execute(job) {
+                Ok(_) => {
+                    tracing::info!("Executing job: {job:?}");
+                    results.push((job.id, Ok(())));
+                }
+                Err(e) => {
+                    tracing::error!("Failed to execute job {}: {e:?}", job.id);
+                    results.push((job.id, Err(e.to_string())));
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Handle execution failures by marking jobs as failed and releasing resources
+    /// Should be called WITH a lock after execute_jobs_no_lock
+    pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
+        for (job_id, result) in results {
+            if result.is_err() {
+                if let Some(job) = self.jobs.get_mut(job_id) {
+                    job.try_transition(*job_id, JobState::Failed);
+                    // Return GPUs and memory
+                    if let Some(_gpu_ids) = job.gpu_ids.take() {
+                        let required_memory = job.memory_limit_mb.unwrap_or(0);
+                        self.available_memory_mb =
+                            self.available_memory_mb.saturating_add(required_memory);
+                        // Note: GPUs will be returned in next refresh cycle
+                    }
+                }
+            }
+        }
+    }
+
+    /// Legacy method for backward compatibility - calls both phases
+    #[deprecated(
+        note = "Use prepare_jobs_for_execution + execute_jobs_no_lock for better performance"
+    )]
+    pub fn schedule_jobs(&mut self) -> Vec<(u32, Result<(), String>)> {
+        // Guard: Check executor exists before mutating state
+        if self.executor.is_none() {
+            tracing::warn!("Scheduler has no executor, cannot schedule jobs");
+            return Vec::new();
+        }
+
+        let jobs_to_execute = self.prepare_jobs_for_execution();
+        let results = self.execute_jobs_no_lock(&jobs_to_execute);
+        self.handle_execution_failures(&results);
         results
     }
 
@@ -628,5 +690,54 @@ mod tests {
 
         scheduler.refresh_available_memory();
         assert_eq!(scheduler.available_memory_mb, total - 1024);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_schedule_jobs_without_executor_does_not_mutate_state() {
+        // Create scheduler WITHOUT executor (simulating misconfiguration)
+        let mut scheduler = SchedulerBuilder::new()
+            .with_state_path(PathBuf::from("/tmp/test.json"))
+            .with_total_memory_mb(16 * 1024)
+            .build();
+
+        // Submit a job
+        let job = create_test_job("test");
+        let (job_id, _) = scheduler.submit_job(job);
+
+        // Verify job is Queued
+        assert_eq!(scheduler.jobs[&job_id].state, JobState::Queued);
+        let initial_available_memory = scheduler.available_memory_mb;
+
+        // Try to schedule jobs without executor
+        let results = scheduler.schedule_jobs();
+
+        // Should return empty results
+        assert_eq!(results.len(), 0);
+
+        // Job should STILL be Queued (not stuck in Running)
+        assert_eq!(
+            scheduler.jobs[&job_id].state,
+            JobState::Queued,
+            "Job should remain Queued when no executor is present"
+        );
+
+        // Memory should not be allocated
+        assert_eq!(
+            scheduler.available_memory_mb, initial_available_memory,
+            "Memory should not be allocated when no executor is present"
+        );
+
+        // GPU IDs should not be assigned
+        assert_eq!(
+            scheduler.jobs[&job_id].gpu_ids, None,
+            "GPU IDs should not be assigned when no executor is present"
+        );
+
+        // started_at should not be set
+        assert_eq!(
+            scheduler.jobs[&job_id].started_at, None,
+            "started_at should not be set when no executor is present"
+        );
     }
 }

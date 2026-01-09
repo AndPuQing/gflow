@@ -3,6 +3,8 @@
 //! These tests verify end-to-end functionality using a test Scheduler instance
 //! with a MockExecutor and temporary state file.
 
+#![allow(deprecated)]
+
 use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};

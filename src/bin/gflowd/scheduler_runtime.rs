@@ -1,3 +1,4 @@
+use anyhow::Result;
 use gflow::core::db::Database;
 use gflow::core::db_writer::DatabaseWriter;
 use gflow::core::executor::Executor;
@@ -6,9 +7,21 @@ use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
+
+/// Shared notification handle to wake up the scheduler
+pub type SchedulerNotify = Arc<Notify>;
+
+/// Wrapper to make Arc<dyn Executor> compatible with Box<dyn Executor>
+struct ArcExecutorWrapper(Arc<dyn Executor>);
+
+impl Executor for ArcExecutorWrapper {
+    fn execute(&self, job: &Job) -> Result<()> {
+        self.0.execute(job)
+    }
+}
 
 /// Runtime adapter for Scheduler with system integration
 pub struct SchedulerRuntime {
@@ -16,6 +29,7 @@ pub struct SchedulerRuntime {
     nvml: Option<Nvml>,
     pub(crate) db: Database,           // SQLite database for persistence
     pub(crate) writer: DatabaseWriter, // Async database writer with micro-batching
+    executor: Arc<dyn Executor>,       // Shared executor for lock-free job execution
 }
 
 impl SchedulerRuntime {
@@ -90,8 +104,16 @@ impl SchedulerRuntime {
         };
 
         let total_memory_mb = Self::get_total_system_memory_mb();
+
+        // Store executor in Arc for lock-free access during job execution
+        let executor_arc: Arc<dyn Executor> = Arc::from(executor);
+
+        // Clone Arc for scheduler (still needed for deprecated schedule_jobs method)
+        let executor_for_scheduler: Box<dyn Executor> =
+            Box::new(ArcExecutorWrapper(executor_arc.clone()));
+
         let scheduler = SchedulerBuilder::new()
-            .with_executor(executor)
+            .with_executor(executor_for_scheduler)
             .with_gpu_slots(gpu_slots)
             .with_state_path(state_dir)
             .with_total_memory_mb(total_memory_mb)
@@ -106,6 +128,7 @@ impl SchedulerRuntime {
             nvml,
             db,
             writer,
+            executor: executor_arc,
         };
         runtime.load_state();
         Ok(runtime)
@@ -390,11 +413,17 @@ impl GPU for SchedulerRuntime {
     }
 }
 
-/// Async scheduling loop
-pub async fn run(shared_state: SharedState) {
+/// Async scheduling loop with immediate wake-up support
+pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     loop {
-        interval.tick().await;
+        // Wait for either the 5-second interval OR an immediate wake-up notification
+        tokio::select! {
+            _ = interval.tick() => {}
+            _ = notify.notified() => {
+                tracing::debug!("Scheduler triggered by job submission");
+            }
+        }
 
         // Step 1: Refresh GPU slots (write lock - very brief)
         {
@@ -505,41 +534,106 @@ pub async fn run(shared_state: SharedState) {
             writer.queue_update_batch(dirty_jobs);
         }
 
-        // Step 4: Schedule and execute new jobs (write lock for scheduling decision)
-        let (dirty_jobs, writer) = {
+        // Step 4a: Prepare jobs for execution (write lock - fast, no I/O)
+        let jobs_to_execute = {
             let mut state = shared_state.write().await;
-            let scheduled = state.scheduler.schedule_jobs();
+            let jobs = state.scheduler.prepare_jobs_for_execution();
+            tracing::debug!("Prepared {} jobs for execution", jobs.len());
+            jobs
+        }; // Lock released here
 
-            // Collect jobs that transitioned to Running or Failed and log events
+        // Step 4b: Execute jobs (NO LOCK - can take seconds due to tmux I/O)
+        let execution_results = if !jobs_to_execute.is_empty() {
+            // Clone executor Arc - NO LOCK NEEDED!
+            let executor = {
+                let state = shared_state.read().await;
+                state.executor.clone()
+            }; // Read lock released immediately
+
+            // Execute jobs without holding ANY lock
+            let mut results = Vec::new();
+            for job in &jobs_to_execute {
+                // Re-check job state before execution (prevents executing cancelled/held jobs)
+                // This handles the race where a job is cancelled between prepare and execute
+                let should_execute = {
+                    let state = shared_state.read().await;
+                    state
+                        .jobs()
+                        .get(&job.id)
+                        .map(|current_job| current_job.state == JobState::Running)
+                        .unwrap_or(false)
+                };
+
+                if !should_execute {
+                    tracing::info!(
+                        "Skipping execution of job {} (state changed before execution)",
+                        job.id
+                    );
+                    // Mark as execution failure so resources are released in Step 4c
+                    results.push((
+                        job.id,
+                        Err("Job state changed before execution".to_string()),
+                    ));
+                    continue;
+                }
+
+                match executor.execute(job) {
+                    Ok(_) => {
+                        tracing::info!("Executed job {}", job.id);
+                        results.push((job.id, Ok(())));
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute job {}: {:?}", job.id, e);
+                        results.push((job.id, Err(e.to_string())));
+                    }
+                }
+            }
+
+            results
+        } else {
+            Vec::new()
+        };
+
+        // Step 4c: Handle failures and log events (write lock - brief)
+        let (dirty_jobs, writer) = if !execution_results.is_empty() {
+            let mut state = shared_state.write().await;
+            // Handle any execution failures
+            state
+                .scheduler
+                .handle_execution_failures(&execution_results);
+
+            // Collect dirty jobs and log events
             let mut dirty_jobs = Vec::new();
-            if !scheduled.is_empty() {
-                for (job_id, _result) in scheduled {
-                    if let Some(job) = state.scheduler.jobs.get(&job_id) {
-                        dirty_jobs.push(job.clone());
+            for (job_id, result) in &execution_results {
+                if let Some(job) = state.jobs().get(job_id) {
+                    dirty_jobs.push(job.clone());
 
-                        // Log scheduling event (Queued -> Running or Failed)
-                        if job.state == JobState::Running {
-                            let event = JobEvent::state_transition(
-                                job_id,
-                                JobState::Queued,
-                                JobState::Running,
-                                None,
-                            );
-                            state.writer.queue_event(event);
+                    // Log scheduling event
+                    if result.is_ok() && job.state == JobState::Running {
+                        let event = JobEvent::state_transition(
+                            *job_id,
+                            JobState::Queued,
+                            JobState::Running,
+                            None,
+                        );
+                        state.writer.queue_event(event);
 
-                            // Log GPU assignment if GPUs were assigned
-                            if let Some(ref gpu_ids) = job.gpu_ids {
-                                if !gpu_ids.is_empty() {
-                                    let gpu_event =
-                                        JobEvent::gpu_assignment(job_id, gpu_ids.clone());
-                                    state.writer.queue_event(gpu_event);
-                                }
+                        // Log GPU assignment if GPUs were assigned
+                        if let Some(ref gpu_ids) = job.gpu_ids {
+                            if !gpu_ids.is_empty() {
+                                let gpu_event = JobEvent::gpu_assignment(*job_id, gpu_ids.clone());
+                                state.writer.queue_event(gpu_event);
                             }
                         }
                     }
                 }
             }
             (dirty_jobs, state.writer.clone())
+        } else {
+            (Vec::new(), {
+                let state = shared_state.read().await;
+                state.writer.clone()
+            })
         }; // Lock released here
 
         // Queue updates (non-blocking)

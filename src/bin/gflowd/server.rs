@@ -7,7 +7,7 @@
 //! feature flag or configuration option for production deployments.
 
 use crate::executor::TmuxExecutor;
-use crate::scheduler_runtime::{self, SharedState};
+use crate::scheduler_runtime::{self, SchedulerNotify, SharedState};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -22,6 +22,14 @@ use serde::Deserialize;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Notify;
+
+/// Server state that includes both the scheduler and the notification handle
+#[derive(Clone)]
+struct ServerState {
+    scheduler: SharedState,
+    notify: SchedulerNotify,
+}
 
 #[derive(Deserialize)]
 struct ListJobsQuery {
@@ -55,10 +63,17 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     ));
     let scheduler_clone = Arc::clone(&scheduler);
 
+    // Create notification handle for immediate scheduler wake-up
+    let notify = Arc::new(Notify::new());
+    let notify_clone = Arc::clone(&notify);
+
     tokio::spawn(async move {
-        tracing::info!("Starting scheduler...");
-        scheduler_runtime::run(scheduler_clone).await;
+        tracing::info!("Starting scheduler with immediate wake-up support...");
+        scheduler_runtime::run(scheduler_clone, notify_clone).await;
     });
+
+    // Create server state with both scheduler and notification handle
+    let server_state = ServerState { scheduler, notify };
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
@@ -80,7 +95,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/debug/state", get(debug_state))
         .route("/debug/jobs/{id}", get(debug_job))
         .route("/debug/metrics", get(debug_metrics))
-        .with_state(scheduler);
+        .with_state(server_state);
 
     // Create socket with SO_REUSEPORT for hot reload support
     let host = &config.daemon.host;
@@ -155,20 +170,20 @@ async fn create_shutdown_signal() {
 }
 
 #[axum::debug_handler]
-async fn info(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.read().await;
+async fn info(State(server_state): State<ServerState>) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
     let info = state.info();
     (StatusCode::OK, Json(info))
 }
 
 #[axum::debug_handler]
 async fn list_jobs(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     Query(query): Query<ListJobsQuery>,
 ) -> impl IntoResponse {
     // If no query parameters, return jobs from memory (backward compatibility)
     if query.limit.is_none() && query.state.is_none() && query.user.is_none() {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
         jobs.sort_by_key(|j| j.id);
         return (StatusCode::OK, Json(jobs)).into_response();
@@ -199,7 +214,7 @@ async fn list_jobs(
 
     // Query from database
     let db = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.db.clone()
     };
     match db.query_jobs_paginated(&filter, limit, offset) {
@@ -224,7 +239,10 @@ async fn list_jobs(
 }
 
 #[axum::debug_handler]
-async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) -> impl IntoResponse {
+async fn create_job(
+    State(server_state): State<ServerState>,
+    Json(input): Json<Job>,
+) -> impl IntoResponse {
     tracing::info!(
         user = %input.submitted_by,
         gpus = input.gpus,
@@ -235,7 +253,7 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 
     // Validate dependency and submit job
     let (job_id, run_name, job_to_save, next_job_id) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
 
         // Validate that dependency job exists if specified
         if let Some(dep_id) = input.depends_on {
@@ -262,7 +280,7 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 
     // Persist without holding lock (using async writer)
     let writer = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.writer.clone()
     };
     if let Err(e) = writer.insert_job(job_to_save.clone()).await {
@@ -273,6 +291,9 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
     // Log job creation event
     let event = gflow::core::job::JobEvent::created(job_id, job_to_save.state);
     writer.queue_event(event);
+
+    // Notify scheduler immediately to avoid waiting for next 5-second interval
+    server_state.notify.notify_one();
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -290,7 +311,7 @@ async fn create_job(State(state): State<SharedState>, Json(input): Json<Job>) ->
 
 #[axum::debug_handler]
 async fn create_jobs_batch(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     Json(input): Json<Vec<Job>>,
 ) -> impl IntoResponse {
     if input.is_empty() {
@@ -311,7 +332,7 @@ async fn create_jobs_batch(
 
     // Validate and submit jobs
     let (results, jobs_to_save, next_job_id) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
 
         // Validate all dependencies exist before submitting any (fail-fast)
         for job in &input {
@@ -336,7 +357,7 @@ async fn create_jobs_batch(
 
     // Persist without holding lock (using async writer)
     let writer = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.writer.clone()
     };
     if let Err(e) = writer.insert_jobs_batch(jobs_to_save.clone()).await {
@@ -349,6 +370,9 @@ async fn create_jobs_batch(
         let event = gflow::core::job::JobEvent::created(job.id, job.state);
         writer.queue_event(event);
     }
+
+    // Notify scheduler immediately to avoid waiting for next 5-second interval
+    server_state.notify.notify_one();
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -378,10 +402,10 @@ async fn create_jobs_batch(
 
 #[axum::debug_handler]
 async fn get_job(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
-    let state = state.read().await;
+    let state = server_state.scheduler.read().await;
     state
         .jobs()
         .get(&id)
@@ -391,18 +415,21 @@ async fn get_job(
 }
 
 #[axum::debug_handler]
-async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+async fn finish_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
     tracing::info!(job_id = id, "Finishing job");
 
     // Get user before finishing (for metrics)
     #[cfg(feature = "metrics")]
     let user = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
     let (success, job_to_save, writer) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
         let success = state.finish_job(id).await;
         let job_to_save = if success {
             state.jobs().get(&id).cloned()
@@ -421,6 +448,9 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
             None,
         );
         writer.queue_update_with_event(job, event);
+
+        // Notify scheduler immediately since dependent jobs may be ready to run
+        server_state.notify.notify_one();
     }
 
     // Record metrics only on successful transition
@@ -441,8 +471,11 @@ async fn finish_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 }
 
 #[axum::debug_handler]
-async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let state = state.read().await;
+async fn get_job_log(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
     if state.jobs().contains_key(&id) {
         match gflow::core::get_log_file_path(id) {
             Ok(path) => {
@@ -461,11 +494,11 @@ async fn get_job_log(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 
 #[axum::debug_handler]
 async fn get_job_events(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> impl IntoResponse {
     let db = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.db.clone()
     };
 
@@ -479,18 +512,21 @@ async fn get_job_events(
 }
 
 #[axum::debug_handler]
-async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+async fn fail_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
     tracing::info!(job_id = id, "Failing job");
 
     // Get user before failing (for metrics)
     #[cfg(feature = "metrics")]
     let user = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
     let (success, job_to_save, writer) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
         let success = state.fail_job(id).await;
         let job_to_save = if success {
             state.jobs().get(&id).cloned()
@@ -529,18 +565,21 @@ async fn fail_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 }
 
 #[axum::debug_handler]
-async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+async fn cancel_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
     tracing::info!(job_id = id, "Cancelling job");
 
     // Get user before cancelling (for metrics)
     #[cfg(feature = "metrics")]
     let user = {
-        let state = state.read().await;
+        let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
     let (success, job_to_save, old_state, writer) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
         let old_state = state.jobs().get(&id).map(|j| j.state);
         let success = state.cancel_job(id).await;
         let job_to_save = if success {
@@ -582,11 +621,14 @@ async fn cancel_job(State(state): State<SharedState>, Path(id): Path<u32>) -> im
 }
 
 #[axum::debug_handler]
-async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+async fn hold_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
     tracing::info!(job_id = id, "Holding job");
 
     let (success, job_to_save, writer) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
         let success = state.hold_job(id).await;
         let job_to_save = if success {
             state.jobs().get(&id).cloned()
@@ -610,11 +652,14 @@ async fn hold_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl
 }
 
 #[axum::debug_handler]
-async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
+async fn release_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
     tracing::info!(job_id = id, "Releasing job");
 
     let (success, job_to_save, writer) = {
-        let mut state = state.write().await;
+        let mut state = server_state.scheduler.write().await;
         let success = state.release_job(id).await;
         let job_to_save = if success {
             state.jobs().get(&id).cloned()
@@ -629,6 +674,9 @@ async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> i
         let event =
             gflow::core::job::JobEvent::release(id, Some("Job released by user".to_string()));
         writer.queue_update_with_event(job, event);
+
+        // Notify scheduler immediately since released job may be ready to run
+        server_state.notify.notify_one();
     }
 
     if success {
@@ -640,10 +688,10 @@ async fn release_job(State(state): State<SharedState>, Path(id): Path<u32>) -> i
 
 #[axum::debug_handler]
 async fn resolve_dependency(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     axum::extract::Query(params): axum::extract::Query<ResolveDependencyQuery>,
 ) -> impl IntoResponse {
-    let state = state.read().await;
+    let state = server_state.scheduler.read().await;
 
     if let Some(resolved_id) = state.resolve_dependency(&params.username, &params.shorthand) {
         (
@@ -682,10 +730,10 @@ struct SetGpusRequest {
 
 #[axum::debug_handler]
 async fn set_allowed_gpus(
-    State(state): State<SharedState>,
+    State(server_state): State<ServerState>,
     Json(request): Json<SetGpusRequest>,
 ) -> impl IntoResponse {
-    let mut state = state.write().await;
+    let mut state = server_state.scheduler.write().await;
 
     // Validate GPU indices
     let detected_count = state.gpu_slots_count();
@@ -754,8 +802,8 @@ async fn get_metrics() -> impl IntoResponse {
 
 // Debug endpoints
 #[axum::debug_handler]
-async fn debug_state(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.read().await;
+async fn debug_state(State(server_state): State<ServerState>) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
 
     // Get GPU info from the info() method
     let info = state.info();
@@ -782,8 +830,11 @@ async fn debug_state(State(state): State<SharedState>) -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-async fn debug_job(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
-    let state = state.read().await;
+async fn debug_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
 
     state
         .jobs()
@@ -795,8 +846,8 @@ async fn debug_job(State(state): State<SharedState>, Path(id): Path<u32>) -> imp
 }
 
 #[axum::debug_handler]
-async fn debug_metrics(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.read().await;
+async fn debug_metrics(State(server_state): State<ServerState>) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
 
     let jobs_by_state: HashMap<JobState, usize> =
         state.jobs().values().fold(HashMap::new(), |mut acc, job| {

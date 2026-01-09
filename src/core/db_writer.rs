@@ -149,32 +149,26 @@ impl DatabaseWriter {
         }
     }
 
-    /// Insert a job (blocking - waits for confirmation)
+    /// Insert a job (non-blocking)
     ///
-    /// Job insertion is a critical operation that requires confirmation,
-    /// so this method is synchronous.
+    /// Queues the job for insertion and returns immediately.
+    /// The actual database write happens asynchronously in the background.
     pub async fn insert_job(&self, job: Job) -> Result<()> {
-        // For now, just queue it - we could add a oneshot channel for confirmation
-        // but that adds complexity. Since we're using unbounded channels,
-        // the send should never fail unless the receiver is dropped.
         self.tx
             .send(DbOperation::InsertJob(job))
             .map_err(|e| anyhow::anyhow!("Failed to queue job insert: {}", e))?;
 
-        // Give the writer task a chance to process
-        // In production, we might want a confirmation mechanism
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
         Ok(())
     }
 
-    /// Insert multiple jobs in batch (blocking)
+    /// Insert multiple jobs in batch (non-blocking)
+    ///
+    /// Queues the jobs for insertion and returns immediately.
+    /// The actual database write happens asynchronously in the background.
     pub async fn insert_jobs_batch(&self, jobs: Vec<Job>) -> Result<()> {
         self.tx
             .send(DbOperation::InsertJobsBatch(jobs))
             .map_err(|e| anyhow::anyhow!("Failed to queue batch job insert: {}", e))?;
-
-        tokio::time::sleep(Duration::from_millis(10)).await;
 
         Ok(())
     }
