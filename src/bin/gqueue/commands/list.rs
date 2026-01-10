@@ -36,13 +36,13 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     let use_database_query = options.all || options.states.is_some();
 
     let mut jobs_vec = if use_database_query {
-        // Query from database with large limit to get all jobs
-        // The server will handle pagination internally
+        // Query from database without limit to get all matching jobs
+        // Users should use filtering options (--states, --jobs, --names) to control result size
         client
             .list_jobs_with_query(
                 options.states.clone(),
                 Some(current_user.clone()),
-                Some(10000),
+                None,
                 None,
             )
             .await?
