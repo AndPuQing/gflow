@@ -41,6 +41,8 @@ struct ListJobsQuery {
     state: Option<String>, // Comma-separated states
     #[serde(default)]
     user: Option<String>, // Comma-separated users
+    #[serde(default)]
+    created_after: Option<i64>, // Unix timestamp - filter jobs created after this time
 }
 
 #[derive(serde::Serialize)]
@@ -186,7 +188,11 @@ async fn list_jobs(
     Query(query): Query<ListJobsQuery>,
 ) -> impl IntoResponse {
     // If no query parameters, return jobs from memory (backward compatibility)
-    if query.limit.is_none() && query.state.is_none() && query.user.is_none() {
+    if query.limit.is_none()
+        && query.state.is_none()
+        && query.user.is_none()
+        && query.created_after.is_none()
+    {
         let state = server_state.scheduler.read().await;
         let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
         jobs.sort_by_key(|j| j.id);
@@ -211,6 +217,10 @@ async fn list_jobs(
         if !users.is_empty() {
             filter = filter.with_users(users);
         }
+    }
+
+    if let Some(timestamp) = query.created_after {
+        filter = filter.with_created_after(timestamp);
     }
 
     let limit = query.limit.unwrap_or(50);

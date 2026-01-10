@@ -238,6 +238,97 @@ fn parse_indices(input: &str, item_type: &str) -> Result<Vec<u32>> {
     Ok(parsed)
 }
 
+/// Parse time duration string into seconds since epoch (for filtering).
+///
+/// Supported formats:
+/// - `"1h"`, `"2d"`, `"3w"` — relative time (hours, days, weeks)
+/// - `"today"` — start of today (00:00:00)
+/// - `"yesterday"` — start of yesterday (00:00:00)
+/// - ISO 8601 timestamp (e.g., `"2024-01-10T00:00:00Z"`)
+///
+/// Returns Unix timestamp (seconds since epoch).
+///
+/// # Examples
+///
+/// ```
+/// use gflow::utils::parse_since_time;
+///
+/// // These would return timestamps relative to current time
+/// assert!(parse_since_time("1h").is_ok());
+/// assert!(parse_since_time("2d").is_ok());
+/// assert!(parse_since_time("today").is_ok());
+/// ```
+pub fn parse_since_time(time_str: &str) -> Result<i64> {
+    let time_str = time_str.trim().to_lowercase();
+    let now = SystemTime::now();
+
+    // Handle relative time formats (1h, 2d, 3w)
+    if let Some(stripped) = time_str.strip_suffix('h') {
+        let hours = stripped.parse::<u64>().context("Invalid hours format")?;
+        let duration = Duration::from_secs(hours * 3600);
+        let since = now
+            .checked_sub(duration)
+            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
+        return Ok(since
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Failed to convert to Unix timestamp")?
+            .as_secs() as i64);
+    }
+
+    if let Some(stripped) = time_str.strip_suffix('d') {
+        let days = stripped.parse::<u64>().context("Invalid days format")?;
+        let duration = Duration::from_secs(days * 86400);
+        let since = now
+            .checked_sub(duration)
+            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
+        return Ok(since
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Failed to convert to Unix timestamp")?
+            .as_secs() as i64);
+    }
+
+    if let Some(stripped) = time_str.strip_suffix('w') {
+        let weeks = stripped.parse::<u64>().context("Invalid weeks format")?;
+        let duration = Duration::from_secs(weeks * 604800);
+        let since = now
+            .checked_sub(duration)
+            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
+        return Ok(since
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Failed to convert to Unix timestamp")?
+            .as_secs() as i64);
+    }
+
+    // Handle "today" - start of current day (00:00:00)
+    if time_str == "today" {
+        let now_secs = now
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Failed to get current time")?
+            .as_secs();
+        let today_start = (now_secs / 86400) * 86400; // Round down to start of day
+        return Ok(today_start as i64);
+    }
+
+    // Handle "yesterday" - start of previous day (00:00:00)
+    if time_str == "yesterday" {
+        let now_secs = now
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("Failed to get current time")?
+            .as_secs();
+        let yesterday_start = ((now_secs / 86400) - 1) * 86400;
+        return Ok(yesterday_start as i64);
+    }
+
+    // Try parsing as ISO 8601 timestamp or Unix timestamp
+    if let Ok(timestamp) = time_str.parse::<i64>() {
+        return Ok(timestamp);
+    }
+
+    Err(anyhow!(
+        "Invalid time format. Expected formats: '1h', '2d', '3w', 'today', 'yesterday', or Unix timestamp"
+    ))
+}
+
 pub const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))

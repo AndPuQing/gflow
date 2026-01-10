@@ -14,7 +14,8 @@ use super::job::{EventType, Job, JobEvent, JobState};
 pub struct JobFilter {
     pub states: Option<Vec<JobState>>,
     pub users: Option<Vec<String>>,
-    pub include_inactive: bool, // include jobs where is_active = 0
+    pub include_inactive: bool,     // include jobs where is_active = 0
+    pub created_after: Option<i64>, // Unix timestamp - filter jobs created after this time
 }
 
 impl JobFilter {
@@ -34,6 +35,11 @@ impl JobFilter {
 
     pub fn include_inactive(mut self) -> Self {
         self.include_inactive = true;
+        self
+    }
+
+    pub fn with_created_after(mut self, timestamp: i64) -> Self {
+        self.created_after = Some(timestamp);
         self
     }
 }
@@ -618,6 +624,12 @@ impl Database {
             for user in users {
                 params.push(Box::new(user.clone()));
             }
+        }
+
+        // Filter by created_after timestamp
+        if let Some(timestamp) = filter.created_after {
+            where_clauses.push("created_at >= ?");
+            params.push(Box::new(timestamp));
         }
 
         // Add owned strings to where_clauses as borrowed refs

@@ -14,6 +14,8 @@ pub async fn handle_commands(config: &Config, args: &crate::cli::ListArgs) -> Re
         sort: args.sort.clone(),
         limit: args.limit,
         all: args.all,
+        completed: args.completed,
+        since: args.since.clone(),
         group: args.group,
         tree: args.tree,
         format: args.format.clone(),

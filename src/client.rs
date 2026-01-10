@@ -73,6 +73,7 @@ impl Client {
     /// - State filtering (e.g., "Running,Finished")
     /// - User filtering (e.g., "user1,user2")
     /// - Pagination (limit and offset)
+    /// - Time filtering (created_after timestamp)
     ///
     /// Returns all matching jobs from the database, not just in-memory jobs.
     pub async fn list_jobs_with_query(
@@ -81,6 +82,7 @@ impl Client {
         user: Option<String>,
         limit: Option<usize>,
         offset: Option<usize>,
+        created_after: Option<i64>,
     ) -> anyhow::Result<Vec<Job>> {
         let mut request = self.client.get(format!("{}/jobs", self.base_url));
 
@@ -97,6 +99,9 @@ impl Client {
         }
         if let Some(o) = offset {
             params.push(("offset", o.to_string()));
+        }
+        if let Some(t) = created_after {
+            params.push(("created_after", t.to_string()));
         }
 
         if !params.is_empty() {

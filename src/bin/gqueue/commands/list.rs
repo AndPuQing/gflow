@@ -21,6 +21,8 @@ pub struct ListOptions {
     pub sort: String,
     pub limit: i32,
     pub all: bool,
+    pub completed: bool,
+    pub since: Option<String>,
     pub group: bool,
     pub tree: bool,
     pub format: Option<String>,
@@ -31,19 +33,44 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
 
     // Determine if we need to query from database
     // Query from database when:
-    // 1. --all flag is used (need completed jobs from DB)
-    // 2. --states is specified (may include completed states)
-    let use_database_query = options.all || options.states.is_some();
+    // 1. --all flag is used (need all jobs from today including completed)
+    // 2. --completed flag is used (need completed jobs from DB)
+    // 3. --states is specified (may include completed states)
+    // 4. --since is specified (need time-based filtering)
+    let use_database_query =
+        options.all || options.completed || options.states.is_some() || options.since.is_some();
 
     let mut jobs_vec = if use_database_query {
-        // Query from database without limit to get all matching jobs
-        // Users should use filtering options (--states, --jobs, --names) to control result size
+        // Determine states to query
+        let states_filter = if options.completed {
+            // Only completed states
+            Some("Finished,Failed,Cancelled,Timeout".to_string())
+        } else if options.all && options.states.is_none() {
+            // All states when --all is used without explicit --states
+            None
+        } else {
+            // Use explicit --states if provided
+            options.states.clone()
+        };
+
+        // Parse --since time filter if provided
+        let created_after = if let Some(ref since_str) = options.since {
+            Some(gflow::utils::parse_since_time(since_str)?)
+        } else if options.all && options.since.is_none() {
+            // Default to "today" when --all is used without --since
+            Some(gflow::utils::parse_since_time("today")?)
+        } else {
+            None
+        };
+
+        // Query from database with filters
         client
             .list_jobs_with_query(
-                options.states.clone(),
+                states_filter,
                 Some(current_user.clone()),
                 None,
                 None,
+                created_after,
             )
             .await?
     } else {

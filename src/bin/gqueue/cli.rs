@@ -45,10 +45,25 @@ pub struct ListArgs {
     #[arg(
         long,
         short = 'a',
-        help = "Show all jobs including completed (equivalent to --limit 0)",
+        help = "Show all jobs from today including completed ones",
         conflicts_with = "limit"
     )]
     pub all: bool,
+
+    #[arg(
+        long,
+        short = 'c',
+        help = "Show only completed jobs (Finished, Failed, Cancelled, Timeout)",
+        conflicts_with_all = ["all", "states"]
+    )]
+    pub completed: bool,
+
+    #[arg(
+        long,
+        help = "Show jobs since a specific time (formats: '1h', '2d', '3w', 'today', 'yesterday', or ISO timestamp)",
+        value_hint = clap::ValueHint::Other
+    )]
+    pub since: Option<String>,
 
     #[arg(
         long,
