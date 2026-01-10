@@ -10,6 +10,14 @@ pub struct JobSubmitResponse {
     pub run_name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginatedJobsResponse {
+    pub jobs: Vec<Job>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     client: ReqwestClient,
@@ -42,6 +50,10 @@ impl Client {
         error_body
     }
 
+    /// List jobs with optional query parameters.
+    ///
+    /// If no parameters are provided, returns jobs from memory (active jobs only).
+    /// If parameters are provided, queries from database with pagination support.
     pub async fn list_jobs(&self) -> anyhow::Result<Vec<Job>> {
         let jobs = self
             .client
@@ -53,6 +65,60 @@ impl Client {
             .await
             .context("Failed to parse jobs from response")?;
         Ok(jobs)
+    }
+
+    /// List jobs with query parameters for database queries.
+    ///
+    /// This method queries from the database and supports:
+    /// - State filtering (e.g., "Running,Finished")
+    /// - User filtering (e.g., "user1,user2")
+    /// - Pagination (limit and offset)
+    ///
+    /// Returns all matching jobs from the database, not just in-memory jobs.
+    pub async fn list_jobs_with_query(
+        &self,
+        states: Option<String>,
+        user: Option<String>,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> anyhow::Result<Vec<Job>> {
+        let mut request = self.client.get(format!("{}/jobs", self.base_url));
+
+        // Add query parameters if provided
+        let mut params = vec![];
+        if let Some(s) = states {
+            params.push(("state", s));
+        }
+        if let Some(u) = user {
+            params.push(("user", u));
+        }
+        if let Some(l) = limit {
+            params.push(("limit", l.to_string()));
+        }
+        if let Some(o) = offset {
+            params.push(("offset", o.to_string()));
+        }
+
+        if !params.is_empty() {
+            request = request.query(&params);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to send list jobs request")?;
+
+        // Handle both direct Vec<Job> and paginated response
+        let response_text = response.text().await?;
+
+        // Try to parse as PaginatedJobsResponse first
+        if let Ok(paginated) = serde_json::from_str::<PaginatedJobsResponse>(&response_text) {
+            Ok(paginated.jobs)
+        } else {
+            // Fall back to direct Vec<Job> for backward compatibility
+            serde_json::from_str::<Vec<Job>>(&response_text)
+                .context("Failed to parse jobs from response")
+        }
     }
 
     pub async fn get_job(&self, job_id: u32) -> anyhow::Result<Option<Job>> {

@@ -27,25 +27,42 @@ pub struct ListOptions {
 }
 
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
-    let mut jobs_vec = client.list_jobs().await?;
-
     let current_user = gflow::core::get_current_username();
-    jobs_vec.retain(|job| job.submitted_by == current_user);
 
-    // Default filter: exclude completed jobs unless --all flag is used
-    // This makes gqueue behave like a queue, showing only active jobs
-    if !options.all && options.states.is_none() {
-        jobs_vec.retain(|job| !job.state.is_final());
-    }
+    // Determine if we need to query from database
+    // Query from database when:
+    // 1. --all flag is used (need completed jobs from DB)
+    // 2. --states is specified (may include completed states)
+    let use_database_query = options.all || options.states.is_some();
 
-    // Apply filters
-    if let Some(states_filter) = options.states {
-        let states_vec: Vec<JobState> = states_filter
-            .split(',')
-            .filter_map(|s| s.trim().parse().ok())
-            .collect();
-        if !states_vec.is_empty() {
-            jobs_vec.retain(|job| states_vec.contains(&job.state));
+    let mut jobs_vec = if use_database_query {
+        // Query from database with large limit to get all jobs
+        // The server will handle pagination internally
+        client
+            .list_jobs_with_query(
+                options.states.clone(),
+                Some(current_user.clone()),
+                Some(10000),
+                None,
+            )
+            .await?
+    } else {
+        // Use in-memory query for active jobs only (fast path)
+        let mut jobs = client.list_jobs().await?;
+        jobs.retain(|job| job.submitted_by == current_user);
+        jobs
+    };
+
+    // Apply state filter if specified (for in-memory path, already filtered in DB query)
+    if !use_database_query && options.states.is_some() {
+        if let Some(states_filter) = &options.states {
+            let states_vec: Vec<JobState> = states_filter
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if !states_vec.is_empty() {
+                jobs_vec.retain(|job| states_vec.contains(&job.state));
+            }
         }
     }
 
