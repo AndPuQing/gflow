@@ -2,7 +2,6 @@ use anyhow::Result;
 use gflow::{client::Client, core::job::JobState, tmux::get_all_session_names};
 use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
-use std::time::SystemTime;
 use tabled::{builder::Builder, settings::style::Style};
 
 // Tree rendering constants - solid lines for dependencies
@@ -225,32 +224,6 @@ fn display_grouped_jobs(
     }
 }
 
-fn format_elapsed_time(started_at: Option<SystemTime>, finished_at: Option<SystemTime>) -> String {
-    match started_at {
-        Some(start_time) => {
-            // For finished/failed jobs, use finished_at; for running jobs, use current time
-            let end_time = finished_at.unwrap_or_else(SystemTime::now);
-
-            if let Ok(elapsed) = end_time.duration_since(start_time) {
-                let total_seconds = elapsed.as_secs();
-                let days = total_seconds / 86400;
-                let hours = (total_seconds % 86400) / 3600;
-                let minutes = (total_seconds % 3600) / 60;
-                let seconds = total_seconds % 60;
-
-                if days > 0 {
-                    format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
-                } else {
-                    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-                }
-            } else {
-                "-".to_string()
-            }
-        }
-        None => "-".to_string(),
-    }
-}
-
 /// Colorizes a job state string based on its state
 fn colorize_state(state: &JobState) -> String {
     let short = state.short_form();
@@ -312,7 +285,7 @@ fn format_job_cell(
                 _ => "-".to_string(),
             }
         }
-        "TIME" => format_elapsed_time(job.started_at, job.finished_at),
+        "TIME" => gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
         "TIMELIMIT" => job
             .time_limit
             .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),

@@ -4,7 +4,7 @@ use clap::builder::{
     Styles,
 };
 use range_parser::parse;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 /// Parse time limit string into Duration.
 ///
@@ -63,7 +63,10 @@ pub fn parse_time_limit(time_str: &str) -> Result<Duration> {
     }
 }
 
-/// Format duration for display (e.g., `"2h 30m 45s"`, `"45m 30s"`, `"30s"`).
+/// Format duration for display in HH:MM:SS format.
+///
+/// Displays time with hours as the maximum unit (no days).
+/// Format: `HH:MM:SS` where hours can exceed 24.
 ///
 /// # Examples
 ///
@@ -71,9 +74,10 @@ pub fn parse_time_limit(time_str: &str) -> Result<Duration> {
 /// use std::time::Duration;
 /// use gflow::utils::format_duration;
 ///
-/// assert_eq!(format_duration(Duration::from_secs(45)), "45s");
-/// assert_eq!(format_duration(Duration::from_secs(1845)), "30m 45s");
-/// assert_eq!(format_duration(Duration::from_secs(9045)), "2h 30m 45s");
+/// assert_eq!(format_duration(Duration::from_secs(45)), "00:00:45");
+/// assert_eq!(format_duration(Duration::from_secs(1845)), "00:30:45");
+/// assert_eq!(format_duration(Duration::from_secs(9045)), "02:30:45");
+/// assert_eq!(format_duration(Duration::from_secs(90000)), "25:00:00");
 /// ```
 pub fn format_duration(duration: Duration) -> String {
     let total_secs = duration.as_secs();
@@ -81,12 +85,41 @@ pub fn format_duration(duration: Duration) -> String {
     let minutes = (total_secs % 3600) / 60;
     let seconds = total_secs % 60;
 
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
-    } else {
-        format!("{}s", seconds)
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+}
+
+/// Format elapsed time between two system times in HH:MM:SS format.
+///
+/// For finished jobs, calculates the duration between `started_at` and `finished_at`.
+/// For running jobs, calculates the duration from `started_at` to now.
+/// Returns "-" if `started_at` is `None`.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::{SystemTime, Duration};
+/// use gflow::utils::format_elapsed_time;
+///
+/// let start = SystemTime::now();
+/// let end = start + Duration::from_secs(3665);
+/// assert_eq!(format_elapsed_time(Some(start), Some(end)), "01:01:05");
+/// assert_eq!(format_elapsed_time(None, None), "-");
+/// ```
+pub fn format_elapsed_time(
+    started_at: Option<SystemTime>,
+    finished_at: Option<SystemTime>,
+) -> String {
+    match started_at {
+        Some(start_time) => {
+            let end_time = finished_at.unwrap_or_else(SystemTime::now);
+
+            if let Ok(elapsed) = end_time.duration_since(start_time) {
+                format_duration(elapsed)
+            } else {
+                "-".to_string()
+            }
+        }
+        None => "-".to_string(),
     }
 }
 
