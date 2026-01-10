@@ -409,13 +409,24 @@ async fn get_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
+    // First check memory (for active jobs)
     let state = server_state.scheduler.read().await;
-    state
-        .jobs()
-        .get(&id)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+    if let Some(job) = state.jobs().get(&id).cloned() {
+        return Ok(Json(job));
+    }
+
+    // If not in memory, query database (for completed jobs)
+    let db = state.db.clone();
+    drop(state); // Release lock before database query
+
+    match db.get_job(id) {
+        Ok(Some(job)) => Ok(Json(job)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!("Failed to query job {} from database: {}", id, e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 #[axum::debug_handler]
