@@ -409,17 +409,8 @@ async fn get_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
-    // First check memory (for active jobs)
     let state = server_state.scheduler.read().await;
-    if let Some(job) = state.jobs().get(&id).cloned() {
-        return Ok(Json(job));
-    }
-
-    // If not in memory, query database (for completed jobs)
-    let db = state.db.clone();
-    drop(state); // Release lock before database query
-
-    match db.get_job(id) {
+    match state.get_job(id) {
         Ok(Some(job)) => Ok(Json(job)),
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -491,8 +482,10 @@ async fn get_job_log(
     Path(id): Path<u32>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
-    if state.jobs().contains_key(&id) {
-        match gflow::core::get_log_file_path(id) {
+
+    // Check if job exists (both in-memory and database)
+    match state.get_job(id) {
+        Ok(Some(_job)) => match gflow::core::get_log_file_path(id) {
             Ok(path) => {
                 if path.exists() {
                     (StatusCode::OK, Json(Some(path)))
@@ -501,9 +494,12 @@ async fn get_job_log(
                 }
             }
             Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(None)),
+        },
+        Ok(None) => (StatusCode::NOT_FOUND, Json(None)),
+        Err(e) => {
+            tracing::error!("Failed to query job {} from database: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
         }
-    } else {
-        (StatusCode::NOT_FOUND, Json(None))
     }
 }
 

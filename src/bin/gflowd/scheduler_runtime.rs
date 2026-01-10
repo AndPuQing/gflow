@@ -389,6 +389,17 @@ impl SchedulerRuntime {
         &self.scheduler.jobs
     }
 
+    /// Get a job by ID, checking memory first (fast path) then database (for completed jobs)
+    pub fn get_job(&self, job_id: u32) -> Result<Option<Job>> {
+        // Fast path: check in-memory jobs first (active jobs)
+        if let Some(job) = self.scheduler.jobs.get(&job_id) {
+            return Ok(Some(job.clone()));
+        }
+
+        // Slow path: query database for completed/archived jobs
+        self.db.get_job(job_id)
+    }
+
     // Debug/metrics accessors
     pub fn next_job_id(&self) -> u32 {
         self.scheduler.next_job_id()
