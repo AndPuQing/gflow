@@ -355,6 +355,17 @@ impl SchedulerRuntime {
         self.scheduler.release_job(job_id)
     }
 
+    /// Update max_concurrent for a specific job
+    /// Returns the updated job if successful
+    pub fn update_job_max_concurrent(&mut self, job_id: u32, max_concurrent: usize) -> Option<Job> {
+        if let Some(job) = self.scheduler.jobs.get_mut(&job_id) {
+            job.max_concurrent = Some(max_concurrent);
+            Some(job.clone())
+        } else {
+            None
+        }
+    }
+
     // Read-only delegated methods (no state changes)
 
     pub fn resolve_dependency(&self, username: &str, shorthand: &str) -> Option<u32> {

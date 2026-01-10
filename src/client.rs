@@ -316,4 +316,52 @@ impl Client {
 
         Ok(())
     }
+
+    pub async fn set_group_max_concurrency(
+        &self,
+        group_id: &str,
+        max_concurrent: usize,
+    ) -> anyhow::Result<usize> {
+        tracing::debug!(
+            "Setting max_concurrency for group '{}' to {}",
+            group_id,
+            max_concurrent
+        );
+
+        let request_body = serde_json::json!({
+            "max_concurrent": max_concurrent
+        });
+
+        let response = self
+            .client
+            .post(format!(
+                "{}/groups/{}/max-concurrency",
+                self.base_url, group_id
+            ))
+            .json(&request_body)
+            .send()
+            .await
+            .context("Failed to send set group max_concurrency request")?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!(
+                "Failed to set group max_concurrency: {}",
+                error_msg
+            ));
+        }
+
+        let result: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+
+        let updated_jobs = result
+            .get("updated_jobs")
+            .and_then(|v| v.as_u64())
+            .context("Invalid response format: missing or invalid updated_jobs")?
+            as usize;
+
+        Ok(updated_jobs)
+    }
 }

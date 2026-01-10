@@ -91,6 +91,10 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/info", get(info))
         .route("/health", get(get_health))
         .route("/gpus", post(set_allowed_gpus))
+        .route(
+            "/groups/{group_id}/max-concurrency",
+            post(set_group_max_concurrency),
+        )
         .route("/metrics", get(get_metrics))
         .route("/debug/state", get(debug_state))
         .route("/debug/jobs/{id}", get(debug_job))
@@ -776,6 +780,75 @@ async fn set_allowed_gpus(
         StatusCode::OK,
         Json(serde_json::json!({
             "allowed_gpu_indices": request.allowed_indices
+        })),
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct SetGroupMaxConcurrencyRequest {
+    max_concurrent: usize,
+}
+
+#[axum::debug_handler]
+async fn set_group_max_concurrency(
+    State(server_state): State<ServerState>,
+    Path(group_id): Path<String>,
+    Json(request): Json<SetGroupMaxConcurrencyRequest>,
+) -> impl IntoResponse {
+    tracing::info!(
+        group_id = %group_id,
+        max_concurrent = request.max_concurrent,
+        "Setting group max_concurrency"
+    );
+
+    let (updated_jobs, writer) = {
+        let mut state = server_state.scheduler.write().await;
+
+        // Find all jobs in this group and collect their IDs
+        let job_ids: Vec<u32> = state
+            .jobs()
+            .iter()
+            .filter(|(_, job)| job.group_id.as_ref() == Some(&group_id))
+            .map(|(id, _)| *id)
+            .collect();
+
+        if job_ids.is_empty() {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": format!("No jobs found with group_id '{}'", group_id)
+                })),
+            );
+        }
+
+        // Update max_concurrent for all jobs in the group
+        let mut updated_jobs = Vec::new();
+        for job_id in job_ids {
+            if let Some(job) = state.update_job_max_concurrent(job_id, request.max_concurrent) {
+                updated_jobs.push(job);
+            }
+        }
+
+        (updated_jobs, state.writer.clone())
+    }; // Lock released here
+
+    // Save all updated jobs asynchronously
+    for job in updated_jobs.iter() {
+        writer.queue_update(job.clone());
+    }
+
+    tracing::info!(
+        group_id = %group_id,
+        updated_count = updated_jobs.len(),
+        "Group max_concurrency updated"
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "group_id": group_id,
+            "max_concurrent": request.max_concurrent,
+            "updated_jobs": updated_jobs.len()
         })),
     )
 }

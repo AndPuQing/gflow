@@ -325,6 +325,20 @@ pub(crate) async fn handle_add(
             .add_jobs(jobs)
             .await
             .context("Failed to add batch jobs")?;
+
+        // Show group_id if jobs are part of a group
+        if let Some(ref gid) = group_id {
+            println!(
+                "Submitted {} batch jobs with group_id: {}",
+                responses.len(),
+                gid
+            );
+            println!(
+                "  (You can update the limit with: gctl set-limit {} <N>)",
+                responses[0].id
+            );
+        }
+
         for response in responses {
             println!(
                 "Submitted batch job {} ({})",
@@ -397,6 +411,20 @@ pub(crate) async fn handle_add(
             .add_jobs(jobs)
             .await
             .context("Failed to add batch jobs")?;
+
+        // Show group_id if jobs are part of a group
+        if let Some(ref gid) = group_id {
+            println!(
+                "Submitted {} batch jobs with group_id: {}",
+                responses.len(),
+                gid
+            );
+            println!(
+                "  (You can update the limit with: gctl set-limit {} <N>)",
+                responses[0].id
+            );
+        }
+
         for response in responses {
             println!(
                 "Submitted batch job {} ({})",
@@ -469,6 +497,20 @@ pub(crate) async fn handle_add(
             .add_jobs(jobs)
             .await
             .context("Failed to add batch jobs")?;
+
+        // Show group_id if jobs are part of a group
+        if let Some(ref gid) = group_id {
+            println!(
+                "Submitted {} batch jobs with group_id: {}",
+                responses.len(),
+                gid
+            );
+            println!(
+                "  (You can update the limit with: gctl set-limit {} <N>)",
+                responses[0].id
+            );
+        }
+
         for response in responses {
             println!(
                 "Submitted batch job {} ({})",

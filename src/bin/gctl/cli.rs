@@ -30,6 +30,14 @@ pub enum Commands {
     /// Show current GPU configuration
     ShowGpus,
 
+    /// Set concurrency limit for a job group
+    SetLimit {
+        /// Job ID (any job in the group) or Group ID (UUID)
+        job_or_group_id: String,
+        /// Maximum number of concurrent jobs in the group
+        limit: usize,
+    },
+
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for
