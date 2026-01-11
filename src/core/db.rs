@@ -606,6 +606,12 @@ impl Database {
             where_clauses.push("is_active = 1");
         }
 
+        // Filter by created_after timestamp
+        if let Some(timestamp) = filter.created_after {
+            where_clauses.push("created_at >= ?");
+            params.push(Box::new(timestamp));
+        }
+
         // Filter by states
         if let Some(ref states) = filter.states {
             let placeholders = states.iter().map(|_| "?").collect::<Vec<_>>().join(",");
@@ -624,12 +630,6 @@ impl Database {
             for user in users {
                 params.push(Box::new(user.clone()));
             }
-        }
-
-        // Filter by created_after timestamp
-        if let Some(timestamp) = filter.created_after {
-            where_clauses.push("created_at >= ?");
-            params.push(Box::new(timestamp));
         }
 
         // Add owned strings to where_clauses as borrowed refs
@@ -1658,5 +1658,277 @@ mod tests {
         assert!(jobs
             .iter()
             .all(|j| j.state == JobState::Queued || j.state == JobState::Running));
+    }
+
+    #[test]
+    fn test_query_jobs_with_created_after() {
+        let (db, _temp) = create_test_db();
+
+        // Get current time
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // Insert jobs at different times by manually setting created_at
+        // Job 1: 2 hours ago
+        let job1 = Job {
+            id: 1,
+            state: JobState::Finished,
+            submitted_by: "alice".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job1).unwrap();
+        let conn = db.pool.get().unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ?, is_active = 0 WHERE id = ?",
+            params![now - 7200, 1],
+        )
+        .unwrap();
+
+        // Job 2: 1 hour ago
+        let job2 = Job {
+            id: 2,
+            state: JobState::Running,
+            submitted_by: "bob".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job2).unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?",
+            params![now - 3600, 2],
+        )
+        .unwrap();
+
+        // Job 3: 30 minutes ago
+        let job3 = Job {
+            id: 3,
+            state: JobState::Queued,
+            submitted_by: "alice".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job3).unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?",
+            params![now - 1800, 3],
+        )
+        .unwrap();
+
+        // Job 4: 10 minutes ago
+        let job4 = Job {
+            id: 4,
+            state: JobState::Failed,
+            submitted_by: "bob".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job4).unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ?, is_active = 0 WHERE id = ?",
+            params![now - 600, 4],
+        )
+        .unwrap();
+
+        // Test 1: Get jobs from last hour (should get jobs 2, 3, 4)
+        let filter = JobFilter::new()
+            .with_created_after(now - 3600)
+            .include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(jobs.len(), 3);
+        assert!(jobs.iter().any(|j| j.id == 2));
+        assert!(jobs.iter().any(|j| j.id == 3));
+        assert!(jobs.iter().any(|j| j.id == 4));
+        assert!(!jobs.iter().any(|j| j.id == 1));
+
+        // Test 2: Get jobs from last 45 minutes (should get jobs 3, 4)
+        let filter = JobFilter::new()
+            .with_created_after(now - 2700)
+            .include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().any(|j| j.id == 3));
+        assert!(jobs.iter().any(|j| j.id == 4));
+
+        // Test 3: Get jobs from last 5 minutes (should get none)
+        let filter = JobFilter::new()
+            .with_created_after(now - 300)
+            .include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 0);
+        assert_eq!(jobs.len(), 0);
+
+        // Test 4: Combine created_after with state filter
+        let filter = JobFilter::new()
+            .with_created_after(now - 3600)
+            .with_states(vec![JobState::Running, JobState::Queued])
+            .include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 2); // Jobs 2 (Running) and 3 (Queued)
+        assert!(jobs.iter().any(|j| j.id == 2));
+        assert!(jobs.iter().any(|j| j.id == 3));
+
+        // Test 5: Combine created_after with user filter
+        let filter = JobFilter::new()
+            .with_created_after(now - 3600)
+            .with_users(vec!["alice".to_string()])
+            .include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 1); // Only job 3
+        assert_eq!(jobs[0].id, 3);
+
+        // Test 6: Get all jobs (no time filter)
+        let filter = JobFilter::new().include_inactive();
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 4);
+        assert_eq!(jobs.len(), 4);
+    }
+
+    #[test]
+    fn test_query_jobs_created_after_with_pagination() {
+        let (db, _temp) = create_test_db();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // Insert 10 jobs, all within the last hour
+        let conn = db.pool.get().unwrap();
+        for i in 1..=10 {
+            let job = Job {
+                id: i,
+                state: JobState::Queued,
+                submitted_by: "alice".to_string(),
+                ..Default::default()
+            };
+            db.insert_job(&job).unwrap();
+            // Set created_at to (55 - (i-1)*5) minutes ago
+            // Job 1: 55 min ago, Job 2: 50 min ago, ..., Job 10: 10 min ago
+            let minutes_ago = 55 - (i - 1) * 5;
+            conn.execute(
+                "UPDATE jobs SET created_at = ? WHERE id = ?",
+                params![now - (minutes_ago * 60) as i64, i],
+            )
+            .unwrap();
+        }
+
+        // Filter for jobs from last 40 minutes (should get jobs 4-10, which are 40, 35, 30, 25, 20, 15, 10 min ago)
+        let filter = JobFilter::new().with_created_after(now - 2400);
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 7);
+        assert_eq!(jobs.len(), 7);
+
+        // Test pagination - first page (limit 3)
+        let (jobs, total) = db.query_jobs_paginated(&filter, 3, 0).unwrap();
+        assert_eq!(total, 7);
+        assert_eq!(jobs.len(), 3);
+        // Should be in DESC order (most recent first)
+        assert_eq!(jobs[0].id, 10);
+        assert_eq!(jobs[1].id, 9);
+        assert_eq!(jobs[2].id, 8);
+
+        // Test pagination - second page
+        let (jobs, total) = db.query_jobs_paginated(&filter, 3, 3).unwrap();
+        assert_eq!(total, 7);
+        assert_eq!(jobs.len(), 3);
+        assert_eq!(jobs[0].id, 7);
+        assert_eq!(jobs[1].id, 6);
+        assert_eq!(jobs[2].id, 5);
+    }
+
+    #[test]
+    fn test_query_jobs_created_after_boundary() {
+        let (db, _temp) = create_test_db();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // Insert job at exact boundary time
+        let job1 = Job {
+            id: 1,
+            state: JobState::Queued,
+            submitted_by: "alice".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job1).unwrap();
+        let conn = db.pool.get().unwrap();
+        let boundary_time = now - 3600;
+        conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?",
+            params![boundary_time, 1],
+        )
+        .unwrap();
+
+        // Insert job 1 second before boundary
+        let job2 = Job {
+            id: 2,
+            state: JobState::Queued,
+            submitted_by: "alice".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job2).unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?",
+            params![boundary_time - 1, 2],
+        )
+        .unwrap();
+
+        // Insert job 1 second after boundary
+        let job3 = Job {
+            id: 3,
+            state: JobState::Queued,
+            submitted_by: "alice".to_string(),
+            ..Default::default()
+        };
+        db.insert_job(&job3).unwrap();
+        conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?",
+            params![boundary_time + 1, 3],
+        )
+        .unwrap();
+
+        // Query with created_after at boundary (should include job at boundary and after)
+        let filter = JobFilter::new().with_created_after(boundary_time);
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 2); // Jobs 1 and 3 (>= boundary)
+        assert!(jobs.iter().any(|j| j.id == 1));
+        assert!(jobs.iter().any(|j| j.id == 3));
+        assert!(!jobs.iter().any(|j| j.id == 2));
+    }
+
+    #[test]
+    fn test_query_jobs_created_after_empty_result() {
+        let (db, _temp) = create_test_db();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // Insert jobs in the past
+        let conn = db.pool.get().unwrap();
+        for i in 1..=5 {
+            let job = Job {
+                id: i,
+                state: JobState::Finished,
+                submitted_by: "alice".to_string(),
+                ..Default::default()
+            };
+            db.insert_job(&job).unwrap();
+            conn.execute(
+                "UPDATE jobs SET created_at = ? WHERE id = ?",
+                params![now - 7200, i],
+            )
+            .unwrap();
+        }
+
+        // Query for jobs from the future (should return empty)
+        let filter = JobFilter::new().with_created_after(now + 3600);
+        let (jobs, total) = db.query_jobs_paginated(&filter, 10, 0).unwrap();
+        assert_eq!(total, 0);
+        assert_eq!(jobs.len(), 0);
     }
 }
