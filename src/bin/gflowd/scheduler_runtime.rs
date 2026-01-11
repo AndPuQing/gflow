@@ -559,9 +559,7 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
         // Step 4a: Prepare jobs for execution (write lock - fast, no I/O)
         let jobs_to_execute = {
             let mut state = shared_state.write().await;
-            let jobs = state.scheduler.prepare_jobs_for_execution();
-            tracing::debug!("Prepared {} jobs for execution", jobs.len());
-            jobs
+            state.scheduler.prepare_jobs_for_execution()
         }; // Lock released here
 
         // Step 4b: Execute jobs (NO LOCK - can take seconds due to tmux I/O)
