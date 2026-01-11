@@ -55,14 +55,14 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
     struct GpuRow {
         #[tabled(rename = "PARTITION")]
         partition: String,
-        #[tabled(rename = "NODES")]
-        nodes: String,
         #[tabled(rename = "GPUS")]
         gpus: String,
+        #[tabled(rename = "NODES")]
+        nodes: String,
         #[tabled(rename = "STATE")]
         state: String,
-        #[tabled(rename = "TIMELIMIT")]
-        timelimit: String,
+        #[tabled(rename = "JOB")]
+        job: String,
     }
 
     let mut rows = Vec::new();
@@ -72,36 +72,47 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
         let gpu_indices: Vec<String> = available_gpus.iter().map(|g| g.index.to_string()).collect();
         rows.push(GpuRow {
             partition: "gpu".to_string(),
-            nodes: gpu_indices.join(","),
             gpus: format!("{}", available_gpus.len()),
+            nodes: gpu_indices.join(","),
             state: "idle".to_string(),
-            timelimit: "infinite".to_string(),
+            job: String::new(),
         });
     }
 
     // Add allocated GPUs grouped by job
-    let mut job_groups: HashMap<String, Vec<u32>> = HashMap::new();
+    let mut job_groups: HashMap<(u32, String), Vec<u32>> = HashMap::new();
     for g in &allocated_gpus {
         if let Some((job_id, run_name)) = usage.get(&g.index) {
-            let job_key = format!("{}#{}", job_id, run_name);
-            job_groups.entry(job_key).or_default().push(g.index);
+            job_groups
+                .entry((*job_id, run_name.clone()))
+                .or_default()
+                .push(g.index);
         } else {
             job_groups
-                .entry("allocated".to_string())
+                .entry((0, "unknown".to_string()))
                 .or_default()
                 .push(g.index);
         }
     }
 
+    // Sort job groups by job_id for consistent output
+    let mut sorted_jobs: Vec<_> = job_groups.into_iter().collect();
+    sorted_jobs.sort_by_key(|(k, _)| k.0);
+
     // Add rows for each job group
-    for (job_key, gpu_indices) in job_groups {
+    for ((job_id, run_name), gpu_indices) in sorted_jobs {
         let gpu_indices_str: Vec<String> = gpu_indices.iter().map(|g| g.to_string()).collect();
+        let job_display = if job_id == 0 {
+            String::new()
+        } else {
+            format!("{} ({})", job_id, run_name)
+        };
         rows.push(GpuRow {
             partition: "gpu".to_string(),
-            nodes: gpu_indices_str.join(","),
             gpus: format!("{}", gpu_indices.len()),
+            nodes: gpu_indices_str.join(","),
             state: "allocated".to_string(),
-            timelimit: job_key,
+            job: job_display,
         });
     }
 
