@@ -187,7 +187,7 @@ gbatch --time 2:00:00 python train.py
 gbatch --time 5:30 python test.py
 ```
 
-See [Time Limits](./time-limits.md) for comprehensive documentation.
+See [Time Limits](./time-limits) for comprehensive documentation.
 
 ### Job Names
 
@@ -215,7 +215,7 @@ gbatch --depends-on 1 --name "train" python train.py
 gbatch --depends-on 2 --name "eval" python evaluate.py
 ```
 
-See [Job Dependencies](./job-dependencies.md) for advanced dependency management.
+See [Job Dependencies](./job-dependencies) for advanced dependency management.
 
 ## Job Arrays
 
@@ -568,7 +568,7 @@ $ gbatch --help
 
 ## See Also
 
-- [Time Limits](./time-limits.md) - Detailed time limit documentation
-- [Job Dependencies](./job-dependencies.md) - Advanced dependency workflows
-- [GPU Management](./gpu-management.md) - GPU allocation and monitoring
-- [Quick Reference](../reference/quick-reference.md) - Command cheat sheet
+- [Time Limits](./time-limits) - Detailed time limit documentation
+- [Job Dependencies](./job-dependencies) - Advanced dependency workflows
+- [GPU Management](./gpu-management) - GPU allocation and monitoring
+- [Quick Reference](../reference/quick-reference) - Command cheat sheet

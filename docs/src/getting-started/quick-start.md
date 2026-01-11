@@ -320,12 +320,12 @@ gbatch --conda-env myenv python script.py
 
 Now that you're familiar with the basics, explore:
 
-- [Job Submission](../user-guide/job-submission.md) - Detailed job options
-- [Time Limits](../user-guide/time-limits.md) - Managing job timeouts
-- [Job Dependencies](../user-guide/job-dependencies.md) - Complex workflows
-- [GPU Management](../user-guide/gpu-management.md) - GPU allocation
-- [Quick Reference](../reference/quick-reference.md) - Command cheat sheet
+- [Job Submission](../user-guide/job-submission) - Detailed job options
+- [Time Limits](../user-guide/time-limits) - Managing job timeouts
+- [Job Dependencies](../user-guide/job-dependencies) - Complex workflows
+- [GPU Management](../user-guide/gpu-management) - GPU allocation
+- [Quick Reference](../reference/quick-reference) - Command cheat sheet
 
 ---
 
-**Previous**: [Installation](./installation.md) | **Next**: [Job Submission](../user-guide/job-submission.md)
+**Previous**: [Installation](./installation) | **Next**: [Job Submission](../user-guide/job-submission)

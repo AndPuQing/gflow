@@ -264,8 +264,8 @@ rm -rf ~/.local/share/gflow
 
 ## Next Steps
 
-Now that gflow is installed, head to the [Quick Start Guide](./quick-start.md) to learn how to use it!
+Now that gflow is installed, head to the [Quick Start Guide](./quick-start) to learn how to use it!
 
 ---
 
-**Previous**: [Introduction](../introduction.md) | **Next**: [Quick Start](./quick-start.md)
+**Previous**: [Introduction](/) | **Next**: [Quick Start](./quick-start)

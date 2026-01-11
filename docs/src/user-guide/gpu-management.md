@@ -588,7 +588,7 @@ watch -n 1 nvidia-smi
 
 ## See Also
 
-- [Job Submission](./job-submission.md) - Complete job submission guide
-- [Job Dependencies](./job-dependencies.md) - Workflow management
-- [Time Limits](./time-limits.md) - Job timeout management
-- [Quick Reference](../reference/quick-reference.md) - Command cheat sheet
+- [Job Submission](./job-submission) - Complete job submission guide
+- [Job Dependencies](./job-dependencies) - Workflow management
+- [Time Limits](./time-limits) - Job timeout management
+- [Quick Reference](../reference/quick-reference) - Command cheat sheet

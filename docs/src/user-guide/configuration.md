@@ -739,7 +739,7 @@ log_level = "debug"
 
 ## See Also
 
-- [Installation](../getting-started/installation.md) - Initial setup
-- [Quick Start](../getting-started/quick-start.md) - Basic usage
-- [Job Submission](./job-submission.md) - Submitting jobs
-- [GPU Management](./gpu-management.md) - GPU allocation
+- [Installation](../getting-started/installation) - Initial setup
+- [Quick Start](../getting-started/quick-start) - Basic usage
+- [Job Submission](./job-submission) - Submitting jobs
+- [GPU Management](./gpu-management) - GPU allocation

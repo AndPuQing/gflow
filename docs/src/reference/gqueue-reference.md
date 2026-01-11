@@ -618,9 +618,9 @@ gflowd up
 
 ## See Also
 
-- [gbatch](./gbatch-reference.md) - Job submission reference
-- [gcancel](./gcancel-reference.md) - Job cancellation reference
-- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
-- [Quick Reference](./quick-reference.md) - Command cheat sheet
-- [Job Submission](../user-guide/job-submission.md) - Job submission guide
-- [Job Dependencies](../user-guide/job-dependencies.md) - Dependency management
+- [gbatch](./gbatch-reference) - Job submission reference
+- [gcancel](./gcancel-reference) - Job cancellation reference
+- [ginfo](./ginfo-reference) - Scheduler inspection reference
+- [Quick Reference](./quick-reference) - Command cheat sheet
+- [Job Submission](../user-guide/job-submission) - Job submission guide
+- [Job Dependencies](../user-guide/job-dependencies) - Dependency management

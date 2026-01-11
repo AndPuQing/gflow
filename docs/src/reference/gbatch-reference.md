@@ -107,7 +107,7 @@ gbatch python cpu_task.py
 - Default: 0 (no GPU)
 - Sets `CUDA_VISIBLE_DEVICES` automatically
 - Job waits if insufficient GPUs available
-- See [GPU Management](../user-guide/gpu-management.md)
+- See [GPU Management](../user-guide/gpu-management)
 
 #### `--conda-env <ENV>`
 
@@ -191,7 +191,7 @@ gbatch --depends-on @~2 python evaluate.py
 - Job waits for dependency to reach `Finished` state
 - If dependency fails, this job never starts
 - Only one dependency per job supported
-- See [Job Dependencies](../user-guide/job-dependencies.md)
+- See [Job Dependencies](../user-guide/job-dependencies)
 - Shorthand values resolve to the most recent job IDs recorded by `gbatch`
 
 **Validation**:
@@ -225,7 +225,7 @@ gbatch -t 5:30 python test.py
 - Job terminated if exceeds limit
 - Graceful termination (SIGINT/Ctrl-C)
 - State changes to `Timeout`
-- See [Time Limits](../user-guide/time-limits.md)
+- See [Time Limits](../user-guide/time-limits)
 
 #### `--array <SPEC>`
 
@@ -670,11 +670,11 @@ print(f"Pipeline: {prep_id} -> {train_id} -> {eval_id}")
 
 ## See Also
 
-- [gqueue](./gqueue-reference.md) - Job queue reference
-- [gcancel](./gcancel-reference.md) - Job cancellation reference
-- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
-- [Job Submission](../user-guide/job-submission.md) - Detailed submission guide
-- [Job Dependencies](../user-guide/job-dependencies.md) - Workflow management
-- [GPU Management](../user-guide/gpu-management.md) - GPU allocation guide
-- [Time Limits](../user-guide/time-limits.md) - Time limit documentation
-- [Quick Reference](./quick-reference.md) - Command cheat sheet
+- [gqueue](./gqueue-reference) - Job queue reference
+- [gcancel](./gcancel-reference) - Job cancellation reference
+- [ginfo](./ginfo-reference) - Scheduler inspection reference
+- [Job Submission](../user-guide/job-submission) - Detailed submission guide
+- [Job Dependencies](../user-guide/job-dependencies) - Workflow management
+- [GPU Management](../user-guide/gpu-management) - GPU allocation guide
+- [Time Limits](../user-guide/time-limits) - Time limit documentation
+- [Quick Reference](./quick-reference) - Command cheat sheet

@@ -1,8 +1,0 @@
-[book]
-authors = ["PuQing"]
-language = "en"
-src = "src"
-title = "gflow Documentation"
-description = "A lightweight, single-node job scheduler inspired by Slurm"
-
-[preprocessor.cmdrun]

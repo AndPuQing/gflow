@@ -588,7 +588,7 @@ Located in `src/bin/gflowd/scheduler.rs:242-267`, the timeout checking logic run
 
 ## See Also
 
-- [README.md](../README.md) - Main documentation
-- [Job Dependencies](./DEPENDENCIES.md) - Managing job dependencies
-- [GPU Scheduling](./GPU_SCHEDULING.md) - GPU resource management
+- [Introduction](/) - Main documentation
+- [Job Dependencies](./job-dependencies) - Managing job dependencies
+- [GPU Management](./gpu-management) - GPU resource management
 - GitHub Issues - Report problems or request features

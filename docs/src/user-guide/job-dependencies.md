@@ -500,7 +500,7 @@ gqueue -j 1,2,3,4,5 -t
 
 ## See Also
 
-- [Job Submission](./job-submission.md) - Complete job submission guide
-- [Time Limits](./time-limits.md) - Managing job timeouts
-- [Quick Reference](../reference/quick-reference.md) - Command cheat sheet
-- [Quick Start](../getting-started/quick-start.md) - Basic usage examples
+- [Job Submission](./job-submission) - Complete job submission guide
+- [Time Limits](./time-limits) - Managing job timeouts
+- [Quick Reference](../reference/quick-reference) - Command cheat sheet
+- [Quick Start](../getting-started/quick-start) - Basic usage examples

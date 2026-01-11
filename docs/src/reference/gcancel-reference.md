@@ -549,9 +549,9 @@ Error: Could not connect to gflowd (connection refused)
 
 ## See Also
 
-- [gbatch](./gbatch-reference.md) - Job submission reference
-- [gqueue](./gqueue-reference.md) - Job queue reference
-- [ginfo](./ginfo-reference.md) - Scheduler inspection reference
-- [Quick Reference](./quick-reference.md) - Command cheat sheet
-- [Job Submission](../user-guide/job-submission.md) - Job submission guide
-- [Job Dependencies](../user-guide/job-dependencies.md) - Dependency management
+- [gbatch](./gbatch-reference) - Job submission reference
+- [gqueue](./gqueue-reference) - Job queue reference
+- [ginfo](./ginfo-reference) - Scheduler inspection reference
+- [Quick Reference](./quick-reference) - Command cheat sheet
+- [Job Submission](../user-guide/job-submission) - Job submission guide
+- [Job Dependencies](../user-guide/job-dependencies) - Dependency management
