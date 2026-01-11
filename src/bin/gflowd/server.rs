@@ -187,7 +187,7 @@ async fn list_jobs(
     State(server_state): State<ServerState>,
     Query(query): Query<ListJobsQuery>,
 ) -> impl IntoResponse {
-    // If no query parameters, return jobs from memory (backward compatibility)
+    // If no query parameters, return jobs from memory
     if query.limit.is_none()
         && query.state.is_none()
         && query.user.is_none()
