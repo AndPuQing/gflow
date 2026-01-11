@@ -400,11 +400,12 @@ mod tests {
 
     #[test]
     fn test_parse_since_time_hours() {
-        let result = parse_since_time("1h").unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
+
+        let result = parse_since_time("1h").unwrap();
         // Should be approximately 1 hour ago (within 2 seconds tolerance)
         assert!((now - result - 3600).abs() < 2);
 
@@ -417,11 +418,12 @@ mod tests {
 
     #[test]
     fn test_parse_since_time_days() {
-        let result = parse_since_time("1d").unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
+
+        let result = parse_since_time("1d").unwrap();
         // Should be approximately 1 day ago (within 2 seconds tolerance)
         assert!((now - result - 86400).abs() < 2);
 
@@ -434,11 +436,12 @@ mod tests {
 
     #[test]
     fn test_parse_since_time_weeks() {
-        let result = parse_since_time("1w").unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
+
+        let result = parse_since_time("1w").unwrap();
         // Should be approximately 1 week ago (within 2 seconds tolerance)
         assert!((now - result - 604800).abs() < 2);
 
@@ -500,11 +503,12 @@ mod tests {
 
     #[test]
     fn test_parse_since_time_whitespace() {
-        let result = parse_since_time("  1h  ").unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
+
+        let result = parse_since_time("  1h  ").unwrap();
         assert!((now - result - 3600).abs() < 2);
 
         let result = parse_since_time("\t2d\t").unwrap();
@@ -525,12 +529,13 @@ mod tests {
 
     #[test]
     fn test_parse_since_time_edge_cases() {
-        // Very large values should work
-        let result = parse_since_time("1000h").unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
+
+        // Very large values should work
+        let result = parse_since_time("1000h").unwrap();
         assert!((now - result - 3600000).abs() < 2);
 
         let result = parse_since_time("365d").unwrap();
