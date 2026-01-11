@@ -397,4 +397,146 @@ mod tests {
         assert!(parse_gpu_indices("0..2").is_err());
         assert!(parse_gpu_indices("-1").is_err());
     }
+
+    #[test]
+    fn test_parse_since_time_hours() {
+        let result = parse_since_time("1h").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        // Should be approximately 1 hour ago (within 2 seconds tolerance)
+        assert!((now - result - 3600).abs() < 2);
+
+        let result = parse_since_time("24h").unwrap();
+        assert!((now - result - 86400).abs() < 2);
+
+        let result = parse_since_time("0h").unwrap();
+        assert!((now - result).abs() < 2);
+    }
+
+    #[test]
+    fn test_parse_since_time_days() {
+        let result = parse_since_time("1d").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        // Should be approximately 1 day ago (within 2 seconds tolerance)
+        assert!((now - result - 86400).abs() < 2);
+
+        let result = parse_since_time("7d").unwrap();
+        assert!((now - result - 604800).abs() < 2);
+
+        let result = parse_since_time("0d").unwrap();
+        assert!((now - result).abs() < 2);
+    }
+
+    #[test]
+    fn test_parse_since_time_weeks() {
+        let result = parse_since_time("1w").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        // Should be approximately 1 week ago (within 2 seconds tolerance)
+        assert!((now - result - 604800).abs() < 2);
+
+        let result = parse_since_time("2w").unwrap();
+        assert!((now - result - 1209600).abs() < 2);
+
+        let result = parse_since_time("0w").unwrap();
+        assert!((now - result).abs() < 2);
+    }
+
+    #[test]
+    fn test_parse_since_time_today() {
+        let result = parse_since_time("today").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let expected_start = (now / 86400) * 86400;
+        assert_eq!(result, expected_start as i64);
+
+        // Test case insensitivity
+        let result = parse_since_time("TODAY").unwrap();
+        assert_eq!(result, expected_start as i64);
+
+        let result = parse_since_time("  today  ").unwrap();
+        assert_eq!(result, expected_start as i64);
+    }
+
+    #[test]
+    fn test_parse_since_time_yesterday() {
+        let result = parse_since_time("yesterday").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let expected_start = ((now / 86400) - 1) * 86400;
+        assert_eq!(result, expected_start as i64);
+
+        // Test case insensitivity
+        let result = parse_since_time("YESTERDAY").unwrap();
+        assert_eq!(result, expected_start as i64);
+
+        let result = parse_since_time("  yesterday  ").unwrap();
+        assert_eq!(result, expected_start as i64);
+    }
+
+    #[test]
+    fn test_parse_since_time_unix_timestamp() {
+        let timestamp = 1704067200i64; // 2024-01-01 00:00:00 UTC
+        let result = parse_since_time("1704067200").unwrap();
+        assert_eq!(result, timestamp);
+
+        let result = parse_since_time("0").unwrap();
+        assert_eq!(result, 0);
+
+        let result = parse_since_time("1000000000").unwrap();
+        assert_eq!(result, 1000000000);
+    }
+
+    #[test]
+    fn test_parse_since_time_whitespace() {
+        let result = parse_since_time("  1h  ").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!((now - result - 3600).abs() < 2);
+
+        let result = parse_since_time("\t2d\t").unwrap();
+        assert!((now - result - 172800).abs() < 2);
+    }
+
+    #[test]
+    fn test_parse_since_time_invalid() {
+        assert!(parse_since_time("").is_err());
+        assert!(parse_since_time("abc").is_err());
+        assert!(parse_since_time("1x").is_err());
+        assert!(parse_since_time("h1").is_err());
+        assert!(parse_since_time("1.5h").is_err());
+        assert!(parse_since_time("-1h").is_err());
+        assert!(parse_since_time("tomorrow").is_err());
+        assert!(parse_since_time("1 hour").is_err());
+    }
+
+    #[test]
+    fn test_parse_since_time_edge_cases() {
+        // Very large values should work
+        let result = parse_since_time("1000h").unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!((now - result - 3600000).abs() < 2);
+
+        let result = parse_since_time("365d").unwrap();
+        assert!((now - result - 31536000).abs() < 2);
+
+        let result = parse_since_time("52w").unwrap();
+        assert!((now - result - 31449600).abs() < 2);
+    }
 }
