@@ -689,6 +689,26 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
                 .with_label_values(&[])
                 .set(state.total_memory_mb() as f64);
         }
-        // Write lock released here
+
+        // Step 6: Cleanup old completed jobs from memory (every 5 minutes)
+        // This prevents unbounded memory growth while keeping recent jobs accessible
+        static CLEANUP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let cleanup_interval = 60; // Run cleanup every 60 iterations (5 minutes)
+        let retention_hours = 24; // Keep completed jobs in memory for 24 hours
+
+        if CLEANUP_COUNTER
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .is_multiple_of(cleanup_interval)
+        {
+            let mut state = shared_state.write().await;
+            let removed = state.scheduler.cleanup_completed_jobs(retention_hours);
+            if removed > 0 {
+                tracing::info!(
+                    "Memory cleanup: removed {} completed jobs older than {}h",
+                    removed,
+                    retention_hours
+                );
+            }
+        }
     }
 }

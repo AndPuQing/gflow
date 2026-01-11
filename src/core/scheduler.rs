@@ -498,6 +498,85 @@ impl Scheduler {
     pub fn set_next_job_id(&mut self, id: u32) {
         self.next_job_id = id;
     }
+
+    /// Clean up completed jobs from memory that finished more than `retention_hours` ago
+    ///
+    /// This removes jobs in final states (Finished, Failed, Cancelled, Timeout) from
+    /// the in-memory HashMap to prevent unbounded memory growth. Jobs are still
+    /// persisted in the database and can be queried via slow-path queries.
+    ///
+    /// # Arguments
+    /// * `retention_hours` - Keep jobs in memory for this many hours after completion
+    ///
+    /// # Returns
+    /// Number of jobs removed from memory
+    ///
+    /// # Note
+    /// Jobs with active dependencies (other jobs depending on them) are NOT removed
+    /// to maintain dependency resolution functionality.
+    pub fn cleanup_completed_jobs(&mut self, retention_hours: u64) -> usize {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let cutoff_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .saturating_sub(retention_hours * 3600);
+
+        // Find jobs that have other jobs depending on them
+        let jobs_with_dependents: std::collections::HashSet<u32> =
+            self.jobs.values().filter_map(|j| j.depends_on).collect();
+
+        // Find jobs to remove: completed, old enough, and no active dependents
+        let jobs_to_remove: Vec<u32> = self
+            .jobs
+            .iter()
+            .filter(|(_, job)| {
+                // Must be in a final state
+                job.state.is_final()
+            })
+            .filter(|(_, job)| {
+                // Must have finished_at timestamp
+                if let Some(finished_at) = job.finished_at {
+                    if let Ok(duration) = finished_at.duration_since(UNIX_EPOCH) {
+                        return duration.as_secs() < cutoff_time;
+                    }
+                }
+                false
+            })
+            .filter(|(job_id, _)| {
+                // Must not have active dependents
+                !jobs_with_dependents.contains(job_id)
+            })
+            .map(|(job_id, _)| *job_id)
+            .collect();
+
+        let removed_count = jobs_to_remove.len();
+
+        // Remove jobs from memory
+        for job_id in jobs_to_remove {
+            self.jobs.remove(&job_id);
+        }
+
+        if removed_count > 0 {
+            tracing::info!(
+                "Cleaned up {} completed jobs from memory (retention: {}h)",
+                removed_count,
+                retention_hours
+            );
+        }
+
+        removed_count
+    }
+
+    /// Get count of jobs by state for monitoring
+    pub fn get_job_counts_by_state(&self) -> std::collections::HashMap<JobState, usize> {
+        let mut counts = std::collections::HashMap::new();
+        for job in self.jobs.values() {
+            *counts.entry(job.state).or_insert(0) += 1;
+        }
+        counts
+    }
 }
 
 /// Builder for creating Scheduler instances with dependency injection
