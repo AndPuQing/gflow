@@ -1,8 +1,8 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
-      - id: check-byte-order-marker
+      - id: fix-byte-order-marker
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks
@@ -17,6 +17,6 @@ repos:
       - id: clippy
       - id: cargo-check
   - repo: https://github.com/bnjbvr/cargo-machete
-    rev: main
+    rev: v0.9.1
     hooks:
       - id: cargo-machete
