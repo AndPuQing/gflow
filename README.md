@@ -1,11 +1,7 @@
 # gflow - A lightweight, single-node job scheduler
 
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)
-![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/gflow/badges/version.svg)](https://anaconda.org/conda-forge/gflow)
-![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)
-[![dependency status](https://deps.rs/repo/github/AndPuQing/gflow/status.svg?style=flat-square)](https://deps.rs/repo/github/AndPuQing/gflow)
-![Crates.io License](https://img.shields.io/crates/l/gflow?style=flat-square) ![Crates.io Size](https://img.shields.io/crates/size/gflow?style=flat-square)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github) ![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/gflow/badges/version.svg)](https://anaconda.org/conda-forge/gflow) ![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square) [![dependency status](https://deps.rs/repo/github/AndPuQing/gflow/status.svg?style=flat-square)](https://deps.rs/repo/github/AndPuQing/gflow) ![Crates.io License](https://img.shields.io/crates/l/gflow?style=flat-square) ![Crates.io Size](https://img.shields.io/crates/size/gflow?style=flat-square) ![Discord](https://img.shields.io/discord/1460169213149712415?style=flat-square)
 
 `gflow` is a lightweight, single-node job scheduler written in Rust, inspired by Slurm. It is designed for efficiently managing and scheduling tasks, especially on machines with GPU resources.
 
