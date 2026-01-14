@@ -523,37 +523,34 @@ impl Scheduler {
             .as_secs()
             .saturating_sub(retention_hours * 3600);
 
-        // Find jobs that have other jobs depending on them
-        let jobs_with_dependents: std::collections::HashSet<u32> =
-            self.jobs.values().filter_map(|j| j.depends_on).collect();
+        // Single-pass algorithm: collect jobs_with_dependents and identify removable jobs simultaneously
+        let mut jobs_with_dependents = std::collections::HashSet::new();
+        let mut jobs_to_remove = Vec::new();
 
-        // Find jobs to remove: completed, old enough, and no active dependents
-        let jobs_to_remove: Vec<u32> = self
-            .jobs
-            .iter()
-            .filter(|(_, job)| {
-                // Must be in a final state
-                job.state.is_final()
-            })
-            .filter(|(_, job)| {
-                // Must have finished_at timestamp
+        for (&job_id, job) in self.jobs.iter() {
+            // Track dependencies
+            if let Some(depends_on) = job.depends_on {
+                jobs_with_dependents.insert(depends_on);
+            }
+
+            // Check if job is removable (must be final, old enough)
+            if job.state.is_final() {
                 if let Some(finished_at) = job.finished_at {
                     if let Ok(duration) = finished_at.duration_since(UNIX_EPOCH) {
-                        return duration.as_secs() < cutoff_time;
+                        if duration.as_secs() < cutoff_time {
+                            jobs_to_remove.push(job_id);
+                        }
                     }
                 }
-                false
-            })
-            .filter(|(job_id, _)| {
-                // Must not have active dependents
-                !jobs_with_dependents.contains(job_id)
-            })
-            .map(|(job_id, _)| *job_id)
-            .collect();
+            }
+        }
+
+        // Filter out jobs that have active dependents
+        jobs_to_remove.retain(|job_id| !jobs_with_dependents.contains(job_id));
 
         let removed_count = jobs_to_remove.len();
 
-        // Remove jobs from memory
+        // Remove jobs from memory using drain_filter pattern for efficiency
         for job_id in jobs_to_remove {
             self.jobs.remove(&job_id);
         }
