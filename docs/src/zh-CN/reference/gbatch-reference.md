@@ -169,7 +169,7 @@ gbatch --priority 1 python background.py
 
 #### `--depends-on <ID>`
 
-此任务依赖的任务 ID。支持最近提交的简写。
+单个任务依赖。任务等待指定任务成功完成。
 
 **示例**：
 ```bash
@@ -189,8 +189,7 @@ gbatch --depends-on @~2 python evaluate.py
 
 **行为**：
 - 任务等待依赖达到 `Finished` 状态
-- 如果依赖失败，此任务永不启动
-- 每个任务仅支持一个依赖
+- 如果依赖失败，此任务默认自动取消（参见 `--no-auto-cancel`）
 - 参见 [任务依赖](../user-guide/job-dependencies)
 - 简写值解析为 `gbatch` 记录的最近任务 ID
 
@@ -199,6 +198,77 @@ gbatch --depends-on @~2 python evaluate.py
 - 不允许循环依赖
 - 不能依赖自己
 - `@~N` 需要至少 `N` 次之前的提交
+
+**冲突选项**：`--depends-on-all`、`--depends-on-any`
+
+#### `--depends-on-all <IDs>`
+
+多个任务依赖，使用 AND 逻辑。任务等待**所有**指定任务成功完成。
+
+**示例**：
+```bash
+# 运行三个预处理任务
+gbatch python preprocess_part1.py  # 任务 101
+gbatch python preprocess_part2.py  # 任务 102
+gbatch python preprocess_part3.py  # 任务 103
+
+# 训练等待所有预处理任务
+gbatch --depends-on-all 101,102,103 --gpus 2 python train.py
+
+# 使用 @ 语法
+gbatch --depends-on-all @,@~1,@~2 --gpus 2 python train.py
+```
+
+**行为**：
+- 任务等待**所有**依赖达到 `Finished` 状态
+- 如果任何依赖失败，此任务默认自动取消
+- 接受逗号分隔的任务 ID 或简写
+- 参见 [任务依赖](../user-guide/job-dependencies)
+
+**冲突选项**：`--depends-on`、`--depends-on-any`
+
+#### `--depends-on-any <IDs>`
+
+多个任务依赖，使用 OR 逻辑。当**任何一个**指定任务成功完成时启动任务。
+
+**示例**：
+```bash
+# 并行尝试多个数据源
+gbatch python fetch_from_source_a.py  # 任务 201
+gbatch python fetch_from_source_b.py  # 任务 202
+gbatch python fetch_from_source_c.py  # 任务 203
+
+# 处理首先成功的数据源
+gbatch --depends-on-any 201,202,203 python process_data.py
+
+# 使用 @ 语法
+gbatch --depends-on-any @,@~1,@~2 python process_data.py
+```
+
+**行为**：
+- 当**任何一个**依赖达到 `Finished` 状态时任务启动
+- 如果所有依赖都失败，此任务默认自动取消
+- 接受逗号分隔的任务 ID 或简写
+- 适用于回退场景
+- 参见 [任务依赖](../user-guide/job-dependencies)
+
+**冲突选项**：`--depends-on`、`--depends-on-all`
+
+#### `--no-auto-cancel`
+
+禁用依赖失败时的自动取消。
+
+**示例**：
+```bash
+# 如果依赖失败，任务将保持在队列中
+gbatch --depends-on 1 --no-auto-cancel python train.py
+```
+
+**行为**：
+- 默认情况下，当依赖失败时任务会自动取消
+- 使用此标志，任务将无限期保持在 `Queued` 状态
+- 如果依赖失败，您必须使用 `gcancel` 手动取消
+- 适用于 `--depends-on`、`--depends-on-all` 和 `--depends-on-any`
 
 #### `--time <TIME>`, `-t <TIME>`
 
@@ -319,6 +389,9 @@ $ gbatch --version
 # GFLOW --priority <N>
 # GFLOW --conda-env <ENV>
 # GFLOW --depends-on <ID>
+# GFLOW --depends-on-all <IDs>
+# GFLOW --depends-on-any <IDs>
+# GFLOW --no-auto-cancel
 ```
 
 ### 示例脚本

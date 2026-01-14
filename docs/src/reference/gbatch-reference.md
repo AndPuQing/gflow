@@ -169,7 +169,7 @@ gbatch --priority 1 python background.py
 
 #### `--depends-on <ID>`
 
-Job ID this job depends on. Supports shorthand for recent submissions.
+Single job dependency. Job waits for the specified job to finish successfully.
 
 **Example**:
 ```bash
@@ -189,8 +189,7 @@ gbatch --depends-on @~2 python evaluate.py
 
 **Behavior**:
 - Job waits for dependency to reach `Finished` state
-- If dependency fails, this job never starts
-- Only one dependency per job supported
+- If dependency fails, this job is auto-cancelled by default (see `--no-auto-cancel`)
 - See [Job Dependencies](../user-guide/job-dependencies)
 - Shorthand values resolve to the most recent job IDs recorded by `gbatch`
 
@@ -199,6 +198,77 @@ gbatch --depends-on @~2 python evaluate.py
 - No circular dependencies allowed
 - Cannot depend on self
 - `@~N` requires at least `N` previous submissions
+
+**Conflicts with**: `--depends-on-all`, `--depends-on-any`
+
+#### `--depends-on-all <IDs>`
+
+Multiple job dependencies with AND logic. Job waits for **all** specified jobs to finish successfully.
+
+**Example**:
+```bash
+# Run three preprocessing jobs
+gbatch python preprocess_part1.py  # Job 101
+gbatch python preprocess_part2.py  # Job 102
+gbatch python preprocess_part3.py  # Job 103
+
+# Training waits for ALL preprocessing jobs
+gbatch --depends-on-all 101,102,103 --gpus 2 python train.py
+
+# Using @ syntax
+gbatch --depends-on-all @,@~1,@~2 --gpus 2 python train.py
+```
+
+**Behavior**:
+- Job waits for **all** dependencies to reach `Finished` state
+- If any dependency fails, this job is auto-cancelled by default
+- Accepts comma-separated job IDs or shorthands
+- See [Job Dependencies](../user-guide/job-dependencies)
+
+**Conflicts with**: `--depends-on`, `--depends-on-any`
+
+#### `--depends-on-any <IDs>`
+
+Multiple job dependencies with OR logic. Job starts when **any one** specified job finishes successfully.
+
+**Example**:
+```bash
+# Try multiple data sources in parallel
+gbatch python fetch_from_source_a.py  # Job 201
+gbatch python fetch_from_source_b.py  # Job 202
+gbatch python fetch_from_source_c.py  # Job 203
+
+# Process whichever source succeeds first
+gbatch --depends-on-any 201,202,203 python process_data.py
+
+# Using @ syntax
+gbatch --depends-on-any @,@~1,@~2 python process_data.py
+```
+
+**Behavior**:
+- Job starts when **any one** dependency reaches `Finished` state
+- If all dependencies fail, this job is auto-cancelled by default
+- Accepts comma-separated job IDs or shorthands
+- Useful for fallback scenarios
+- See [Job Dependencies](../user-guide/job-dependencies)
+
+**Conflicts with**: `--depends-on`, `--depends-on-all`
+
+#### `--no-auto-cancel`
+
+Disable automatic cancellation when dependencies fail.
+
+**Example**:
+```bash
+# Job will remain queued if dependency fails
+gbatch --depends-on 1 --no-auto-cancel python train.py
+```
+
+**Behavior**:
+- By default, jobs are auto-cancelled when dependencies fail
+- With this flag, jobs remain in `Queued` state indefinitely
+- You must manually cancel with `gcancel` if dependencies fail
+- Works with `--depends-on`, `--depends-on-all`, and `--depends-on-any`
 
 #### `--time <TIME>`, `-t <TIME>`
 
@@ -319,6 +389,9 @@ Embed job parameters in script using `# GFLOW` comments.
 # GFLOW --priority <N>
 # GFLOW --conda-env <ENV>
 # GFLOW --depends-on <ID>
+# GFLOW --depends-on-all <IDs>
+# GFLOW --depends-on-any <IDs>
+# GFLOW --no-auto-cancel
 ```
 
 ### Example Script

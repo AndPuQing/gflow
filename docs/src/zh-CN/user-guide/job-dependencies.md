@@ -86,15 +86,23 @@ watch -n 5 gqueue -t
 
 ```bash
 # 并行数据处理任务
+gbatch --time 30 python process_part1.py  # 任务 10
+gbatch --time 30 python process_part2.py  # 任务 11
+gbatch --time 30 python process_part3.py  # 任务 12
+
+# 合并结果（等待所有并行任务）
+gbatch --depends-on-all 10,11,12 python merge_results.py
+```
+
+**使用 @ 语法**：
+```bash
 gbatch --time 30 python process_part1.py
 gbatch --time 30 python process_part2.py
 gbatch --time 30 python process_part3.py
 
-# 合并结果（等待最后一个并行任务）
-gbatch --depends-on @ python merge_results.py
+# 使用 @ 语法引用最近的三个任务
+gbatch --depends-on-all @,@~1,@~2 python merge_results.py
 ```
-
-**当前限制**：gflow 目前每个任务仅支持一个依赖。上面的示例显示 `merge_results.py` 依赖于最后一个并行任务（`process_part3.py`）。对于真正的多父依赖（等待所有并行任务），您需要中间协调任务或在检查所有并行任务完成后提交合并。
 
 ### 分支工作流
 
@@ -126,19 +134,32 @@ gbatch --depends-on @~2 --time 30 python analysis_c.py
 ### 失败的依赖
 
 如果依赖任务失败：
-- 依赖任务保持在 `Queued` 状态
-- 它将**永远不会**自动启动
-- 您必须使用 `gcancel` 手动取消它
+- 依赖任务会**自动取消**（默认行为）
+- 您可以使用 `--no-auto-cancel` 禁用自动取消，使任务保持在 `Queued` 状态
 
-**示例**：
+**示例（默认自动取消）**：
 ```bash
 # 任务 1 失败
 $ gqueue
 JOBID    NAME      ST    TIME
 1        prep      F     00:01:23
+2        train     CA    00:00:00
+
+# 任务 2 已自动取消
+```
+
+**示例（禁用自动取消）**：
+```bash
+# 提交时禁用自动取消
+gbatch --depends-on 1 --no-auto-cancel python train.py
+
+# 如果任务 1 失败，任务 2 将保持在队列中
+$ gqueue
+JOBID    NAME      ST    TIME
+1        prep      F     00:01:23
 2        train     PD    00:00:00
 
-# 任务 2 永远不会运行 - 必须取消它
+# 任务 2 永远不会运行 - 必须手动取消它
 $ gcancel 2
 ```
 
@@ -400,20 +421,24 @@ echo "Pipeline submitted. Monitor with: watch gqueue -t"
 
 ```bash
 # 训练多个模型
-for lr in 0.001 0.01 0.1; do
-    gbatch --gpus 1 --time 2:00:00 \
-           python train.py --lr $lr --output model_$lr.pth
-done
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.001 --output model_0.001.pth  # 任务 10
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.01 --output model_0.01.pth    # 任务 11
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.1 --output model_0.1.pth      # 任务 12
 
 # 等待所有模型，然后评估
-# （依赖于最后训练的模型）
-gbatch --depends-on @ --time 30 \
-       python compare_models.py --models model_*.pth
+gbatch --depends-on-all 10,11,12 --time 30 python compare_models.py --models model_*.pth
 ```
 
-**注意**：对于真正的多依赖支持（等待所有模型），您需要：
-- 使用在提交前检查任务状态的脚本
-- 在所有训练完成后手动提交比较任务
+**使用 @ 语法**：
+```bash
+# 训练多个模型
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.001 --output model_0.001.pth
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.01 --output model_0.01.pth
+gbatch --gpus 1 --time 2:00:00 python train.py --lr 0.1 --output model_0.1.pth
+
+# 使用 @ 语法等待所有三个训练任务
+gbatch --depends-on-all @,@~1,@~2 --time 30 python compare_models.py --models model_*.pth
+```
 
 ## 故障排除
 
@@ -485,18 +510,140 @@ gqueue -j 1,2,3,4,5 -t
 9. **提交长管道前先测试小规模**
 10. **依赖失败时检查日志**
 
+## 多任务依赖
+
+gflow 支持高级依赖模式，其中一个任务可以依赖多个父任务，并使用不同的逻辑模式。
+
+### AND 逻辑（所有依赖必须成功）
+
+当任务应该等待**所有**父任务成功完成时，使用 `--depends-on-all`：
+
+```bash
+# 并行运行三个预处理任务
+gbatch --time 30 python preprocess_part1.py  # 任务 101
+gbatch --time 30 python preprocess_part2.py  # 任务 102
+gbatch --time 30 python preprocess_part3.py  # 任务 103
+
+# 训练等待所有预处理任务完成
+gbatch --depends-on-all 101,102,103 --gpus 2 --time 4:00:00 python train.py
+```
+
+**使用 @ 语法**：
+```bash
+gbatch python preprocess_part1.py  # 任务 101
+gbatch python preprocess_part2.py  # 任务 102
+gbatch python preprocess_part3.py  # 任务 103
+
+# 使用 @ 语法引用最近的任务
+gbatch --depends-on-all @,@~1,@~2 --gpus 2 python train.py
+```
+
+### OR 逻辑（任一依赖必须成功）
+
+当任务应该在**任何一个**父任务成功完成后立即启动时，使用 `--depends-on-any`：
+
+```bash
+# 并行尝试多个数据源
+gbatch --time 10 python fetch_from_source_a.py  # 任务 201
+gbatch --time 10 python fetch_from_source_b.py  # 任务 202
+gbatch --time 10 python fetch_from_source_c.py  # 任务 203
+
+# 处理首先成功的数据源的数据
+gbatch --depends-on-any 201,202,203 python process_data.py
+```
+
+**使用场景**：回退场景，其中并行尝试多种方法，您希望使用第一个成功的结果继续。
+
+### 自动取消
+
+默认情况下，当父任务失败时，所有依赖任务会**自动取消**：
+
+```bash
+gbatch python preprocess.py  # 任务 301 - 失败
+
+# 当 301 失败时，任务 302 将自动取消
+gbatch --depends-on 301 python train.py  # 任务 302
+```
+
+**禁用自动取消**，如果您希望依赖任务保持在队列中：
+
+```bash
+gbatch --depends-on 301 --no-auto-cancel python train.py
+```
+
+**何时发生自动取消**：
+- 父任务失败（状态：`Failed`）
+- 父任务被取消（状态：`Cancelled`）
+- 父任务超时（状态：`Timeout`）
+
+**级联取消**：如果任务 A 依赖于 B，B 依赖于 C，当 C 失败时，B 和 A 都会自动取消。
+
+### 循环依赖检测
+
+gflow 在提交时自动检测并防止循环依赖：
+
+```bash
+gbatch python job_a.py  # 任务 1
+gbatch --depends-on 1 python job_b.py  # 任务 2
+
+# 这将被拒绝并显示错误
+gbatch --depends-on 2 python job_c.py --depends-on-all 1,2  # 会创建循环
+```
+
+**错误消息**：
+```
+Circular dependency detected: Job 3 depends on Job 2, which has a path back to Job 3
+```
+
+### 复杂工作流示例
+
+结合 AND 和 OR 逻辑创建复杂工作流：
+
+```bash
+# 阶段 1：尝试多种数据收集方法
+gbatch --time 30 python collect_method_a.py  # 任务 1
+gbatch --time 30 python collect_method_b.py  # 任务 2
+
+# 阶段 2：处理首先成功的收集
+gbatch --depends-on-any 1,2 --time 1:00:00 python process_data.py  # 任务 3
+
+# 阶段 3：并行运行多个预处理任务
+gbatch --depends-on 3 --time 30 python preprocess_features.py  # 任务 4
+gbatch --depends-on 3 --time 30 python preprocess_labels.py    # 任务 5
+
+# 阶段 4：训练等待两个预处理任务
+gbatch --depends-on-all 4,5 --gpus 2 --time 8:00:00 python train.py  # 任务 6
+
+# 阶段 5：评估依赖于训练
+gbatch --depends-on 6 --time 30 python evaluate.py  # 任务 7
+```
+
+**使用树视图可视化**：
+```bash
+$ gqueue -t
+JOBID    NAME                ST    TIME         TIMELIMIT
+1        collect_method_a    CD    00:15:30     00:30:00
+2        collect_method_b    F     00:10:00     00:30:00
+└─ 3     process_data        CD    00:45:00     01:00:00
+   ├─ 4  preprocess_features CD    00:20:00     00:30:00
+   └─ 5  preprocess_labels   CD    00:18:00     00:30:00
+      └─ 6  train            R     02:30:00     08:00:00
+         └─ 7  evaluate      PD    00:00:00     00:30:00
+```
+
 ## 限制
 
-**当前限制**：
-- 每个任务仅一个依赖（无多父依赖）
-- 父任务失败时无自动取消依赖
+**剩余限制**：
 - 无依赖特定任务状态（例如"当任务 X 失败时启动"）
-- 无任务组或批依赖
+- 无任务组或批依赖（除了 max_concurrent）
+
+**已移除的限制**（现已支持）：
+- ~~每个任务仅一个依赖~~ → 现在支持使用 `--depends-on-all` 和 `--depends-on-any` 的多个依赖
+- ~~无自动取消~~ → 现在默认自动取消（可以使用 `--no-auto-cancel` 禁用）
 
 **解决方法**：
-- 对于多个依赖，使用中间协调任务
-- 监控任务状态并使用脚本有条件地提交
-- 对于复杂 DAG，如果需要使用外部工作流管理器
+- 对于基于状态的依赖，使用检查任务状态的条件脚本
+- 如果需要，对于非常复杂的 DAG 使用外部工作流管理器
 
 ## 另见
 
