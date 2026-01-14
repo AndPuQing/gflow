@@ -89,10 +89,11 @@ impl SchedulerRuntime {
         let executor_for_scheduler: Box<dyn Executor> =
             Box::new(ArcExecutorWrapper(executor_arc.clone()));
 
+        let state_file = state_dir.join("gflow.json");
         let scheduler = SchedulerBuilder::new()
             .with_executor(executor_for_scheduler)
             .with_gpu_slots(gpu_slots)
-            .with_state_path(state_dir)
+            .with_state_path(state_file)
             .with_total_memory_mb(total_memory_mb)
             .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
