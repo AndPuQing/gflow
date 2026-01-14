@@ -114,8 +114,12 @@ pub fn update_job_state_metrics(jobs: &std::collections::HashMap<u32, crate::cor
         .values()
         .filter(|j| j.state == JobState::Running)
         .count();
-    JOBS_QUEUED.with_label_values(&[]).set(queued as f64);
-    JOBS_RUNNING.with_label_values(&[]).set(running as f64);
+    JOBS_QUEUED
+        .with_label_values(&[] as &[&str])
+        .set(queued as f64);
+    JOBS_RUNNING
+        .with_label_values(&[] as &[&str])
+        .set(running as f64);
 }
 
 #[cfg(not(feature = "metrics"))]

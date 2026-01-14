@@ -1,8 +1,6 @@
 use anyhow::Result;
-use gflow::core::db::Database;
-use gflow::core::db_writer::DatabaseWriter;
 use gflow::core::executor::Executor;
-use gflow::core::job::{Job, JobEvent, JobState};
+use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use nvml_wrapper::Nvml;
@@ -27,9 +25,8 @@ impl Executor for ArcExecutorWrapper {
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     nvml: Option<Nvml>,
-    pub(crate) db: Database,           // SQLite database for persistence
-    pub(crate) writer: DatabaseWriter, // Async database writer with micro-batching
-    executor: Arc<dyn Executor>,       // Shared executor for lock-free job execution
+    executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
+    dirty: bool,                 // Tracks if state has changed since last save
 }
 
 impl SchedulerRuntime {
@@ -39,26 +36,6 @@ impl SchedulerRuntime {
         state_dir: PathBuf,
         allowed_gpu_indices: Option<Vec<u32>>,
     ) -> anyhow::Result<Self> {
-        // Initialize database
-        let db_path = state_dir.join("state.db");
-        let json_path = state_dir.join("state.json");
-
-        // Check for migration BEFORE creating database to avoid data loss
-        let needs_migration = gflow::core::migrations::needs_migration(&json_path, &db_path);
-
-        tracing::info!("Initializing database at {:?}", db_path);
-        let db = Database::new(db_path.clone()).map_err(|e| {
-            tracing::error!("Failed to initialize database: {}", e);
-            e
-        })?;
-
-        // Run migration if needed (checked before database creation)
-        if needs_migration {
-            tracing::info!("Migrating from state.json to SQLite database...");
-            gflow::core::migrations::migrate_json_to_sqlite(&json_path, &db)?;
-            tracing::info!("Migration complete. Backup saved to state.json.backup");
-        }
-
         // Try to initialize NVML, but continue without it if it fails
         let (nvml, gpu_slots) = match Nvml::init() {
             Ok(nvml) => {
@@ -108,7 +85,7 @@ impl SchedulerRuntime {
         // Store executor in Arc for lock-free access during job execution
         let executor_arc: Arc<dyn Executor> = Arc::from(executor);
 
-        // Clone Arc for scheduler (still needed for deprecated schedule_jobs method)
+        // Clone Arc for scheduler
         let executor_for_scheduler: Box<dyn Executor> =
             Box::new(ArcExecutorWrapper(executor_arc.clone()));
 
@@ -120,94 +97,179 @@ impl SchedulerRuntime {
             .with_allowed_gpu_indices(validated_gpu_indices)
             .build();
 
-        // Initialize async database writer
-        let writer = DatabaseWriter::new(db.clone());
-
         let mut runtime = Self {
             scheduler,
             nvml,
-            db,
-            writer,
             executor: executor_arc,
+            dirty: false,
         };
         runtime.load_state();
         Ok(runtime)
     }
 
-    /// Save scheduler state to database (bulk operation)
-    #[allow(dead_code)]
+    /// Save scheduler state to disk asynchronously
     pub async fn save_state(&self) {
-        // Save all jobs to database
-        let jobs: Vec<_> = self.scheduler.jobs.values().cloned().collect();
-        if let Err(e) = self.db.update_jobs_batch(&jobs) {
-            tracing::error!("Failed to save jobs to database: {}", e);
-            return;
+        let path = self.scheduler.state_path();
+        let tmp_path = path.with_extension("json.tmp");
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                tracing::error!(
+                    "Failed to create state directory {}: {}",
+                    parent.display(),
+                    e
+                );
+                return;
+            }
         }
 
-        // Save metadata
-        let next_id = self.scheduler.next_job_id();
-        if let Err(e) = self.db.set_metadata("next_job_id", &next_id.to_string()) {
-            tracing::error!("Failed to save next_job_id: {}", e);
-        }
-
-        if let Some(ref indices) = self.scheduler.allowed_gpu_indices() {
-            if let Ok(json) = serde_json::to_string(indices) {
-                let _ = self.db.set_metadata("allowed_gpu_indices", &json);
+        match serde_json::to_string_pretty(&self.scheduler) {
+            Ok(json) => {
+                match tokio::fs::File::create(&tmp_path).await {
+                    Ok(mut file) => {
+                        match tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await
+                        {
+                            Ok(_) => {
+                                // Atomic rename
+                                if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
+                                    tracing::error!(
+                                        "Failed to rename state file from {} to {}: {}",
+                                        tmp_path.display(),
+                                        path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to write state to {}: {}",
+                                    tmp_path.display(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to create temporary state file {}: {}",
+                            tmp_path.display(),
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to serialize scheduler state: {}", e);
             }
         }
     }
 
-    /// Load scheduler state from database
+    /// Mark state as dirty without saving immediately
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Save state only if dirty flag is set, then clear flag
+    pub async fn save_state_if_dirty(&mut self) {
+        if self.dirty {
+            self.save_state().await;
+            self.dirty = false;
+        }
+    }
+
+    /// Load scheduler state from disk
     pub fn load_state(&mut self) {
-        // Load only active jobs (Queued, Hold, Running) for fast startup
-        // Completed/failed jobs are queried from DB on-demand
-        match self.db.get_active_jobs() {
-            Ok(jobs) => {
-                self.scheduler.jobs = jobs;
+        let path = self.scheduler.state_path().clone();
+        if path.exists() {
+            if let Ok(json) = std::fs::read_to_string(&path) {
+                match serde_json::from_str::<Scheduler>(&json) {
+                    Ok(loaded_scheduler) => {
+                        // Apply migrations
+                        let migrated_scheduler =
+                            match gflow::core::migrations::migrate_state(loaded_scheduler) {
+                                Ok(migrated) => migrated,
+                                Err(e) => {
+                                    tracing::error!(
+                                        "State migration failed: {}. Starting with fresh state.",
+                                        e
+                                    );
+                                    tracing::warn!(
+                                        "The old state file will be backed up to {}.backup",
+                                        path.display()
+                                    );
+                                    // Try to backup the state file
+                                    let backup_path = path.with_extension("json.backup");
+                                    if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
+                                        tracing::error!(
+                                            "Failed to backup state file: {}",
+                                            backup_err
+                                        );
+                                    } else {
+                                        tracing::info!(
+                                            "Backed up state file to {}",
+                                            backup_path.display()
+                                        );
+                                    }
+                                    return; // Exit early, keep default state
+                                }
+                            };
 
-                // Load next_job_id from metadata
-                if let Ok(Some(next_id_str)) = self.db.get_metadata("next_job_id") {
-                    if let Ok(next_id) = next_id_str.parse::<u32>() {
+                        // Update jobs and next_job_id from migrated state
+                        let next_id = migrated_scheduler.next_job_id();
+                        self.scheduler.jobs = migrated_scheduler.jobs;
                         self.scheduler.set_next_job_id(next_id);
-                    }
-                }
 
-                // Load allowed_gpu_indices
-                if let Ok(Some(gpu_indices_json)) = self.db.get_metadata("allowed_gpu_indices") {
-                    if let Ok(indices) = serde_json::from_str(&gpu_indices_json) {
-                        self.scheduler.set_allowed_gpu_indices(indices);
-                    }
-                }
+                        // Re-initialize NVML and GPU slots (fresh detection)
+                        match Nvml::init() {
+                            Ok(nvml) => {
+                                self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
+                                self.nvml = Some(nvml);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
+                                self.scheduler.update_gpu_slots(HashMap::new());
+                                self.nvml = None;
+                            }
+                        }
 
-                // Re-initialize NVML and GPU slots (fresh detection)
-                match Nvml::init() {
-                    Ok(nvml) => {
-                        self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
-                        self.nvml = Some(nvml);
+                        // Re-initialize memory tracking with current system values
+                        let total_memory_mb = Self::get_total_system_memory_mb();
+                        self.scheduler.update_memory(total_memory_mb);
+                        self.scheduler.refresh_available_memory();
+
+                        tracing::info!("Successfully loaded state from {}", path.display());
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Failed to initialize NVML during state load: {}. Running without GPU support.",
+                        tracing::error!(
+                            "Failed to deserialize state file {}: {}. Starting with fresh state.",
+                            path.display(),
                             e
                         );
-                        self.scheduler.update_gpu_slots(HashMap::new());
-                        self.nvml = None;
+                        tracing::warn!(
+                            "Your job history may have been lost. The old state file will be backed up to {}.backup",
+                            path.display()
+                        );
+                        // Try to backup the corrupted state file
+                        let backup_path = path.with_extension("json.backup");
+                        if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
+                            tracing::error!(
+                                "Failed to backup corrupted state file: {}",
+                                backup_err
+                            );
+                        } else {
+                            tracing::info!("Backed up old state file to {}", backup_path.display());
+                        }
                     }
                 }
-
-                // Re-initialize memory tracking with current system values
-                let total_memory_mb = Self::get_total_system_memory_mb();
-                self.scheduler.update_memory(total_memory_mb);
-                self.scheduler.refresh_available_memory();
-
-                tracing::info!(
-                    "Loaded {} active jobs from database (Queued/Hold/Running)",
-                    self.scheduler.jobs.len()
-                );
+            } else {
+                tracing::error!("Failed to read state file from {}", path.display());
             }
-            Err(e) => {
-                tracing::error!("Failed to load state from database: {}", e);
-            }
+        } else {
+            tracing::info!(
+                "No existing state file found at {}, starting fresh",
+                path.display()
+            );
         }
     }
 
@@ -270,12 +332,13 @@ impl SchedulerRuntime {
         16 * 1024
     }
 
-    // Job mutation methods with immediate or deferred persistence
+    // Job mutation methods
 
     pub async fn submit_job(&mut self, job: Job) -> (u32, String, Job) {
         let (job_id, run_name) = self.scheduler.submit_job(job);
+        self.mark_dirty();
 
-        // Clone job for database persistence
+        // Clone job for return
         let job_clone = self
             .scheduler
             .jobs
@@ -287,13 +350,12 @@ impl SchedulerRuntime {
     }
 
     /// Submit multiple jobs in a batch
-    /// Returns: (results, jobs_to_persist, next_job_id)
     pub async fn submit_jobs(
         &mut self,
         jobs: Vec<Job>,
     ) -> (Vec<(u32, String, String)>, Vec<Job>, u32) {
         let mut results = Vec::with_capacity(jobs.len());
-        let mut db_jobs = Vec::with_capacity(jobs.len());
+        let mut submitted_jobs = Vec::with_capacity(jobs.len());
 
         for job in jobs {
             let submitted_by = job.submitted_by.clone();
@@ -301,16 +363,19 @@ impl SchedulerRuntime {
             results.push((job_id, run_name, submitted_by));
 
             if let Some(job) = self.scheduler.jobs.get(&job_id) {
-                db_jobs.push(job.clone());
+                submitted_jobs.push(job.clone());
             }
         }
 
+        self.mark_dirty();
         let next_id = self.scheduler.next_job_id();
-        (results, db_jobs, next_id)
+        (results, submitted_jobs, next_id)
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
         if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
+            self.mark_dirty();
+
             // Close tmux session if auto_close is enabled
             if should_close_tmux {
                 if let Some(name) = run_name {
@@ -328,11 +393,17 @@ impl SchedulerRuntime {
     }
 
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
-        self.scheduler.fail_job(job_id)
+        let result = self.scheduler.fail_job(job_id);
+        if result {
+            self.mark_dirty();
+        }
+        result
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id) {
+            self.mark_dirty();
+
             // If the job was running, send Ctrl-C to gracefully interrupt it
             if was_running {
                 if let Some(name) = run_name {
@@ -348,19 +419,28 @@ impl SchedulerRuntime {
     }
 
     pub async fn hold_job(&mut self, job_id: u32) -> bool {
-        self.scheduler.hold_job(job_id)
+        let result = self.scheduler.hold_job(job_id);
+        if result {
+            self.mark_dirty();
+        }
+        result
     }
 
     pub async fn release_job(&mut self, job_id: u32) -> bool {
-        self.scheduler.release_job(job_id)
+        let result = self.scheduler.release_job(job_id);
+        if result {
+            self.mark_dirty();
+        }
+        result
     }
 
     /// Update max_concurrent for a specific job
-    /// Returns the updated job if successful
     pub fn update_job_max_concurrent(&mut self, job_id: u32, max_concurrent: usize) -> Option<Job> {
         if let Some(job) = self.scheduler.jobs.get_mut(&job_id) {
             job.max_concurrent = Some(max_concurrent);
-            Some(job.clone())
+            let job_clone = job.clone();
+            self.mark_dirty();
+            Some(job_clone)
         } else {
             None
         }
@@ -382,22 +462,12 @@ impl SchedulerRuntime {
 
     pub fn set_allowed_gpu_indices(&mut self, indices: Option<Vec<u32>>) {
         self.scheduler.set_allowed_gpu_indices(indices);
+        self.mark_dirty();
     }
 
     // Direct access to jobs for server handlers
     pub fn jobs(&self) -> &HashMap<u32, Job> {
         &self.scheduler.jobs
-    }
-
-    /// Get a job by ID, checking memory first (fast path) then database (for completed jobs)
-    pub fn get_job(&self, job_id: u32) -> Result<Option<Job>> {
-        // Fast path: check in-memory jobs first (active jobs)
-        if let Some(job) = self.scheduler.jobs.get(&job_id) {
-            return Ok(Some(job.clone()));
-        }
-
-        // Slow path: query database for completed/archived jobs
-        self.db.get_job(job_id)
     }
 
     // Debug/metrics accessors
@@ -435,15 +505,22 @@ impl GPU for SchedulerRuntime {
     }
 }
 
-/// Async scheduling loop with immediate wake-up support
+/// Async scheduling loop with immediate wake-up support and periodic state saving
 pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let mut save_interval = tokio::time::interval(Duration::from_secs(300)); // Save every 5 minutes
+
     loop {
         // Wait for either the 5-second interval OR an immediate wake-up notification
         tokio::select! {
             _ = interval.tick() => {}
             _ = notify.notified() => {
                 tracing::debug!("Scheduler triggered by job submission");
+            }
+            _ = save_interval.tick() => {
+                // Periodic state save
+                let mut state = shared_state.write().await;
+                state.save_state_if_dirty().await;
             }
         }
 
@@ -477,31 +554,14 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
 
         // Update zombie jobs (write lock - brief)
         if !zombie_job_ids.is_empty() {
-            let (dirty_jobs, writer) = {
-                let mut state = shared_state.write().await;
-                let mut dirty_jobs = Vec::new();
-                for job_id in zombie_job_ids {
-                    if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
-                        let old_state = job.state;
-                        job.state = JobState::Failed;
-                        job.finished_at = Some(std::time::SystemTime::now());
-                        dirty_jobs.push(job.clone());
-
-                        // Queue event for zombie detection
-                        let event = JobEvent::state_transition(
-                            job_id,
-                            old_state,
-                            JobState::Failed,
-                            Some("Zombie job detected".to_string()),
-                        );
-                        state.writer.queue_event(event);
-                    }
+            let mut state = shared_state.write().await;
+            for job_id in zombie_job_ids {
+                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                    job.state = JobState::Failed;
+                    job.finished_at = Some(std::time::SystemTime::now());
+                    state.mark_dirty();
                 }
-                (dirty_jobs, state.writer.clone())
-            }; // Lock released here
-
-            // Queue updates (non-blocking)
-            writer.queue_update_batch(dirty_jobs);
+            }
         }
 
         // Step 3: Check for timed-out jobs (read lock to identify, then handle)
@@ -530,30 +590,13 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             }
 
             // Update all timed-out jobs in memory
-            let (dirty_jobs, writer) = {
-                let mut state = shared_state.write().await;
-                let mut dirty_jobs = Vec::new();
-                for (job_id, _) in timed_out_jobs {
-                    if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
-                        let old_state = job.state;
-                        job.try_transition(job_id, JobState::Timeout);
-                        dirty_jobs.push(job.clone());
-
-                        // Queue event for timeout
-                        let event = JobEvent::state_transition(
-                            job_id,
-                            old_state,
-                            JobState::Timeout,
-                            Some("Job exceeded time limit".to_string()),
-                        );
-                        state.writer.queue_event(event);
-                    }
+            let mut state = shared_state.write().await;
+            for (job_id, _) in timed_out_jobs {
+                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                    job.try_transition(job_id, JobState::Timeout);
+                    state.mark_dirty();
                 }
-                (dirty_jobs, state.writer.clone())
-            }; // Lock released here
-
-            // Queue updates (non-blocking)
-            writer.queue_update_batch(dirty_jobs);
+            }
         }
 
         // Step 4a: Prepare jobs for execution (write lock - fast, no I/O)
@@ -574,7 +617,6 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             let mut results = Vec::new();
             for job in &jobs_to_execute {
                 // Re-check job state before execution (prevents executing cancelled/held jobs)
-                // This handles the race where a job is cancelled between prepare and execute
                 let should_execute = {
                     let state = shared_state.read().await;
                     state
@@ -589,7 +631,6 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
                         "Skipping execution of job {} (state changed before execution)",
                         job.id
                     );
-                    // Mark as execution failure so resources are released in Step 4c
                     results.push((
                         job.id,
                         Err("Job state changed before execution".to_string()),
@@ -614,51 +655,13 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             Vec::new()
         };
 
-        // Step 4c: Handle failures and log events (write lock - brief)
-        let (dirty_jobs, writer) = if !execution_results.is_empty() {
+        // Step 4c: Handle failures (write lock - brief)
+        if !execution_results.is_empty() {
             let mut state = shared_state.write().await;
-            // Handle any execution failures
             state
                 .scheduler
                 .handle_execution_failures(&execution_results);
-
-            // Collect dirty jobs and log events
-            let mut dirty_jobs = Vec::new();
-            for (job_id, result) in &execution_results {
-                if let Some(job) = state.jobs().get(job_id) {
-                    dirty_jobs.push(job.clone());
-
-                    // Log scheduling event
-                    if result.is_ok() && job.state == JobState::Running {
-                        let event = JobEvent::state_transition(
-                            *job_id,
-                            JobState::Queued,
-                            JobState::Running,
-                            None,
-                        );
-                        state.writer.queue_event(event);
-
-                        // Log GPU assignment if GPUs were assigned
-                        if let Some(ref gpu_ids) = job.gpu_ids {
-                            if !gpu_ids.is_empty() {
-                                let gpu_event = JobEvent::gpu_assignment(*job_id, gpu_ids.clone());
-                                state.writer.queue_event(gpu_event);
-                            }
-                        }
-                    }
-                }
-            }
-            (dirty_jobs, state.writer.clone())
-        } else {
-            (Vec::new(), {
-                let state = shared_state.read().await;
-                state.writer.clone()
-            })
-        }; // Lock released here
-
-        // Queue updates (non-blocking)
-        if !dirty_jobs.is_empty() {
-            writer.queue_update_batch(dirty_jobs);
+            state.mark_dirty();
         }
 
         // Step 5: Update metrics (read lock for state snapshot)
@@ -675,40 +678,19 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             let available_gpus = info.gpus.iter().filter(|g| g.available).count();
             let total_gpus = info.gpus.len();
             metrics::GPU_AVAILABLE
-                .with_label_values(&[])
+                .with_label_values(&[] as &[&str])
                 .set(available_gpus as f64);
             metrics::GPU_TOTAL
-                .with_label_values(&[])
+                .with_label_values(&[] as &[&str])
                 .set(total_gpus as f64);
 
             // Update memory metrics
             metrics::MEMORY_AVAILABLE_MB
-                .with_label_values(&[])
+                .with_label_values(&[] as &[&str])
                 .set(state.available_memory_mb() as f64);
             metrics::MEMORY_TOTAL_MB
-                .with_label_values(&[])
+                .with_label_values(&[] as &[&str])
                 .set(state.total_memory_mb() as f64);
-        }
-
-        // Step 6: Cleanup old completed jobs from memory (every 5 minutes)
-        // This prevents unbounded memory growth while keeping recent jobs accessible
-        const CLEANUP_INTERVAL_ITERATIONS: u64 = 60; // Run cleanup every 60 iterations (5 minutes)
-        const RETENTION_HOURS: u64 = 24; // Keep completed jobs in memory for 24 hours
-
-        static CLEANUP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-        // Use modulo to prevent counter overflow and avoid is_multiple_of allocation
-        let counter = CLEANUP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if counter.is_multiple_of(CLEANUP_INTERVAL_ITERATIONS) {
-            let mut state = shared_state.write().await;
-            let removed = state.scheduler.cleanup_completed_jobs(RETENTION_HOURS);
-            if removed > 0 {
-                tracing::info!(
-                    "Memory cleanup: removed {} completed jobs older than {}h",
-                    removed,
-                    RETENTION_HOURS
-                );
-            }
         }
     }
 }
