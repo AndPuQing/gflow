@@ -60,12 +60,6 @@ The installer automatically:
 curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
 ```
 
-**Benefits of CDN installation**:
-- ⚡ Faster downloads via Cloudflare global network
-- 🌍 Works in regions where GitHub is restricted or slow
-- 🔄 Automatic fallback to GitHub for reliability
-- 📦 Same binaries as GitHub Releases
-
 ### Method 2: Install via Cargo
 
 Build and install from crates.io:
