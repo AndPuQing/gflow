@@ -121,14 +121,37 @@ pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)
         return Vec::new();
     }
 
+    // Get all existing sessions to filter out non-existent ones
+    let existing_sessions = get_all_session_names();
+
+    // Separate existing and non-existing sessions
+    let (existing, non_existing): (Vec<_>, Vec<_>) = names
+        .iter()
+        .partition(|name| existing_sessions.contains(*name));
+
+    let mut results = Vec::new();
+
+    // Add results for non-existing sessions
+    for name in non_existing {
+        results.push((
+            name.clone(),
+            Err(anyhow::anyhow!("Session '{}' does not exist", name)),
+        ));
+    }
+
+    // If no existing sessions, return early
+    if existing.is_empty() {
+        return results;
+    }
+
     // Build a single tmux command with multiple pipe-pane disables and kill-session commands
     let mut tmux = Tmux::new();
-    for name in names {
+    for name in &existing {
         tmux = tmux
             // Disable pipe-pane first (ignore errors if already disabled)
-            .add_command(PipePane::new().target_pane(name))
+            .add_command(PipePane::new().target_pane(name.as_str()))
             // Kill the session
-            .add_command(KillSession::new().target_session(name));
+            .add_command(KillSession::new().target_session(name.as_str()));
     }
 
     // Execute all commands in a single tmux invocation
@@ -138,18 +161,21 @@ pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)
     // Note: If the batch command succeeds, all sessions were killed successfully
     // If it fails, we can't easily determine which specific session failed in a batch operation
     match batch_result {
-        Ok(_) => names.iter().map(|name| (name.clone(), Ok(()))).collect(),
+        Ok(_) => {
+            for name in existing {
+                results.push((name.clone(), Ok(())));
+            }
+        }
         Err(_) => {
             // If batch fails, fall back to individual kills to get granular error info
-            names
-                .iter()
-                .map(|name| {
-                    let result = kill_session(name);
-                    (name.clone(), result)
-                })
-                .collect()
+            for name in existing {
+                let result = kill_session(name);
+                results.push((name.clone(), result));
+            }
         }
     }
+
+    results
 }
 
 pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
