@@ -4,7 +4,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: "gflow",
   description: "A lightweight, single-node job scheduler inspired by Slurm",
-  base: '/gflow/',
+    base: '',
   srcDir: 'src',
 
   locales: {
@@ -142,7 +142,7 @@ export default defineConfig({
 
     footer: {
       message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2024-present PuQing'
+        copyright: 'Copyright © 2025-present PuQing'
     }
   }
 })
