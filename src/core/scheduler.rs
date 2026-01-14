@@ -220,6 +220,156 @@ impl Scheduler {
         None
     }
 
+    /// Detect circular dependencies using DFS
+    /// Returns Ok(()) if no cycle, Err with cycle description if found
+    pub fn validate_no_circular_dependency(
+        &self,
+        new_job_id: u32,
+        dependency_ids: &[u32],
+    ) -> Result<(), String> {
+        use std::collections::{HashMap, HashSet};
+
+        // Build adjacency list for existing jobs + new job
+        let mut graph: HashMap<u32, Vec<u32>> = HashMap::new();
+
+        // Add existing dependencies
+        for (job_id, job) in &self.jobs {
+            let deps = if !job.depends_on_ids.is_empty() {
+                job.depends_on_ids.clone()
+            } else if let Some(dep) = job.depends_on {
+                vec![dep]
+            } else {
+                vec![]
+            };
+
+            if !deps.is_empty() {
+                graph.insert(*job_id, deps);
+            }
+        }
+
+        // Add new job's dependencies
+        if !dependency_ids.is_empty() {
+            graph.insert(new_job_id, dependency_ids.to_vec());
+        }
+
+        // Run DFS from each dependency to check if it can reach new_job_id
+        for &dep_id in dependency_ids {
+            if self.has_path_dfs(&graph, dep_id, new_job_id, &mut HashSet::new()) {
+                return Err(format!(
+                    "Circular dependency detected: Job {} depends on Job {}, \
+                     which has a path back to Job {}",
+                    new_job_id, dep_id, new_job_id
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// DFS to check if there's a path from start to target
+    fn has_path_dfs(
+        &self,
+        graph: &std::collections::HashMap<u32, Vec<u32>>,
+        current: u32,
+        target: u32,
+        visited: &mut std::collections::HashSet<u32>,
+    ) -> bool {
+        if current == target {
+            return true;
+        }
+
+        if visited.contains(&current) {
+            return false;
+        }
+
+        visited.insert(current);
+
+        if let Some(neighbors) = graph.get(&current) {
+            for &neighbor in neighbors {
+                if self.has_path_dfs(graph, neighbor, target, visited) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if job's dependencies are satisfied
+    fn are_dependencies_satisfied(
+        &self,
+        job: &Job,
+        finished_jobs: &std::collections::HashSet<u32>,
+        _failed_jobs: &std::collections::HashSet<u32>,
+    ) -> bool {
+        use crate::core::job::DependencyMode;
+
+        // Collect all dependencies (merge legacy and new)
+        let mut all_deps = job.depends_on_ids.clone();
+        if let Some(dep) = job.depends_on {
+            if !all_deps.contains(&dep) {
+                all_deps.push(dep);
+            }
+        }
+
+        if all_deps.is_empty() {
+            return true; // No dependencies
+        }
+
+        // Check based on dependency mode
+        match job.dependency_mode.as_ref().unwrap_or(&DependencyMode::All) {
+            DependencyMode::All => {
+                // ALL dependencies must be finished
+                all_deps.iter().all(|dep_id| finished_jobs.contains(dep_id))
+            }
+            DependencyMode::Any => {
+                // At least ONE dependency must be finished
+                all_deps.iter().any(|dep_id| finished_jobs.contains(dep_id))
+            }
+        }
+    }
+
+    /// Find and cancel jobs that depend on a failed job
+    /// Returns list of cancelled job IDs
+    pub fn auto_cancel_dependent_jobs(&mut self, failed_job_id: u32) -> Vec<u32> {
+        let mut cancelled_jobs = Vec::new();
+
+        // Find all jobs that depend on the failed job
+        let dependent_job_ids: Vec<u32> = self
+            .jobs
+            .values()
+            .filter(|j| {
+                // Check if job is queued and has auto-cancel enabled
+                j.state == JobState::Queued && j.auto_cancel_on_dependency_failure
+            })
+            .filter(|j| {
+                // Check if job depends on the failed job
+                let mut all_deps = j.depends_on_ids.clone();
+                if let Some(dep) = j.depends_on {
+                    all_deps.push(dep);
+                }
+                all_deps.contains(&failed_job_id)
+            })
+            .map(|j| j.id)
+            .collect();
+
+        // Cancel each dependent job
+        for job_id in dependent_job_ids {
+            if let Some(job) = self.jobs.get_mut(&job_id) {
+                if job.try_transition(job_id, JobState::Cancelled) {
+                    tracing::info!(
+                        "Auto-cancelled job {} due to failed dependency {}",
+                        job_id,
+                        failed_job_id
+                    );
+                    cancelled_jobs.push(job_id);
+                }
+            }
+        }
+
+        cancelled_jobs
+    }
+
     /// Calculate time bonus for scheduling priority
     /// Returns a value between 100-300:
     /// - 100: No time limit (lowest bonus)
@@ -286,16 +436,26 @@ impl Scheduler {
             .map(|j| j.id)
             .collect();
 
+        let failed_jobs: std::collections::HashSet<u32> = self
+            .jobs
+            .values()
+            .filter(|j| {
+                matches!(
+                    j.state,
+                    JobState::Failed | JobState::Cancelled | JobState::Timeout
+                )
+            })
+            .map(|j| j.id)
+            .collect();
+
         // Collect and sort runnable jobs
         let mut runnable_jobs: Vec<_> = self
             .jobs
             .values()
             .filter(|j| j.state == JobState::Queued)
             .filter(|j| {
-                if let Some(dependency_id) = j.depends_on {
-                    return finished_jobs.contains(&dependency_id);
-                }
-                true
+                // Check if dependencies are satisfied
+                self.are_dependencies_satisfied(j, &finished_jobs, &failed_jobs)
             })
             .map(|j| j.id)
             .collect();

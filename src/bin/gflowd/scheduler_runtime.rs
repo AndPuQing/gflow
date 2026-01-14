@@ -395,6 +395,15 @@ impl SchedulerRuntime {
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
         let result = self.scheduler.fail_job(job_id);
         if result {
+            // Auto-cancel dependent jobs
+            let cancelled = self.scheduler.auto_cancel_dependent_jobs(job_id);
+            if !cancelled.is_empty() {
+                tracing::info!(
+                    "Auto-cancelled {} dependent jobs: {:?}",
+                    cancelled.len(),
+                    cancelled
+                );
+            }
             self.mark_dirty();
         }
         result
@@ -402,6 +411,15 @@ impl SchedulerRuntime {
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id) {
+            // Auto-cancel dependent jobs
+            let cancelled = self.scheduler.auto_cancel_dependent_jobs(job_id);
+            if !cancelled.is_empty() {
+                tracing::info!(
+                    "Auto-cancelled {} dependent jobs: {:?}",
+                    cancelled.len(),
+                    cancelled
+                );
+            }
             self.mark_dirty();
 
             // If the job was running, send Ctrl-C to gracefully interrupt it
@@ -473,6 +491,15 @@ impl SchedulerRuntime {
     // Debug/metrics accessors
     pub fn next_job_id(&self) -> u32 {
         self.scheduler.next_job_id()
+    }
+
+    pub fn validate_no_circular_dependency(
+        &self,
+        new_job_id: u32,
+        dependency_ids: &[u32],
+    ) -> Result<(), String> {
+        self.scheduler
+            .validate_no_circular_dependency(new_job_id, dependency_ids)
     }
 
     pub fn total_memory_mb(&self) -> u64 {
@@ -594,6 +621,18 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             for (job_id, _) in timed_out_jobs {
                 if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
                     job.try_transition(job_id, JobState::Timeout);
+
+                    // Auto-cancel dependent jobs
+                    let cancelled = state.scheduler.auto_cancel_dependent_jobs(job_id);
+                    if !cancelled.is_empty() {
+                        tracing::info!(
+                            "Auto-cancelled {} dependent jobs due to timeout of job {}: {:?}",
+                            cancelled.len(),
+                            job_id,
+                            cancelled
+                        );
+                    }
+
                     state.mark_dirty();
                 }
             }

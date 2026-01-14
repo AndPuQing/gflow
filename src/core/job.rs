@@ -57,6 +57,14 @@ pub enum JobState {
     Timeout,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+pub enum DependencyMode {
+    /// All dependencies must finish successfully (AND logic)
+    All,
+    /// Any one dependency must finish successfully (OR logic)
+    Any,
+}
+
 impl JobState {
     /// Returns the short form representation of the job state
     pub fn short_form(&self) -> &'static str {
@@ -112,7 +120,13 @@ pub struct Job {
     pub conda_env: Option<String>,
     pub run_dir: PathBuf,
     pub priority: u8,
-    pub depends_on: Option<u32>,
+    pub depends_on: Option<u32>, // Legacy single dependency (for backward compatibility)
+    #[serde(default)]
+    pub depends_on_ids: Vec<u32>, // New multi-dependency field
+    #[serde(default)]
+    pub dependency_mode: Option<DependencyMode>, // AND or OR logic
+    #[serde(default)]
+    pub auto_cancel_on_dependency_failure: bool, // Auto-cancel when dependency fails
     pub task_id: Option<u32>,
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
@@ -140,6 +154,9 @@ pub struct JobBuilder {
     run_dir: Option<PathBuf>,
     priority: Option<u8>,
     depends_on: Option<u32>,
+    depends_on_ids: Option<Vec<u32>>,
+    dependency_mode: Option<Option<DependencyMode>>,
+    auto_cancel_on_dependency_failure: Option<bool>,
     task_id: Option<u32>,
     time_limit: Option<Duration>,
     memory_limit_mb: Option<u64>,
@@ -189,6 +206,21 @@ impl JobBuilder {
 
     pub fn depends_on(mut self, depends_on: impl Into<Option<u32>>) -> Self {
         self.depends_on = depends_on.into();
+        self
+    }
+
+    pub fn depends_on_ids(mut self, depends_on_ids: Vec<u32>) -> Self {
+        self.depends_on_ids = Some(depends_on_ids);
+        self
+    }
+
+    pub fn dependency_mode(mut self, dependency_mode: Option<DependencyMode>) -> Self {
+        self.dependency_mode = Some(dependency_mode);
+        self
+    }
+
+    pub fn auto_cancel_on_dependency_failure(mut self, auto_cancel: bool) -> Self {
+        self.auto_cancel_on_dependency_failure = Some(auto_cancel);
         self
     }
 
@@ -251,6 +283,11 @@ impl JobBuilder {
             conda_env: self.conda_env,
             priority: self.priority.unwrap_or(10),
             depends_on: self.depends_on,
+            depends_on_ids: self.depends_on_ids.unwrap_or_default(),
+            dependency_mode: self.dependency_mode.flatten(),
+            auto_cancel_on_dependency_failure: self
+                .auto_cancel_on_dependency_failure
+                .unwrap_or(true),
             task_id: self.task_id,
             time_limit: self.time_limit,
             memory_limit_mb: self.memory_limit_mb,
@@ -281,6 +318,9 @@ impl Default for Job {
             run_dir: PathBuf::from("."),
             priority: 10,
             depends_on: None,
+            depends_on_ids: Vec::new(),
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: true,
             task_id: None,
             time_limit: None,
             memory_limit_mb: None,

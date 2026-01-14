@@ -485,18 +485,140 @@ gqueue -j 1,2,3,4,5 -t
 9. **Test small** before submitting long pipelines
 10. **Check logs** when dependencies fail
 
+## Multi-Job Dependencies
+
+gflow supports advanced dependency patterns where a job can depend on multiple parent jobs with different logic modes.
+
+### AND Logic (All Dependencies Must Succeed)
+
+Use `--depends-on-all` when a job should wait for **all** parent jobs to finish successfully:
+
+```bash
+# Run three preprocessing jobs in parallel
+gbatch --time 30 python preprocess_part1.py  # Job 101
+gbatch --time 30 python preprocess_part2.py  # Job 102
+gbatch --time 30 python preprocess_part3.py  # Job 103
+
+# Training waits for ALL preprocessing jobs to complete
+gbatch --depends-on-all 101,102,103 --gpus 2 --time 4:00:00 python train.py
+```
+
+**With @ syntax**:
+```bash
+gbatch python preprocess_part1.py  # Job 101
+gbatch python preprocess_part2.py  # Job 102
+gbatch python preprocess_part3.py  # Job 103
+
+# Use @ syntax to reference recent jobs
+gbatch --depends-on-all @,@~1,@~2 --gpus 2 python train.py
+```
+
+### OR Logic (Any Dependency Must Succeed)
+
+Use `--depends-on-any` when a job should start as soon as **any one** parent job finishes successfully:
+
+```bash
+# Try multiple data sources in parallel
+gbatch --time 10 python fetch_from_source_a.py  # Job 201
+gbatch --time 10 python fetch_from_source_b.py  # Job 202
+gbatch --time 10 python fetch_from_source_c.py  # Job 203
+
+# Process data from whichever source succeeds first
+gbatch --depends-on-any 201,202,203 python process_data.py
+```
+
+**Use case**: Fallback scenarios where multiple approaches are tried in parallel, and you want to proceed with the first successful result.
+
+### Auto-Cancellation
+
+By default, when a parent job fails, all dependent jobs are **automatically cancelled**:
+
+```bash
+gbatch python preprocess.py  # Job 301 - fails
+
+# Job 302 will be auto-cancelled when 301 fails
+gbatch --depends-on 301 python train.py  # Job 302
+```
+
+**Disable auto-cancellation** if you want dependent jobs to remain queued:
+
+```bash
+gbatch --depends-on 301 --no-auto-cancel python train.py
+```
+
+**When auto-cancellation happens**:
+- Parent job fails (state: `Failed`)
+- Parent job is cancelled (state: `Cancelled`)
+- Parent job times out (state: `Timeout`)
+
+**Cascade cancellation**: If job A depends on B, and B depends on C, when C fails, both B and A are cancelled automatically.
+
+### Circular Dependency Detection
+
+gflow automatically detects and prevents circular dependencies at submission time:
+
+```bash
+gbatch python job_a.py  # Job 1
+gbatch --depends-on 1 python job_b.py  # Job 2
+
+# This will be rejected with an error
+gbatch --depends-on 2 python job_c.py --depends-on-all 1,2  # Would create cycle
+```
+
+**Error message**:
+```
+Circular dependency detected: Job 3 depends on Job 2, which has a path back to Job 3
+```
+
+### Complex Workflow Example
+
+Combining AND and OR logic for sophisticated workflows:
+
+```bash
+# Stage 1: Try multiple data collection methods
+gbatch --time 30 python collect_method_a.py  # Job 1
+gbatch --time 30 python collect_method_b.py  # Job 2
+
+# Stage 2: Process whichever collection succeeds first
+gbatch --depends-on-any 1,2 --time 1:00:00 python process_data.py  # Job 3
+
+# Stage 3: Run multiple preprocessing tasks in parallel
+gbatch --depends-on 3 --time 30 python preprocess_features.py  # Job 4
+gbatch --depends-on 3 --time 30 python preprocess_labels.py    # Job 5
+
+# Stage 4: Training waits for both preprocessing tasks
+gbatch --depends-on-all 4,5 --gpus 2 --time 8:00:00 python train.py  # Job 6
+
+# Stage 5: Evaluation depends on training
+gbatch --depends-on 6 --time 30 python evaluate.py  # Job 7
+```
+
+**Visualize with tree view**:
+```bash
+$ gqueue -t
+JOBID    NAME                ST    TIME         TIMELIMIT
+1        collect_method_a    CD    00:15:30     00:30:00
+2        collect_method_b    F     00:10:00     00:30:00
+└─ 3     process_data        CD    00:45:00     01:00:00
+   ├─ 4  preprocess_features CD    00:20:00     00:30:00
+   └─ 5  preprocess_labels   CD    00:18:00     00:30:00
+      └─ 6  train            R     02:30:00     08:00:00
+         └─ 7  evaluate      PD    00:00:00     00:30:00
+```
+
 ## Limitations
 
-**Current limitations**:
-- Only one dependency per job (no multi-parent dependencies)
-- No automatic cancellation of dependents when parent fails
+**Remaining limitations**:
 - No dependency on specific job states (e.g., "start when job X fails")
-- No job groups or batch dependencies
+- No job groups or batch dependencies beyond max_concurrent
+
+**Removed limitations** (now supported):
+- ~~Only one dependency per job~~ → Now supports multiple dependencies with `--depends-on-all` and `--depends-on-any`
+- ~~No automatic cancellation~~ → Now auto-cancels by default (can be disabled with `--no-auto-cancel`)
 
 **Workarounds**:
-- For multiple dependencies, use intermediate coordination jobs
-- Monitor job status and submit conditionally with scripts
-- Use external workflow managers for complex DAGs if needed
+- For state-based dependencies, use conditional scripts that check job status
+- Use external workflow managers for very complex DAGs if needed
 
 ## See Also
 

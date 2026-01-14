@@ -182,9 +182,17 @@ async fn create_job(
     let (job_id, run_name) = {
         let mut state = server_state.scheduler.write().await;
 
-        // Validate that dependency job exists if specified
-        if let Some(dep_id) = input.depends_on {
-            if !state.jobs().contains_key(&dep_id) {
+        // Collect all dependencies (legacy + new)
+        let mut all_deps = input.depends_on_ids.clone();
+        if let Some(dep) = input.depends_on {
+            if !all_deps.contains(&dep) {
+                all_deps.push(dep);
+            }
+        }
+
+        // Validate all dependencies exist
+        for dep_id in &all_deps {
+            if !state.jobs().contains_key(dep_id) {
                 tracing::warn!(
                     dep_id = dep_id,
                     "Job submission failed: dependency job does not exist"
@@ -196,6 +204,18 @@ async fn create_job(
                     })),
                 );
             }
+        }
+
+        // Check for circular dependencies
+        let next_id = state.next_job_id();
+        if let Err(cycle_msg) = state.validate_no_circular_dependency(next_id, &all_deps) {
+            tracing::warn!("Circular dependency detected: {}", cycle_msg);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": cycle_msg
+                })),
+            );
         }
 
         let (job_id, run_name, _job_clone) = state.submit_job(input).await;
@@ -251,8 +271,17 @@ async fn create_jobs_batch(
 
         // Validate all dependencies exist before submitting any (fail-fast)
         for job in &input {
-            if let Some(dep_id) = job.depends_on {
-                if !state.jobs().contains_key(&dep_id) {
+            // Collect all dependencies (legacy + new)
+            let mut all_deps = job.depends_on_ids.clone();
+            if let Some(dep) = job.depends_on {
+                if !all_deps.contains(&dep) {
+                    all_deps.push(dep);
+                }
+            }
+
+            // Validate all dependencies exist
+            for dep_id in &all_deps {
+                if !state.jobs().contains_key(dep_id) {
                     tracing::warn!(
                         dep_id = dep_id,
                         "Batch job submission failed: dependency job does not exist"
@@ -264,6 +293,18 @@ async fn create_jobs_batch(
                         })),
                     );
                 }
+            }
+
+            // Check for circular dependencies
+            let next_id = state.next_job_id();
+            if let Err(cycle_msg) = state.validate_no_circular_dependency(next_id, &all_deps) {
+                tracing::warn!("Circular dependency detected: {}", cycle_msg);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": cycle_msg
+                    })),
+                );
             }
         }
 

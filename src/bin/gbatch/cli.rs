@@ -56,6 +56,20 @@ pub struct AddArgs {
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub depends_on: Option<String>,
 
+    /// Multiple job dependencies with AND logic (all must finish successfully)
+    /// Accepts comma-separated job IDs or shorthands: "123,456,@"
+    #[arg(long, value_hint = clap::ValueHint::Other, conflicts_with = "depends_on")]
+    pub depends_on_all: Option<String>,
+
+    /// Multiple job dependencies with OR logic (any one must finish successfully)
+    /// Accepts comma-separated job IDs or shorthands: "123,456,@"
+    #[arg(long, value_hint = clap::ValueHint::Other, conflicts_with_all = ["depends_on", "depends_on_all"])]
+    pub depends_on_any: Option<String>,
+
+    /// Disable auto-cancellation when dependency fails (default: enabled)
+    #[arg(long)]
+    pub no_auto_cancel: bool,
+
     /// The job array specification (e.g., "1-10")
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub array: Option<String>,

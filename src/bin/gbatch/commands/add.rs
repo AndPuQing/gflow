@@ -585,6 +585,34 @@ async fn build_job(
         None
     };
 
+    // Handle dependencies (mutually exclusive via clap)
+    let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
+        let ids = parse_dependency_list(deps_all, client).await?;
+        (ids, Some(gflow::core::job::DependencyMode::All))
+    } else if let Some(ref deps_any) = args.depends_on_any {
+        let ids = parse_dependency_list(deps_any, client).await?;
+        (ids, Some(gflow::core::job::DependencyMode::Any))
+    } else if let Some(ref dep) = args.depends_on {
+        // Legacy single dependency
+        let dep_id = resolve_dependency(Some(dep.clone()), client).await?;
+        if let Some(id) = dep_id {
+            (vec![id], Some(gflow::core::job::DependencyMode::All))
+        } else {
+            (vec![], None)
+        }
+    } else {
+        (vec![], None)
+    };
+
+    builder = builder.depends_on_ids(depends_on_ids.clone());
+    builder = builder.dependency_mode(dependency_mode);
+    builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+
+    // For backward compatibility, also set depends_on if there's exactly one dependency
+    if depends_on_ids.len() == 1 {
+        builder = builder.depends_on(Some(depends_on_ids[0]));
+    }
+
     if let Some(content) = stdin_content {
         // Stdin mode - save content to a temporary script file
         let script_args = parse_script_content_for_args(content)?;
@@ -594,10 +622,6 @@ async fn build_job(
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
-
-        let depends_on_expr = args.depends_on.or(script_args.depends_on);
-        let depends_on = resolve_dependency(depends_on_expr, client).await?;
-        builder = builder.depends_on(depends_on);
 
         // CLI time limit takes precedence over script time limit
         let final_time_limit = if time_limit.is_some() {
@@ -632,10 +656,6 @@ async fn build_job(
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
-
-            let depends_on_expr = args.depends_on.or(script_args.depends_on);
-            let depends_on = resolve_dependency(depends_on_expr, client).await?;
-            builder = builder.depends_on(depends_on);
 
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
@@ -672,8 +692,6 @@ async fn build_job(
             let conda_env = args.conda_env.or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
 
-            let depends_on = resolve_dependency(args.depends_on, client).await?;
-            builder = builder.depends_on(depends_on);
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
         }
@@ -725,6 +743,34 @@ async fn build_job_with_params(
         None
     };
 
+    // Handle dependencies (mutually exclusive via clap)
+    let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
+        let ids = parse_dependency_list(deps_all, client).await?;
+        (ids, Some(gflow::core::job::DependencyMode::All))
+    } else if let Some(ref deps_any) = args.depends_on_any {
+        let ids = parse_dependency_list(deps_any, client).await?;
+        (ids, Some(gflow::core::job::DependencyMode::Any))
+    } else if let Some(ref dep) = args.depends_on {
+        // Legacy single dependency
+        let dep_id = resolve_dependency(Some(dep.clone()), client).await?;
+        if let Some(id) = dep_id {
+            (vec![id], Some(gflow::core::job::DependencyMode::All))
+        } else {
+            (vec![], None)
+        }
+    } else {
+        (vec![], None)
+    };
+
+    builder = builder.depends_on_ids(depends_on_ids.clone());
+    builder = builder.dependency_mode(dependency_mode);
+    builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+
+    // For backward compatibility, also set depends_on if there's exactly one dependency
+    if depends_on_ids.len() == 1 {
+        builder = builder.depends_on(Some(depends_on_ids[0]));
+    }
+
     if let Some(content) = stdin_content {
         // Stdin mode - save content to a temporary script file
         let script_args = parse_script_content_for_args(content)?;
@@ -734,10 +780,6 @@ async fn build_job_with_params(
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
-
-        let depends_on_expr = args.depends_on.or(script_args.depends_on);
-        let depends_on = resolve_dependency(depends_on_expr, client).await?;
-        builder = builder.depends_on(depends_on);
 
         // CLI time limit takes precedence over script time limit
         let final_time_limit = if time_limit.is_some() {
@@ -772,10 +814,6 @@ async fn build_job_with_params(
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
-
-            let depends_on_expr = args.depends_on.or(script_args.depends_on);
-            let depends_on = resolve_dependency(depends_on_expr, client).await?;
-            builder = builder.depends_on(depends_on);
 
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
@@ -812,8 +850,6 @@ async fn build_job_with_params(
             let conda_env = args.conda_env.or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
 
-            let depends_on = resolve_dependency(args.depends_on, client).await?;
-            builder = builder.depends_on(depends_on);
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
         }
@@ -864,6 +900,9 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             gpus: None,
             priority: None,
             depends_on: None,
+            depends_on_all: None,
+            depends_on_any: None,
+            no_auto_cancel: false,
             array: None,
             time: None,
             memory: None,
@@ -948,4 +987,39 @@ async fn resolve_dependency(depends_on: Option<String>, client: &Client) -> Resu
             }
         }
     }
+}
+
+/// Parse comma-separated dependency list with @ syntax support
+/// Examples: "123,456,@", "@,@~1,789"
+async fn parse_dependency_list(deps_str: &str, client: &Client) -> Result<Vec<u32>> {
+    let mut resolved_deps = Vec::new();
+    let username = gflow::core::get_current_username();
+
+    for dep in deps_str.split(',') {
+        let trimmed = dep.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let dep_id = if trimmed.starts_with('@') {
+            // Resolve shorthand
+            client
+                .resolve_dependency(&username, trimmed)
+                .await
+                .with_context(|| format!("Failed to resolve dependency '{}'", trimmed))?
+        } else {
+            // Parse as numeric ID
+            trimmed
+                .parse::<u32>()
+                .with_context(|| format!("Invalid dependency ID: {}", trimmed))?
+        };
+
+        resolved_deps.push(dep_id);
+    }
+
+    if resolved_deps.is_empty() {
+        anyhow::bail!("Dependency list cannot be empty");
+    }
+
+    Ok(resolved_deps)
 }
