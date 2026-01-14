@@ -55,6 +55,82 @@ pub enum Commands {
         )]
         job: String,
     },
+    /// Update parameters for a queued or held job
+    #[command(visible_alias = "u")]
+    Update {
+        #[arg(
+            help = "Job ID(s) to update. Supports ranges like \"1-3\" or individual IDs like \"1,2,3\"",
+            value_hint = clap::ValueHint::Other
+        )]
+        job: String,
+
+        #[arg(short = 'c', long, help = "Update command", value_hint = clap::ValueHint::Other)]
+        command: Option<String>,
+
+        #[arg(short = 's', long, help = "Update script path", value_hint = clap::ValueHint::FilePath)]
+        script: Option<std::path::PathBuf>,
+
+        #[arg(short = 'g', long, help = "Update number of GPUs")]
+        gpus: Option<u32>,
+
+        #[arg(short = 'e', long, help = "Update conda environment", value_hint = clap::ValueHint::Other)]
+        conda_env: Option<String>,
+
+        #[arg(long, help = "Clear conda environment")]
+        clear_conda_env: bool,
+
+        #[arg(short = 'p', long, help = "Update priority (0-255)")]
+        priority: Option<u8>,
+
+        #[arg(short = 't', long, help = "Update time limit (formats: HH:MM:SS, MM:SS, or MM)", value_hint = clap::ValueHint::Other)]
+        time_limit: Option<String>,
+
+        #[arg(long, help = "Clear time limit")]
+        clear_time_limit: bool,
+
+        #[arg(short = 'm', long, help = "Update memory limit (formats: 100G, 1024M, or 512 for MB)", value_hint = clap::ValueHint::Other)]
+        memory_limit: Option<String>,
+
+        #[arg(long, help = "Clear memory limit")]
+        clear_memory_limit: bool,
+
+        #[arg(
+            short = 'd',
+            long,
+            help = "Update dependencies (comma-separated job IDs)",
+            value_delimiter = ','
+        )]
+        depends_on: Option<Vec<u32>>,
+
+        #[arg(
+            long,
+            help = "Update dependencies with AND logic (all must finish)",
+            value_delimiter = ','
+        )]
+        depends_on_all: Option<Vec<u32>>,
+
+        #[arg(
+            long,
+            help = "Update dependencies with OR logic (any one must finish)",
+            value_delimiter = ','
+        )]
+        depends_on_any: Option<Vec<u32>>,
+
+        #[arg(long, help = "Enable auto-cancel when dependency fails")]
+        auto_cancel_on_dep_failure: bool,
+
+        #[arg(long, help = "Disable auto-cancel when dependency fails")]
+        no_auto_cancel_on_dep_failure: bool,
+
+        #[arg(long, help = "Update max concurrent jobs in group")]
+        max_concurrent: Option<usize>,
+
+        #[arg(long, help = "Clear max concurrent limit")]
+        clear_max_concurrent: bool,
+
+        #[arg(long = "param", help = "Update parameter (KEY=VALUE, can be repeated)", value_hint = clap::ValueHint::Other)]
+        params: Vec<String>,
+    },
     /// Show detailed information about a job
     #[command(visible_alias = "s")]
     Show {

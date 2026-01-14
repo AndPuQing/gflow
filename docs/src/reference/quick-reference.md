@@ -87,12 +87,25 @@ gqueue -t                        # Show job dependency tree
 
 ### Job Control
 ```bash
+# Cancel jobs
 gcancel <job_id>                 # Cancel a job
 gcancel 40,41,42                 # Cancel multiple jobs (comma-separated)
 gcancel 40-45                    # Cancel job ID range (40 through 45)
 gcancel --dry-run <job_id>       # Preview cancellation impact (shows dependents)
 gcancel --finish <job_id>        # Mark job as finished (internal)
 gcancel --fail <job_id>          # Mark job as failed (internal)
+
+# Hold and release jobs
+gjob hold <job_id>               # Put queued job on hold
+gjob release <job_id>            # Release held job back to queue
+
+# Update queued jobs
+gjob update <job_id> --gpus 2                    # Update GPU count
+gjob update <job_id> --priority 15               # Update priority
+gjob update <job_id> --time-limit 04:00:00       # Update time limit
+gjob update <job_id> --depends-on 100,101        # Update dependencies
+gjob update <job_id> --param batch_size=64       # Update parameter
+gjob update <job_id> --gpus 4 --priority 20      # Update multiple fields
 ```
 
 ### Monitoring

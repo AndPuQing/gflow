@@ -217,6 +217,163 @@ gbatch --depends-on 2 --name "eval" python evaluate.py
 
 See [Job Dependencies](./job-dependencies) for advanced dependency management.
 
+## Updating Queued Jobs
+
+You can update parameters for jobs that are still queued or on hold using the `gjob update` command. This is useful for fixing mistakes, adjusting resource requirements, or changing priorities before a job starts running.
+
+### When Updates Are Allowed
+
+- **Queued jobs**: All parameters can be updated
+- **Held jobs**: All parameters can be updated
+- **Running jobs**: Cannot be updated (job is already executing)
+- **Completed jobs**: Cannot be updated (job has finished)
+
+### What Can Be Updated
+
+You can update the following job parameters:
+
+- Command or script
+- GPU requirements
+- Conda environment
+- Priority
+- Time and memory limits
+- Dependencies
+- Template parameters
+- Max concurrent jobs in group
+
+### Basic Usage
+
+```bash
+# Update GPU count for job 123
+gjob update 123 --gpus 2
+
+# Update priority
+gjob update 123 --priority 15
+
+# Update multiple parameters at once
+gjob update 123 --gpus 4 --priority 20 --time-limit 02:00:00
+
+# Update multiple jobs
+gjob update 123,124,125 --priority 10
+```
+
+### Updating Resources
+
+```bash
+# Change GPU allocation
+gjob update 123 --gpus 4
+
+# Update time limit
+gjob update 123 --time-limit 04:30:00
+
+# Update memory limit
+gjob update 123 --memory-limit 32G
+
+# Clear time limit (no limit)
+gjob update 123 --clear-time-limit
+
+# Clear memory limit
+gjob update 123 --clear-memory-limit
+```
+
+### Updating Dependencies
+
+```bash
+# Update dependencies (AND logic - all must finish)
+gjob update 123 --depends-on 100,101,102
+
+# Update with explicit AND logic
+gjob update 123 --depends-on-all 100,101,102
+
+# Update with OR logic (any one must finish)
+gjob update 123 --depends-on-any 100,101
+
+# Enable auto-cancel when dependency fails
+gjob update 123 --auto-cancel-on-dep-failure
+
+# Disable auto-cancel
+gjob update 123 --no-auto-cancel-on-dep-failure
+```
+
+### Updating Command or Script
+
+```bash
+# Update command
+gjob update 123 --command "python train.py --epochs 100"
+
+# Update script path
+gjob update 123 --script /path/to/new_script.sh
+
+# Update conda environment
+gjob update 123 --conda-env myenv
+
+# Clear conda environment
+gjob update 123 --clear-conda-env
+```
+
+### Updating Template Parameters
+
+```bash
+# Update single parameter
+gjob update 123 --param learning_rate=0.001
+
+# Update multiple parameters
+gjob update 123 --param batch_size=64 --param epochs=100
+```
+
+### Common Use Cases
+
+**Fixing a mistake in submitted job**:
+```bash
+# Oops, submitted with wrong GPU count
+gbatch --gpus 1 python train.py
+# Returns: Submitted batch job 123
+
+# Fix it before it runs
+gjob update 123 --gpus 4
+```
+
+**Adjusting to changing conditions**:
+```bash
+# More GPUs became available, increase allocation
+gjob update 123 --gpus 8
+
+# System is busy, lower priority to let urgent jobs run first
+gjob update 123 --priority 5
+```
+
+**Iterative refinement**:
+```bash
+# Start with conservative estimate
+gbatch --time-limit 01:00:00 python experiment.py
+# Returns: Submitted batch job 123
+
+# Realize it needs more time
+gjob update 123 --time-limit 04:00:00
+```
+
+### Limitations and Restrictions
+
+- Cannot update job ID, submitted by, or group ID (immutable)
+- Cannot update running or completed jobs
+- Dependency updates must not create circular dependencies
+- Priority must be between 0-255
+- All dependency job IDs must exist
+
+### Error Handling
+
+If an update fails, you'll see a clear error message:
+
+```bash
+$ gjob update 123 --gpus 4
+Error updating job 123: Job 123 is in state 'Running' and cannot be updated.
+Only queued or held jobs can be updated.
+
+$ gjob update 123 --depends-on 123
+Error updating job 123: Circular dependency detected: Job 123 depends on Job 123,
+which has a path back to Job 123
+```
+
 ## Job Arrays
 
 Run multiple similar tasks in parallel:

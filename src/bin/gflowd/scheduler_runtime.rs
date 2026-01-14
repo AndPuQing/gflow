@@ -465,6 +465,97 @@ impl SchedulerRuntime {
         }
     }
 
+    /// Update job parameters
+    /// Returns Ok((updated_job, updated_fields)) on success, Err(error_message) on failure
+    pub async fn update_job(
+        &mut self,
+        job_id: u32,
+        request: super::server::UpdateJobRequest,
+    ) -> Result<(Job, Vec<String>), String> {
+        let mut updated_fields = Vec::new();
+
+        // Validate the update first
+        let new_deps = request.depends_on_ids.as_deref();
+        self.scheduler.validate_job_update(job_id, new_deps)?;
+
+        // Get mutable reference to the job
+        let job = self
+            .scheduler
+            .jobs
+            .get_mut(&job_id)
+            .ok_or_else(|| format!("Job {} not found", job_id))?;
+
+        // Apply updates
+        if let Some(command) = request.command {
+            job.command = Some(command);
+            updated_fields.push("command".to_string());
+        }
+
+        if let Some(script) = request.script {
+            job.script = Some(script);
+            updated_fields.push("script".to_string());
+        }
+
+        if let Some(gpus) = request.gpus {
+            job.gpus = gpus;
+            updated_fields.push("gpus".to_string());
+        }
+
+        if let Some(conda_env) = request.conda_env {
+            job.conda_env = conda_env;
+            updated_fields.push("conda_env".to_string());
+        }
+
+        if let Some(priority) = request.priority {
+            job.priority = priority;
+            updated_fields.push("priority".to_string());
+        }
+
+        if let Some(parameters) = request.parameters {
+            job.parameters = parameters;
+            updated_fields.push("parameters".to_string());
+        }
+
+        if let Some(time_limit) = request.time_limit {
+            job.time_limit = time_limit;
+            updated_fields.push("time_limit".to_string());
+        }
+
+        if let Some(memory_limit_mb) = request.memory_limit_mb {
+            job.memory_limit_mb = memory_limit_mb;
+            updated_fields.push("memory_limit_mb".to_string());
+        }
+
+        if let Some(depends_on_ids) = request.depends_on_ids {
+            job.depends_on_ids = depends_on_ids;
+            updated_fields.push("depends_on_ids".to_string());
+        }
+
+        if let Some(dependency_mode) = request.dependency_mode {
+            job.dependency_mode = dependency_mode;
+            updated_fields.push("dependency_mode".to_string());
+        }
+
+        if let Some(auto_cancel) = request.auto_cancel_on_dependency_failure {
+            job.auto_cancel_on_dependency_failure = auto_cancel;
+            updated_fields.push("auto_cancel_on_dependency_failure".to_string());
+        }
+
+        if let Some(max_concurrent) = request.max_concurrent {
+            job.max_concurrent = max_concurrent;
+            updated_fields.push("max_concurrent".to_string());
+        }
+
+        // Clone the job before marking dirty
+        let updated_job = job.clone();
+
+        // Mark state as dirty for persistence
+        self.mark_dirty();
+
+        // Return cloned job and list of updated fields
+        Ok((updated_job, updated_fields))
+    }
+
     // Read-only delegated methods (no state changes)
 
     pub fn resolve_dependency(&self, username: &str, shorthand: &str) -> Option<u32> {

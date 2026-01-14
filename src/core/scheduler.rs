@@ -370,6 +370,39 @@ impl Scheduler {
         cancelled_jobs
     }
 
+    /// Validate that a job can be updated
+    /// Returns Ok(()) if update is valid, Err(String) with error message otherwise
+    pub fn validate_job_update(&self, job_id: u32, new_deps: Option<&[u32]>) -> Result<(), String> {
+        // Check if job exists
+        let job = self
+            .jobs
+            .get(&job_id)
+            .ok_or_else(|| format!("Job {} not found", job_id))?;
+
+        // Check if job is in updatable state (Queued or Hold)
+        if job.state != JobState::Queued && job.state != JobState::Hold {
+            return Err(format!(
+                "Job {} is in state '{}' and cannot be updated. Only queued or held jobs can be updated.",
+                job_id, job.state
+            ));
+        }
+
+        // If dependencies are being updated, validate them
+        if let Some(deps) = new_deps {
+            // Check that all dependency IDs exist
+            for &dep_id in deps {
+                if !self.jobs.contains_key(&dep_id) {
+                    return Err(format!("Dependency job {} does not exist", dep_id));
+                }
+            }
+
+            // Check for circular dependencies
+            self.validate_no_circular_dependency(job_id, deps)?;
+        }
+
+        Ok(())
+    }
+
     /// Calculate time bonus for scheduling priority
     /// Returns a value between 100-300:
     /// - 100: No time limit (lowest bonus)

@@ -1,8 +1,11 @@
 use crate::core::info::SchedulerInfo;
-use crate::core::job::Job;
+use crate::core::job::{DependencyMode, Job};
 use anyhow::{anyhow, Context};
 use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobSubmitResponse {
@@ -16,6 +19,40 @@ pub struct PaginatedJobsResponse {
     pub total: usize,
     pub limit: usize,
     pub offset: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateJobRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpus: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conda_env: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_limit: Option<Option<Duration>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_limit_mb: Option<Option<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depends_on_ids: Option<Vec<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_mode: Option<Option<DependencyMode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_cancel_on_dependency_failure: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<Option<usize>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateJobResponse {
+    pub job: Job,
+    pub updated_fields: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +282,34 @@ impl Client {
             .await
             .context("Failed to send release job request")?;
         Ok(())
+    }
+
+    pub async fn update_job(
+        &self,
+        job_id: u32,
+        request: UpdateJobRequest,
+    ) -> anyhow::Result<UpdateJobResponse> {
+        tracing::debug!("Updating job {job_id}");
+
+        let response = self
+            .client
+            .patch(format!("{}/jobs/{}", self.base_url, job_id))
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send update job request")?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to update job: {}", error_msg));
+        }
+
+        let result: UpdateJobResponse = response
+            .json()
+            .await
+            .context("Failed to parse update job response")?;
+
+        Ok(result)
     }
 
     pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Option<String>> {

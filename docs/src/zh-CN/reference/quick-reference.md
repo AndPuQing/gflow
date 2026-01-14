@@ -87,12 +87,25 @@ gqueue -t                        # 显示任务依赖关系树
 
 ### 任务控制
 ```bash
+# 取消任务
 gcancel <job_id>                 # 取消任务
 gcancel 40,41,42                 # 取消多个任务（逗号分隔）
 gcancel 40-45                    # 取消任务 ID 范围（40 到 45）
 gcancel --dry-run <job_id>       # 预览取消影响（显示依赖任务）
 gcancel --finish <job_id>        # 标记任务为已完成（内部使用）
 gcancel --fail <job_id>          # 标记任务为失败（内部使用）
+
+# 暂停和释放任务
+gjob hold <job_id>               # 暂停排队任务
+gjob release <job_id>            # 将暂停的任务释放回队列
+
+# 更新排队任务
+gjob update <job_id> --gpus 2                    # 更新 GPU 数量
+gjob update <job_id> --priority 15               # 更新优先级
+gjob update <job_id> --time-limit 04:00:00       # 更新时间限制
+gjob update <job_id> --depends-on 100,101        # 更新依赖关系
+gjob update <job_id> --param batch_size=64       # 更新参数
+gjob update <job_id> --gpus 4 --priority 20      # 更新多个字段
 ```
 
 ### 监控

@@ -58,7 +58,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs", get(list_jobs).post(create_job))
         .route("/jobs/batch", post(create_jobs_batch))
         .route("/jobs/resolve-dependency", get(resolve_dependency))
-        .route("/jobs/{id}", get(get_job))
+        .route("/jobs/{id}", get(get_job).patch(update_job))
         .route("/jobs/{id}/finish", post(finish_job))
         .route("/jobs/{id}/fail", post(fail_job))
         .route("/jobs/{id}/cancel", post(cancel_job))
@@ -535,6 +535,46 @@ async fn release_job(
 }
 
 #[axum::debug_handler]
+async fn update_job(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+    Json(request): Json<UpdateJobRequest>,
+) -> impl IntoResponse {
+    tracing::info!(job_id = id, "Updating job parameters");
+
+    let result = {
+        let mut state = server_state.scheduler.write().await;
+        state.update_job(id, request).await
+    }; // Lock released here
+
+    match result {
+        Ok((job, updated_fields)) => {
+            tracing::info!(
+                job_id = id,
+                updated_fields = ?updated_fields,
+                "Job updated successfully"
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "job": job,
+                    "updated_fields": updated_fields,
+                })),
+            )
+        }
+        Err(error) => {
+            tracing::error!(job_id = id, error = %error, "Failed to update job");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": error,
+                })),
+            )
+        }
+    }
+}
+
+#[axum::debug_handler]
 async fn resolve_dependency(
     State(server_state): State<ServerState>,
     axum::extract::Query(params): axum::extract::Query<ResolveDependencyQuery>,
@@ -620,6 +660,22 @@ async fn set_allowed_gpus(
 #[derive(serde::Deserialize)]
 struct SetGroupMaxConcurrencyRequest {
     max_concurrent: usize,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateJobRequest {
+    pub command: Option<String>,
+    pub script: Option<std::path::PathBuf>,
+    pub gpus: Option<u32>,
+    pub conda_env: Option<Option<String>>, // Nested Option to allow clearing
+    pub priority: Option<u8>,
+    pub parameters: Option<HashMap<String, String>>,
+    pub time_limit: Option<Option<std::time::Duration>>,
+    pub memory_limit_mb: Option<Option<u64>>,
+    pub depends_on_ids: Option<Vec<u32>>,
+    pub dependency_mode: Option<Option<gflow::core::job::DependencyMode>>,
+    pub auto_cancel_on_dependency_failure: Option<bool>,
+    pub max_concurrent: Option<Option<usize>>,
 }
 
 #[axum::debug_handler]

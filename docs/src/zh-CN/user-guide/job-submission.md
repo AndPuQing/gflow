@@ -217,6 +217,163 @@ gbatch --depends-on 2 --name "eval" python evaluate.py
 
 详见 [任务依赖](./job-dependencies)。
 
+## 更新排队任务
+
+您可以使用 `gjob update` 命令更新仍在排队或暂停状态的任务参数。这对于修正错误、调整资源需求或在任务开始运行前更改优先级非常有用。
+
+### 何时允许更新
+
+- **排队任务**：可以更新所有参数
+- **暂停任务**：可以更新所有参数
+- **运行中任务**：无法更新（任务已在执行）
+- **已完成任务**：无法更新（任务已结束）
+
+### 可更新的内容
+
+您可以更新以下任务参数：
+
+- 命令或脚本
+- GPU 需求
+- Conda 环境
+- 优先级
+- 时间和内存限制
+- 依赖关系
+- 模板参数
+- 组内最大并发任务数
+
+### 基本用法
+
+```bash
+# 更新任务 123 的 GPU 数量
+gjob update 123 --gpus 2
+
+# 更新优先级
+gjob update 123 --priority 15
+
+# 同时更新多个参数
+gjob update 123 --gpus 4 --priority 20 --time-limit 02:00:00
+
+# 更新多个任务
+gjob update 123,124,125 --priority 10
+```
+
+### 更新资源
+
+```bash
+# 更改 GPU 分配
+gjob update 123 --gpus 4
+
+# 更新时间限制
+gjob update 123 --time-limit 04:30:00
+
+# 更新内存限制
+gjob update 123 --memory-limit 32G
+
+# 清除时间限制（无限制）
+gjob update 123 --clear-time-limit
+
+# 清除内存限制
+gjob update 123 --clear-memory-limit
+```
+
+### 更新依赖关系
+
+```bash
+# 更新依赖关系（AND 逻辑 - 所有任务必须完成）
+gjob update 123 --depends-on 100,101,102
+
+# 使用显式 AND 逻辑更新
+gjob update 123 --depends-on-all 100,101,102
+
+# 使用 OR 逻辑更新（任意一个完成即可）
+gjob update 123 --depends-on-any 100,101
+
+# 启用依赖失败时自动取消
+gjob update 123 --auto-cancel-on-dep-failure
+
+# 禁用自动取消
+gjob update 123 --no-auto-cancel-on-dep-failure
+```
+
+### 更新命令或脚本
+
+```bash
+# 更新命令
+gjob update 123 --command "python train.py --epochs 100"
+
+# 更新脚本路径
+gjob update 123 --script /path/to/new_script.sh
+
+# 更新 conda 环境
+gjob update 123 --conda-env myenv
+
+# 清除 conda 环境
+gjob update 123 --clear-conda-env
+```
+
+### 更新模板参数
+
+```bash
+# 更新单个参数
+gjob update 123 --param learning_rate=0.001
+
+# 更新多个参数
+gjob update 123 --param batch_size=64 --param epochs=100
+```
+
+### 常见用例
+
+**修正已提交任务中的错误**：
+```bash
+# 糟糕，提交时 GPU 数量错了
+gbatch --gpus 1 python train.py
+# 返回：Submitted batch job 123
+
+# 在运行前修正
+gjob update 123 --gpus 4
+```
+
+**适应变化的条件**：
+```bash
+# 有更多 GPU 可用了，增加分配
+gjob update 123 --gpus 8
+
+# 系统繁忙，降低优先级让紧急任务先运行
+gjob update 123 --priority 5
+```
+
+**迭代优化**：
+```bash
+# 从保守估计开始
+gbatch --time-limit 01:00:00 python experiment.py
+# 返回：Submitted batch job 123
+
+# 意识到需要更多时间
+gjob update 123 --time-limit 04:00:00
+```
+
+### 限制和约束
+
+- 无法更新任务 ID、提交者或组 ID（不可变）
+- 无法更新运行中或已完成的任务
+- 依赖关系更新不能创建循环依赖
+- 优先级必须在 0-255 之间
+- 所有依赖任务 ID 必须存在
+
+### 错误处理
+
+如果更新失败，您会看到清晰的错误消息：
+
+```bash
+$ gjob update 123 --gpus 4
+Error updating job 123: Job 123 is in state 'Running' and cannot be updated.
+Only queued or held jobs can be updated.
+
+$ gjob update 123 --depends-on 123
+Error updating job 123: Circular dependency detected: Job 123 depends on Job 123,
+which has a path back to Job 123
+```
+
 ## 任务数组
 
 并行运行多个类似的任务：
