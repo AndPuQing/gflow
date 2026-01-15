@@ -1,3 +1,4 @@
+use crate::state_saver::StateSaverHandle;
 use anyhow::Result;
 use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
@@ -27,6 +28,7 @@ pub struct SchedulerRuntime {
     nvml: Option<Nvml>,
     executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
     dirty: bool,                 // Tracks if state has changed since last save
+    state_saver: Option<StateSaverHandle>, // Handle for async background state persistence
 }
 
 impl SchedulerRuntime {
@@ -103,6 +105,7 @@ impl SchedulerRuntime {
             nvml,
             executor: executor_arc,
             dirty: false,
+            state_saver: None,
         };
         runtime.load_state();
         Ok(runtime)
@@ -169,6 +172,10 @@ impl SchedulerRuntime {
     /// Mark state as dirty without saving immediately
     fn mark_dirty(&mut self) {
         self.dirty = true;
+        // Notify state saver asynchronously (if configured)
+        if let Some(ref saver) = self.state_saver {
+            saver.mark_dirty();
+        }
     }
 
     /// Save state only if dirty flag is set, then clear flag
@@ -177,6 +184,15 @@ impl SchedulerRuntime {
             self.save_state().await;
             self.dirty = false;
         }
+    }
+
+    /// Set the state saver handle for async background persistence
+    ///
+    /// This should be called after creating the SchedulerRuntime to enable
+    /// background state saves. The handle allows the scheduler to notify
+    /// the state saver task when state changes occur.
+    pub fn set_state_saver(&mut self, saver: StateSaverHandle) {
+        self.state_saver = Some(saver);
     }
 
     /// Load scheduler state from disk
@@ -624,10 +640,9 @@ impl GPU for SchedulerRuntime {
     }
 }
 
-/// Async scheduling loop with immediate wake-up support and periodic state saving
+/// Async scheduling loop with immediate wake-up support
 pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
-    let mut save_interval = tokio::time::interval(Duration::from_secs(300)); // Save every 5 minutes
 
     loop {
         // Wait for either the 5-second interval OR an immediate wake-up notification
@@ -635,11 +650,6 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
             _ = interval.tick() => {}
             _ = notify.notified() => {
                 tracing::debug!("Scheduler triggered by job submission");
-            }
-            _ = save_interval.tick() => {
-                // Periodic state save
-                let mut state = shared_state.write().await;
-                state.save_state_if_dirty().await;
             }
         }
 

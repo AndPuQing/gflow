@@ -5,6 +5,7 @@ mod commands;
 mod executor;
 mod scheduler_runtime;
 mod server;
+mod state_saver;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

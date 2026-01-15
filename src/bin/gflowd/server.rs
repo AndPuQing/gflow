@@ -8,6 +8,7 @@
 
 use crate::executor::TmuxExecutor;
 use crate::scheduler_runtime::{self, SchedulerNotify, SharedState};
+use crate::state_saver::StateSaverHandle;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -20,6 +21,7 @@ use gflow::{debug, metrics};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Notify;
 
 /// Server state that includes both the scheduler and the notification handle
@@ -27,6 +29,7 @@ use tokio::sync::Notify;
 struct ServerState {
     scheduler: SharedState,
     notify: SchedulerNotify,
+    _state_saver: StateSaverHandle,
 }
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -36,22 +39,42 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     // Inject TmuxExecutor
     let executor = Box::new(TmuxExecutor);
 
-    let scheduler = Arc::new(tokio::sync::RwLock::new(
-        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_dir, allowed_gpus)?,
-    ));
+    // Create state saver channel before initializing SchedulerRuntime
+    let (state_tx, state_rx) = tokio::sync::mpsc::unbounded_channel();
+    let state_saver_handle = StateSaverHandle::new(state_tx);
+
+    // Create SchedulerRuntime and set state saver
+    let mut scheduler_runtime =
+        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_dir, allowed_gpus)?;
+    scheduler_runtime.set_state_saver(state_saver_handle.clone());
+
+    let scheduler = Arc::new(tokio::sync::RwLock::new(scheduler_runtime));
     let scheduler_clone = Arc::clone(&scheduler);
 
     // Create notification handle for immediate scheduler wake-up
     let notify = Arc::new(Notify::new());
     let notify_clone = Arc::clone(&notify);
 
+    // Spawn state saver task (30 second interval)
+    let scheduler_for_saver = Arc::clone(&scheduler);
+    let state_saver_task = tokio::spawn(async move {
+        tracing::info!("Starting state saver task with 30s interval...");
+        crate::state_saver::run(scheduler_for_saver, state_rx, Duration::from_secs(30)).await;
+    });
+    state_saver_handle.set_task_handle(state_saver_task);
+
+    // Spawn scheduler task
     tokio::spawn(async move {
         tracing::info!("Starting scheduler with immediate wake-up support...");
         scheduler_runtime::run(scheduler_clone, notify_clone).await;
     });
 
-    // Create server state with both scheduler and notification handle
-    let server_state = ServerState { scheduler, notify };
+    // Create server state with scheduler, notification handle, and state saver
+    let server_state = ServerState {
+        scheduler,
+        notify,
+        _state_saver: state_saver_handle.clone(),
+    };
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
@@ -117,8 +140,8 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
     tracing::info!("Listening on: {addr} (SO_REUSEPORT enabled)");
 
-    // Create shutdown signal handler
-    let shutdown_signal = create_shutdown_signal();
+    // Create shutdown signal handler with state saver for graceful shutdown
+    let shutdown_signal = create_shutdown_signal(state_saver_handle);
 
     // Start Axum server with graceful shutdown
     axum::serve(listener, app)
@@ -129,7 +152,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn create_shutdown_signal() {
+async fn create_shutdown_signal(state_saver: StateSaverHandle) {
     use tokio::signal::unix::{signal, SignalKind};
 
     let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
@@ -147,6 +170,14 @@ async fn create_shutdown_signal() {
         _ = sigusr2.recv() => {
             tracing::info!("Received SIGUSR2 (reload signal), initiating graceful shutdown");
         }
+    }
+
+    // Save state before exiting
+    tracing::info!("Saving state before shutdown...");
+    if let Err(e) = state_saver.shutdown_and_wait().await {
+        tracing::error!("Failed to save state during shutdown: {}", e);
+    } else {
+        tracing::info!("State saved successfully");
     }
 }
 
