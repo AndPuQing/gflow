@@ -91,7 +91,7 @@ impl SchedulerRuntime {
         let executor_for_scheduler: Box<dyn Executor> =
             Box::new(ArcExecutorWrapper(executor_arc.clone()));
 
-        let state_file = state_dir.join("gflow.json");
+        let state_file = state_dir.join("state.json");
         let scheduler = SchedulerBuilder::new()
             .with_executor(executor_for_scheduler)
             .with_gpu_slots(gpu_slots)
