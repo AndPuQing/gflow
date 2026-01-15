@@ -1,5 +1,8 @@
 use anyhow::Result;
-use gflow::{client::Client, tmux::attach_to_session};
+use gflow::{
+    client::Client,
+    tmux::{attach_to_session, is_session_exist},
+};
 
 pub async fn handle_attach(
     config_path: &Option<std::path::PathBuf>,
@@ -34,6 +37,15 @@ pub async fn handle_attach(
             return Ok(());
         }
     };
+
+    // Check if the tmux session exists
+    if !is_session_exist(session_name) {
+        eprintln!(
+            "Error: Tmux session '{}' for job {} does not exist",
+            session_name, job_id
+        );
+        return Ok(());
+    }
 
     // Attach to the tmux session
     println!(
