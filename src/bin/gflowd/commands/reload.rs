@@ -17,6 +17,7 @@ pub async fn handle_reload(
     tracing::info!("Found running daemon at PID {}", pid);
 
     // 2. Start new daemon instance in temporary tmux session
+    println!("Starting new daemon instance...");
     tracing::info!("Starting new daemon instance...");
     let new_session_name = format!("gflow_server_new_{}", std::process::id());
     let session = TmuxSession::new(new_session_name.clone());
@@ -66,6 +67,7 @@ pub async fn handle_reload(
 
     // 5. Verify the new daemon is responsive (make a few health check attempts)
     // This is a best-effort check - we already know the daemon process exists
+    println!("Verifying new daemon...");
     tracing::info!("Checking new daemon responsiveness...");
     let mut health_check_passed = false;
     for attempt in 1..=10 {
@@ -92,6 +94,7 @@ pub async fn handle_reload(
     }
 
     // 6. Signal old process to shutdown (SIGUSR2)
+    println!("Switching to new daemon...");
     tracing::info!("Signaling old daemon (PID {}) to shutdown", pid);
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGUSR2);
