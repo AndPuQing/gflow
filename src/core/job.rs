@@ -107,6 +107,12 @@ impl JobState {
             JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout
         )
     }
+
+    /// Returns a comma-separated string of all completed/final states
+    /// Useful for filtering queries to show only completed jobs
+    pub fn completed_states() -> String {
+        "Finished,Failed,Cancelled,Timeout".to_string()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -31,67 +31,36 @@ pub struct ListOptions {
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     let current_user = gflow::core::get_current_username();
 
-    // Determine if we need to query from database
-    // Query from database when:
-    // 1. --all flag is used (need all jobs from today including completed)
-    // 2. --completed flag is used (need completed jobs from DB)
-    // 3. --states is specified (may include completed states)
-    // 4. --since is specified (need time-based filtering)
-    let use_database_query =
-        options.all || options.completed || options.states.is_some() || options.since.is_some();
-
-    let mut jobs_vec = if use_database_query {
-        // Determine states to query
-        let states_filter = if options.completed {
-            // Only completed states
-            Some("Finished,Failed,Cancelled,Timeout".to_string())
-        } else if options.all && options.states.is_none() {
-            // All states when --all is used without explicit --states
-            None
-        } else {
-            // Use explicit --states if provided
-            options.states.clone()
-        };
-
-        // Parse --since time filter if provided
-        let created_after = if let Some(ref since_str) = options.since {
-            Some(gflow::utils::parse_since_time(since_str)?)
-        } else if options.all && options.since.is_none() {
-            // Default to "today" when --all is used without --since
-            Some(gflow::utils::parse_since_time("today")?)
-        } else {
-            None
-        };
-
-        // Query from database with filters
-        client
-            .list_jobs_with_query(
-                states_filter,
-                Some(current_user.clone()),
-                None,
-                None,
-                created_after,
-            )
-            .await?
+    // Determine states to query
+    let states_filter = if options.completed {
+        // Only completed states
+        Some(JobState::completed_states())
     } else {
-        // Use in-memory query for active jobs only (fast path)
-        let mut jobs = client.list_jobs().await?;
-        jobs.retain(|job| job.submitted_by == current_user);
-        jobs
+        // Use explicit --states if provided
+        options.states.clone()
     };
 
-    // Apply state filter if specified (for in-memory path, already filtered in DB query)
-    if !use_database_query && options.states.is_some() {
-        if let Some(states_filter) = &options.states {
-            let states_vec: Vec<JobState> = states_filter
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
-            if !states_vec.is_empty() {
-                jobs_vec.retain(|job| states_vec.contains(&job.state));
-            }
-        }
-    }
+    // Parse --since time filter if provided
+    let created_after = if let Some(ref since_str) = options.since {
+        Some(gflow::utils::parse_since_time(since_str)?)
+    } else if options.all {
+        // Default to "today" when --all is used without --since
+        Some(gflow::utils::parse_since_time("today")?)
+    } else {
+        None
+    };
+
+    // Query jobs with filters
+    // Note: All jobs are stored in-memory on the server, not in a database
+    let mut jobs_vec = client
+        .list_jobs_with_query(
+            states_filter,
+            Some(current_user.clone()),
+            None,
+            None,
+            created_after,
+        )
+        .await?;
 
     if let Some(job_ids) = options.jobs {
         let job_ids_vec: Vec<u32> = job_ids
