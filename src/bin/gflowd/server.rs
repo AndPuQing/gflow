@@ -225,16 +225,12 @@ async fn list_jobs(
     }
 
     // Apply created_after filter if provided
-    if let Some(created_after_secs) = params.created_after {
-        use std::time::UNIX_EPOCH;
-        if let Some(created_after) =
-            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(created_after_secs as u64))
+    if let Some(secs) = params.created_after {
+        use std::time::{Duration, UNIX_EPOCH};
+
+        if let Some(created_after) = UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
         {
-            jobs.retain(|job| {
-                job.started_at
-                    .map(|ts| ts >= created_after)
-                    .unwrap_or(false)
-            });
+            jobs.retain(|job| job.started_at.is_some_and(|ts| ts >= created_after));
         }
     }
 

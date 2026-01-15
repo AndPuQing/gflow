@@ -63,6 +63,12 @@ curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/us
 ```bash
 cargo install gflow
 ```
+
+#### `cargo install`(main branch)
+```bash
+cargo install --git https://github.com/AndPuQing/gflow.git --locked
+```
+
 This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`).
 
 ### Install via Conda
