@@ -34,7 +34,13 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     // Determine states to query
     let states_filter = if options.completed {
         // Only completed states
-        Some(JobState::completed_states())
+        Some(
+            JobState::completed_states()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     } else {
         // Use explicit --states if provided
         options.states.clone()

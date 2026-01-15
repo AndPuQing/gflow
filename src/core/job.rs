@@ -102,16 +102,18 @@ impl JobState {
     }
 
     pub fn is_final(&self) -> bool {
-        matches!(
-            self,
-            JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout
-        )
+        Self::COMPLETED.contains(self)
     }
 
-    /// Returns a comma-separated string of all completed/final states
-    /// Useful for filtering queries to show only completed jobs
-    pub fn completed_states() -> String {
-        "Finished,Failed,Cancelled,Timeout".to_string()
+    pub const COMPLETED: &'static [JobState] = &[
+        JobState::Finished,
+        JobState::Failed,
+        JobState::Cancelled,
+        JobState::Timeout,
+    ];
+
+    pub fn completed_states() -> &'static [JobState] {
+        Self::COMPLETED
     }
 }
 
