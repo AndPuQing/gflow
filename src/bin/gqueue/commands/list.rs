@@ -43,9 +43,6 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     // Parse --since time filter if provided
     let created_after = if let Some(ref since_str) = options.since {
         Some(gflow::utils::parse_since_time(since_str)?)
-    } else if options.all {
-        // Default to "today" when --all is used without --since
-        Some(gflow::utils::parse_since_time("today")?)
     } else {
         None
     };

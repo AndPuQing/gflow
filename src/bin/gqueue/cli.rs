@@ -45,7 +45,7 @@ pub struct ListArgs {
     #[arg(
         long,
         short = 'a',
-        help = "Show all jobs from today including completed ones",
+        help = "Show all jobs including completed ones (equivalent to -n 0)",
         conflicts_with = "limit"
     )]
     pub all: bool,
