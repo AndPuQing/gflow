@@ -188,11 +188,66 @@ async fn info(State(server_state): State<ServerState>) -> impl IntoResponse {
     (StatusCode::OK, Json(info))
 }
 
+#[derive(serde::Deserialize)]
+struct ListJobsQuery {
+    state: Option<String>,
+    user: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    created_after: Option<i64>,
+}
+
 #[axum::debug_handler]
-async fn list_jobs(State(server_state): State<ServerState>) -> impl IntoResponse {
+async fn list_jobs(
+    State(server_state): State<ServerState>,
+    axum::extract::Query(params): axum::extract::Query<ListJobsQuery>,
+) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
     let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
+
+    // Apply state filter if provided
+    if let Some(states_str) = params.state {
+        let states: Vec<JobState> = states_str
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if !states.is_empty() {
+            jobs.retain(|job| states.contains(&job.state));
+        }
+    }
+
+    // Apply user filter if provided
+    if let Some(users_str) = params.user {
+        let users: Vec<String> = users_str.split(',').map(|s| s.trim().to_string()).collect();
+        if !users.is_empty() {
+            jobs.retain(|job| users.contains(&job.submitted_by));
+        }
+    }
+
+    // Apply created_after filter if provided
+    if let Some(created_after_secs) = params.created_after {
+        use std::time::UNIX_EPOCH;
+        if let Some(created_after) =
+            UNIX_EPOCH.checked_add(std::time::Duration::from_secs(created_after_secs as u64))
+        {
+            jobs.retain(|job| {
+                job.started_at
+                    .map(|ts| ts >= created_after)
+                    .unwrap_or(false)
+            });
+        }
+    }
+
+    // Sort by job ID
     jobs.sort_by_key(|j| j.id);
+
+    // Apply pagination if provided
+    let total = jobs.len();
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(total);
+
+    let jobs: Vec<_> = jobs.into_iter().skip(offset).take(limit).collect();
+
     (StatusCode::OK, Json(jobs))
 }
 
