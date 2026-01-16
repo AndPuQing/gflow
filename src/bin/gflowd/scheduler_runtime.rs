@@ -427,7 +427,7 @@ impl SchedulerRuntime {
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
-        if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id) {
+        if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id, None) {
             // Auto-cancel dependent jobs
             let cancelled = self.scheduler.auto_cancel_dependent_jobs(job_id);
             if !cancelled.is_empty() {

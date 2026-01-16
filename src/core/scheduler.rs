@@ -144,11 +144,16 @@ impl Scheduler {
 
     /// Cancel a job and return run_name if it needs Ctrl-C (was Running)
     /// Note: Caller is responsible for sending Ctrl-C and persisting state
-    pub fn cancel_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
+    pub fn cancel_job(
+        &mut self,
+        job_id: u32,
+        reason: Option<crate::core::job::JobStateReason>,
+    ) -> Option<(bool, Option<String>)> {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             let was_running = job.state == JobState::Running;
             let run_name = job.run_name.clone();
             job.try_transition(job_id, JobState::Cancelled);
+            job.reason = reason.or(Some(crate::core::job::JobStateReason::CancelledByUser));
             Some((was_running, run_name))
         } else {
             None
@@ -357,6 +362,9 @@ impl Scheduler {
         for job_id in dependent_job_ids {
             if let Some(job) = self.jobs.get_mut(&job_id) {
                 if job.try_transition(job_id, JobState::Cancelled) {
+                    job.reason = Some(crate::core::job::JobStateReason::DependencyFailed(
+                        failed_job_id,
+                    ));
                     tracing::info!(
                         "Auto-cancelled job {} due to failed dependency {}",
                         job_id,

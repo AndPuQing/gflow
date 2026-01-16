@@ -254,18 +254,35 @@ fn colorize_state(state: &JobState) -> String {
     }
 }
 
-/// Computes the reason why a job is pending/queued
-fn get_pending_reason(job: &gflow::core::job::Job) -> String {
-    match job.state {
-        JobState::Hold => "(JobHeldUser)".to_string(),
-        JobState::Queued => {
-            if job.depends_on.is_some() {
-                "(Dependency)".to_string()
-            } else {
-                // Default reason for queued jobs - waiting for resources
-                "(Resources)".to_string()
+/// Computes the reason why a job is in its current state for display
+fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
+    use gflow::core::job::JobStateReason;
+
+    // If job already has a reason set, use it (except for CancelledByUser)
+    if let Some(reason) = &job.reason {
+        match reason {
+            JobStateReason::CancelledByUser => {
+                // Don't show explicit reason for user cancellations
+                return "(Cancelled)".to_string();
+            }
+            _ => {
+                // Show detailed reason for other cases
+                return format!("({})", reason);
             }
         }
+    }
+
+    // Otherwise, compute the reason based on state
+    match job.state {
+        JobState::Hold => format!("({})", JobStateReason::JobHeldUser),
+        JobState::Queued => {
+            if job.depends_on.is_some() || !job.depends_on_ids.is_empty() {
+                format!("({})", JobStateReason::WaitingForDependency)
+            } else {
+                format!("({})", JobStateReason::WaitingForResources)
+            }
+        }
+        JobState::Cancelled => "(Cancelled)".to_string(),
         _ => "-".to_string(),
     }
 }
@@ -286,7 +303,7 @@ fn format_job_cell(
             .map_or_else(|| "-".to_string(), gflow::utils::format_memory),
         "NODELIST(REASON)" => {
             // For running jobs, show GPU IDs
-            // For queued/held jobs, show pending reason
+            // For queued/held/cancelled jobs, show pending reason
             match job.state {
                 JobState::Running => job.gpu_ids.as_ref().map_or_else(
                     || "-".to_string(),
@@ -297,7 +314,9 @@ fn format_job_cell(
                             .join(",")
                     },
                 ),
-                JobState::Queued | JobState::Hold => get_pending_reason(job),
+                JobState::Queued | JobState::Hold | JobState::Cancelled => {
+                    get_job_reason_display(job)
+                }
                 _ => "-".to_string(),
             }
         }
@@ -598,6 +617,7 @@ mod tests {
             parameters: std::collections::HashMap::new(),
             group_id: None,
             max_concurrent: None,
+            reason: None,
         }
     }
 
@@ -628,6 +648,7 @@ mod tests {
             parameters: std::collections::HashMap::new(),
             group_id: None,
             max_concurrent: None,
+            reason: None,
         }
     }
 
@@ -658,6 +679,7 @@ mod tests {
             parameters: std::collections::HashMap::new(),
             group_id: None,
             max_concurrent: None,
+            reason: None,
         }
     }
 

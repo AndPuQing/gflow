@@ -69,7 +69,7 @@ fn test_job_cancelled_between_prepare_and_execute() {
     assert_eq!(scheduler.jobs[&job_id].state, JobState::Running);
 
     // RACE CONDITION SIMULATION: Cancel the job AFTER prepare but BEFORE execute
-    scheduler.cancel_job(job_id);
+    scheduler.cancel_job(job_id, None);
     assert_eq!(scheduler.jobs[&job_id].state, JobState::Cancelled);
 
     // Phase 2: Execute jobs (this should detect the state change and skip execution)
@@ -164,8 +164,8 @@ fn test_multiple_jobs_partial_cancellation() {
     assert_eq!(jobs_to_execute.len(), 5);
 
     // Cancel jobs 2 and 4 (0-indexed: jobs with id 2 and 4)
-    scheduler.cancel_job(job_ids[1]);
-    scheduler.cancel_job(job_ids[3]);
+    scheduler.cancel_job(job_ids[1], None);
+    scheduler.cancel_job(job_ids[3], None);
 
     // Execute (should skip cancelled jobs)
     let results = scheduler.execute_jobs_no_lock(&jobs_to_execute);

@@ -65,6 +65,37 @@ pub enum DependencyMode {
     Any,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub enum JobStateReason {
+    /// Job is on hold by user request
+    JobHeldUser,
+    /// Job is waiting for dependencies to complete
+    WaitingForDependency,
+    /// Job is waiting for available resources (GPUs, memory, etc.)
+    WaitingForResources,
+    /// Job was cancelled by user request
+    CancelledByUser,
+    /// Job was cancelled because a dependency failed
+    DependencyFailed(u32),
+    /// Job was cancelled due to system error
+    SystemError(String),
+}
+
+impl fmt::Display for JobStateReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JobStateReason::JobHeldUser => write!(f, "JobHeldUser"),
+            JobStateReason::WaitingForDependency => write!(f, "Dependency"),
+            JobStateReason::WaitingForResources => write!(f, "Resources"),
+            JobStateReason::CancelledByUser => write!(f, "CancelledByUser"),
+            JobStateReason::DependencyFailed(job_id) => {
+                write!(f, "DependencyFailed:{}", job_id)
+            }
+            JobStateReason::SystemError(msg) => write!(f, "SystemError:{}", msg),
+        }
+    }
+}
+
 impl JobState {
     /// Returns the short form representation of the job state
     pub fn short_form(&self) -> &'static str {
@@ -151,6 +182,8 @@ pub struct Job {
     pub gpu_ids: Option<Vec<u32>>,       // GPU IDs assigned to this job
     pub started_at: Option<SystemTime>,  // When the job started running
     pub finished_at: Option<SystemTime>, // When the job finished or failed
+    #[serde(default)]
+    pub reason: Option<JobStateReason>, // Reason for cancellation/failure
 }
 
 #[derive(Default)]
@@ -311,6 +344,7 @@ impl JobBuilder {
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
             started_at: None,
             finished_at: None,
+            reason: None,
         }
     }
 }
@@ -343,6 +377,7 @@ impl Default for Job {
             gpu_ids: None,
             started_at: None,
             finished_at: None,
+            reason: None,
         }
     }
 }
