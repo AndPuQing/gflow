@@ -263,7 +263,7 @@ fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
         match reason {
             JobStateReason::CancelledByUser => {
                 // Don't show explicit reason for user cancellations
-                return "(Cancelled)".to_string();
+                return "-".to_string();
             }
             _ => {
                 // Show detailed reason for other cases
