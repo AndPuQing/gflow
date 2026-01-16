@@ -260,31 +260,39 @@ fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
 
     // If job already has a reason set, use it (except for CancelledByUser)
     if let Some(reason) = &job.reason {
-        match reason {
-            JobStateReason::CancelledByUser => {
-                // Don't show explicit reason for user cancellations
-                return "-".to_string();
-            }
-            _ => {
-                // Show detailed reason for other cases
-                return format!("({})", reason);
-            }
+        if matches!(reason, JobStateReason::CancelledByUser) {
+            return "-".to_string();
         }
+        return format!("({})", reason);
     }
 
-    // Otherwise, compute the reason based on state
+    // Compute the reason based on state
     match job.state {
         JobState::Hold => format!("({})", JobStateReason::JobHeldUser),
         JobState::Queued => {
-            if job.depends_on.is_some() || !job.depends_on_ids.is_empty() {
+            let has_dependencies = job.depends_on.is_some() || !job.depends_on_ids.is_empty();
+            if has_dependencies {
                 format!("({})", JobStateReason::WaitingForDependency)
             } else {
                 format!("({})", JobStateReason::WaitingForResources)
             }
         }
-        JobState::Cancelled => "(Cancelled)".to_string(),
+        JobState::Cancelled => "-".to_string(),
         _ => "-".to_string(),
     }
+}
+
+/// Formats GPU IDs as a comma-separated string
+fn format_gpu_ids(gpu_ids: Option<&Vec<u32>>) -> String {
+    gpu_ids.map_or_else(
+        || "-".to_string(),
+        |ids| {
+            ids.iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+    )
 }
 
 /// Formats a job field value for display
@@ -305,15 +313,7 @@ fn format_job_cell(
             // For running jobs, show GPU IDs
             // For queued/held/cancelled jobs, show pending reason
             match job.state {
-                JobState::Running => job.gpu_ids.as_ref().map_or_else(
-                    || "-".to_string(),
-                    |ids| {
-                        ids.iter()
-                            .map(|id| id.to_string())
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    },
-                ),
+                JobState::Running => format_gpu_ids(job.gpu_ids.as_ref()),
                 JobState::Queued | JobState::Hold | JobState::Cancelled => {
                     get_job_reason_display(job)
                 }

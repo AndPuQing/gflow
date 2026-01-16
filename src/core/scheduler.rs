@@ -1,6 +1,6 @@
 use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
-use crate::core::job::{Job, JobState};
+use crate::core::job::{Job, JobState, JobStateReason};
 use crate::core::{GPUSlot, UUID};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -147,17 +147,14 @@ impl Scheduler {
     pub fn cancel_job(
         &mut self,
         job_id: u32,
-        reason: Option<crate::core::job::JobStateReason>,
+        reason: Option<JobStateReason>,
     ) -> Option<(bool, Option<String>)> {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
-            let was_running = job.state == JobState::Running;
-            let run_name = job.run_name.clone();
-            job.try_transition(job_id, JobState::Cancelled);
-            job.reason = reason.or(Some(crate::core::job::JobStateReason::CancelledByUser));
-            Some((was_running, run_name))
-        } else {
-            None
-        }
+        let job = self.jobs.get_mut(&job_id)?;
+        let was_running = job.state == JobState::Running;
+        let run_name = job.run_name.clone();
+        job.try_transition(job_id, JobState::Cancelled);
+        job.reason = reason.or(Some(JobStateReason::CancelledByUser));
+        Some((was_running, run_name))
     }
 
     /// Put a job on hold
@@ -309,13 +306,7 @@ impl Scheduler {
     ) -> bool {
         use crate::core::job::DependencyMode;
 
-        // Collect all dependencies (merge legacy and new)
-        let mut all_deps = job.depends_on_ids.clone();
-        if let Some(dep) = job.depends_on {
-            if !all_deps.contains(&dep) {
-                all_deps.push(dep);
-            }
-        }
+        let all_deps = job.all_dependency_ids();
 
         if all_deps.is_empty() {
             return true; // No dependencies
@@ -337,34 +328,22 @@ impl Scheduler {
     /// Find and cancel jobs that depend on a failed job
     /// Returns list of cancelled job IDs
     pub fn auto_cancel_dependent_jobs(&mut self, failed_job_id: u32) -> Vec<u32> {
-        let mut cancelled_jobs = Vec::new();
-
-        // Find all jobs that depend on the failed job
         let dependent_job_ids: Vec<u32> = self
             .jobs
             .values()
             .filter(|j| {
-                // Check if job is queued and has auto-cancel enabled
-                j.state == JobState::Queued && j.auto_cancel_on_dependency_failure
-            })
-            .filter(|j| {
-                // Check if job depends on the failed job
-                let mut all_deps = j.depends_on_ids.clone();
-                if let Some(dep) = j.depends_on {
-                    all_deps.push(dep);
-                }
-                all_deps.contains(&failed_job_id)
+                j.state == JobState::Queued
+                    && j.auto_cancel_on_dependency_failure
+                    && j.all_dependency_ids().contains(&failed_job_id)
             })
             .map(|j| j.id)
             .collect();
 
-        // Cancel each dependent job
+        let mut cancelled_jobs = Vec::new();
         for job_id in dependent_job_ids {
             if let Some(job) = self.jobs.get_mut(&job_id) {
                 if job.try_transition(job_id, JobState::Cancelled) {
-                    job.reason = Some(crate::core::job::JobStateReason::DependencyFailed(
-                        failed_job_id,
-                    ));
+                    job.reason = Some(JobStateReason::DependencyFailed(failed_job_id));
                     tracing::info!(
                         "Auto-cancelled job {} due to failed dependency {}",
                         job_id,

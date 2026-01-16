@@ -387,6 +387,17 @@ impl Job {
         JobBuilder::new()
     }
 
+    /// Returns all dependency IDs (combining legacy single dependency and new multi-dependency)
+    pub fn all_dependency_ids(&self) -> Vec<u32> {
+        let mut deps = self.depends_on_ids.clone();
+        if let Some(dep) = self.depends_on {
+            if !deps.contains(&dep) {
+                deps.push(dep);
+            }
+        }
+        deps
+    }
+
     fn update_timestamps(&mut self, next: &JobState) {
         match next {
             JobState::Running => self.started_at = Some(SystemTime::now()),
