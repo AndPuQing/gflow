@@ -96,7 +96,7 @@ metrics = ["prometheus", "lazy_static"]
 
 [build-dependencies]
 anyhow = "1.0.95"
-vergen-gix = { version = "1.0.6", features = ["build", "cargo"] }
+vergen-gix = { version = "9.0.0", features = ["build", "cargo"] }
 
 [dev-dependencies]
 mockall = "0.14.0"
