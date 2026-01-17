@@ -12,9 +12,3 @@ install:
 
 test-tree:
     cargo test --bin gqueue -- --nocapture --test-threads 1
-
-reset-md: install
-    gflowd restart
-
-doc: reset-md
-    cd docs && mdbook serve
