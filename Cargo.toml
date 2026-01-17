@@ -1,10 +1,10 @@
 [package]
 name = "gflow"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 authors = ["PuQing <me@puqing.work>"]
 repository = "https://github.com/AndPuQing/gflow.git"
-documentation = "https://gflow.puqing.work/"
+documentation = "https://runqd.com"
 license = "MIT"
 description = "A lightweight, single-node job scheduler written in Rust."
 keywords = ["slurm", "scheduler", "job", "rust"]
