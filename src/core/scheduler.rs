@@ -325,36 +325,43 @@ impl Scheduler {
         }
     }
 
-    /// Find and cancel jobs that depend on a failed job
+    /// Find and cancel jobs that depend on a failed job (recursively)
     /// Returns list of cancelled job IDs
     pub fn auto_cancel_dependent_jobs(&mut self, failed_job_id: u32) -> Vec<u32> {
-        let dependent_job_ids: Vec<u32> = self
-            .jobs
-            .values()
-            .filter(|j| {
-                j.state == JobState::Queued
-                    && j.auto_cancel_on_dependency_failure
-                    && j.all_dependency_ids().contains(&failed_job_id)
-            })
-            .map(|j| j.id)
-            .collect();
+        let mut all_cancelled_jobs = Vec::new();
+        let mut jobs_to_process = vec![failed_job_id];
 
-        let mut cancelled_jobs = Vec::new();
-        for job_id in dependent_job_ids {
-            if let Some(job) = self.jobs.get_mut(&job_id) {
-                if job.try_transition(job_id, JobState::Cancelled) {
-                    job.reason = Some(JobStateReason::DependencyFailed(failed_job_id));
-                    tracing::info!(
-                        "Auto-cancelled job {} due to failed dependency {}",
-                        job_id,
-                        failed_job_id
-                    );
-                    cancelled_jobs.push(job_id);
+        // Process jobs in waves: cancel direct dependents, then their dependents, etc.
+        while let Some(current_failed_id) = jobs_to_process.pop() {
+            let dependent_job_ids: Vec<u32> = self
+                .jobs
+                .values()
+                .filter(|j| {
+                    j.state == JobState::Queued
+                        && j.auto_cancel_on_dependency_failure
+                        && j.all_dependency_ids().contains(&current_failed_id)
+                })
+                .map(|j| j.id)
+                .collect();
+
+            for job_id in dependent_job_ids {
+                if let Some(job) = self.jobs.get_mut(&job_id) {
+                    if job.try_transition(job_id, JobState::Cancelled) {
+                        job.reason = Some(JobStateReason::DependencyFailed(current_failed_id));
+                        tracing::info!(
+                            "Auto-cancelled job {} due to failed dependency {}",
+                            job_id,
+                            current_failed_id
+                        );
+                        all_cancelled_jobs.push(job_id);
+                        // Add this cancelled job to the queue to check its dependents
+                        jobs_to_process.push(job_id);
+                    }
                 }
             }
         }
 
-        cancelled_jobs
+        all_cancelled_jobs
     }
 
     /// Validate that a job can be updated
@@ -995,5 +1002,226 @@ mod tests {
             scheduler.jobs[&job_id].started_at, None,
             "started_at should not be set when no executor is present"
         );
+    }
+
+    #[test]
+    fn test_auto_cancel_direct_dependent() {
+        let mut scheduler = create_test_scheduler();
+
+        // Create job A
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        // Create job B that depends on A with auto_cancel enabled
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        // Fail job A
+        scheduler.fail_job(job_a_id);
+
+        // Auto-cancel dependent jobs
+        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
+
+        // Job B should be cancelled
+        assert_eq!(cancelled.len(), 1);
+        assert!(cancelled.contains(&job_b_id));
+        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
+        assert_eq!(
+            scheduler.jobs[&job_b_id].reason,
+            Some(JobStateReason::DependencyFailed(job_a_id))
+        );
+    }
+
+    #[test]
+    fn test_auto_cancel_transitive_dependencies() {
+        let mut scheduler = create_test_scheduler();
+
+        // Create job A
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        // Create job B that depends on A with auto_cancel enabled
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        // Create job C that depends on B with auto_cancel enabled
+        let job_c = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        // Fail job A
+        scheduler.fail_job(job_a_id);
+
+        // Auto-cancel dependent jobs (should cancel both B and C)
+        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
+
+        // Both B and C should be cancelled
+        assert_eq!(cancelled.len(), 2);
+        assert!(cancelled.contains(&job_b_id));
+        assert!(cancelled.contains(&job_c_id));
+        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
+        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Cancelled);
+        assert_eq!(
+            scheduler.jobs[&job_b_id].reason,
+            Some(JobStateReason::DependencyFailed(job_a_id))
+        );
+        assert_eq!(
+            scheduler.jobs[&job_c_id].reason,
+            Some(JobStateReason::DependencyFailed(job_b_id))
+        );
+    }
+
+    #[test]
+    fn test_auto_cancel_deep_chain() {
+        let mut scheduler = create_test_scheduler();
+
+        // Create a chain: A -> B -> C -> D -> E
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let job_c = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        let job_d = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_c_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_d_id, _) = scheduler.submit_job(job_d);
+
+        let job_e = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_d_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_e_id, _) = scheduler.submit_job(job_e);
+
+        // Fail job A
+        scheduler.fail_job(job_a_id);
+
+        // Auto-cancel dependent jobs (should cancel B, C, D, E)
+        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
+
+        // All downstream jobs should be cancelled
+        assert_eq!(cancelled.len(), 4);
+        assert!(cancelled.contains(&job_b_id));
+        assert!(cancelled.contains(&job_c_id));
+        assert!(cancelled.contains(&job_d_id));
+        assert!(cancelled.contains(&job_e_id));
+        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
+        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Cancelled);
+        assert_eq!(scheduler.jobs[&job_d_id].state, JobState::Cancelled);
+        assert_eq!(scheduler.jobs[&job_e_id].state, JobState::Cancelled);
+    }
+
+    #[test]
+    fn test_auto_cancel_respects_flag() {
+        let mut scheduler = create_test_scheduler();
+
+        // Create job A
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        // Create job B that depends on A but WITHOUT auto_cancel enabled
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .auto_cancel_on_dependency_failure(false)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        // Fail job A
+        scheduler.fail_job(job_a_id);
+
+        // Auto-cancel dependent jobs
+        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
+
+        // Job B should NOT be cancelled
+        assert_eq!(cancelled.len(), 0);
+        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_auto_cancel_mixed_flags() {
+        let mut scheduler = create_test_scheduler();
+
+        // Create job A
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        // Create job B that depends on A with auto_cancel enabled
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        // Create job C that depends on B WITHOUT auto_cancel enabled
+        let job_c = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_id])
+            .auto_cancel_on_dependency_failure(false)
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        // Fail job A
+        scheduler.fail_job(job_a_id);
+
+        // Auto-cancel dependent jobs
+        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
+
+        // Only B should be cancelled, not C (because C has auto_cancel disabled)
+        assert_eq!(cancelled.len(), 1);
+        assert!(cancelled.contains(&job_b_id));
+        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
+        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Queued);
     }
 }
