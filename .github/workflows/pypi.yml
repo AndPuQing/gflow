@@ -24,7 +24,7 @@ jobs:
                     # ARM64 MUSL (static linking)
                     - aarch64-unknown-linux-musl
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Set up Python
               uses: actions/setup-python@v5
