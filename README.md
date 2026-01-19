@@ -2,6 +2,7 @@
 
 [![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://andpuqing.github.io/gflow/)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)](https://github.com/AndPuQing/gflow/actions/workflows/ci.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/gflow?style=flat-square&logo=pypi)](https://pypi.org/project/gflow/)
 [![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)](https://crates.io/crates/gflow)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/gflow/badges/version.svg)](https://anaconda.org/conda-forge/gflow)
 [![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)](https://crates.io/crates/gflow)
@@ -36,7 +37,29 @@ The `gflow` suite consists of several command-line tools:
 
 ## Installation
 
-### Quick Install (Linux x86_64) - Recommended
+### Install via PyPI (Recommended)
+
+Install gflow using `pipx` (recommended for CLI tools):
+
+```bash
+pipx install gflow
+```
+
+Or using `uv`:
+
+```bash
+uv tool install gflow
+```
+
+Or using `pip`:
+
+```bash
+pip install gflow
+```
+
+This will install pre-built binaries for Linux (x86_64, ARM64, ARMv7) with both GNU and MUSL libc support.
+
+### Quick Install Script (Linux x86_64)
 
 Install gflow with a single command:
 
