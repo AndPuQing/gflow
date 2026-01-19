@@ -59,7 +59,7 @@ jobs:
             id-token: write # Required for trusted publishing
         environment:
             name: pypi
-            url: https://pypi.org/p/gflow
+            url: https://pypi.org/p/runqd
         steps:
             - uses: actions/download-artifact@v4
               with:

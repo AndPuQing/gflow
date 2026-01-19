@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "gflow"
+name = "runqd"
 version = "0.4.8"
 description = "A lightweight, single-node job scheduler written in Rust."
 authors = [
@@ -40,4 +40,4 @@ strip = true
 # Include all 7 binaries from Cargo.toml
 manifest-path = "Cargo.toml"
 # Module name for the package
-module-name = "gflow"
+module-name = "runqd"
