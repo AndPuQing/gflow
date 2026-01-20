@@ -32,6 +32,7 @@ export default defineConfig({
             items: [
               { text: 'Job Submission', link: '/user-guide/job-submission' },
               { text: 'Job Dependencies', link: '/user-guide/job-dependencies' },
+              { text: 'Job Lifecycle', link: '/user-guide/job-lifecycle' },
               { text: 'GPU Management', link: '/user-guide/gpu-management' },
               { text: 'Time Limits', link: '/user-guide/time-limits' },
               { text: 'Configuration', link: '/user-guide/configuration' }
@@ -79,6 +80,7 @@ export default defineConfig({
             items: [
               { text: '任务提交', link: '/zh-CN/user-guide/job-submission' },
               { text: '任务依赖', link: '/zh-CN/user-guide/job-dependencies' },
+              { text: '任务生命周期', link: '/zh-CN/user-guide/job-lifecycle' },
               { text: 'GPU 管理', link: '/zh-CN/user-guide/gpu-management' },
               { text: '时间限制', link: '/zh-CN/user-guide/time-limits' },
               { text: '配置', link: '/zh-CN/user-guide/configuration' }

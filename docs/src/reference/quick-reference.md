@@ -99,6 +99,12 @@ gcancel --fail <job_id>          # Mark job as failed (internal)
 gjob hold <job_id>               # Put queued job on hold
 gjob release <job_id>            # Release held job back to queue
 
+# Redo jobs
+gjob redo <job_id>               # Resubmit job with same parameters
+gjob redo <job_id> --gpus 4      # Resubmit with modified GPU count
+gjob redo <job_id> --time 8:00:00 # Resubmit with longer time limit
+gjob redo <job_id> --cascade     # Redo job and all dependent jobs
+
 # Update queued jobs
 gjob update <job_id> --gpus 2                    # Update GPU count
 gjob update <job_id> --priority 15               # Update priority

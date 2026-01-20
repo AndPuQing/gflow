@@ -99,6 +99,12 @@ gcancel --fail <job_id>          # 标记任务为失败（内部使用）
 gjob hold <job_id>               # 暂停排队任务
 gjob release <job_id>            # 将暂停的任务释放回队列
 
+# 重做任务
+gjob redo <job_id>               # 使用相同参数重新提交任务
+gjob redo <job_id> --gpus 4      # 使用修改的 GPU 数量重新提交
+gjob redo <job_id> --time 8:00:00 # 使用更长的时间限制重新提交
+gjob redo <job_id> --cascade     # 重做任务及所有依赖任务
+
 # 更新排队任务
 gjob update <job_id> --gpus 2                    # 更新 GPU 数量
 gjob update <job_id> --priority 15               # 更新优先级

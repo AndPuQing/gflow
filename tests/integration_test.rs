@@ -617,3 +617,129 @@ fn test_group_concurrency_limit() {
     scheduler.schedule_jobs();
     assert_eq!(scheduler.jobs[&3].state, JobState::Running);
 }
+
+// ============================================================================
+// Cascade Redo Tests
+// ============================================================================
+
+#[test]
+fn test_cascade_redo_dependency_chain() {
+    use gflow::core::job::JobStateReason;
+
+    let (mut scheduler, _executor) = create_test_scheduler();
+
+    // Create a dependency chain: Job 1 -> Job 2 -> Job 3
+    // Job 1 (parent)
+    let job1 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job1")
+        .build();
+    let (job1_id, _) = scheduler.submit_job(job1);
+
+    // Job 2 (depends on Job 1)
+    let job2 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job2")
+        .depends_on_ids(vec![job1_id])
+        .auto_cancel_on_dependency_failure(true)
+        .build();
+    let (job2_id, _) = scheduler.submit_job(job2);
+
+    // Job 3 (depends on Job 2)
+    let job3 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job3")
+        .depends_on_ids(vec![job2_id])
+        .auto_cancel_on_dependency_failure(true)
+        .build();
+    let (job3_id, _) = scheduler.submit_job(job3);
+
+    // Schedule and run Job 1
+    scheduler.schedule_jobs();
+    assert_eq!(scheduler.jobs[&job1_id].state, JobState::Running);
+
+    // Fail Job 1 - this should cascade cancel Job 2 and Job 3
+    scheduler.fail_job(job1_id);
+    assert_eq!(scheduler.jobs[&job1_id].state, JobState::Failed);
+
+    // Trigger auto-cancellation
+    scheduler.auto_cancel_dependent_jobs(job1_id);
+
+    // Verify cascade cancellation
+    assert_eq!(scheduler.jobs[&job2_id].state, JobState::Cancelled);
+    assert_eq!(
+        scheduler.jobs[&job2_id].reason,
+        Some(JobStateReason::DependencyFailed(job1_id))
+    );
+    assert_eq!(scheduler.jobs[&job3_id].state, JobState::Cancelled);
+    assert_eq!(
+        scheduler.jobs[&job3_id].reason,
+        Some(JobStateReason::DependencyFailed(job2_id))
+    );
+
+    // Now simulate cascade redo:
+    // 1. Redo Job 1 (creates Job 4)
+    let job4 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job1")
+        .redone_from(Some(job1_id))
+        .build();
+    let (job4_id, _) = scheduler.submit_job(job4);
+
+    // 2. Redo Job 2 with updated dependency (creates Job 5)
+    let job5 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job2")
+        .depends_on_ids(vec![job4_id]) // Updated to depend on Job 4
+        .auto_cancel_on_dependency_failure(true)
+        .redone_from(Some(job2_id))
+        .build();
+    let (job5_id, _) = scheduler.submit_job(job5);
+
+    // 3. Redo Job 3 with updated dependency (creates Job 6)
+    let job6 = JobBuilder::new()
+        .submitted_by("alice")
+        .run_dir("/tmp")
+        .command("echo job3")
+        .depends_on_ids(vec![job5_id]) // Updated to depend on Job 5
+        .auto_cancel_on_dependency_failure(true)
+        .redone_from(Some(job3_id))
+        .build();
+    let (job6_id, _) = scheduler.submit_job(job6);
+
+    // Verify the new jobs are queued
+    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Queued);
+    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Queued);
+    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Queued);
+
+    // Schedule and run Job 4
+    scheduler.schedule_jobs();
+    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Running);
+    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Queued); // Still waiting
+
+    // Finish Job 4 - Job 5 should now run
+    scheduler.finish_job(job4_id);
+    scheduler.schedule_jobs();
+    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Finished);
+    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Running);
+    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Queued); // Still waiting
+
+    // Finish Job 5 - Job 6 should now run
+    scheduler.finish_job(job5_id);
+    scheduler.schedule_jobs();
+    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Finished);
+    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Running);
+
+    // Finish Job 6
+    scheduler.finish_job(job6_id);
+    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Finished);
+
+    // Verify the cascade redo preserved the dependency chain
+    assert_eq!(scheduler.jobs[&job5_id].depends_on_ids, vec![job4_id]);
+    assert_eq!(scheduler.jobs[&job6_id].depends_on_ids, vec![job5_id]);
+}

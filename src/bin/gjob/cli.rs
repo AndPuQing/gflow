@@ -175,6 +175,12 @@ pub enum Commands {
 
         #[arg(long, help = "Clear dependency from original job")]
         clear_deps: bool,
+
+        #[arg(
+            long,
+            help = "Also redo dependent jobs that were cancelled due to this job's failure"
+        )]
+        cascade: bool,
     },
     /// Close tmux sessions for completed jobs (by default). Use --state to close sessions in other states.
     #[command(visible_alias = "close")]

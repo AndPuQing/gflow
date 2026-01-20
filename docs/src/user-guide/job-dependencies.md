@@ -553,6 +553,69 @@ gbatch --depends-on 301 --no-auto-cancel python train.py
 
 **Cascade cancellation**: If job A depends on B, and B depends on C, when C fails, both B and A are cancelled automatically.
 
+### Cascade Redo
+
+When a job fails and you fix the issue, you can use `gjob redo` with the `--cascade` flag to automatically redo all dependent jobs that were cancelled due to the failure:
+
+```bash
+# Job 301 fails, causing jobs 302 and 303 to be auto-cancelled
+gbatch python preprocess.py  # Job 301 - fails
+gbatch --depends-on 301 python train.py  # Job 302 - auto-cancelled
+gbatch --depends-on 302 python evaluate.py  # Job 303 - auto-cancelled
+
+# After fixing the issue, redo the failed job and all its dependents
+gjob redo 301 --cascade
+```
+
+**What happens**:
+1. Job 301 is resubmitted as a new job (e.g., Job 304)
+2. Job 302 is automatically resubmitted as Job 305, with its dependency updated to Job 304
+3. Job 303 is automatically resubmitted as Job 306, with its dependency updated to Job 305
+4. The entire dependency chain is preserved with new job IDs
+
+**Cascade scope**:
+- Only redoes jobs in `Cancelled` state with reason `DependencyFailed`
+- Handles transitive dependencies (A→B→C→D)
+- Automatically updates all dependency references to point to new job IDs
+- Preserves all original job parameters (GPUs, time limits, conda env, etc.)
+
+**Example with complex workflow**:
+```bash
+# Original workflow
+gbatch python stage1.py  # Job 100 - fails
+gbatch --depends-on 100 python stage2a.py  # Job 101 - cancelled
+gbatch --depends-on 100 python stage2b.py  # Job 102 - cancelled
+gbatch --depends-on-all 101,102 python stage3.py  # Job 103 - cancelled
+
+# Redo with cascade
+$ gjob redo 100 --cascade
+Resubmitting job 100 with parameters:
+  Script:       stage1.py
+  ...
+Submitted batch job 104 (stage1-1)
+
+Cascading to 3 dependent job(s)...
+  Job 101 → Job 105 (stage2a-1)
+  Job 102 → Job 106 (stage2b-1)
+  Job 103 → Job 107 (stage3-1)
+
+Cascade complete.
+```
+
+**Benefits**:
+- Saves time by not having to manually resubmit each dependent job
+- Maintains the exact same workflow structure
+- Automatically handles complex dependency updates
+- Reduces errors from manual resubmission
+
+**Without cascade** (manual approach):
+```bash
+gjob redo 100  # Job 104
+gjob redo 101 --depends-on 104  # Job 105
+gjob redo 102 --depends-on 104  # Job 106
+gjob redo 103 --depends-on-all 105,106  # Job 107
+```
+
 ### Circular Dependency Detection
 
 gflow automatically detects and prevents circular dependencies at submission time:

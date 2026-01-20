@@ -84,6 +84,7 @@ pub async fn handle_commands(
             memory,
             conda_env,
             clear_deps,
+            cascade,
         } => {
             redo::handle_redo(
                 config_path,
@@ -95,6 +96,7 @@ pub async fn handle_commands(
                 memory,
                 conda_env,
                 clear_deps,
+                cascade,
             )
             .await?;
         }
