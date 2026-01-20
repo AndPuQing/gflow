@@ -348,7 +348,13 @@ fn format_job_name_with_session_status(
 /// Tree structure for dependency visualization
 struct JobNode {
     job: gflow::core::job::Job,
-    children: Vec<(JobNode, bool)>, // (node, is_redo_relationship)
+    children: Vec<JobNodeChild>,
+}
+
+/// Represents a child in the tree - either a real job node or a reference
+enum JobNodeChild {
+    Node(Box<JobNode>, bool), // (node, is_redo_relationship)
+    Reference(u32),           // Reference to a job ID that appears elsewhere
 }
 
 /// Context for rendering jobs with formatting and session information
@@ -369,8 +375,16 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     // Create a map of original_job_id -> redo jobs (for redo relationships)
     let mut redo_map: HashMap<u32, Vec<u32>> = HashMap::new();
 
+    // Track all jobs that appear as dependency children (globally)
+    let mut all_dependency_children: HashSet<u32> = HashSet::new();
+
     for job in &jobs {
         children_map.entry(job.depends_on).or_default().push(job.id);
+
+        // Track all jobs that have a dependency parent
+        if job.depends_on.is_some() {
+            all_dependency_children.insert(job.id);
+        }
 
         if let Some(redone_from) = job.redone_from {
             redo_map.entry(redone_from).or_default().push(job.id);
@@ -383,6 +397,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
         job_map: &HashMap<u32, gflow::core::job::Job>,
         children_map: &HashMap<Option<u32>, Vec<u32>>,
         redo_map: &HashMap<u32, Vec<u32>>,
+        all_dependency_children: &HashSet<u32>,
         visited: &mut HashSet<u32>,
         recursion_stack: &mut HashSet<u32>,
     ) -> Option<JobNode> {
@@ -402,32 +417,50 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
         visited.insert(job_id);
         recursion_stack.insert(job_id);
 
-        let dep_iter = children_map
+        // Collect dependency children IDs first
+        let dep_child_ids: HashSet<u32> = children_map
             .get(&Some(job_id))
             .into_iter()
             .flatten()
-            .map(|&id| (id, false));
+            .copied()
+            .collect();
 
+        let dep_iter = dep_child_ids.iter().map(|&id| (id, false));
+
+        // For redo children that are dependency children elsewhere, create references
         let redo_iter = redo_map
             .get(&job_id)
             .into_iter()
             .flatten()
             .map(|&id| (id, true));
 
-        let children: Vec<(JobNode, bool)> = dep_iter
+        let mut children: Vec<JobNodeChild> = dep_iter
             .chain(redo_iter)
             .filter_map(|(child_id, is_redo)| {
-                build_node(
-                    child_id,
-                    job_map,
-                    children_map,
-                    redo_map,
-                    visited,
-                    recursion_stack,
-                )
-                .map(|child_node| (child_node, is_redo))
+                // If this is a redo child that appears as a dependency child elsewhere,
+                // create a reference instead of a full node
+                if is_redo && all_dependency_children.contains(&child_id) {
+                    Some(JobNodeChild::Reference(child_id))
+                } else {
+                    build_node(
+                        child_id,
+                        job_map,
+                        children_map,
+                        redo_map,
+                        all_dependency_children,
+                        visited,
+                        recursion_stack,
+                    )
+                    .map(|child_node| JobNodeChild::Node(Box::new(child_node), is_redo))
+                }
             })
             .collect();
+
+        // Sort children by job ID to maintain proper ordering
+        children.sort_by_key(|child| match child {
+            JobNodeChild::Node(node, _) => node.job.id,
+            JobNodeChild::Reference(id) => *id,
+        });
 
         // Remove from recursion stack (backtrack)
         recursion_stack.remove(&job_id);
@@ -460,6 +493,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
                 &job_map,
                 &children_map,
                 &redo_map,
+                &all_dependency_children,
                 &mut visited,
                 &mut recursion_stack,
             )
@@ -557,8 +591,9 @@ fn collect_tree_rows(
 
     // Collect children with updated prefix
     let child_count = node.children.len();
-    for (idx, (child, child_is_redo)) in node.children.iter().enumerate() {
+    for (idx, child) in node.children.iter().enumerate() {
         let is_last_child = idx == child_count - 1;
+
         // Root nodes should not add any prefix to their children
         // Non-root nodes add TREE_PIPE if not last, TREE_EMPTY if last (to maintain tree structure)
         let child_prefix = if is_root {
@@ -572,15 +607,42 @@ fn collect_tree_rows(
             }
         };
 
-        collect_tree_rows(
-            builder,
-            child,
-            ctx,
-            &child_prefix,
-            is_last_child,
-            false,
-            *child_is_redo,
-        );
+        match child {
+            JobNodeChild::Node(child_node, child_is_redo) => {
+                collect_tree_rows(
+                    builder,
+                    child_node,
+                    ctx,
+                    &child_prefix,
+                    is_last_child,
+                    false,
+                    *child_is_redo,
+                );
+            }
+            JobNodeChild::Reference(job_id) => {
+                // Add a reference row
+                let tree_prefix = if is_last_child {
+                    TREE_EDGE_DASHED.to_string()
+                } else {
+                    TREE_BRANCH_DASHED.to_string()
+                };
+
+                let row: Vec<String> = ctx
+                    .headers
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, header)| {
+                        if *header == "JOBID" && idx == 0 {
+                            format!("{}{}→ see job {} below", child_prefix, tree_prefix, job_id)
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .collect();
+
+                builder.push_record(row);
+            }
+        }
     }
 }
 
@@ -841,6 +903,151 @@ mod tests {
         ];
         println!();
         println!("Test: Mixed dependencies and redo relationships");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_job_with_both_dependency_and_redo() {
+        // This test case matches the user's scenario:
+        // Job 165 has both depends_on=163 and redone_from=164
+        // It should only appear once (as a dependency child) with a reference indicator
+        let mut job_165 = create_test_job(165, "gflow-job-165", Some(163));
+        job_165.redone_from = Some(164);
+
+        let jobs = vec![
+            create_test_job(162, "gflow-job-162", None),
+            create_test_job(163, "gflow-job-163", Some(162)),
+            create_test_job(164, "gflow-job-164", Some(163)),
+            job_165,
+        ];
+        println!();
+        println!("Test: Job with both dependency and redo relationship (user's scenario)");
+        println!("Job 165 depends on 163 AND is a redo of 164");
+        println!("Expected: Job 165 appears once under 163, with '→ see job 165 below' reference under 164");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_repeated_redo_operations() {
+        // Test case: Multiple redo operations on the same job
+        // Job 100 -> Job 101 (redo of 100) -> Job 102 (redo of 101) -> Job 103 (redo of 102)
+        let jobs = vec![
+            create_test_job(100, "original-job", None),
+            create_test_job_with_redo(101, "redo-1", Some(100)),
+            create_test_job_with_redo(102, "redo-2", Some(101)),
+            create_test_job_with_redo(103, "redo-3", Some(102)),
+        ];
+        println!();
+        println!("Test: Repeated redo operations (chain of redos)");
+        println!("100 -> 101 (redo of 100) -> 102 (redo of 101) -> 103 (redo of 102)");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_multiple_redos_of_same_job() {
+        // Test case: Multiple jobs are redos of the same original job
+        // Job 200 has three redos: 201, 202, 203
+        let jobs = vec![
+            create_test_job(200, "original-job", None),
+            create_test_job_with_redo(201, "redo-attempt-1", Some(200)),
+            create_test_job_with_redo(202, "redo-attempt-2", Some(200)),
+            create_test_job_with_redo(203, "redo-attempt-3", Some(200)),
+        ];
+        println!();
+        println!("Test: Multiple redos of the same job");
+        println!("Jobs 201, 202, 203 are all redos of job 200");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_redo_with_dependencies() {
+        // Test case: A redo job that has its own dependencies
+        // Job 300 -> Job 301 (depends on 300)
+        // Job 302 (redo of 300) -> Job 303 (depends on 302)
+        let jobs = vec![
+            create_test_job(300, "original-job", None),
+            create_test_job(301, "child-of-original", Some(300)),
+            create_test_job_with_redo(302, "redo-job", Some(300)),
+            create_test_job(303, "child-of-redo", Some(302)),
+        ];
+        println!();
+        println!("Test: Redo job with its own dependencies");
+        println!("300 -> 301 (depends on 300)");
+        println!("302 (redo of 300) -> 303 (depends on 302)");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_complex_redo_and_dependency_mix() {
+        // Test case: Complex scenario with both dependencies and redos
+        // Job 400 -> Job 401 (depends on 400) -> Job 402 (depends on 401)
+        // Job 403 (redo of 401, also depends on 400)
+        // Job 404 (redo of 402, also depends on 403)
+        let mut job_403 = create_test_job(403, "redo-of-401", Some(400));
+        job_403.redone_from = Some(401);
+
+        let mut job_404 = create_test_job(404, "redo-of-402", Some(403));
+        job_404.redone_from = Some(402);
+
+        let jobs = vec![
+            create_test_job(400, "root-job", None),
+            create_test_job(401, "child-1", Some(400)),
+            create_test_job(402, "grandchild", Some(401)),
+            job_403,
+            job_404,
+        ];
+        println!();
+        println!("Test: Complex mix of dependencies and redos");
+        println!("400 -> 401 -> 402");
+        println!("403 (redo of 401, depends on 400)");
+        println!("404 (redo of 402, depends on 403)");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_redo_chain_with_dependency_conflict() {
+        // Test case: A chain where a redo appears as both a redo child and dependency child
+        // Job 500 -> Job 501 (depends on 500)
+        // Job 502 (redo of 500, depends on 501) - should appear under 501, with reference under 500
+        let mut job_502 = create_test_job(502, "redo-depends-on-child", Some(501));
+        job_502.redone_from = Some(500);
+
+        let jobs = vec![
+            create_test_job(500, "original", None),
+            create_test_job(501, "child", Some(500)),
+            job_502,
+        ];
+        println!();
+        println!("Test: Redo chain with dependency conflict");
+        println!("500 -> 501");
+        println!("502 (redo of 500, but depends on 501)");
+        println!("Expected: 502 appears under 501, reference under 500");
+        display_jobs_tree(jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_multiple_redo_references_same_job() {
+        // Test case: Multiple jobs have redo relationships pointing to the same job
+        // that appears as a dependency child
+        // Job 600 -> Job 601 (depends on 600) -> Job 602 (depends on 601)
+        // Job 603 (redo of 602, no dependency)
+        // Job 604 (redo of 602, no dependency)
+        // Expected: 602 appears under 601, both 603 and 604 show references
+        let mut job_603 = create_test_job_with_redo(603, "redo-1-of-602", Some(602));
+        let mut job_604 = create_test_job_with_redo(604, "redo-2-of-602", Some(602));
+
+        let jobs = vec![
+            create_test_job(600, "root", None),
+            create_test_job(601, "child", Some(600)),
+            create_test_job(602, "grandchild", Some(601)),
+            job_603,
+            job_604,
+        ];
+        println!();
+        println!("Test: Multiple redo references to same job");
+        println!("600 -> 601 -> 602");
+        println!("603 and 604 are both redos of 602");
+        println!("Expected: 602 appears under 601, 603 and 604 are root jobs with redo indicators");
         display_jobs_tree(jobs, None, &HashSet::new());
     }
 }
