@@ -134,4 +134,4 @@ flowchart TD
 - [任务依赖](./job-dependencies) - 任务依赖完整指南
 - [任务提交](./job-submission) - 任务提交选项
 - [时间限制](./time-limits) - 管理任务超时
-- [gjob 参考](../reference/gjob-reference) - 完整命令参考
+<!--- [gjob 参考](../reference/gjob-reference) - 完整命令参考-->

@@ -134,4 +134,4 @@ flowchart TD
 - [Job Dependencies](./job-dependencies) - Complete guide to job dependencies
 - [Job Submission](./job-submission) - Job submission options
 - [Time Limits](./time-limits) - Managing job timeouts
-- [gjob Reference](../reference/gjob-reference) - Complete command reference
+<!--- [gjob Reference](../reference/gjob-reference) - Complete command reference-->
