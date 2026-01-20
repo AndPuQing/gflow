@@ -2,6 +2,7 @@ use clap::Parser;
 
 mod cli;
 mod commands;
+mod events;
 mod executor;
 mod scheduler_runtime;
 mod server;

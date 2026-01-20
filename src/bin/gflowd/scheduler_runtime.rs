@@ -1,3 +1,4 @@
+use crate::events::{EventBus, SchedulerEvent};
 use crate::state_saver::StateSaverHandle;
 use anyhow::Result;
 use gflow::core::executor::Executor;
@@ -6,12 +7,9 @@ use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
-
-/// Shared notification handle to wake up the scheduler
-pub type SchedulerNotify = Arc<Notify>;
 
 /// Wrapper to make Arc<dyn Executor> compatible with Box<dyn Executor>
 struct ArcExecutorWrapper(Arc<dyn Executor>);
@@ -290,12 +288,6 @@ impl SchedulerRuntime {
         }
     }
 
-    /// Refresh GPU slots and available memory
-    pub fn refresh(&mut self) {
-        self.refresh_gpu_slots();
-        self.scheduler.refresh_available_memory();
-    }
-
     /// Refresh GPU slot availability using NVML
     fn refresh_gpu_slots(&mut self) {
         let running_gpu_indices: std::collections::HashSet<u32> = self
@@ -412,15 +404,7 @@ impl SchedulerRuntime {
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
         let result = self.scheduler.fail_job(job_id);
         if result {
-            // Auto-cancel dependent jobs
-            let cancelled = self.scheduler.auto_cancel_dependent_jobs(job_id);
-            if !cancelled.is_empty() {
-                tracing::info!(
-                    "Auto-cancelled {} dependent jobs: {:?}",
-                    cancelled.len(),
-                    cancelled
-                );
-            }
+            // Note: Cascade cancellation is now handled by the cascade_handler event handler
             self.mark_dirty();
         }
         result
@@ -428,15 +412,7 @@ impl SchedulerRuntime {
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id, None) {
-            // Auto-cancel dependent jobs
-            let cancelled = self.scheduler.auto_cancel_dependent_jobs(job_id);
-            if !cancelled.is_empty() {
-                tracing::info!(
-                    "Auto-cancelled {} dependent jobs: {:?}",
-                    cancelled.len(),
-                    cancelled
-                );
-            }
+            // Note: Cascade cancellation is now handled by the cascade_handler event handler
             self.mark_dirty();
 
             // If the job was running, send Ctrl-C to gracefully interrupt it
@@ -640,29 +616,249 @@ impl GPU for SchedulerRuntime {
     }
 }
 
-/// Async scheduling loop with immediate wake-up support
-pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
+/// Event-driven scheduling loop
+pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus>) {
+    // Spawn all event handlers and monitors
+    let handles = vec![
+        // Cascade handler - reacts to job failures/cancellations
+        tokio::spawn(cascade_handler(
+            event_bus.subscribe(),
+            Arc::clone(&shared_state),
+        )),
+        // Scheduler trigger handler with debouncing
+        tokio::spawn(scheduler_trigger_handler_with_debounce(
+            event_bus.subscribe(),
+            Arc::clone(&shared_state),
+        )),
+        // GPU monitor - polls NVML every 10s
+        tokio::spawn(gpu_monitor_task(
+            Arc::clone(&shared_state),
+            Arc::clone(&event_bus),
+        )),
+        // Zombie monitor - checks tmux every 30s
+        tokio::spawn(zombie_monitor_task(
+            Arc::clone(&shared_state),
+            Arc::clone(&event_bus),
+        )),
+        // Zombie handler - reacts to zombie events
+        tokio::spawn(zombie_handler_task(
+            event_bus.subscribe(),
+            Arc::clone(&shared_state),
+        )),
+        // Timeout monitor - checks time limits every 10s
+        tokio::spawn(timeout_monitor_task(
+            Arc::clone(&shared_state),
+            Arc::clone(&event_bus),
+        )),
+        // Timeout handler - reacts to timeout events
+        tokio::spawn(timeout_handler_task(
+            event_bus.subscribe(),
+            Arc::clone(&shared_state),
+        )),
+        // Metrics updater - updates metrics every 5s
+        #[cfg(feature = "metrics")]
+        tokio::spawn(metrics_updater_task(Arc::clone(&shared_state))),
+    ];
+
+    // Wait for all handlers (they run forever)
+    for handle in handles {
+        if let Err(e) = handle.await {
+            tracing::error!("Event handler task panicked: {:?}", e);
+        }
+    }
+}
+
+/// Cascade handler - reacts to job failures/cancellations and triggers cascade cancellation
+async fn cascade_handler(
+    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    state: SharedState,
+) {
+    loop {
+        match events.recv().await {
+            Ok(SchedulerEvent::JobCompleted {
+                job_id,
+                final_state,
+                ..
+            }) => {
+                // Only trigger cascade for failed, cancelled, or timed out jobs
+                if matches!(
+                    final_state,
+                    JobState::Failed | JobState::Cancelled | JobState::Timeout
+                ) {
+                    let mut state_guard = state.write().await;
+                    let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
+                    if !cancelled.is_empty() {
+                        tracing::info!(
+                            "Auto-cancelled {} dependent jobs due to job {} (state: {:?}): {:?}",
+                            cancelled.len(),
+                            job_id,
+                            final_state,
+                            cancelled
+                        );
+                        state_guard.mark_dirty();
+                    }
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                tracing::warn!("Cascade handler lagged, skipped {} events", skipped);
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                tracing::info!("Event bus closed, cascade handler exiting");
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Scheduler trigger handler with debouncing
+async fn scheduler_trigger_handler_with_debounce(
+    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    state: SharedState,
+) {
+    let mut debounce = tokio::time::interval(Duration::from_millis(100));
+    let mut pending_schedule = false;
 
     loop {
-        // Wait for either the 5-second interval OR an immediate wake-up notification
         tokio::select! {
-            _ = interval.tick() => {}
-            _ = notify.notified() => {
-                tracing::debug!("Scheduler triggered by job submission");
+            result = events.recv() => {
+                match result {
+                    Ok(event) => {
+                        match event {
+                            SchedulerEvent::JobSubmitted { .. }
+                            | SchedulerEvent::JobCompleted { .. }
+                            | SchedulerEvent::GpuAvailabilityChanged { .. }
+                            | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
+                                pending_schedule = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!("Scheduler trigger handler lagged, skipped {} events", skipped);
+                        pending_schedule = true; // Trigger scheduling to be safe
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("Event bus closed, scheduler trigger handler exiting");
+                        break;
+                    }
+                }
+            }
+            _ = debounce.tick() => {
+                if pending_schedule {
+                    trigger_scheduling(&state).await;
+                    pending_schedule = false;
+                }
             }
         }
+    }
+}
 
-        // Step 1: Refresh GPU slots (write lock - very brief)
-        {
-            let mut state = shared_state.write().await;
-            state.refresh();
+/// Trigger job scheduling
+async fn trigger_scheduling(state: &SharedState) {
+    // Step 1: Prepare jobs for execution (write lock - fast, no I/O)
+    let jobs_to_execute = {
+        let mut state_guard = state.write().await;
+        state_guard.scheduler.prepare_jobs_for_execution()
+    }; // Lock released here
+
+    if jobs_to_execute.is_empty() {
+        return;
+    }
+
+    // Step 2: Execute jobs (NO LOCK - can take seconds due to tmux I/O)
+    let executor = {
+        let state_guard = state.read().await;
+        state_guard.executor.clone()
+    }; // Read lock released immediately
+
+    let mut execution_results = Vec::new();
+    for job in &jobs_to_execute {
+        // Re-check job state before execution (prevents executing cancelled/held jobs)
+        let should_execute = {
+            let state_guard = state.read().await;
+            state_guard
+                .jobs()
+                .get(&job.id)
+                .map(|current_job| current_job.state == JobState::Running)
+                .unwrap_or(false)
+        };
+
+        if !should_execute {
+            tracing::info!(
+                "Skipping execution of job {} (state changed before execution)",
+                job.id
+            );
+            execution_results.push((
+                job.id,
+                Err("Job state changed before execution".to_string()),
+            ));
+            continue;
         }
 
-        // Step 2: Detect zombie jobs (collect data with read lock, check tmux without lock)
+        match executor.execute(job) {
+            Ok(_) => {
+                tracing::info!("Executed job {}", job.id);
+                execution_results.push((job.id, Ok(())));
+            }
+            Err(e) => {
+                tracing::error!("Failed to execute job {}: {:?}", job.id, e);
+                execution_results.push((job.id, Err(e.to_string())));
+            }
+        }
+    }
+
+    // Step 3: Handle failures (write lock - brief)
+    if !execution_results.is_empty() {
+        let mut state_guard = state.write().await;
+        state_guard
+            .scheduler
+            .handle_execution_failures(&execution_results);
+        state_guard.mark_dirty();
+    }
+}
+
+/// GPU monitor task - polls NVML every 10s and publishes changes
+async fn gpu_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+    let mut previous_gpu_states: HashMap<u32, bool> = HashMap::new();
+
+    loop {
+        interval.tick().await;
+
+        // Refresh GPU slots
+        {
+            let mut state_guard = state.write().await;
+            state_guard.refresh_gpu_slots();
+        }
+
+        // Check for changes and publish events
+        let state_guard = state.read().await;
+        let info = state_guard.info();
+        for gpu_info in &info.gpus {
+            let previous_available = previous_gpu_states.get(&gpu_info.index).copied();
+            if previous_available != Some(gpu_info.available) {
+                event_bus.publish(SchedulerEvent::GpuAvailabilityChanged {
+                    gpu_index: gpu_info.index,
+                    available: gpu_info.available,
+                });
+                previous_gpu_states.insert(gpu_info.index, gpu_info.available);
+            }
+        }
+    }
+}
+
+/// Zombie monitor task - checks tmux sessions every 30s
+async fn zombie_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(30));
+
+    loop {
+        interval.tick().await;
+
+        // Collect running jobs (with read lock)
         let running_jobs = {
-            let state = shared_state.read().await;
-            state
+            let state_guard = state.read().await;
+            state_guard
                 .jobs()
                 .values()
                 .filter(|j| j.state == JobState::Running)
@@ -670,62 +866,103 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
                 .collect::<Vec<_>>()
         };
 
-        // Check tmux sessions without holding any lock
-        let mut zombie_job_ids = Vec::new();
+        if running_jobs.is_empty() {
+            continue;
+        }
+
+        // Get all tmux sessions in a single batch call (no lock held)
+        let existing_sessions = gflow::tmux::get_all_session_names();
+
+        // Check which jobs are zombies
         for (job_id, run_name) in running_jobs {
             if let Some(rn) = run_name {
-                if !gflow::tmux::is_session_exist(&rn) {
-                    tracing::warn!("Found zombie job (id: {}), marking as Failed.", job_id);
-                    zombie_job_ids.push(job_id);
+                if !existing_sessions.contains(&rn) {
+                    tracing::warn!("Found zombie job (id: {}), publishing event", job_id);
+                    event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
                 }
             }
         }
+    }
+}
 
-        // Update zombie jobs (write lock - brief)
-        if !zombie_job_ids.is_empty() {
-            let mut state = shared_state.write().await;
-            for job_id in zombie_job_ids {
-                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+/// Zombie handler task - reacts to zombie events and marks jobs as failed
+async fn zombie_handler_task(
+    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    state: SharedState,
+) {
+    loop {
+        match events.recv().await {
+            Ok(SchedulerEvent::ZombieJobDetected { job_id }) => {
+                let mut state_guard = state.write().await;
+                if let Some(job) = state_guard.scheduler.jobs.get_mut(&job_id) {
                     job.state = JobState::Failed;
                     job.finished_at = Some(std::time::SystemTime::now());
-                    state.mark_dirty();
+                    state_guard.mark_dirty();
+                    tracing::info!("Marked zombie job {} as Failed", job_id);
                 }
             }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                tracing::warn!("Zombie handler lagged, skipped {} events", skipped);
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                tracing::info!("Event bus closed, zombie handler exiting");
+                break;
+            }
+            _ => {}
         }
+    }
+}
 
-        // Step 3: Check for timed-out jobs (read lock to identify, then handle)
+/// Timeout monitor task - checks time limits every 10s
+async fn timeout_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+    loop {
+        interval.tick().await;
+
+        // Check for timed-out jobs (read lock)
         let timed_out_jobs = {
-            let state = shared_state.read().await;
-            state
+            let state_guard = state.read().await;
+            state_guard
                 .jobs()
                 .values()
                 .filter(|job| job.has_exceeded_time_limit())
                 .map(|job| {
-                    tracing::warn!("Job {} has exceeded time limit, terminating...", job.id);
+                    tracing::warn!("Job {} has exceeded time limit, publishing event", job.id);
                     (job.id, job.run_name.clone())
                 })
                 .collect::<Vec<_>>()
         };
 
-        // Terminate timed-out jobs and update state
-        if !timed_out_jobs.is_empty() {
-            // Send Ctrl-C to all timed-out jobs first (without lock)
-            for (job_id, run_name) in &timed_out_jobs {
-                if let Some(run_name) = run_name {
-                    if let Err(e) = gflow::tmux::send_ctrl_c(run_name) {
+        // Publish timeout events
+        for (job_id, run_name) in timed_out_jobs {
+            event_bus.publish(SchedulerEvent::JobTimedOut { job_id, run_name });
+        }
+    }
+}
+
+/// Timeout handler task - reacts to timeout events and terminates jobs
+async fn timeout_handler_task(
+    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    state: SharedState,
+) {
+    loop {
+        match events.recv().await {
+            Ok(SchedulerEvent::JobTimedOut { job_id, run_name }) => {
+                // Send Ctrl-C to terminate the job (no lock held)
+                if let Some(rn) = &run_name {
+                    if let Err(e) = gflow::tmux::send_ctrl_c(rn) {
                         tracing::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
                     }
                 }
-            }
 
-            // Update all timed-out jobs in memory
-            let mut state = shared_state.write().await;
-            for (job_id, _) in timed_out_jobs {
-                if let Some(job) = state.scheduler.jobs.get_mut(&job_id) {
+                // Update job state (write lock)
+                let mut state_guard = state.write().await;
+                if let Some(job) = state_guard.scheduler.jobs.get_mut(&job_id) {
                     job.try_transition(job_id, JobState::Timeout);
 
                     // Auto-cancel dependent jobs
-                    let cancelled = state.scheduler.auto_cancel_dependent_jobs(job_id);
+                    let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
                     if !cancelled.is_empty() {
                         tracing::info!(
                             "Auto-cancelled {} dependent jobs due to timeout of job {}: {:?}",
@@ -735,103 +972,51 @@ pub async fn run(shared_state: SharedState, notify: SchedulerNotify) {
                         );
                     }
 
-                    state.mark_dirty();
+                    state_guard.mark_dirty();
                 }
             }
-        }
-
-        // Step 4a: Prepare jobs for execution (write lock - fast, no I/O)
-        let jobs_to_execute = {
-            let mut state = shared_state.write().await;
-            state.scheduler.prepare_jobs_for_execution()
-        }; // Lock released here
-
-        // Step 4b: Execute jobs (NO LOCK - can take seconds due to tmux I/O)
-        let execution_results = if !jobs_to_execute.is_empty() {
-            // Clone executor Arc - NO LOCK NEEDED!
-            let executor = {
-                let state = shared_state.read().await;
-                state.executor.clone()
-            }; // Read lock released immediately
-
-            // Execute jobs without holding ANY lock
-            let mut results = Vec::new();
-            for job in &jobs_to_execute {
-                // Re-check job state before execution (prevents executing cancelled/held jobs)
-                let should_execute = {
-                    let state = shared_state.read().await;
-                    state
-                        .jobs()
-                        .get(&job.id)
-                        .map(|current_job| current_job.state == JobState::Running)
-                        .unwrap_or(false)
-                };
-
-                if !should_execute {
-                    tracing::info!(
-                        "Skipping execution of job {} (state changed before execution)",
-                        job.id
-                    );
-                    results.push((
-                        job.id,
-                        Err("Job state changed before execution".to_string()),
-                    ));
-                    continue;
-                }
-
-                match executor.execute(job) {
-                    Ok(_) => {
-                        tracing::info!("Executed job {}", job.id);
-                        results.push((job.id, Ok(())));
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to execute job {}: {:?}", job.id, e);
-                        results.push((job.id, Err(e.to_string())));
-                    }
-                }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                tracing::warn!("Timeout handler lagged, skipped {} events", skipped);
             }
-
-            results
-        } else {
-            Vec::new()
-        };
-
-        // Step 4c: Handle failures (write lock - brief)
-        if !execution_results.is_empty() {
-            let mut state = shared_state.write().await;
-            state
-                .scheduler
-                .handle_execution_failures(&execution_results);
-            state.mark_dirty();
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                tracing::info!("Event bus closed, timeout handler exiting");
+                break;
+            }
+            _ => {}
         }
+    }
+}
 
-        // Step 5: Update metrics (read lock for state snapshot)
-        #[cfg(feature = "metrics")]
-        {
-            use gflow::metrics;
-            let state = shared_state.read().await;
+/// Metrics updater task - updates metrics every 5s
+#[cfg(feature = "metrics")]
+async fn metrics_updater_task(state: SharedState) {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
 
-            // Update job state metrics
-            metrics::update_job_state_metrics(state.jobs());
+    loop {
+        interval.tick().await;
 
-            // Update GPU metrics
-            let info = state.info();
-            let available_gpus = info.gpus.iter().filter(|g| g.available).count();
-            let total_gpus = info.gpus.len();
-            metrics::GPU_AVAILABLE
-                .with_label_values(&[] as &[&str])
-                .set(available_gpus as f64);
-            metrics::GPU_TOTAL
-                .with_label_values(&[] as &[&str])
-                .set(total_gpus as f64);
+        let state_guard = state.read().await;
 
-            // Update memory metrics
-            metrics::MEMORY_AVAILABLE_MB
-                .with_label_values(&[] as &[&str])
-                .set(state.available_memory_mb() as f64);
-            metrics::MEMORY_TOTAL_MB
-                .with_label_values(&[] as &[&str])
-                .set(state.total_memory_mb() as f64);
-        }
+        // Update job state metrics
+        gflow::metrics::update_job_state_metrics(state_guard.jobs());
+
+        // Update GPU metrics
+        let info = state_guard.info();
+        let available_gpus = info.gpus.iter().filter(|g| g.available).count();
+        let total_gpus = info.gpus.len();
+        gflow::metrics::GPU_AVAILABLE
+            .with_label_values(&[] as &[&str])
+            .set(available_gpus as f64);
+        gflow::metrics::GPU_TOTAL
+            .with_label_values(&[] as &[&str])
+            .set(total_gpus as f64);
+
+        // Update memory metrics
+        gflow::metrics::MEMORY_AVAILABLE_MB
+            .with_label_values(&[] as &[&str])
+            .set(state_guard.available_memory_mb() as f64);
+        gflow::metrics::MEMORY_TOTAL_MB
+            .with_label_values(&[] as &[&str])
+            .set(state_guard.total_memory_mb() as f64);
     }
 }

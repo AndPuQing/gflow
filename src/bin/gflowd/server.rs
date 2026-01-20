@@ -6,8 +6,9 @@
 //! only and protected by firewall rules. Consider gating these endpoints behind a
 //! feature flag or configuration option for production deployments.
 
+use crate::events::{EventBus, SchedulerEvent};
 use crate::executor::TmuxExecutor;
-use crate::scheduler_runtime::{self, SchedulerNotify, SharedState};
+use crate::scheduler_runtime::{self, SharedState};
 use crate::state_saver::StateSaverHandle;
 use axum::{
     extract::{Path, State},
@@ -22,13 +23,12 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Notify;
 
-/// Server state that includes both the scheduler and the notification handle
+/// Server state that includes both the scheduler and the event bus
 #[derive(Clone)]
 struct ServerState {
     scheduler: SharedState,
-    notify: SchedulerNotify,
+    event_bus: Arc<EventBus>,
     _state_saver: StateSaverHandle,
 }
 
@@ -51,9 +51,9 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let scheduler = Arc::new(tokio::sync::RwLock::new(scheduler_runtime));
     let scheduler_clone = Arc::clone(&scheduler);
 
-    // Create notification handle for immediate scheduler wake-up
-    let notify = Arc::new(Notify::new());
-    let notify_clone = Arc::clone(&notify);
+    // Create event bus for event-driven scheduling
+    let event_bus = Arc::new(EventBus::new(1000));
+    let event_bus_clone = Arc::clone(&event_bus);
 
     // Spawn state saver task (30 second interval)
     let scheduler_for_saver = Arc::clone(&scheduler);
@@ -63,16 +63,16 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     });
     state_saver_handle.set_task_handle(state_saver_task);
 
-    // Spawn scheduler task
+    // Spawn event-driven scheduler task
     tokio::spawn(async move {
-        tracing::info!("Starting scheduler with immediate wake-up support...");
-        scheduler_runtime::run(scheduler_clone, notify_clone).await;
+        tracing::info!("Starting event-driven scheduler...");
+        scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
     });
 
-    // Create server state with scheduler, notification handle, and state saver
+    // Create server state with scheduler, event bus, and state saver
     let server_state = ServerState {
         scheduler,
-        notify,
+        event_bus,
         _state_saver: state_saver_handle.clone(),
     };
 
@@ -304,8 +304,10 @@ async fn create_job(
         (job_id, run_name)
     }; // Lock released here
 
-    // Notify scheduler immediately to avoid waiting for next 5-second interval
-    server_state.notify.notify_one();
+    // Publish JobSubmitted event to trigger scheduling
+    server_state
+        .event_bus
+        .publish(SchedulerEvent::JobSubmitted { job_id });
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -393,8 +395,12 @@ async fn create_jobs_batch(
         state.submit_jobs(input).await
     }; // Lock released here
 
-    // Notify scheduler immediately to avoid waiting for next 5-second interval
-    server_state.notify.notify_one();
+    // Publish JobSubmitted events for all submitted jobs
+    for (job_id, _, _) in &results {
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobSubmitted { job_id: *job_id });
+    }
 
     // Record metrics
     #[cfg(feature = "metrics")]
@@ -443,21 +449,37 @@ async fn finish_job(
 ) -> impl IntoResponse {
     tracing::info!(job_id = id, "Finishing job");
 
-    // Get user before finishing (for metrics)
+    // Get job info before finishing (for metrics and events)
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let success = {
+    let (success, gpu_ids, memory_mb) = {
         let mut state = server_state.scheduler.write().await;
-        state.finish_job(id).await
+        let job_info = state
+            .jobs()
+            .get(&id)
+            .map(|j| (j.gpu_ids.clone(), j.memory_limit_mb));
+        let success = state.finish_job(id).await;
+        if let Some((gpu_ids, memory_mb)) = job_info {
+            (success, gpu_ids, memory_mb)
+        } else {
+            (success, None, None)
+        }
     }; // Lock released here
 
     if success {
-        // Notify scheduler immediately since dependent jobs may be ready to run
-        server_state.notify.notify_one();
+        // Publish JobCompleted event to trigger scheduling and cascade
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobCompleted {
+                job_id: id,
+                final_state: JobState::Finished,
+                gpu_ids,
+                memory_mb,
+            });
     }
 
     // Record metrics only on successful transition
@@ -508,21 +530,42 @@ async fn fail_job(
 ) -> impl IntoResponse {
     tracing::info!(job_id = id, "Failing job");
 
-    // Get user before failing (for metrics)
+    // Get user and job info before failing (for metrics and events)
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let success = {
+    let (_success, gpu_ids, memory_mb) = {
+        let state = server_state.scheduler.read().await;
+        if let Some(job) = state.jobs().get(&id) {
+            (true, job.gpu_ids.clone(), job.memory_limit_mb)
+        } else {
+            (false, None, None)
+        }
+    };
+
+    let result = {
         let mut state = server_state.scheduler.write().await;
         state.fail_job(id).await
     }; // Lock released here
 
+    if result {
+        // Publish JobCompleted event to trigger cascade cancellation
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobCompleted {
+                job_id: id,
+                final_state: JobState::Failed,
+                gpu_ids,
+                memory_mb,
+            });
+    }
+
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
-    if success {
+    if result {
         if let Some(submitted_by) = user {
             metrics::JOB_FAILED
                 .with_label_values(&[&submitted_by])
@@ -530,7 +573,7 @@ async fn fail_job(
         }
     }
 
-    if success {
+    if result {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -544,21 +587,42 @@ async fn cancel_job(
 ) -> impl IntoResponse {
     tracing::info!(job_id = id, "Cancelling job");
 
-    // Get user before cancelling (for metrics)
+    // Get user and job info before cancelling (for metrics and events)
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
         state.jobs().get(&id).map(|j| j.submitted_by.clone())
     };
 
-    let success = {
+    let (_success, gpu_ids, memory_mb) = {
+        let state = server_state.scheduler.read().await;
+        if let Some(job) = state.jobs().get(&id) {
+            (true, job.gpu_ids.clone(), job.memory_limit_mb)
+        } else {
+            (false, None, None)
+        }
+    };
+
+    let result = {
         let mut state = server_state.scheduler.write().await;
         state.cancel_job(id).await
     }; // Lock released here
 
+    if result {
+        // Publish JobCompleted event to trigger cascade cancellation
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobCompleted {
+                job_id: id,
+                final_state: JobState::Cancelled,
+                gpu_ids,
+                memory_mb,
+            });
+    }
+
     // Record metrics only on successful transition
     #[cfg(feature = "metrics")]
-    if success {
+    if result {
         if let Some(submitted_by) = user {
             metrics::JOB_CANCELLED
                 .with_label_values(&[&submitted_by])
@@ -566,7 +630,7 @@ async fn cancel_job(
         }
     }
 
-    if success {
+    if result {
         (StatusCode::OK, Json(()))
     } else {
         (StatusCode::NOT_FOUND, Json(()))
@@ -605,8 +669,10 @@ async fn release_job(
     }; // Lock released here
 
     if success {
-        // Notify scheduler immediately since released job may be ready to run
-        server_state.notify.notify_one();
+        // Publish JobSubmitted event since released job may be ready to run
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobSubmitted { job_id: id });
     }
 
     if success {
