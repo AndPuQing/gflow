@@ -620,12 +620,15 @@ fn collect_tree_rows(
                 );
             }
             JobNodeChild::Reference(job_id) => {
-                // Add a reference row
+                // Add a reference row - make it compact by using minimal spacing
                 let tree_prefix = if is_last_child {
-                    TREE_EDGE_DASHED.to_string()
+                    TREE_EDGE_DASHED
                 } else {
-                    TREE_BRANCH_DASHED.to_string()
+                    TREE_BRANCH_DASHED
                 };
+
+                // Create a compact reference that doesn't cause large gaps
+                let reference_text = format!("{}{}→ see job {}", child_prefix, tree_prefix, job_id);
 
                 let row: Vec<String> = ctx
                     .headers
@@ -633,9 +636,10 @@ fn collect_tree_rows(
                     .enumerate()
                     .map(|(idx, header)| {
                         if *header == "JOBID" && idx == 0 {
-                            format!("{}{}→ see job {} below", child_prefix, tree_prefix, job_id)
+                            reference_text.clone()
                         } else {
-                            String::new()
+                            // Use "-" for other columns to maintain table structure
+                            "-".to_string()
                         }
                     })
                     .collect();
