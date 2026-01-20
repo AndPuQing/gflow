@@ -1037,8 +1037,8 @@ mod tests {
         // Job 603 (redo of 602, no dependency)
         // Job 604 (redo of 602, no dependency)
         // Expected: 602 appears under 601, both 603 and 604 show references
-        let mut job_603 = create_test_job_with_redo(603, "redo-1-of-602", Some(602));
-        let mut job_604 = create_test_job_with_redo(604, "redo-2-of-602", Some(602));
+        let job_603 = create_test_job_with_redo(603, "redo-1-of-602", Some(602));
+        let job_604 = create_test_job_with_redo(604, "redo-2-of-602", Some(602));
 
         let jobs = vec![
             create_test_job(600, "root", None),
