@@ -759,7 +759,16 @@ async fn trigger_scheduling(state: &SharedState) {
     // Step 1: Prepare jobs for execution (write lock - fast, no I/O)
     let jobs_to_execute = {
         let mut state_guard = state.write().await;
-        state_guard.scheduler.prepare_jobs_for_execution()
+        let jobs = state_guard.scheduler.prepare_jobs_for_execution();
+
+        // CRITICAL: Immediately refresh GPU slots after allocation to prevent race condition
+        // This ensures that if another scheduling trigger happens before the periodic
+        // GPU monitor runs, it will see the updated GPU availability
+        if !jobs.is_empty() {
+            state_guard.refresh_gpu_slots();
+        }
+
+        jobs
     }; // Lock released here
 
     if jobs_to_execute.is_empty() {
