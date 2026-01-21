@@ -1,7 +1,7 @@
 use anyhow::Result;
 use gflow::client::Client;
 use gflow::core::job::Job;
-use gflow::utils::parse_job_ids;
+use gflow::utils::{parse_job_ids, substitute_parameters};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -46,14 +46,35 @@ fn print_job_details(job: &Job) {
         println!("  Script:        {}", script.display());
     }
     if let Some(ref command) = job.command {
-        println!("  Command:       {}", command);
+        // Check if command contains parameters
+        let has_params = command.contains('{') && !job.parameters.is_empty();
+
+        if has_params {
+            println!("  Command (template): {}", command);
+            match substitute_parameters(command, &job.parameters) {
+                Ok(substituted) => println!("  Command (actual):   {}", substituted),
+                Err(e) => println!("  Command (actual):   Error: {}", e),
+            }
+        } else {
+            println!("  Command:       {}", command);
+        }
+    }
+
+    // Parameters
+    if !job.parameters.is_empty() {
+        println!("\nParameters:");
+        let mut params: Vec<_> = job.parameters.iter().collect();
+        params.sort_by_key(|(k, _)| *k);
+        for (key, value) in params {
+            println!("  {}:  {}", key, value);
+        }
     }
 
     // Resources
     println!("\nResources:");
     println!("  GPUs:          {}", job.gpus);
     if let Some(ref gpu_ids) = job.gpu_ids {
-        println!("  GPU IDs:       {}", format_gpu_ids(gpu_ids));
+        println!("  GPU IDs:       {}", format_ids(gpu_ids));
     }
     if let Some(memory_mb) = job.memory_limit_mb {
         println!(
@@ -73,12 +94,21 @@ fn print_job_details(job: &Job) {
     }
 
     // Dependencies
-    if let Some(depends_on) = job.depends_on {
+    let all_deps = job.all_dependency_ids();
+    if !all_deps.is_empty() || job.task_id.is_some() {
         println!("\nDependencies:");
-        println!("  Depends on:    {}", depends_on);
-    }
-    if let Some(task_id) = job.task_id {
-        println!("  Task ID:       {}", task_id);
+        if !all_deps.is_empty() {
+            println!("  Depends on:    {}", format_ids(&all_deps));
+            if let Some(mode) = job.dependency_mode {
+                println!("  Mode:          {:?}", mode);
+            }
+            if job.auto_cancel_on_dependency_failure {
+                println!("  Auto-cancel:   enabled");
+            }
+        }
+        if let Some(task_id) = job.task_id {
+            println!("  Task ID:       {}", task_id);
+        }
     }
 
     // Time information
@@ -87,9 +117,9 @@ fn print_job_details(job: &Job) {
         println!("  TimeLimit={}", gflow::utils::format_duration(time_limit));
     }
     if let Some(started_at) = job.started_at {
-        println!("  StartTime={}", format_slurm_time(started_at));
+        println!("  StartTime={}", format_time(started_at));
         if let Some(finished_at) = job.finished_at {
-            println!("  EndTime={}", format_slurm_time(finished_at));
+            println!("  EndTime={}", format_time(finished_at));
             if let Ok(duration) = finished_at.duration_since(started_at) {
                 println!("  Runtime={}", gflow::utils::format_duration(duration));
             }
@@ -101,15 +131,15 @@ fn print_job_details(job: &Job) {
     }
 }
 
-fn format_gpu_ids(gpu_ids: &[u32]) -> String {
-    gpu_ids
-        .iter()
+/// Format a slice of u32 IDs as a comma-separated string
+fn format_ids(ids: &[u32]) -> String {
+    ids.iter()
         .map(|id| id.to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn format_slurm_time(time: SystemTime) -> String {
+fn format_time(time: SystemTime) -> String {
     use chrono::{DateTime, Local};
 
     let datetime: DateTime<Local> = time.into();

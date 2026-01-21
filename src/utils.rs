@@ -4,7 +4,53 @@ use clap::builder::{
     Styles,
 };
 use range_parser::parse;
+use regex::Regex;
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
+
+/// Substitute {param_name} patterns in command with actual values.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::HashMap;
+/// use gflow::utils::substitute_parameters;
+///
+/// let mut params = HashMap::new();
+/// params.insert("id".to_string(), "123".to_string());
+/// params.insert("model".to_string(), "gpt-4".to_string());
+///
+/// let template = "python eval.py --task_id '{id}' --model '{model}'";
+/// let result = substitute_parameters(template, &params).unwrap();
+/// assert_eq!(result, "python eval.py --task_id '123' --model 'gpt-4'");
+/// ```
+pub fn substitute_parameters(
+    command: &str,
+    parameters: &HashMap<String, String>,
+) -> Result<String> {
+    let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
+    let mut result = command.to_string();
+    let mut missing_params = Vec::new();
+
+    for cap in re.captures_iter(command) {
+        let param_name = &cap[1];
+        if let Some(value) = parameters.get(param_name) {
+            let pattern = format!("{{{}}}", param_name);
+            result = result.replace(&pattern, value);
+        } else {
+            missing_params.push(param_name.to_string());
+        }
+    }
+
+    if !missing_params.is_empty() {
+        return Err(anyhow!(
+            "Missing parameter values: {}",
+            missing_params.join(", ")
+        ));
+    }
+
+    Ok(result)
+}
 
 /// Parse time limit string into Duration.
 ///
