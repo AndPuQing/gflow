@@ -74,6 +74,14 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
     Ok(log_dir.join(format!("{job_id}.log")))
 }
 
+pub fn get_daemon_log_file_path() -> anyhow::Result<PathBuf> {
+    let log_dir = get_data_dir()?.join("logs");
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir)?;
+    }
+    Ok(log_dir.join("daemon.log"))
+}
+
 pub fn get_current_username() -> String {
     env::var("USER")
         .or_else(|_| env::var("USERNAME"))

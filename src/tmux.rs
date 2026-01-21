@@ -66,6 +66,24 @@ impl TmuxSession {
         .map(|output| output.success())
         .unwrap_or(false)
     }
+
+    /// Replay log file contents to the tmux session
+    /// This displays historical logs in the tmux pane
+    pub fn replay_log_file(&self, log_path: &Path) -> anyhow::Result<()> {
+        if !log_path.exists() {
+            return Ok(()); // No log file to replay
+        }
+
+        // Use cat to display the log file contents in the tmux pane
+        let log_path_str = log_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid log path"))?;
+
+        // Send cat command to display the log file
+        self.send_command(&format!("cat {}", log_path_str));
+
+        Ok(())
+    }
 }
 
 pub fn is_session_exist(name: &str) -> bool {
