@@ -95,12 +95,13 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
         }
     }
 
-    // Sort job groups by job_id for consistent output
+    // Sort job groups by the minimum GPU index for consistent output
     let mut sorted_jobs: Vec<_> = job_groups.into_iter().collect();
-    sorted_jobs.sort_by_key(|(k, _)| k.0);
+    sorted_jobs.sort_by_key(|(_, gpu_indices)| *gpu_indices.iter().min().unwrap_or(&u32::MAX));
 
     // Add rows for each job group
-    for ((job_id, run_name), gpu_indices) in sorted_jobs {
+    for ((job_id, run_name), mut gpu_indices) in sorted_jobs {
+        gpu_indices.sort_unstable();
         let gpu_indices_str: Vec<String> = gpu_indices.iter().map(|g| g.to_string()).collect();
         let job_display = if job_id == 0 {
             String::new()
