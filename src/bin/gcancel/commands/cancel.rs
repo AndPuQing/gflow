@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use gflow::{client::Client, core::job::JobState, utils::parse_job_ids};
+use gflow::{client::Client, core::job::JobState, print_field, utils::parse_job_ids};
 
 pub async fn handle_cancel(client: &Client, ids: &str, dry_run: bool) -> Result<()> {
     let job_ids = parse_job_ids(ids)?;
@@ -30,15 +30,15 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
             .await?
             .context(format!("Job {} not found", job_id))?;
 
-        println!("Job ID: {}", job_id);
-        println!("Current State: {}", job.state);
+        print_field!("JobID", "{}", job_id);
+        print_field!("CurrentState", "{}", job.state);
 
         // Determine if the cancellation is valid
         let can_cancel = job.state.can_transition_to(JobState::Cancelled);
 
         if can_cancel {
-            println!("Target State: {}", JobState::Cancelled);
-            println!("Transition: {} → {}", job.state, JobState::Cancelled);
+            print_field!("TargetState", "{}", JobState::Cancelled);
+            print_field!("Transition", "{} → {}", job.state, JobState::Cancelled);
 
             // Add specific notes based on current state
             match job.state {
@@ -53,8 +53,8 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
                 _ => {}
             }
         } else {
-            println!("Target State: {} (INVALID)", JobState::Cancelled);
-            println!("Transition: {} → {} ✗", job.state, JobState::Cancelled);
+            print_field!("TargetState", "{} (INVALID)", JobState::Cancelled);
+            print_field!("Transition", "{} → {} ✗", job.state, JobState::Cancelled);
             println!("\nError: Cannot cancel a job in '{}' state.", job.state);
             println!("Jobs can only be cancelled from 'Queued' or 'Running' states.");
             continue;
@@ -77,8 +77,9 @@ async fn perform_dry_run(client: &Client, job_ids: &[u32]) -> Result<()> {
 
             for dep_job in &dependent_jobs {
                 println!("\n  Job ID: {}", dep_job.id);
-                println!("  Current State: {}", dep_job.state);
-                println!("  Depends On: Job {}", job_id);
+                print_field!("JobID", "{}", dep_job.id);
+                print_field!("CurrentState", "{}", dep_job.state);
+                print_field!("DependsOn", "Job {}", job_id);
 
                 match dep_job.state {
                     JobState::Queued => {

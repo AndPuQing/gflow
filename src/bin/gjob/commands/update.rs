@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use gflow::client::{Client, UpdateJobRequest};
+use gflow::print_field;
 use gflow::utils::parse_job_ids;
 use std::collections::HashMap;
 
@@ -168,7 +169,7 @@ pub async fn handle_update(
             Ok(response) => {
                 println!("Job {} updated successfully.", job_id);
                 if !response.updated_fields.is_empty() {
-                    println!("  Updated fields: {}", response.updated_fields.join(", "));
+                    print_field!("UpdatedFields", "{}", response.updated_fields.join(", "));
                 }
             }
             Err(e) => {

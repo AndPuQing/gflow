@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use gflow::client::Client;
 use gflow::core::job::{Job, JobState, JobStateReason};
+use gflow::print_field;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
@@ -39,22 +40,22 @@ pub async fn handle_redo(
     // Preserve core job parameters
     if let Some(ref script) = original_job.script {
         builder = builder.script(script.clone());
-        println!("  Script:       {}", script.display());
+        print_field!("Script", "{}", script.display());
     }
     if let Some(ref command) = original_job.command {
         builder = builder.command(command.clone());
-        println!("  Command:      {}", command);
+        print_field!("Command", "{}", command);
     }
 
     // Apply GPUs (override or original)
     let gpus = gpus_override.unwrap_or(original_job.gpus);
     builder = builder.gpus(gpus);
-    println!("  GPUs:         {}", gpus);
+    print_field!("GPUs", "{}", gpus);
 
     // Apply priority (override or original)
     let priority = priority_override.unwrap_or(original_job.priority);
     builder = builder.priority(priority);
-    println!("  Priority:     {}", priority);
+    print_field!("Priority", "{}", priority);
 
     // Apply conda environment (override or original)
     let conda_env = if let Some(ref override_env) = conda_env_override {
@@ -64,7 +65,7 @@ pub async fn handle_redo(
     };
     builder = builder.conda_env(conda_env.clone());
     if let Some(ref env) = conda_env {
-        println!("  Conda env:    {}", env);
+        print_field!("CondaEnv", "{}", env);
     }
 
     // Apply time limit (override or original)
@@ -75,7 +76,7 @@ pub async fn handle_redo(
     };
     builder = builder.time_limit(time_limit);
     if let Some(limit) = time_limit {
-        println!("  Time limit:   {}", gflow::utils::format_duration(limit));
+        print_field!("TimeLimit", "{}", gflow::utils::format_duration(limit));
     }
 
     // Apply memory limit (override or original)
@@ -86,20 +87,20 @@ pub async fn handle_redo(
     };
     builder = builder.memory_limit_mb(memory_limit_mb);
     if let Some(memory_mb) = memory_limit_mb {
-        println!("  Memory limit: {}", gflow::utils::format_memory(memory_mb));
+        print_field!("MemoryLimit", "{}", gflow::utils::format_memory(memory_mb));
     }
 
     // Handle dependency
     let depends_on = if clear_deps {
-        println!("  Dependencies: (cleared)");
+        println!("  Dependencies=(cleared)");
         None
     } else if let Some(ref dep_str) = depends_on_override {
         let resolved_dep = crate::utils::resolve_dependency(&client, dep_str).await?;
-        println!("  Depends on:   {}", resolved_dep);
+        print_field!("DependsOn", "{}", resolved_dep);
         Some(resolved_dep)
     } else {
         if let Some(dep) = original_job.depends_on {
-            println!("  Depends on:   {}", dep);
+            print_field!("DependsOn", "{}", dep);
         }
         original_job.depends_on
     };
@@ -115,7 +116,7 @@ pub async fn handle_redo(
     if !original_job.parameters.is_empty() {
         println!("  Parameters:");
         for (key, value) in &original_job.parameters {
-            println!("    {}: {}", key, value);
+            print_field!(key, "{}", value);
         }
     }
 

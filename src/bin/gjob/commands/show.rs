@@ -2,6 +2,7 @@ use anyhow::Result;
 use gflow::client::Client;
 use gflow::core::job::Job;
 use gflow::utils::{parse_job_ids, substitute_parameters};
+use gflow::{print_field, print_optional_field};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -32,31 +33,25 @@ pub async fn handle_show(config_path: &Option<PathBuf>, job_ids_str: String) -> 
 
 fn print_job_details(job: &Job) {
     println!("Job Details:");
-    println!("  ID:            {}", job.id);
-    println!(
-        "  State:         {} ({})",
-        job.state,
-        job.state.short_form()
-    );
-    println!("  Priority:      {}", job.priority);
-    println!("  Submitted by:  {}", job.submitted_by);
+    print_field!("ID", "{}", job.id);
+    print_field!("State", "{} ({})", job.state, job.state.short_form());
+    print_field!("Priority", "{}", job.priority);
+    print_field!("SubmittedBy", "{}", job.submitted_by);
 
     // Command or script
-    if let Some(ref script) = job.script {
-        println!("  Script:        {}", script.display());
-    }
+    print_optional_field!("Script", job.script, |s| s.display());
     if let Some(ref command) = job.command {
         // Check if command contains parameters
         let has_params = command.contains('{') && !job.parameters.is_empty();
 
         if has_params {
-            println!("  Command (template): {}", command);
+            print_field!("Command(template)", "{}", command);
             match substitute_parameters(command, &job.parameters) {
-                Ok(substituted) => println!("  Command (actual):   {}", substituted),
-                Err(e) => println!("  Command (actual):   Error: {}", e),
+                Ok(substituted) => print_field!("Command(actual)", "{}", substituted),
+                Err(e) => print_field!("Command(actual)", "Error: {}", e),
             }
         } else {
-            println!("  Command:       {}", command);
+            print_field!("Command", "{}", command);
         }
     }
 
@@ -66,66 +61,57 @@ fn print_job_details(job: &Job) {
         let mut params: Vec<_> = job.parameters.iter().collect();
         params.sort_by_key(|(k, _)| *k);
         for (key, value) in params {
-            println!("  {}:  {}", key, value);
+            print_field!(key, "{}", value);
         }
     }
 
     // Resources
     println!("\nResources:");
-    println!("  GPUs:          {}", job.gpus);
-    if let Some(ref gpu_ids) = job.gpu_ids {
-        println!("  GPU IDs:       {}", format_ids(gpu_ids));
-    }
+    print_field!("GPUs", "{}", job.gpus);
+    print_optional_field!("GPUIDs", job.gpu_ids, |ids| format_ids(ids));
     if let Some(memory_mb) = job.memory_limit_mb {
-        println!(
-            "  Memory limit:  {}",
-            gflow::utils::format_memory(memory_mb)
-        );
+        print_field!("MemoryLimit", "{}", gflow::utils::format_memory(memory_mb));
     }
-    if let Some(ref conda_env) = job.conda_env {
-        println!("  Conda env:     {}", conda_env);
-    }
+    print_optional_field!("CondaEnv", job.conda_env);
 
     // Working directory and run name
     println!("\nExecution:");
-    println!("  Working dir:   {}", job.run_dir.display());
-    if let Some(ref run_name) = job.run_name {
-        println!("  Tmux session:  {}", run_name);
-    }
+    print_field!("WorkingDir", "{}", job.run_dir.display());
+    print_optional_field!("TmuxSession", job.run_name);
 
     // Dependencies
     let all_deps = job.all_dependency_ids();
     if !all_deps.is_empty() || job.task_id.is_some() {
         println!("\nDependencies:");
         if !all_deps.is_empty() {
-            println!("  Depends on:    {}", format_ids(&all_deps));
+            print_field!("DependsOn", "{}", format_ids(&all_deps));
             if let Some(mode) = job.dependency_mode {
-                println!("  Mode:          {:?}", mode);
+                print_field!("Mode", "{:?}", mode);
             }
             if job.auto_cancel_on_dependency_failure {
-                println!("  Auto-cancel:   enabled");
+                print_field!("AutoCancel", "enabled");
             }
         }
         if let Some(task_id) = job.task_id {
-            println!("  Task ID:       {}", task_id);
+            print_field!("TaskID", "{}", task_id);
         }
     }
 
     // Time information
     println!("\nTiming:");
     if let Some(time_limit) = job.time_limit {
-        println!("  TimeLimit={}", gflow::utils::format_duration(time_limit));
+        print_field!("TimeLimit", "{}", gflow::utils::format_duration(time_limit));
     }
     if let Some(started_at) = job.started_at {
-        println!("  StartTime={}", format_time(started_at));
+        print_field!("StartTime", "{}", format_time(started_at));
         if let Some(finished_at) = job.finished_at {
-            println!("  EndTime={}", format_time(finished_at));
+            print_field!("EndTime", "{}", format_time(finished_at));
             if let Ok(duration) = finished_at.duration_since(started_at) {
-                println!("  Runtime={}", gflow::utils::format_duration(duration));
+                print_field!("Runtime", "{}", gflow::utils::format_duration(duration));
             }
         } else if job.state.to_string() == "Running" {
             if let Ok(elapsed) = SystemTime::now().duration_since(started_at) {
-                println!("  Elapsed={}", gflow::utils::format_duration(elapsed));
+                print_field!("Elapsed", "{}", gflow::utils::format_duration(elapsed));
             }
         }
     }

@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod info;
 pub mod job;
+pub mod macros;
 pub mod migrations;
 pub mod scheduler;
 
