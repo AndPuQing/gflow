@@ -37,6 +37,8 @@ Authors: {author}"
 pub struct GPUSlot {
     pub index: u32,
     pub available: bool,
+    /// Reason why GPU is unavailable (e.g., occupied by non-gflow process)
+    pub reason: Option<String>,
 }
 
 use nvml_wrapper::Nvml;

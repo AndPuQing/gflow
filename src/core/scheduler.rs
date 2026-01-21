@@ -73,6 +73,7 @@ impl Scheduler {
                 uuid: uuid.clone(),
                 index: slot.index,
                 available: slot.available,
+                reason: slot.reason.clone(),
             })
             .collect();
         // Sort by index for stable output

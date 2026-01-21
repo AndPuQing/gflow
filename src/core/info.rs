@@ -5,6 +5,9 @@ pub struct GpuInfo {
     pub uuid: String,
     pub index: u32,
     pub available: bool,
+    /// Reason why GPU is unavailable (e.g., occupied by non-gflow process)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

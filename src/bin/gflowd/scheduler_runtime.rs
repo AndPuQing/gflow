@@ -311,6 +311,13 @@ impl SchedulerRuntime {
                                     .running_compute_processes()
                                     .is_ok_and(|procs| procs.is_empty());
                                 slot.available = is_free_in_scheduler && is_free_in_nvml;
+
+                                // Set reason if GPU is occupied by non-gflow process
+                                if is_free_in_scheduler && !is_free_in_nvml {
+                                    slot.reason = Some("Unmanaged".to_string());
+                                } else {
+                                    slot.reason = None;
+                                }
                             }
                         }
                     }
@@ -607,6 +614,7 @@ impl GPU for SchedulerRuntime {
                         GPUSlot {
                             available: true,
                             index: i,
+                            reason: None,
                         },
                     );
                 }

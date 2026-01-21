@@ -61,7 +61,7 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
         nodes: String,
         #[tabled(rename = "STATE")]
         state: String,
-        #[tabled(rename = "JOB")]
+        #[tabled(rename = "JOB(REASON)")]
         job: String,
     }
 
@@ -88,10 +88,9 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
                 .or_default()
                 .push(g.index);
         } else {
-            job_groups
-                .entry((0, "unknown".to_string()))
-                .or_default()
-                .push(g.index);
+            // GPU is allocated but not by a gflow job - use reason if available
+            let reason = g.reason.clone().unwrap_or_else(|| "unknown".to_string());
+            job_groups.entry((0, reason)).or_default().push(g.index);
         }
     }
 
@@ -104,7 +103,8 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
         gpu_indices.sort_unstable();
         let gpu_indices_str: Vec<String> = gpu_indices.iter().map(|g| g.to_string()).collect();
         let job_display = if job_id == 0 {
-            String::new()
+            // Non-gflow job - show reason in parentheses
+            format!("({})", run_name)
         } else {
             format!("{} ({})", job_id, run_name)
         };
@@ -139,16 +139,19 @@ mod tests {
                     index: 0,
                     available: true,
                     uuid: "GPU-0000".to_string(),
+                    reason: None,
                 },
                 gflow::core::info::GpuInfo {
                     index: 1,
                     available: false,
                     uuid: "GPU-0001".to_string(),
+                    reason: None,
                 },
                 gflow::core::info::GpuInfo {
                     index: 2,
                     available: false,
                     uuid: "GPU-0002".to_string(),
+                    reason: Some("Unmanaged".to_string()),
                 },
             ],
             allowed_gpu_indices: None,

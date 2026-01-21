@@ -73,6 +73,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
         GPUSlot {
             index: 0,
             available: true,
+            reason: None,
         },
     );
     gpu_slots.insert(
@@ -80,6 +81,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
         GPUSlot {
             index: 1,
             available: true,
+            reason: None,
         },
     );
 
