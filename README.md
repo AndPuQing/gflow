@@ -59,28 +59,6 @@ pip install runqd
 
 This will install pre-built binaries for Linux (x86_64, ARM64, ARMv7) with both GNU and MUSL libc support.
 
-### Quick Install Script (Linux x86_64)
-
-Install gflow with a single command:
-
-```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
-```
-
-Or use GitHub:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
-```
-
-This will download and install the latest release binaries to `~/.cargo/bin`.
-
-You can customize the installation directory by setting the `GFLOW_INSTALL_DIR` environment variable:
-
-```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
-```
-
 ### Install via `cargo`
 
 ```bash

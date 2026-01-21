@@ -35,30 +35,27 @@ source $HOME/.cargo/env
 
 ## Installation Methods
 
-### Method 1: Quick Install with Pre-built Binaries (Recommended)
+### Method 1: Install via PyPI (Recommended)
 
-This is the fastest way to install gflow on Linux x86_64:
+Install gflow using `pipx` (recommended for CLI tools):
 
-**Using our global CDN** (faster, works in GitHub-restricted regions):
 ```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
+pipx install runqd
 ```
 
-**Or using GitHub**:
+Or using `uv`:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+uv tool install runqd
 ```
 
-The installer automatically:
-- Tries the CDN first, falls back to GitHub if needed
-- Downloads the latest release binaries
-- Installs to `~/.cargo/bin/` (customizable with `GFLOW_INSTALL_DIR`)
-- Installs all binaries: `gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`, `gctl`
+Or using `pip`:
 
-**Custom installation directory**:
 ```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+pip install runqd
 ```
+
+This will install pre-built binaries for Linux (x86_64, ARM64, ARMv7) with both GNU and MUSL libc support.
 
 ### Method 2: Install via Cargo
 
@@ -68,9 +65,23 @@ Build and install from crates.io:
 cargo install gflow
 ```
 
+Or install from the main branch:
+
+```bash
+cargo install --git https://github.com/AndPuQing/gflow.git --locked
+```
+
 This will compile and install all binaries to `~/.cargo/bin/`, which should be in your `PATH`.
 
-### Method 3: Build from Source
+### Method 3: Install via Conda
+
+You can install `gflow` using Conda from the conda-forge channel:
+
+```bash
+conda install -c conda-forge gflow
+```
+
+### Method 4: Build from Source
 
 If you want to build from the latest source code:
 
@@ -91,19 +102,6 @@ If you want to build from the latest source code:
    ```bash
    cargo install --path .
    ```
-
-### Method 4: Manual Download from CDN or GitHub
-
-Download pre-built binaries directly:
-
-**From CDN**:
-- Latest release: `https://gflow-releases.puqing.work/releases/latest/`
-- Specific version: `https://gflow-releases.puqing.work/releases/v0.4.5/` (replace with desired version)
-
-**From GitHub**:
-- Visit the [Releases page](https://github.com/AndPuQing/gflow/releases)
-- Download the `gflow_vX.X.X_x86_64-unknown-linux-musl.tar.gz` archive
-- Extract and copy binaries to a directory in your `PATH`
 
 ## Verify Installation
 

@@ -2,6 +2,7 @@
 
 [![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://andpuqing.github.io/gflow/)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)](https://github.com/AndPuQing/gflow/actions/workflows/ci.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/runqd?style=flat-square&logo=pypi)](https://pypi.org/project/runqd/)
 [![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)](https://crates.io/crates/gflow)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/gflow/badges/version.svg)](https://anaconda.org/conda-forge/gflow)
 [![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)](https://crates.io/crates/gflow)
@@ -36,33 +37,39 @@
 
 ## 安装
 
-### 快速安装（Linux x86_64）- 推荐
+### 通过 PyPI 安装（推荐）
 
-使用单条命令安装 gflow：
-
-```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
-```
-
-或使用 GitHub：
+使用 `pipx` 安装 gflow（推荐用于 CLI 工具）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+pipx install runqd
 ```
 
-这将下载并安装最新版本的二进制文件到 `~/.cargo/bin`。
-
-您可以通过设置 `GFLOW_INSTALL_DIR` 环境变量来自定义安装目录：
+或使用 `uv`：
 
 ```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+uv tool install runqd
 ```
+
+或使用 `pip`：
+
+```bash
+pip install runqd
+```
+
+这将为 Linux（x86_64、ARM64、ARMv7）安装预构建的二进制文件，支持 GNU 和 MUSL libc。
 
 ### 通过 `cargo` 安装
 
 ```bash
 cargo install gflow
 ```
+
+#### `cargo install`（main 分支）
+```bash
+cargo install --git https://github.com/AndPuQing/gflow.git --locked
+```
+
 这将安装所有必需的二进制文件（`gflowd`、`ginfo`、`gbatch`、`gqueue`、`gcancel`、`gjob`）。
 
 ### 通过 Conda 安装

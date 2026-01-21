@@ -35,30 +35,27 @@ source $HOME/.cargo/env
 
 ## 安装方法
 
-### 方法 1：使用预构建二进制文件快速安装（推荐）
+### 方法 1：通过 PyPI 安装（推荐）
 
-这是在 Linux x86_64 上安装 gflow 的最快方法：
+使用 `pipx` 安装 gflow（推荐用于 CLI 工具）：
 
-**使用我们的全球 CDN**（更快，在 GitHub 受限地区也可用）：
 ```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
+pipx install runqd
 ```
 
-**或使用 GitHub**：
+或使用 `uv`：
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
+uv tool install runqd
 ```
 
-安装程序会自动：
-- 首先尝试 CDN，如果需要则回退到 GitHub
-- 下载最新版本的二进制文件
-- 安装到 `~/.cargo/bin/`（可通过 `GFLOW_INSTALL_DIR` 自定义）
-- 安装所有二进制文件：`gflowd`、`ginfo`、`gbatch`、`gqueue`、`gcancel`、`gjob`、`gctl`
+或使用 `pip`：
 
-**自定义安装目录**：
 ```bash
-curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/usr/local/bin sh
+pip install runqd
 ```
+
+这将为 Linux（x86_64、ARM64、ARMv7）安装预构建的二进制文件，支持 GNU 和 MUSL libc。
 
 ### 方法 2：通过 Cargo 安装
 
@@ -68,9 +65,23 @@ curl -fsSL https://gflow-releases.puqing.work/install.sh | GFLOW_INSTALL_DIR=/us
 cargo install gflow
 ```
 
+或从 main 分支安装：
+
+```bash
+cargo install --git https://github.com/AndPuQing/gflow.git --locked
+```
+
 这将编译并安装所有二进制文件到 `~/.cargo/bin/`，该目录应该在您的 `PATH` 中。
 
-### 方法 3：从源代码构建
+### 方法 3：通过 Conda 安装
+
+您可以从 conda-forge 频道使用 Conda 安装 `gflow`：
+
+```bash
+conda install -c conda-forge gflow
+```
+
+### 方法 4：从源代码构建
 
 如果您想从最新的源代码构建：
 
@@ -91,19 +102,6 @@ cargo install gflow
    ```bash
    cargo install --path .
    ```
-
-### 方法 4：从 CDN 或 GitHub 手动下载
-
-直接下载预构建的二进制文件：
-
-**从 CDN**：
-- 最新版本：`https://gflow-releases.puqing.work/releases/latest/`
-- 特定版本：`https://gflow-releases.puqing.work/releases/v0.4.5/`（替换为所需版本）
-
-**从 GitHub**：
-- 访问 [Releases 页面](https://github.com/AndPuQing/gflow/releases)
-- 下载 `gflow_vX.X.X_x86_64-unknown-linux-musl.tar.gz` 压缩包
-- 解压并将二进制文件复制到 `PATH` 中的目录
 
 ## 验证安装
 

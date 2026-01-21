@@ -1,182 +1,67 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-  workflow_dispatch:
+    push:
+        tags:
+            - "v[0-9]+.[0-9]+.[0-9]+"
+    workflow_dispatch:
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.extract_version.outputs.version }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+    create-release:
+        name: Create GitHub Release
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.extract_version.outputs.version }}
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
 
-      - name: Extract version from tag
-        id: extract_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+            - name: Extract version from tag
+              id: extract_version
+              run: |
+                  VERSION=${GITHUB_REF#refs/tags/}
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Version: $VERSION"
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            CHANGES=$(git log --oneline --pretty=format:"* %s" $PREV_TAG..HEAD)
-          else
-            CHANGES=$(git log --oneline --pretty=format:"* %s")
-          fi
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+                  if [ -n "$PREV_TAG" ]; then
+                    CHANGES=$(git log --oneline --pretty=format:"* %s" $PREV_TAG..HEAD)
+                  else
+                    CHANGES=$(git log --oneline --pretty=format:"* %s")
+                  fi
 
-          cat << 'EOF' > release_notes.md
-          ## What's Changed
+                  cat << 'EOF' > release_notes.md
+                  ## What's Changed
 
-          EOF
-          echo "$CHANGES" >> release_notes.md
-          cat << 'EOF' >> release_notes.md
+                  EOF
+                  echo "$CHANGES" >> release_notes.md
+                  cat << 'EOF' >> release_notes.md
 
-          ## Installation
+                  EOF
 
-          ### Quick Install (Linux x86_64) - Recommended
+                  if [ -n "$PREV_TAG" ]; then
+                    echo "" >> release_notes.md
+                    echo "**Full Changelog**: https://github.com/AndPuQing/gflow/compare/$PREV_TAG...${{ steps.extract_version.outputs.version }}" >> release_notes.md
+                  fi
 
-          ```bash
-          curl -fsSL https://gflow-releases.puqing.work/install.sh | sh
-          ```
+                  cat release_notes.md
 
-          Or from GitHub:
-          ```bash
-          curl -fsSL https://raw.githubusercontent.com/AndPuQing/gflow/main/install.sh | sh
-          ```
-
-          ### Alternative: Cargo
-          ```bash
-          cargo install gflow
-          ```
-
-          EOF
-
-          if [ -n "$PREV_TAG" ]; then
-            echo "" >> release_notes.md
-            echo "**Full Changelog**: https://github.com/AndPuQing/gflow/compare/$PREV_TAG...${{ steps.extract_version.outputs.version }}" >> release_notes.md
-          fi
-
-          cat release_notes.md
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.extract_version.outputs.version }}
-          name: Release ${{ steps.extract_version.outputs.version }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-and-upload:
-    name: Build and Upload Binaries
-    needs: create-release
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            archive: tar.gz tar.xz tar.zst
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Build binaries with rust-build
-        uses: rust-build/rust-build.action@v1.4.5
-        id: build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          TOOLCHAIN_VERSION: stable
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
-          UPLOAD_MODE: none
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.create-release.outputs.version }}
-          files: |
-            output/*.tar.gz
-            output/*.tar.xz
-            output/*.tar.zst
-            output/*.sha256sum
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare R2 upload (archives only)
-        run: |
-          mkdir -p r2-upload
-          # Copy only archive files and checksums, not individual binaries
-          cp output/*.tar.gz r2-upload/ 2>/dev/null || true
-          cp output/*.tar.xz r2-upload/ 2>/dev/null || true
-          cp output/*.tar.zst r2-upload/ 2>/dev/null || true
-          cp output/*.sha256sum r2-upload/ 2>/dev/null || true
-          ls -lh r2-upload/
-
-      - name: Upload binaries to R2 (versioned)
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: r2-upload
-          destination-dir: releases/${{ needs.create-release.outputs.version }}
-          multipart-size: 100
-          max-retries: 5
-
-      - name: Upload binaries to R2 (latest)
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: r2-upload
-          destination-dir: releases/latest
-          multipart-size: 100
-          max-retries: 5
-
-  upload-installer:
-    name: Upload Installer to R2
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Create version metadata file
-        run: echo "${{ needs.create-release.outputs.version }}" > latest-version.txt
-
-      - name: Prepare installer files
-        run: |
-          mkdir -p installer-files
-          cp install.sh installer-files/
-          cp latest-version.txt installer-files/
-
-      - name: Upload installer files to R2
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: installer-files
-          destination-dir: .
-          max-retries: 5
+            - name: Create Release
+              id: create_release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ steps.extract_version.outputs.version }}
+                  name: Release ${{ steps.extract_version.outputs.version }}
+                  body_path: release_notes.md
+                  draft: false
+                  prerelease: false
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
