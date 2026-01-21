@@ -20,9 +20,9 @@ jobs:
                     # x86_64 MUSL (static linking, Alpine Linux)
                     - x86_64-unknown-linux-musl
                     # ARM64 GNU libc (Raspberry Pi 4, AWS Graviton, etc.)
-                    - aarch64-unknown-linux-gnu
+                    # - aarch64-unknown-linux-gnu
                     # ARM64 MUSL (static linking)
-                    - aarch64-unknown-linux-musl
+                    # - aarch64-unknown-linux-musl
         steps:
             - uses: actions/checkout@v6
 
