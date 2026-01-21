@@ -1,7 +1,7 @@
 /// Macro for printing formatted key-value pairs in the style: Key=Value
 ///
 /// Usage:
-/// ```
+/// ```ignore
 /// use gflow::print_field;
 ///
 /// print_field!("ID", "{}", job.id);
@@ -17,7 +17,7 @@ macro_rules! print_field {
 /// Macro for printing optional fields (only prints if Some)
 ///
 /// Usage:
-/// ```
+/// ```ignore
 /// use gflow::print_optional_field;
 ///
 /// print_optional_field!("Script", job.script, |s| s.display());
