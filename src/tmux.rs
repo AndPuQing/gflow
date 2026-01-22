@@ -117,6 +117,15 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
 }
 
+/// Disable pipe-pane for a session (standalone function)
+/// This stops the `cat >> logfile` process without killing the tmux session
+pub fn disable_pipe_pane(name: &str) -> anyhow::Result<()> {
+    Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))
+        .output()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
+}
+
 pub fn kill_session(name: &str) -> anyhow::Result<()> {
     // Disable pipe-pane before killing session (ignore errors if already disabled)
     Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))

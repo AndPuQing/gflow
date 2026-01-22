@@ -409,12 +409,39 @@ impl SchedulerRuntime {
     }
 
     pub async fn fail_job(&mut self, job_id: u32) -> bool {
-        let result = self.scheduler.fail_job(job_id);
-        if result {
-            // Note: Cascade cancellation is now handled by the cascade_handler event handler
-            self.mark_dirty();
+        if let Some(run_name) = self
+            .scheduler
+            .jobs
+            .get(&job_id)
+            .and_then(|j| j.run_name.clone())
+        {
+            let result = self.scheduler.fail_job(job_id);
+            if result {
+                // Note: Cascade cancellation is now handled by the cascade_handler event handler
+                self.mark_dirty();
+
+                // Disable PipePane to prevent process leaks (keep session alive for user inspection)
+                tracing::info!(
+                    "Disabling pipe-pane for failed job {} (session: {})",
+                    job_id,
+                    run_name
+                );
+                if let Err(e) = gflow::tmux::disable_pipe_pane(&run_name) {
+                    tracing::warn!(
+                        "Failed to disable pipe-pane for session '{}': {}",
+                        run_name,
+                        e
+                    );
+                }
+            }
+            result
+        } else {
+            let result = self.scheduler.fail_job(job_id);
+            if result {
+                self.mark_dirty();
+            }
+            result
         }
-        result
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
@@ -422,11 +449,23 @@ impl SchedulerRuntime {
             // Note: Cascade cancellation is now handled by the cascade_handler event handler
             self.mark_dirty();
 
-            // If the job was running, send Ctrl-C to gracefully interrupt it
+            // If the job was running, send Ctrl-C to gracefully interrupt it, then disable PipePane
             if was_running {
                 if let Some(name) = run_name {
                     if let Err(e) = gflow::tmux::send_ctrl_c(&name) {
                         tracing::error!("Failed to send C-c to tmux session {}: {}", name, e);
+                    }
+
+                    // Wait a moment for graceful shutdown, then disable PipePane
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+
+                    tracing::info!(
+                        "Disabling pipe-pane for cancelled job {} (session: {})",
+                        job_id,
+                        name
+                    );
+                    if let Err(e) = gflow::tmux::disable_pipe_pane(&name) {
+                        tracing::warn!("Failed to disable pipe-pane for session '{}': {}", name, e);
                     }
                 }
             }
@@ -910,12 +949,42 @@ async fn zombie_handler_task(
     loop {
         match events.recv().await {
             Ok(SchedulerEvent::ZombieJobDetected { job_id }) => {
+                // Get run_name before acquiring write lock
+                let run_name = {
+                    let state_guard = state.read().await;
+                    state_guard
+                        .scheduler
+                        .jobs
+                        .get(&job_id)
+                        .and_then(|j| j.run_name.clone())
+                };
+
+                // Update job state (write lock)
                 let mut state_guard = state.write().await;
                 if let Some(job) = state_guard.scheduler.jobs.get_mut(&job_id) {
                     job.state = JobState::Failed;
                     job.finished_at = Some(std::time::SystemTime::now());
                     state_guard.mark_dirty();
                     tracing::info!("Marked zombie job {} as Failed", job_id);
+                }
+                drop(state_guard); // Release lock before disabling PipePane
+
+                // Disable PipePane if session still exists (no lock held)
+                // This handles the case where the session was manually killed but PipePane might still be active
+                if let Some(rn) = run_name {
+                    tracing::info!(
+                        "Attempting to disable pipe-pane for zombie job {} (session: {})",
+                        job_id,
+                        rn
+                    );
+                    if let Err(e) = gflow::tmux::disable_pipe_pane(&rn) {
+                        // This is expected to fail if session is already gone, so just debug log
+                        tracing::debug!(
+                            "Could not disable pipe-pane for session '{}' (may already be gone): {}",
+                            rn,
+                            e
+                        );
+                    }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
@@ -990,6 +1059,19 @@ async fn timeout_handler_task(
                     }
 
                     state_guard.mark_dirty();
+                }
+                drop(state_guard); // Release lock before disabling PipePane
+
+                // Disable PipePane to prevent process leaks (no lock held)
+                if let Some(rn) = run_name {
+                    tracing::info!(
+                        "Disabling pipe-pane for timed-out job {} (session: {})",
+                        job_id,
+                        rn
+                    );
+                    if let Err(e) = gflow::tmux::disable_pipe_pane(&rn) {
+                        tracing::warn!("Failed to disable pipe-pane for session '{}': {}", rn, e);
+                    }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
