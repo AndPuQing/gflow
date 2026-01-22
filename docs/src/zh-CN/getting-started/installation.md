@@ -5,7 +5,6 @@
 ## 前置要求
 
 - **操作系统**：Linux（在 Ubuntu 20.04+ 上测试）
-- **Rust**：版本 1.70+（用于从源代码构建）
 - **tmux**：任务执行所必需
 - **NVIDIA GPU**（可选）：用于 GPU 任务调度
 - **NVIDIA 驱动程序**（可选）：如果使用 GPU 功能
@@ -17,36 +16,28 @@
 # 安装 tmux
 sudo apt-get update
 sudo apt-get install tmux
-
-# 安装 Rust（如果从源代码构建）
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
 ```
 
 #### Fedora/RHEL
 ```bash
 # 安装 tmux
 sudo dnf install tmux
-
-# 安装 Rust（如果从源代码构建）
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
 ```
 
 ## 安装方法
 
 ### 方法 1：通过 PyPI 安装（推荐）
 
-使用 `pipx` 安装 gflow（推荐用于 CLI 工具）：
-
-```bash
-pipx install runqd
-```
-
-或使用 `uv`：
+使用 `uv` 安装 gflow（推荐用于 CLI 工具）：
 
 ```bash
 uv tool install runqd
+```
+
+或使用 `pipx`：
+
+```bash
+pipx install runqd
 ```
 
 或使用 `pip`：
@@ -73,15 +64,7 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 这将编译并安装所有二进制文件到 `~/.cargo/bin/`，该目录应该在您的 `PATH` 中。
 
-### 方法 3：通过 Conda 安装
-
-您可以从 conda-forge 频道使用 Conda 安装 `gflow`：
-
-```bash
-conda install -c conda-forge gflow
-```
-
-### 方法 4：从源代码构建
+### 方法 3：从源代码构建
 
 如果您想从最新的源代码构建：
 

@@ -5,7 +5,6 @@ This guide will help you install gflow on your system.
 ## Prerequisites
 
 - **Operating System**: Linux (tested on Ubuntu 20.04+)
-- **Rust**: Version 1.70+ (for building from source)
 - **tmux**: Required for job execution
 - **NVIDIA GPU** (optional): For GPU job scheduling
 - **NVIDIA drivers** (optional): If using GPU features
@@ -17,36 +16,28 @@ This guide will help you install gflow on your system.
 # Install tmux
 sudo apt-get update
 sudo apt-get install tmux
-
-# Install Rust (if building from source)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
 ```
 
 #### Fedora/RHEL
 ```bash
 # Install tmux
 sudo dnf install tmux
-
-# Install Rust (if building from source)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
 ```
 
 ## Installation Methods
 
 ### Method 1: Install via PyPI (Recommended)
 
-Install gflow using `pipx` (recommended for CLI tools):
-
-```bash
-pipx install runqd
-```
-
-Or using `uv`:
+Install gflow using `uv` (recommended for CLI tools):
 
 ```bash
 uv tool install runqd
+```
+
+Or using `pipx`:
+
+```bash
+pipx install runqd
 ```
 
 Or using `pip`:
@@ -73,15 +64,7 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 This will compile and install all binaries to `~/.cargo/bin/`, which should be in your `PATH`.
 
-### Method 3: Install via Conda
-
-You can install `gflow` using Conda from the conda-forge channel:
-
-```bash
-conda install -c conda-forge gflow
-```
-
-### Method 4: Build from Source
+### Method 3: Build from Source
 
 If you want to build from the latest source code:
 
