@@ -32,6 +32,10 @@ export default defineConfig({
                                 link: "/getting-started/installation",
                             },
                             {
+                                text: "Shell Completion",
+                                link: "/getting-started/shell-completion",
+                            },
+                            {
                                 text: "Quick Start",
                                 link: "/getting-started/quick-start",
                             },
@@ -127,6 +131,10 @@ export default defineConfig({
                             {
                                 text: "安装",
                                 link: "/zh-CN/getting-started/installation",
+                            },
+                            {
+                                text: "Shell 补全",
+                                link: "/zh-CN/getting-started/shell-completion",
                             },
                             {
                                 text: "快速入门",
