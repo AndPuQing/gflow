@@ -1,29 +1,20 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use gflow::client::Client;
 
 pub async fn handle_info(config_path: &Option<std::path::PathBuf>) -> Result<()> {
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
     let client = Client::build(&config)?;
 
-    match fetch_info_and_jobs(&client).await {
-        Ok((info, jobs)) => {
-            print_gpu_allocation(&info, &jobs);
-        }
-        Err(e) => {
-            eprintln!("ginfo: daemon not reachable: {e}");
-        }
-    }
+    let (info, jobs) = fetch_info_and_jobs(&client).await?;
+    print_gpu_allocation(&info, &jobs);
     Ok(())
 }
 
 async fn fetch_info_and_jobs(
     client: &Client,
 ) -> Result<(gflow::core::info::SchedulerInfo, Vec<gflow::core::job::Job>)> {
-    let info = client
-        .get_info()
-        .await
-        .context("Failed to get scheduler info")?;
-    let jobs = client.list_jobs().await.context("Failed to list jobs")?;
+    let info = client.get_info().await?;
+    let jobs = client.list_jobs().await?;
     Ok((info, jobs))
 }
 

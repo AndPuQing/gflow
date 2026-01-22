@@ -7,6 +7,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Checks if an error is a connection error and returns a user-friendly message
+fn connection_error_context(err: reqwest::Error) -> anyhow::Error {
+    if err.is_connect() {
+        anyhow!(
+            "Could not connect to gflowd server. Is the server running?\n\
+             Hint: Start the server with 'gflowd up'"
+        )
+    } else {
+        err.into()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobSubmitResponse {
     pub id: u32,
@@ -97,7 +109,7 @@ impl Client {
             .get(format!("{}/jobs", self.base_url))
             .send()
             .await
-            .context("Failed to send list jobs request")?
+            .map_err(connection_error_context)?
             .json::<Vec<Job>>()
             .await
             .context("Failed to parse jobs from response")?;
@@ -145,10 +157,7 @@ impl Client {
             request = request.query(&params);
         }
 
-        let response = request
-            .send()
-            .await
-            .context("Failed to send list jobs request")?;
+        let response = request.send().await.map_err(connection_error_context)?;
 
         // Handle both direct Vec<Job> and paginated response
         let response_text = response.text().await?;
@@ -170,7 +179,7 @@ impl Client {
             .get(format!("{}/jobs/{}", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send get job request")?;
+            .map_err(connection_error_context)?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(None);
@@ -191,7 +200,7 @@ impl Client {
             .json(&job)
             .send()
             .await
-            .context("Failed to send job request")?;
+            .map_err(connection_error_context)?;
 
         // Check if the response is successful
         if !response.status().is_success() {
@@ -219,7 +228,7 @@ impl Client {
             .json(&jobs)
             .send()
             .await
-            .context("Failed to send batch jobs request")?;
+            .map_err(connection_error_context)?;
 
         // Check if the response is successful
         if !response.status().is_success() {
@@ -240,7 +249,7 @@ impl Client {
             .post(format!("{}/jobs/{}/finish", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send finish job request")?;
+            .map_err(connection_error_context)?;
         Ok(())
     }
 
@@ -250,7 +259,7 @@ impl Client {
             .post(format!("{}/jobs/{}/fail", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send fail job request")?;
+            .map_err(connection_error_context)?;
         Ok(())
     }
 
@@ -260,7 +269,7 @@ impl Client {
             .post(format!("{}/jobs/{}/cancel", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send cancel job request")?;
+            .map_err(connection_error_context)?;
         Ok(())
     }
 
@@ -270,7 +279,7 @@ impl Client {
             .post(format!("{}/jobs/{}/hold", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send hold job request")?;
+            .map_err(connection_error_context)?;
         Ok(())
     }
 
@@ -280,7 +289,7 @@ impl Client {
             .post(format!("{}/jobs/{}/release", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send release job request")?;
+            .map_err(connection_error_context)?;
         Ok(())
     }
 
@@ -297,7 +306,7 @@ impl Client {
             .json(&request)
             .send()
             .await
-            .context("Failed to send update job request")?;
+            .map_err(connection_error_context)?;
 
         if !response.status().is_success() {
             let error_msg = Self::extract_error_message(response).await;
@@ -319,7 +328,7 @@ impl Client {
             .get(format!("{}/jobs/{}/log", self.base_url, job_id))
             .send()
             .await
-            .context("Failed to send get log path request")?;
+            .map_err(connection_error_context)?;
         let status = response.status();
         if status == StatusCode::OK {
             response
@@ -349,7 +358,7 @@ impl Client {
             .get(format!("{}/info", self.base_url))
             .send()
             .await
-            .context("Failed to send info request")?
+            .map_err(connection_error_context)?
             .json::<SchedulerInfo>()
             .await
             .context("Failed to parse info from response")?;
@@ -363,7 +372,7 @@ impl Client {
             .get(format!("{}/health", self.base_url))
             .send()
             .await
-            .context("Failed to send health request")?
+            .map_err(connection_error_context)?
             .status();
         Ok(health)
     }
@@ -375,7 +384,7 @@ impl Client {
             .get(format!("{}/health", self.base_url))
             .send()
             .await
-            .context("Failed to send health request")?;
+            .map_err(connection_error_context)?;
 
         if !response.status().is_success() {
             return Ok(None);
@@ -406,7 +415,7 @@ impl Client {
             .query(&[("username", username), ("shorthand", shorthand)])
             .send()
             .await
-            .context("Failed to send resolve dependency request")?;
+            .map_err(connection_error_context)?;
 
         if !response.status().is_success() {
             let error_msg = Self::extract_error_message(response).await;
@@ -443,7 +452,7 @@ impl Client {
             .json(&request_body)
             .send()
             .await
-            .context("Failed to send set GPUs request")?;
+            .map_err(connection_error_context)?;
 
         if !response.status().is_success() {
             let error_msg = Self::extract_error_message(response).await;
@@ -477,7 +486,7 @@ impl Client {
             .json(&request_body)
             .send()
             .await
-            .context("Failed to send set group max_concurrency request")?;
+            .map_err(connection_error_context)?;
 
         if !response.status().is_success() {
             let error_msg = Self::extract_error_message(response).await;
