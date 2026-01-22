@@ -21,8 +21,6 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@nightly
             - uses: Swatinem/rust-cache@v2
-              with:
-                  shared-key: "ci"
             - name: Run tests
               run: cargo test --locked --all-features --workspace
 
@@ -38,8 +36,6 @@ jobs:
               with:
                   components: rustfmt
             - uses: Swatinem/rust-cache@v2
-              with:
-                  shared-key: "ci"
             - name: Check formatting
               run: cargo fmt --all --check
 
@@ -55,8 +51,6 @@ jobs:
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
-              with:
-                  shared-key: "ci"
             - name: Clippy check
               run: cargo clippy --all-targets --all-features --workspace -- -D warnings
 
@@ -70,8 +64,6 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@nightly
             - uses: Swatinem/rust-cache@v2
-              with:
-                  shared-key: "ci"
             - name: Check documentation
               env:
                   RUSTDOCFLAGS: -D warnings
