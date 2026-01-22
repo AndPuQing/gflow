@@ -118,4 +118,7 @@ pub struct ListArgs {
         help = "Display jobs in tree format showing dependencies"
     )]
     pub tree: bool,
+
+    #[arg(long, short = 'T', help = "Show only jobs with active tmux sessions")]
+    pub tmux: bool,
 }

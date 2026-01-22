@@ -26,6 +26,7 @@ pub struct ListOptions {
     pub group: bool,
     pub tree: bool,
     pub format: Option<String>,
+    pub tmux: bool,
 }
 
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
@@ -89,6 +90,18 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
         }
     }
 
+    // Get all tmux sessions once upfront for efficiency
+    let tmux_sessions = get_all_session_names();
+
+    // Filter by tmux sessions if requested
+    if options.tmux {
+        jobs_vec.retain(|job| {
+            job.run_name
+                .as_ref()
+                .is_some_and(|run_name| tmux_sessions.contains(run_name))
+        });
+    }
+
     if jobs_vec.is_empty() {
         println!("No jobs found.");
         return Ok(());
@@ -127,9 +140,6 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
             }
         }
     }
-
-    // Get all tmux sessions once upfront for efficiency
-    let tmux_sessions = get_all_session_names();
 
     // Group by state if requested
     if options.group {

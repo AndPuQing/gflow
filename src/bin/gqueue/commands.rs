@@ -19,6 +19,7 @@ pub async fn handle_commands(config: &Config, args: &crate::cli::ListArgs) -> Re
         group: args.group,
         tree: args.tree,
         format: args.format.clone(),
+        tmux: args.tmux,
     };
 
     list::handle_list(&client, options).await?;
