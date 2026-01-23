@@ -23,6 +23,8 @@ pub async fn handle_reload(
     let session = TmuxSession::new(new_session_name.clone());
 
     // Replay historical daemon logs to the tmux session
+    // Note: We replay logs BEFORE enabling pipe-pane to avoid capturing
+    // the cat output back into the log file (which would cause duplication)
     if let Ok(log_path) = gflow::core::get_daemon_log_file_path() {
         if let Err(e) = session.replay_log_file(&log_path) {
             tracing::warn!("Failed to replay daemon logs: {}", e);
@@ -37,6 +39,10 @@ pub async fn handle_reload(
     }
 
     session.send_command(&command);
+
+    // Wait a bit for the daemon process to start before enabling pipe-pane
+    // This ensures we capture the daemon output, not the command echo
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Enable pipe-pane to capture daemon logs to file
     if let Ok(log_path) = gflow::core::get_daemon_log_file_path() {
