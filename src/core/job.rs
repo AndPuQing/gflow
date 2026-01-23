@@ -11,6 +11,7 @@ pub enum JobError {
     InvalidTransition { from: JobState, to: JobState },
     AlreadyInState(JobState),
 }
+
 impl std::error::Error for JobError {}
 impl fmt::Display for JobError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
