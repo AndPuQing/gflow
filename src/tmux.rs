@@ -68,19 +68,19 @@ impl TmuxSession {
     }
 
     /// Replay log file contents to the tmux session
-    /// This displays historical logs in the tmux pane
+    /// This displays the last 200 lines of historical logs in the tmux pane
     pub fn replay_log_file(&self, log_path: &Path) -> anyhow::Result<()> {
         if !log_path.exists() {
             return Ok(()); // No log file to replay
         }
 
-        // Use cat to display the log file contents in the tmux pane
+        // Use tail to display only the last 200 lines to avoid performance issues with large log files
         let log_path_str = log_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid log path"))?;
 
-        // Send cat command to display the log file
-        self.send_command(&format!("cat {}", log_path_str));
+        // Send tail command to display the last 200 lines of the log file
+        self.send_command(&format!("tail -n 200 {}", log_path_str));
 
         // Send an extra newline to ensure the next command starts on a fresh line
         // This is important because the log file might not end with a newline,

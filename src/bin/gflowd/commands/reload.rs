@@ -22,16 +22,10 @@ pub async fn handle_reload(
     let new_session_name = format!("gflow_server_new_{}", std::process::id());
     let session = TmuxSession::new(new_session_name.clone());
 
-    // Replay historical daemon logs to the tmux session
-    // Note: We replay logs BEFORE enabling pipe-pane to avoid capturing
-    // the cat output back into the log file (which would cause duplication)
-    if let Ok(log_path) = gflow::core::get_daemon_log_file_path() {
-        if let Err(e) = session.replay_log_file(&log_path) {
-            tracing::warn!("Failed to replay daemon logs: {}", e);
-        }
-        // Wait for cat command to complete before sending next command
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+    // Note: We don't replay logs during reload because:
+    // 1. The log file might be very large, causing cat to take a long time
+    // 2. Reload is a hot-swap operation, users typically don't view the tmux session immediately
+    // 3. Historical logs are preserved in the log file and can be viewed manually if needed
 
     let mut command = String::from("gflowd -vvv");
     if let Some(gpu_spec) = gpus {
