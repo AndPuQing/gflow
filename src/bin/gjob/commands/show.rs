@@ -37,6 +37,7 @@ fn print_job_details(job: &Job) {
     print_field!("State", "{} ({})", job.state, job.state.short_form());
     print_field!("Priority", "{}", job.priority);
     print_field!("SubmittedBy", "{}", job.submitted_by);
+    print_optional_field!("GroupID", job.group_id);
 
     // Command or script
     print_optional_field!("Script", job.script, |s| s.display());
