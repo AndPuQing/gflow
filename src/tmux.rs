@@ -82,6 +82,14 @@ impl TmuxSession {
         // Send cat command to display the log file
         self.send_command(&format!("cat {}", log_path_str));
 
+        // Send an extra newline to ensure the next command starts on a fresh line
+        // This is important because the log file might not end with a newline,
+        // which would cause the next command to be appended to the last log line
+        Tmux::new()
+            .add_command(SendKeys::new().target_pane(&self.name).key(""))
+            .output()
+            .ok();
+
         Ok(())
     }
 }
