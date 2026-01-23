@@ -906,9 +906,9 @@ async fn gpu_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     }
 }
 
-/// Zombie monitor task - checks tmux sessions every 30s
+/// Zombie monitor task - checks tmux sessions every 10s
 async fn zombie_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
 
     loop {
         interval.tick().await;
