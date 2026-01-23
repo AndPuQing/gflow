@@ -399,6 +399,23 @@ impl Job {
         deps
     }
 
+    /// Returns an iterator over all dependency IDs without allocation.
+    /// The legacy `depends_on` is yielded first (if present and not in `depends_on_ids`),
+    /// followed by all IDs in `depends_on_ids`.
+    pub fn dependency_ids_iter(&self) -> impl Iterator<Item = u32> + '_ {
+        let legacy_dep = self
+            .depends_on
+            .filter(|dep| !self.depends_on_ids.contains(dep));
+        legacy_dep
+            .into_iter()
+            .chain(self.depends_on_ids.iter().copied())
+    }
+
+    /// Returns true if this job has no dependencies.
+    pub fn has_no_dependencies(&self) -> bool {
+        self.depends_on.is_none() && self.depends_on_ids.is_empty()
+    }
+
     fn update_timestamps(&mut self, next: &JobState) {
         match next {
             JobState::Running => self.started_at = Some(SystemTime::now()),

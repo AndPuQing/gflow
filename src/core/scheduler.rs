@@ -1,6 +1,6 @@
 use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
-use crate::core::job::{Job, JobState, JobStateReason};
+use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
 use crate::core::{GPUSlot, UUID};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -300,29 +300,20 @@ impl Scheduler {
 
     /// Check if job's dependencies are satisfied
     fn are_dependencies_satisfied(
-        &self,
         job: &Job,
         finished_jobs: &std::collections::HashSet<u32>,
-        _failed_jobs: &std::collections::HashSet<u32>,
     ) -> bool {
-        use crate::core::job::DependencyMode;
-
-        let all_deps = job.all_dependency_ids();
-
-        if all_deps.is_empty() {
-            return true; // No dependencies
+        if job.has_no_dependencies() {
+            return true;
         }
 
-        // Check based on dependency mode
         match job.dependency_mode.as_ref().unwrap_or(&DependencyMode::All) {
-            DependencyMode::All => {
-                // ALL dependencies must be finished
-                all_deps.iter().all(|dep_id| finished_jobs.contains(dep_id))
-            }
-            DependencyMode::Any => {
-                // At least ONE dependency must be finished
-                all_deps.iter().any(|dep_id| finished_jobs.contains(dep_id))
-            }
+            DependencyMode::All => job
+                .dependency_ids_iter()
+                .all(|dep_id| finished_jobs.contains(&dep_id)),
+            DependencyMode::Any => job
+                .dependency_ids_iter()
+                .any(|dep_id| finished_jobs.contains(&dep_id)),
         }
     }
 
@@ -464,27 +455,12 @@ impl Scheduler {
             .map(|j| j.id)
             .collect();
 
-        let failed_jobs: std::collections::HashSet<u32> = self
-            .jobs
-            .values()
-            .filter(|j| {
-                matches!(
-                    j.state,
-                    JobState::Failed | JobState::Cancelled | JobState::Timeout
-                )
-            })
-            .map(|j| j.id)
-            .collect();
-
         // Collect and sort runnable jobs
         let mut runnable_jobs: Vec<_> = self
             .jobs
             .values()
             .filter(|j| j.state == JobState::Queued)
-            .filter(|j| {
-                // Check if dependencies are satisfied
-                self.are_dependencies_satisfied(j, &finished_jobs, &failed_jobs)
-            })
+            .filter(|j| Self::are_dependencies_satisfied(j, &finished_jobs))
             .map(|j| j.id)
             .collect();
 
