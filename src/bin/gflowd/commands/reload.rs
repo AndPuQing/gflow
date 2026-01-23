@@ -27,6 +27,8 @@ pub async fn handle_reload(
         if let Err(e) = session.replay_log_file(&log_path) {
             tracing::warn!("Failed to replay daemon logs: {}", e);
         }
+        // Wait for cat command to complete before sending next command
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     let mut command = String::from("gflowd -vvv");

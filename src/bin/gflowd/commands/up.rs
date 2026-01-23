@@ -9,6 +9,8 @@ pub async fn handle_up(gpus: Option<String>) -> Result<()> {
         if let Err(e) = session.replay_log_file(&log_path) {
             eprintln!("Warning: Failed to replay daemon logs: {}", e);
         }
+        // Wait for cat command to complete before sending next command
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
     let mut command = String::from("gflowd -vvv");
