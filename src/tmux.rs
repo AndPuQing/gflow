@@ -108,6 +108,31 @@ pub fn disable_pipe_pane(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
 }
 
+/// Disable pipe-pane for a job's tmux session with appropriate logging.
+/// Use `expect_failure=true` for cases where the session may already be gone (e.g., zombie jobs).
+pub fn disable_pipe_pane_for_job(job_id: u32, session_name: &str, expect_failure: bool) {
+    tracing::info!(
+        "Disabling pipe-pane for job {} (session: {})",
+        job_id,
+        session_name
+    );
+    if let Err(e) = disable_pipe_pane(session_name) {
+        if expect_failure {
+            tracing::debug!(
+                "Could not disable pipe-pane for session '{}' (may already be gone): {}",
+                session_name,
+                e
+            );
+        } else {
+            tracing::warn!(
+                "Failed to disable pipe-pane for session '{}': {}",
+                session_name,
+                e
+            );
+        }
+    }
+}
+
 pub fn kill_session(name: &str) -> anyhow::Result<()> {
     // Disable pipe-pane before killing session (ignore errors if already disabled)
     Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))

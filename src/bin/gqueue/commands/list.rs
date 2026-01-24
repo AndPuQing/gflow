@@ -158,7 +158,7 @@ fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
     match sort_field.to_lowercase().as_str() {
         "id" => jobs.sort_by_key(|j| j.id),
         "state" => jobs.sort_by_key(|j| j.state),
-        "time" => jobs.sort_by(|a, b| a.started_at.cmp(&b.started_at)),
+        "time" => jobs.sort_by_key(|a| a.started_at),
         "name" => jobs.sort_by(|a, b| {
             a.run_name
                 .as_deref()

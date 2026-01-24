@@ -5,36 +5,12 @@ use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
+use gflow::tmux::disable_pipe_pane_for_job;
 use nvml_wrapper::Nvml;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
-
-/// Disable PipePane for a tmux session to prevent process leaks.
-/// Logs the action and any errors appropriately based on whether failure is expected.
-fn disable_pipe_pane_for_job(job_id: u32, session_name: &str, expect_failure: bool) {
-    tracing::info!(
-        "Disabling pipe-pane for job {} (session: {})",
-        job_id,
-        session_name
-    );
-    if let Err(e) = gflow::tmux::disable_pipe_pane(session_name) {
-        if expect_failure {
-            tracing::debug!(
-                "Could not disable pipe-pane for session '{}' (may already be gone): {}",
-                session_name,
-                e
-            );
-        } else {
-            tracing::warn!(
-                "Failed to disable pipe-pane for session '{}': {}",
-                session_name,
-                e
-            );
-        }
-    }
-}
 
 /// Wrapper to make Arc<dyn Executor> compatible with Box<dyn Executor>
 struct ArcExecutorWrapper(Arc<dyn Executor>);
@@ -417,13 +393,16 @@ impl SchedulerRuntime {
         if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
             self.mark_dirty();
 
-            // Close tmux session if auto_close is enabled
-            if should_close_tmux {
-                if let Some(name) = run_name {
+            if let Some(name) = run_name {
+                if should_close_tmux {
+                    // Close tmux session if auto_close is enabled (this also disables pipe-pane)
                     tracing::info!("Auto-closing tmux session '{}' for job {}", name, job_id);
                     if let Err(e) = gflow::tmux::kill_session(&name) {
                         tracing::warn!("Failed to auto-close tmux session '{}': {}", name, e);
                     }
+                } else {
+                    // Disable pipe-pane to prevent process leaks (keep session alive for user inspection)
+                    disable_pipe_pane_for_job(job_id, &name, false);
                 }
             }
 
