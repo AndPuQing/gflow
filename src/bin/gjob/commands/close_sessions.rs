@@ -2,6 +2,13 @@ use anyhow::Result;
 use gflow::{client::Client, core::job::JobState, tmux, utils::parse_job_ids};
 use std::collections::HashSet;
 
+fn is_missing_session_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("does not exist")
+        || message.contains("can't find session")
+        || message.contains("unknown session")
+}
+
 pub async fn handle_close_sessions(
     config_path: &Option<std::path::PathBuf>,
     job_ids_str: &Option<String>,
@@ -46,37 +53,51 @@ pub async fn handle_close_sessions(
     }
 
     if sessions_to_close.is_empty() {
-        println!("No tmux sessions found matching the specified criteria.");
+        if all {
+            eprintln!("gjob close-sessions: no sessions to close");
+        } else if job_ids_str.is_none() && states.is_none() && pattern.is_none() {
+            eprintln!("gjob close-sessions: no filters specified (see gjob close-sessions --help)");
+        } else {
+            eprintln!("gjob close-sessions: no matching sessions");
+        }
         return Ok(());
     }
 
     let mut sessions: Vec<_> = sessions_to_close.into_iter().collect();
     sessions.sort();
 
-    println!("Closing {} tmux session(s):", sessions.len());
+    eprintln!("gjob close-sessions: closing {} session(s)", sessions.len());
     for s in &sessions {
-        println!("  - {}", s);
+        println!("{}", s);
     }
 
     let results = tmux::kill_sessions_batch(&sessions);
 
     let mut ok = 0;
+    let mut already_gone = 0;
     let mut failed = 0;
 
     for (name, res) in results {
         match res {
             Ok(_) => ok += 1,
             Err(e) => {
-                eprintln!("Failed to close session '{}': {}", name, e);
-                failed += 1;
+                if is_missing_session_error(&e.to_string()) {
+                    already_gone += 1;
+                } else {
+                    eprintln!(
+                        "gjob close-sessions: failed to close session '{}': {}",
+                        name, e
+                    );
+                    failed += 1;
+                }
             }
         }
     }
 
-    println!("\nClosed {} session(s) successfully.", ok);
-    if failed > 0 {
-        eprintln!("Failed to close {} session(s).", failed);
-    }
+    eprintln!(
+        "gjob close-sessions: closed={} already_closed={} failed={}",
+        ok, already_gone, failed
+    );
 
     Ok(())
 }
