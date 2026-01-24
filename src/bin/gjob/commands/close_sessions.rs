@@ -16,51 +16,79 @@ pub async fn handle_close_sessions(
     pattern: &Option<String>,
     all: bool,
 ) -> Result<()> {
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
-
-    let jobs = client.list_jobs().await?;
     let mut sessions_to_close = HashSet::new();
 
-    let job_ids = match job_ids_str {
-        Some(s) => Some(parse_job_ids(s)?),
-        None => None,
-    };
+    // For -a flag, get existing tmux sessions and exclude running jobs
+    if all {
+        let mut gflow_sessions: HashSet<_> = tmux::get_all_session_names()
+            .into_iter()
+            .filter(|s| s.starts_with("gflow-job-"))
+            .collect();
 
-    for job in &jobs {
-        let Some(session_name) = &job.run_name else {
-            continue;
+        if gflow_sessions.is_empty() {
+            eprintln!("gjob close-sessions: no sessions to close");
+            return Ok(());
+        }
+
+        // Exclude running job sessions - only query Running state for efficiency
+        let config = gflow::config::load_config(config_path.as_ref())?;
+        let client = Client::build(&config)?;
+        let running_jobs = client
+            .list_jobs_with_query(Some("Running".to_string()), None, None, None, None)
+            .await?;
+        for job in running_jobs {
+            if let Some(name) = job.run_name {
+                gflow_sessions.remove(&name);
+            }
+        }
+
+        if gflow_sessions.is_empty() {
+            eprintln!("gjob close-sessions: no sessions to close");
+            return Ok(());
+        }
+
+        sessions_to_close = gflow_sessions;
+    } else {
+        let config = gflow::config::load_config(config_path.as_ref())?;
+        let client = Client::build(&config)?;
+
+        let jobs = client.list_jobs().await?;
+
+        let job_ids = match job_ids_str {
+            Some(s) => Some(parse_job_ids(s)?),
+            None => None,
         };
 
-        if all && job.state.is_final() {
-            sessions_to_close.insert(session_name.clone());
-            continue;
+        for job in &jobs {
+            let Some(session_name) = &job.run_name else {
+                continue;
+            };
+
+            if job_ids.is_none() && states.is_none() && pattern.is_none() {
+                continue;
+            }
+
+            let matches = job_ids.as_ref().is_none_or(|ids| ids.contains(&job.id))
+                && states.as_ref().is_none_or(|ss| ss.contains(&job.state))
+                && pattern
+                    .as_ref()
+                    .is_none_or(|pat| session_name.contains(pat));
+
+            if matches && (states.is_some() || job.state.is_final()) {
+                sessions_to_close.insert(session_name.clone());
+            }
         }
 
-        if job_ids.is_none() && states.is_none() && pattern.is_none() {
-            continue;
+        if sessions_to_close.is_empty() {
+            if job_ids_str.is_none() && states.is_none() && pattern.is_none() {
+                eprintln!(
+                    "gjob close-sessions: no filters specified (see gjob close-sessions --help)"
+                );
+            } else {
+                eprintln!("gjob close-sessions: no matching sessions");
+            }
+            return Ok(());
         }
-
-        let matches = job_ids.as_ref().is_none_or(|ids| ids.contains(&job.id))
-            && states.as_ref().is_none_or(|ss| ss.contains(&job.state))
-            && pattern
-                .as_ref()
-                .is_none_or(|pat| session_name.contains(pat));
-
-        if matches && (states.is_some() || job.state.is_final()) {
-            sessions_to_close.insert(session_name.clone());
-        }
-    }
-
-    if sessions_to_close.is_empty() {
-        if all {
-            eprintln!("gjob close-sessions: no sessions to close");
-        } else if job_ids_str.is_none() && states.is_none() && pattern.is_none() {
-            eprintln!("gjob close-sessions: no filters specified (see gjob close-sessions --help)");
-        } else {
-            eprintln!("gjob close-sessions: no matching sessions");
-        }
-        return Ok(());
     }
 
     let mut sessions: Vec<_> = sessions_to_close.into_iter().collect();
