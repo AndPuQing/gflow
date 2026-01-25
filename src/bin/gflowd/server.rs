@@ -230,7 +230,7 @@ async fn list_jobs(
 
         if let Some(created_after) = UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
         {
-            jobs.retain(|job| job.started_at.is_some_and(|ts| ts >= created_after));
+            jobs.retain(|job| job.submitted_at.is_some_and(|ts| ts >= created_after));
         }
     }
 

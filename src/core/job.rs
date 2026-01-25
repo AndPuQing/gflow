@@ -180,8 +180,9 @@ pub struct Job {
     /// Optional fields that get populated by gflowd
     pub run_name: Option<String>, // tmux session name
     pub state: JobState,
-    pub gpu_ids: Option<Vec<u32>>,       // GPU IDs assigned to this job
-    pub started_at: Option<SystemTime>,  // When the job started running
+    pub gpu_ids: Option<Vec<u32>>, // GPU IDs assigned to this job
+    pub submitted_at: Option<SystemTime>, // When the job was submitted
+    pub started_at: Option<SystemTime>, // When the job started running
     pub finished_at: Option<SystemTime>, // When the job finished or failed
     #[serde(default)]
     pub reason: Option<JobStateReason>, // Reason for cancellation/failure
@@ -343,6 +344,7 @@ impl JobBuilder {
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
+            submitted_at: None,
             started_at: None,
             finished_at: None,
             reason: None,
@@ -376,6 +378,7 @@ impl Default for Job {
             run_name: None,
             state: JobState::Queued,
             gpu_ids: None,
+            submitted_at: None,
             started_at: None,
             finished_at: None,
             reason: None,

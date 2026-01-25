@@ -110,6 +110,7 @@ impl Scheduler {
             run_name: job
                 .run_name
                 .or_else(|| Some(format!("gflow-job-{}", job.id))),
+            submitted_at: Some(std::time::SystemTime::now()),
             ..job
         };
         let job_id = job_.id;
