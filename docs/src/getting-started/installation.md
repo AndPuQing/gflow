@@ -48,6 +48,14 @@ pip install runqd
 
 This will install pre-built binaries for Linux (x86_64, ARM64, ARMv7) with both GNU and MUSL libc support.
 
+### Install Nightly Build
+
+To try the latest development version, install from TestPyPI:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ runqd
+```
+
 ### Method 2: Install via Cargo
 
 Build and install from crates.io:

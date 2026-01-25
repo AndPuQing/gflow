@@ -48,6 +48,14 @@ pip install runqd
 
 这将为 Linux（x86_64、ARM64、ARMv7）安装预构建的二进制文件，支持 GNU 和 MUSL libc。
 
+### 安装 Nightly 版本
+
+如需体验最新开发版本，可从 TestPyPI 安装：
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ runqd
+```
+
 ### 方法 2：通过 Cargo 安装
 
 从 crates.io 构建并安装：
