@@ -1,0 +1,174 @@
+name: Nightly Build
+
+on:
+    schedule:
+        # Daily at UTC 00:00
+        - cron: "0 0 * * *"
+    workflow_dispatch:
+
+concurrency:
+    group: nightly-build
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        outputs:
+            should_build: ${{ steps.check.outputs.should_build }}
+            version: ${{ steps.version.outputs.version }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Check for changes in last 24 hours
+              id: check
+              run: |
+                  LAST_COMMIT=$(git log -1 --format=%ct)
+                  NOW=$(date +%s)
+                  DIFF=$((NOW - LAST_COMMIT))
+                  # 86400 seconds = 24 hours
+                  if [ $DIFF -lt 86400 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                      echo "should_build=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "should_build=false" >> $GITHUB_OUTPUT
+                      echo "No changes in the last 24 hours, skipping build"
+                  fi
+
+            - name: Generate nightly version
+              id: version
+              if: steps.check.outputs.should_build == 'true'
+              run: |
+                  BASE_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml)
+                  DATE_SUFFIX=$(date -u +%Y%m%d)
+                  NIGHTLY_VERSION="${BASE_VERSION}.dev${DATE_SUFFIX}"
+                  echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
+                  echo "Generated nightly version: ${NIGHTLY_VERSION}"
+
+    linux:
+        needs: check
+        if: needs.check.outputs.should_build == 'true'
+        runs-on: ${{ matrix.platform.runner }}
+        timeout-minutes: 60
+        strategy:
+            matrix:
+                platform:
+                    - runner: ubuntu-22.04
+                      target: x86_64
+                    - runner: ubuntu-22.04
+                      target: aarch64
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set nightly version
+              run: |
+                  # pyproject.toml uses PEP 440 format
+                  sed -i 's/^version = ".*"/version = "${{ needs.check.outputs.version }}"/' pyproject.toml
+                  # Cargo.toml uses semver with pre-release tag
+                  BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
+                  sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
+
+            - name: Build wheels
+              uses: PyO3/maturin-action@v1
+              with:
+                  target: ${{ matrix.platform.target }}
+                  args: --release --out dist
+                  sccache: true
+                  manylinux: auto
+
+            - name: Upload wheels
+              uses: actions/upload-artifact@v6
+              with:
+                  name: wheels-linux-${{ matrix.platform.target }}
+                  path: dist
+
+    musllinux:
+        needs: check
+        if: needs.check.outputs.should_build == 'true'
+        runs-on: ${{ matrix.platform.runner }}
+        timeout-minutes: 60
+        strategy:
+            matrix:
+                platform:
+                    - runner: ubuntu-22.04
+                      target: x86_64
+                    - runner: ubuntu-22.04
+                      target: aarch64
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set nightly version
+              run: |
+                  # pyproject.toml uses PEP 440 format
+                  sed -i 's/^version = ".*"/version = "${{ needs.check.outputs.version }}"/' pyproject.toml
+                  # Cargo.toml uses semver with pre-release tag
+                  BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
+                  sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
+
+            - name: Build wheels
+              uses: PyO3/maturin-action@v1
+              with:
+                  target: ${{ matrix.platform.target }}
+                  args: --release --out dist
+                  sccache: true
+                  manylinux: musllinux_1_2
+
+            - name: Upload wheels
+              uses: actions/upload-artifact@v6
+              with:
+                  name: wheels-musllinux-${{ matrix.platform.target }}
+                  path: dist
+
+    sdist:
+        needs: check
+        if: needs.check.outputs.should_build == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set nightly version
+              run: |
+                  # pyproject.toml uses PEP 440 format
+                  sed -i 's/^version = ".*"/version = "${{ needs.check.outputs.version }}"/' pyproject.toml
+                  # Cargo.toml uses semver with pre-release tag
+                  BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
+                  sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
+
+            - name: Build sdist
+              uses: PyO3/maturin-action@v1
+              with:
+                  command: sdist
+                  args: --out dist
+
+            - name: Upload sdist
+              uses: actions/upload-artifact@v6
+              with:
+                  name: wheels-sdist
+                  path: dist
+
+    publish:
+        name: Publish to TestPyPI
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        needs: [check, linux, musllinux, sdist]
+        if: needs.check.outputs.should_build == 'true'
+        environment:
+            name: testpypi
+            url: https://test.pypi.org/project/runqd/
+        permissions:
+            id-token: write
+        steps:
+            - uses: actions/download-artifact@v7
+
+            - name: List artifacts
+              run: ls -la wheels-*/*
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v7
+
+            - name: Publish to TestPyPI
+              run: uv publish 'wheels-*/*' --publish-url https://test.pypi.org/legacy/
