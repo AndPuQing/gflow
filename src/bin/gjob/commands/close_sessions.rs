@@ -123,7 +123,7 @@ pub async fn handle_close_sessions(
     }
 
     eprintln!(
-        "gjob close-sessions: closed={} already_closed={} failed={}",
+        "gjob close-sessions: Closed={} AlreadyClosed={} Failed={}",
         ok, already_gone, failed
     );
 
