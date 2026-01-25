@@ -64,6 +64,10 @@ export default defineConfig({
                                 text: "Configuration",
                                 link: "/user-guide/configuration",
                             },
+                            {
+                                text: "Tips",
+                                link: "/user-guide/tips",
+                            },
                         ],
                     },
                     {
@@ -164,6 +168,10 @@ export default defineConfig({
                             {
                                 text: "配置",
                                 link: "/zh-CN/user-guide/configuration",
+                            },
+                            {
+                                text: "实用技巧",
+                                link: "/zh-CN/user-guide/tips",
                             },
                         ],
                     },
