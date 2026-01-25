@@ -54,22 +54,22 @@ stateDiagram-v2
 
 **From Queued**:
 - → **Running**: When dependencies are met AND resources are available
-- → **Hold**: User runs `gjob hold <id>`
-- → **Cancelled**: User runs `gcancel <id>` OR a dependency fails (with auto-cancel enabled)
+- → **Hold**: User runs `gjob hold <job_id>`
+- → **Cancelled**: User runs `gcancel <job_id>` OR a dependency fails (with auto-cancel enabled)
 
 **From Hold**:
-- → **Queued**: User runs `gjob release <id>`
-- → **Cancelled**: User runs `gcancel <id>`
+- → **Queued**: User runs `gjob release <job_id>`
+- → **Cancelled**: User runs `gcancel <job_id>`
 
 **From Running**:
 - → **Finished**: Job script/command exits with code 0
 - → **Failed**: Job script/command exits with non-zero code
-- → **Cancelled**: User runs `gcancel <id>`
+- → **Cancelled**: User runs `gcancel <job_id>`
 - → **Timeout**: Job exceeds its time limit (set with `--time`)
 
 **From Completed States**:
 - No transitions (final states)
-- Use `gjob redo <id>` to create a new job with the same parameters
+- Use `gjob redo <job_id>` to create a new job with the same parameters
 
 ## Job State Reasons
 
@@ -81,10 +81,10 @@ Jobs in certain states have an associated reason that provides more context:
 | Queued | `WaitingForResources` | Job is waiting for available GPUs/memory |
 | Hold | `JobHeldUser` | Job was put on hold by user request |
 | Cancelled | `CancelledByUser` | User explicitly cancelled the job |
-| Cancelled | `DependencyFailed:<id>` | Job was auto-cancelled because job `<id>` failed |
+| Cancelled | `DependencyFailed:<job_id>` | Job was auto-cancelled because job `<job_id>` failed |
 | Cancelled | `SystemError:<msg>` | Job was cancelled due to a system error |
 
-View the reason with `gjob show <id>` or `gqueue -f JOBID,ST,REASON`.
+View the reason with `gjob show <job_id>` or `gqueue -f JOBID,ST,REASON`.
 
 ## Status Checking Workflow
 
@@ -134,4 +134,3 @@ flowchart TD
 - [Job Dependencies](./job-dependencies) - Complete guide to job dependencies
 - [Job Submission](./job-submission) - Job submission options
 - [Time Limits](./time-limits) - Managing job timeouts
-<!--- [gjob Reference](../reference/gjob-reference) - Complete command reference-->

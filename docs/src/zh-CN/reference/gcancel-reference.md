@@ -7,8 +7,8 @@
 ```bash
 gcancel [OPTIONS] [IDS...]
 gcancel --dry-run [IDS...]
-gcancel --finish <ID>
-gcancel --fail <ID>
+gcancel --finish <job_id>
+gcancel --fail <job_id>
 ```
 
 ## 描述
@@ -59,7 +59,7 @@ gcancel 1,3,5-7,10
 
 **示例**：
 ```bash
-$ gcancel --dry-run 1
+gcancel --dry-run 1
 Would cancel job 1 (data-prep)
 
 ⚠️  Warning: The following jobs depend on job 1:
@@ -82,7 +82,7 @@ To proceed with cancellation, run:
 
 这些选项由 gflow 内部使用，不适合直接用户交互。
 
-#### `--finish <ID>`
+#### `--finish <job_id>`
 
 标记任务为已完成（仅内部使用）。
 
@@ -93,7 +93,7 @@ gcancel --finish 42
 
 **注意**：由系统用于转换任务状态。不建议手动使用。
 
-#### `--fail <ID>`
+#### `--fail <job_id>`
 
 标记任务为失败（仅内部使用）。
 
@@ -120,7 +120,7 @@ gcancel --config /path/to/custom.toml 42
 显示帮助消息。
 
 ```bash
-$ gcancel --help
+gcancel --help
 <!-- cmdrun gcancel --help -->
 ```
 
@@ -129,7 +129,7 @@ $ gcancel --help
 显示版本信息。
 
 ```bash
-$ gcancel --version
+gcancel --version
 <!-- cmdrun gcancel --version -->
 ```
 
@@ -152,10 +152,10 @@ $ gcancel --version
 
 **示例**：
 ```bash
-$ gcancel 42
+gcancel 42
 Job 42 cancelled successfully
 
-$ gqueue -j 42
+gqueue -j 42
 JOBID    NAME      ST    TIME
 42       my-job    CA    00:05:23
 ```
@@ -171,23 +171,23 @@ JOBID    NAME      ST    TIME
 **示例**：
 ```bash
 # 任务 2 依赖任务 1
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      R
 └─ 2     train     PD
 
 # 取消任务 1
-$ gcancel 1
+gcancel 1
 Job 1 cancelled
 
 # 任务 2 现在是孤立的
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      CA
 └─ 2     train     PD    # 永远不会启动
 
 # 必须手动取消任务 2
-$ gcancel 2
+gcancel 2
 ```
 
 ### 已完成的任务
@@ -195,7 +195,7 @@ $ gcancel 2
 无法取消已完成的任务：
 
 ```bash
-$ gcancel 42
+gcancel 42
 Error: Job 42 is already in terminal state (Finished)
 ```
 
@@ -208,7 +208,7 @@ Error: Job 42 is already in terminal state (Finished)
 ### 不存在的任务
 
 ```bash
-$ gcancel 999
+gcancel 999
 Error: Job 999 not found
 ```
 
@@ -246,7 +246,7 @@ gcancel 5
 
 ```bash
 # 查看管道
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      R
 ├─ 2     train-a   PD
@@ -311,16 +311,16 @@ gbatch --gpus 1 --time 2:00:00 python train.py --fixed
 
 ```bash
 # 查找失败的任务
-$ gqueue -s Failed
+gqueue -s Failed
 JOBID    NAME      ST
 5        prep      F
 
 # 取消依赖任务（它们无论如何都不会启动）
-$ gqueue -t | grep -A10 "^5"
+gqueue -t | grep -A10 "^5"
 5        prep      F
 └─ 6     train     PD
 
-$ gcancel 6
+gcancel 6
 ```
 
 ### 紧急停止

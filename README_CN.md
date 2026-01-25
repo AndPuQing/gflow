@@ -34,7 +34,9 @@
 - `ginfo`：显示调度器和 GPU 信息。
 - `gbatch`：向调度器提交任务，类似 Slurm 的 `sbatch`。
 - `gqueue`：列出和过滤队列中的任务，类似 Slurm 的 `squeue`。
-- `gcancel`：取消任务并管理任务状态（内部使用）。
+- `gjob`：任务查看与控制（日志、attach、update、redo 等）。
+- `gctl`：守护进程/运行时控制工具（例如 GPU 限制）。
+- `gcancel`：取消任务。
 
 ## 安装
 
@@ -79,7 +81,7 @@ cargo install gflow
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
 
-这将安装所有必需的二进制文件（`gflowd`、`ginfo`、`gbatch`、`gqueue`、`gcancel`、`gjob`）。
+这将安装所有必需的二进制文件（`gflowd`、`ginfo`、`gbatch`、`gqueue`、`gcancel`、`gjob`、`gctl`）。
 
 ### 通过 Conda 安装
 
@@ -136,69 +138,15 @@ conda install -c conda-forge gflow
     ```
     这将关闭守护进程并清理 tmux 会话。
 
-## 使用指南
+## 文档
 
-### 使用 `gbatch` 提交任务
-
-`gbatch` 提供灵活的任务提交选项。
-
-- **直接提交命令**：
-  ```bash
-  gbatch --gpus 1 python train.py --epochs 10
-  ```
-
-- **设置任务名称和优先级**：
-  ```bash
-  gbatch --gpus 1 --name "training-run-1" --priority 10 ./my_job.sh
-  ```
-
-- **创建依赖于其他任务的任务**：
-  ```bash
-  # 第一个任务
-  gbatch --gpus 1 --name "job1" ./job1.sh
-  # 从 gqueue 获取任务 ID，例如 123
-
-  # 第二个任务依赖于第一个
-  gbatch --gpus 1 --name "job2" --depends-on 123 ./job2.sh
-  ```
-
-- **为任务设置时间限制**：
-  ```bash
-  # 30 分钟限制
-  gbatch --time 30 python train.py
-
-  # 2 小时限制（HH:MM:SS 格式）
-  gbatch --time 2:00:00 python long_training.py
-
-  # 5 分 30 秒
-  gbatch --time 5:30 python quick_task.py
-  ```
-
-  有关时间限制的详细文档，请参阅 [docs/TIME_LIMITS.md](docs/TIME_LIMITS.md)。
-
-### 使用 `gqueue` 查询任务
-
-`gqueue` 允许您过滤和格式化任务列表。
-
-- **按任务状态过滤**：
-  ```bash
-  gqueue --states Running,Queued
-  ```
-
-- **按任务 ID 或名称过滤**：
-  ```bash
-  gqueue --jobs 123,124
-  gqueue --names "training-run-1"
-  ```
-
-- **自定义输出格式**：
-  ```bash
-  gqueue --format "ID,Name,State,GPUs"
-  ```
-
-## 配置
-
-`gflowd` 的配置可以自定义。默认配置文件位于 `~/.config/gflow/gflowd.toml`。
+- 在线文档：https://andpuqing.github.io/gflow/
+- 安装：`docs/src/zh-CN/getting-started/installation.md`
+- 快速入门：`docs/src/zh-CN/getting-started/quick-start.md`
+- 任务提交：`docs/src/zh-CN/user-guide/job-submission.md`
+- 时间限制：`docs/src/zh-CN/user-guide/time-limits.md`
+- 配置：`docs/src/zh-CN/user-guide/configuration.md`
+- 命令速查：`docs/src/zh-CN/reference/quick-reference.md`
 
 ## Star 历史
 

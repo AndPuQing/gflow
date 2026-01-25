@@ -137,7 +137,7 @@ gbatch --priority 10 unlimited.py              # 第 4 个运行（无限制）
 3. **监控**：调度器每 5 秒检查一次所有运行中的任务是否超时。
 
 4. **超时检测**：如果任务的运行时间超过其时间限制，调度器会：
-   - 记录警告：`Job <id> has exceeded time limit, terminating...`
+   - 记录警告：`Job <job_id> has exceeded time limit, terminating...`
    - 向任务的 tmux 会话发送 `Ctrl-C`（优雅中断）
    - 将任务转换到 `Timeout` 状态
    - 记录完成时间
@@ -167,7 +167,7 @@ gbatch --priority 10 unlimited.py              # 第 4 个运行（无限制）
 当任务超过其时间限制时，它转换到 `Timeout` 状态：
 
 ```bash
-$ gqueue -j 42
+gqueue -j 42
 JOBID    NAME             ST    TIME         TIMELIMIT
 42       my-long-job      TO    00:10:05     00:10:00
 ```
@@ -211,7 +211,7 @@ Submitted batch job 42 (elegant-mountain-1234)
 
 **检查状态**：
 ```bash
-$ gqueue -j 42 -f JOBID,NAME,ST,TIME,TIMELIMIT
+gqueue -j 42 -f JOBID,NAME,ST,TIME,TIMELIMIT
 JOBID    NAME                   ST    TIME         TIMELIMIT
 42       elegant-mountain-1234  R     00:15:23     02:00:00
 ```
@@ -226,7 +226,7 @@ gbatch --time 0:10 \
 
 **10 秒后**：
 ```bash
-$ gqueue -j 43 -f JOBID,NAME,ST,TIME,TIMELIMIT
+gqueue -j 43 -f JOBID,NAME,ST,TIME,TIMELIMIT
 JOBID    NAME                ST    TIME         TIMELIMIT
 43       quiet-river-5678    TO    00:00:13     00:00:10
 ```

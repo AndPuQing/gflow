@@ -34,7 +34,9 @@ The `gflow` suite consists of several command-line tools:
 - `ginfo`: Displays scheduler and GPU information.
 - `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
 - `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
-- `gcancel`: Cancels jobs and manages job states (internal use).
+- `gjob`: Job inspection and control (logs, attach, update, redo, ...).
+- `gctl`: Daemon/runtime control utilities (e.g. GPU restriction).
+- `gcancel`: Cancels jobs.
 
 ## Installation
 
@@ -79,7 +81,7 @@ cargo install gflow
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
 
-This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`).
+This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`, `gctl`).
 
 ### Install via Conda
 
@@ -136,69 +138,15 @@ conda install -c conda-forge gflow
     ```
     This shuts down the daemon and cleans up the tmux session.
 
-## Usage Guide
+## Documentation
 
-### Submitting Jobs with `gbatch`
-
-`gbatch` provides flexible options for job submission.
-
-- **Submit a command directly**:
-  ```bash
-  gbatch --gpus 1 python train.py --epochs 10
-  ```
-
-- **Set a job name and priority**:
-  ```bash
-  gbatch --gpus 1 --name "training-run-1" --priority 10 ./my_job.sh
-  ```
-
-- **Create a job that depends on another**:
-  ```bash
-  # First job
-  gbatch --gpus 1 --name "job1" ./job1.sh
-  # Get job ID from gqueue, e.g., 123
-
-  # Second job depends on the first
-  gbatch --gpus 1 --name "job2" --depends-on 123 ./job2.sh
-  ```
-
-- **Set a time limit for a job**:
-  ```bash
-  # 30-minute limit
-  gbatch --time 30 python train.py
-
-  # 2-hour limit (HH:MM:SS format)
-  gbatch --time 2:00:00 python long_training.py
-
-  # 5 minutes 30 seconds
-  gbatch --time 5:30 python quick_task.py
-  ```
-
-  See [docs/TIME_LIMITS.md](docs/TIME_LIMITS.md) for detailed documentation on time limits.
-
-### Querying Jobs with `gqueue`
-
-`gqueue` allows you to filter and format the job list.
-
-- **Filter by job state**:
-  ```bash
-  gqueue --states Running,Queued
-  ```
-
-- **Filter by job ID or name**:
-  ```bash
-  gqueue --jobs 123,124
-  gqueue --names "training-run-1"
-  ```
-
-- **Customize output format**:
-  ```bash
-  gqueue --format "ID,Name,State,GPUs"
-  ```
-
-## Configuration
-
-Configuration for `gflowd` can be customized. The default configuration file is located at `~/.config/gflow/gflowd.toml`.
+- Website: https://andpuqing.github.io/gflow/
+- Installation: `docs/src/getting-started/installation.md`
+- Quick start: `docs/src/getting-started/quick-start.md`
+- Job submission: `docs/src/user-guide/job-submission.md`
+- Time limits: `docs/src/user-guide/time-limits.md`
+- Configuration: `docs/src/user-guide/configuration.md`
+- Command quick reference: `docs/src/reference/quick-reference.md`
 
 ## Star History
 

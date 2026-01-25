@@ -167,7 +167,7 @@ gbatch --priority 1 python background.py
 - 资源释放时，高优先级任务首先启动
 - 不抢占运行中的任务
 
-#### `--depends-on <ID>`
+#### `--depends-on <job_id>`
 
 单个任务依赖。任务等待指定任务成功完成。
 
@@ -354,7 +354,7 @@ gbatch --config /path/to/custom.toml your_command
 显示帮助消息。
 
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 
@@ -363,7 +363,7 @@ $ gbatch --help
 显示版本信息。
 
 ```bash
-$ gbatch --version
+gbatch --version
 <!-- cmdrun gbatch --version -->
 ```
 
@@ -388,7 +388,7 @@ $ gbatch --version
 # GFLOW --time <TIME>
 # GFLOW --priority <N>
 # GFLOW --conda-env <ENV>
-# GFLOW --depends-on <ID>
+# GFLOW --depends-on <job_id>
 # GFLOW --depends-on-all <IDs>
 # GFLOW --depends-on-any <IDs>
 # GFLOW --no-auto-cancel
@@ -430,10 +430,10 @@ gbatch new <NAME>
 
 **示例**：
 ```bash
-$ gbatch new my_job
+gbatch new my_job
 Created template: my_job.sh
 
-$ cat my_job.sh
+cat my_job.sh
 #!/bin/bash
 # GFLOW --gpus 0
 # GFLOW --time 1:00:00
@@ -476,15 +476,15 @@ python train.py
 ### 提交成功
 
 ```bash
-$ gbatch python train.py
+gbatch python train.py
 Submitted batch job 42 (silent-pump-6338)
 ```
 
-**格式**：`Submitted batch job <ID> (<NAME>)`
+**格式**：`Submitted batch job <job_id> (<NAME>)`
 
 ### 任务日志
 
-输出捕获到：`~/.local/share/gflow/logs/<JOBID>.log`
+输出捕获到：`~/.local/share/gflow/logs/<job_id>.log`
 
 **查看日志**：
 ```bash

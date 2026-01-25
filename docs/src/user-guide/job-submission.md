@@ -90,7 +90,7 @@ The scheduler sets `CUDA_VISIBLE_DEVICES` automatically to the allocated GPUs.
 
 **Check GPU allocation**:
 ```bash
-$ gqueue -f JOBID,NAME,NODES,NODELIST
+gqueue -f JOBID,NAME,NODES,NODELIST
 JOBID    NAME                NODES    NODELIST(REASON)
 42       silent-pump-6338    1        0
 43       brave-river-1234    2        1,2
@@ -365,11 +365,11 @@ gjob update 123 --time-limit 04:00:00
 If an update fails, you'll see a clear error message:
 
 ```bash
-$ gjob update 123 --gpus 4
+gjob update 123 --gpus 4
 Error updating job 123: Job 123 is in state 'Running' and cannot be updated.
 Only queued or held jobs can be updated.
 
-$ gjob update 123 --depends-on 123
+gjob update 123 --depends-on 123
 Error updating job 123: Circular dependency detected: Job 123 depends on Job 123,
 which has a path back to Job 123
 ```
@@ -429,14 +429,14 @@ gbatch my_script.sh
 - `# GFLOW --time <TIME>`
 - `# GFLOW --priority <N>`
 - `# GFLOW --conda-env <ENV>`
-- `# GFLOW --depends-on <ID>`
+- `# GFLOW --depends-on <job_id>`
 
 ## Creating Script Templates
 
 Use `gbatch new` to create a job script template:
 
 ```bash
-$ gbatch new my_job
+gbatch new my_job
 ```
 
 This creates `my_job.sh` with a template:
@@ -711,7 +711,7 @@ gbatch [OPTIONS] <COMMAND> [ARGS...]
 - `--gpus <N>` or `-g <N>`: Number of GPUs
 - `--time <TIME>` or `-t <TIME>`: Time limit
 - `--priority <N>`: Job priority (0-255, default: 10)
-- `--depends-on <ID>`: Job dependency
+- `--depends-on <job_id>`: Job dependency
 - `--conda-env <ENV>` or `-c <ENV>`: Conda environment
 - `--array <SPEC>`: Job array (e.g., "1-10")
 - `--name <NAME>`: Custom job name
@@ -719,7 +719,7 @@ gbatch [OPTIONS] <COMMAND> [ARGS...]
 
 **Get help**:
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 

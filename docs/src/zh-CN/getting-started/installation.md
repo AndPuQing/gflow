@@ -100,38 +100,38 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 检查版本：
 ```bash
-$ gflowd --version
+gflowd --version
 <!-- cmdrun gflowd --version -->
 ```
 
 ```bash
-$ ginfo --version
+ginfo --version
 <!-- cmdrun ginfo --version -->
 ```
 
 ```bash
-$ gbatch --version
+gbatch --version
 <!-- cmdrun gbatch --version -->
 ```
 
 ```bash
-$ gqueue --version
+gqueue --version
 <!-- cmdrun gqueue --version -->
 ```
 
 ```bash
-$ gcancel --version
+gcancel --version
 <!-- cmdrun gcancel --version -->
 ```
 
 验证命令是否在 PATH 中：
 ```bash
-$ which ginfo
+which ginfo
 ```
 
 所有命令都已正确安装并在您的 PATH 中可用。
 
-## 安装后设置
+## 快速检查
 
 ### 1. 测试 tmux
 确保 tmux 正常工作：
@@ -141,41 +141,31 @@ tmux has-session -t test && echo "tmux 正常工作！"
 tmux kill-session -t test
 ```
 
-### 2. GPU 检测（可选）
+### 2. 守护进程 + GPU 检测（可选）
 
 如果您有 NVIDIA GPU，请验证它们是否被检测到：
 
 ```bash
 # 启动守护进程
-$ gflowd up
+gflowd up
 
 # 验证它已启动
-$ gflowd status
+gflowd status
 ```
 
 检查系统信息和 GPU 分配：
 ```bash
-$ ginfo
+ginfo
 ```
 
 如果有可用的 NVIDIA GPU，守护进程会显示 GPU 信息。
-
-### 3. 创建配置目录
-
-gflow 会自动创建此目录，但您也可以手动创建：
-
-```bash
-mkdir -p ~/.config/gflow
-mkdir -p ~/.local/share/gflow/logs
-```
-
-## 配置文件
+## 文件位置
 
 gflow 使用以下目录：
 
 | 位置 | 用途 |
 |----------|---------|
-| `~/.config/gflow/gflowd.toml` | 配置文件（可选） |
+| `~/.config/gflow/gflow.toml` | 配置文件（可选） |
 | `~/.local/share/gflow/state.json` | 持久化任务状态 |
 | `~/.local/share/gflow/logs/` | 任务输出日志 |
 

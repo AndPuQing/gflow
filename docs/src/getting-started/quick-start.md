@@ -1,262 +1,59 @@
 # Quick Start
 
-This guide will get you up and running with gflow in 5 minutes.
+This guide gets you running with gflow in a few minutes.
 
-## Starting the Scheduler
+## 1) Start the Scheduler
 
-First, start the gflow daemon:
-
-```shell
-$ gflowd up
-```
-
-This command starts the daemon in a tmux session. If you want to run it in the background, you can use:
-```shell
-$ gflowd up --detach
-```
-
-Run this in its own terminal or tmux session and leave it running. You can confirm that it started successfully with:
-```shell
-$ gflowd status
-```
-
-Example output:
-```
-Status: Running
-The gflowd daemon is running in tmux session 'gflow_server'.
-```
-
-Verify it's reachable from another terminal:
-```shell
-$ ginfo
-```
-
-Output will show scheduler status and GPU information.
-
-## Your First Job
-
-Let's submit a simple job:
+Start the daemon (runs inside a tmux session):
 
 ```shell
-$ gbatch echo 'Hello from gflow!'
-```
-
-This will submit a job that prints "Hello from gflow!" to the log.
-
-## Checking Job Status
-
-View the job queue:
-
-```shell
-$ gqueue
-```
-
-Example output:
-```
-JOBID   NAME            ST   TIME       NODES   NODELIST(REASON)
-1       gflow-job-1     CD   00:00:00   0       -
-```
-
-Job states:
-- `PD` (Queued) - Waiting to run
-- `R` (Running) - Currently executing
-- `CD` (Finished) - Completed successfully
-- `F` (Failed) - Failed with error
-- `CA` (Cancelled) - Manually cancelled
-- `TO` (Timeout) - Exceeded time limit
-
-## Viewing Job Output
-
-Job output is automatically logged:
-
-```shell
-$ sleep 6
-$ gjob log 1
-```
-
-## Submitting Jobs with Options
-
-### Job with GPU Request
-
-```shell
-gbatch --gpus 1 nvidia-smi
-```
-
-### Job with Time Limit
-
-```shell
-# 30-minute limit
-gbatch --time 30 python train.py
-
-# 2-hour limit
-gbatch --time 2:00:00 python long_train.py
-```
-
-### Job with Priority
-
-```shell
-# Higher priority (runs first)
-gbatch --priority 100 python urgent_task.py
-
-# Lower priority (default is 10)
-gbatch --priority 5 python background_task.py
-```
-
-### Job Script
-
-Create a file `my_job.sh`:
-```shell
-#!/bin/shell
-# GFLOW --gpus 1
-# GFLOW --time 1:00:00
-# GFLOW --priority 20
-
-echo "Job started at $(date)"
-python train.py --epochs 10
-echo "Job finished at $(date)"
-```
-
-Make it executable and submit:
-```shell
-chmod +x my_job.sh
-gbatch my_job.sh
-```
-
-## Job Dependencies
-
-Run jobs in sequence using the @ syntax:
-
-```shell
-# Job 1: Preprocessing
-gbatch --name "prep" python preprocess.py
-
-# Job 2: Training (depends on job 1)
-gbatch --depends-on @ --name "train" python train.py
-
-# Job 3: Evaluation (depends on job 2)
-gbatch --depends-on @ --name "eval" python evaluate.py
-```
-
-The `@` symbol always references the most recently submitted job, making it easy to chain dependencies.
-
-View dependency tree:
-```shell
-gqueue -t
-```
-
-## Monitoring Jobs
-
-### Watch Queue in Real-time
-
-```shell
-watch -n 2 gqueue
-```
-
-### Filter by State
-
-```shell
-# Show only running jobs
-gqueue -s Running
-
-# Show running and queued jobs
-gqueue -s Running,Queued
-```
-
-### Custom Output Format
-
-```shell
-$ gqueue -f JOBID,NAME,ST,TIME,TIMELIMIT
-```
-
-Example output:
-```
-JOBID   NAME            ST   TIME       TIMELIMIT
-1       gflow-job-1     CD   00:00:05   00:01:00
-2       gflow-job-2     R    00:00:10   UNLIMITED
-```
-
-### View Specific Jobs
-
-```shell
-# Single job
-gqueue -j 5
-
-# Multiple jobs
-gqueue -j 5,6,7
-```
-
-## Cancelling Jobs
-
-Cancel a job:
-
-```shell
-gcancel 5
-```
-
-Output:
-```
-Job 5 cancelled.
-```
-
-## Attaching to Running Jobs
-
-Each job runs in a tmux session. You can attach to see live output:
-
-```shell
-# Get the job's session name from gqueue
-gqueue -f JOBID,NAME
-
-# Attach to the session
-gjob attach -t <job_id>
-
-# Detach without stopping the job
-# Press: Ctrl+B then D
-```
-
-## Stopping the Scheduler
-
-When you're done:
-
-```shell
-gflowd down
-```
-
-This stops the daemon, saves state, and removes the tmux session.
-
-## Example Workflow
-
-Here's a complete example workflow:
-
-```shell
-# 1. Start scheduler
 gflowd up
+```
 
-# 2. Submit preprocessing job
-gbatch --time 10 --name prep python preprocess.py
+Check status:
 
-# 3. Submit training jobs that depend on preprocessing
-gbatch --time 2:00:00 --gpus 1 --depends-on @ --name train_lr001 python train.py --lr 0.001
+```shell
+gflowd status
+```
 
-gbatch --time 2:00:00 --gpus 1 --depends-on @~1 --name train_lr01 python train.py --lr 0.01
+Verify the client can reach it:
 
-# Note: Both training jobs depend on @~1 (the prep job), skipping each other
+```shell
+ginfo
+```
 
-# 4. Monitor jobs
-watch gqueue -t
+## 2) Submit a Job
 
-# 5. Check logs when done
-gjob log 1
-gjob log 2
-gjob log 3
+```shell
+gbatch echo 'Hello from gflow!'
+```
 
-# 6. Stop scheduler
+## 3) Check Queue and Logs
+
+```shell
+gqueue
+```
+
+Then view output:
+
+```shell
+gjob log <job_id>
+```
+
+## 4) Stop the Scheduler
+
+```shell
 gflowd down
 ```
 
-**@ Syntax Explained**:
-- `@` - Most recently submitted job
-- `@~1` - Second most recently submitted job
-- `@~2` - Third most recently submitted job
+## Next Steps
+
+- [Submitting jobs](../user-guide/job-submission)
+- [Time limits](../user-guide/time-limits)
+- [Job dependencies](../user-guide/job-dependencies)
+- [GPU management](../user-guide/gpu-management)
+- [Configuration](../user-guide/configuration)
+- [Command reference](../reference/quick-reference)
 
 This makes it easy to create complex workflows without manually tracking job IDs!
 

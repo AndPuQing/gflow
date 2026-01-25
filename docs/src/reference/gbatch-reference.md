@@ -167,7 +167,7 @@ gbatch --priority 1 python background.py
 - Jobs with higher priority start first when resources free
 - Doesn't preempt running jobs
 
-#### `--depends-on <ID>`
+#### `--depends-on <job_id>`
 
 Single job dependency. Job waits for the specified job to finish successfully.
 
@@ -354,7 +354,7 @@ gbatch --config /path/to/custom.toml your_command
 Display help message.
 
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 
@@ -363,7 +363,7 @@ $ gbatch --help
 Display version information.
 
 ```bash
-$ gbatch --version
+gbatch --version
 <!-- cmdrun gbatch --version -->
 ```
 
@@ -388,7 +388,7 @@ Embed job parameters in script using `# GFLOW` comments.
 # GFLOW --time <TIME>
 # GFLOW --priority <N>
 # GFLOW --conda-env <ENV>
-# GFLOW --depends-on <ID>
+# GFLOW --depends-on <job_id>
 # GFLOW --depends-on-all <IDs>
 # GFLOW --depends-on-any <IDs>
 # GFLOW --no-auto-cancel
@@ -430,10 +430,10 @@ Creates `<NAME>.sh` with template structure.
 
 **Example**:
 ```bash
-$ gbatch new my_job
+gbatch new my_job
 Created template: my_job.sh
 
-$ cat my_job.sh
+cat my_job.sh
 #!/bin/bash
 # GFLOW --gpus 0
 # GFLOW --time 1:00:00
@@ -476,15 +476,15 @@ python train.py
 ### Submission Success
 
 ```bash
-$ gbatch python train.py
+gbatch python train.py
 Submitted batch job 42 (silent-pump-6338)
 ```
 
-**Format**: `Submitted batch job <ID> (<NAME>)`
+**Format**: `Submitted batch job <job_id> (<NAME>)`
 
 ### Job Logs
 
-Output captured to: `~/.local/share/gflow/logs/<JOBID>.log`
+Output captured to: `~/.local/share/gflow/logs/<job_id>.log`
 
 **View logs**:
 ```bash

@@ -18,11 +18,11 @@
 
 ```bash
 # 任务 1：预处理
-$ gbatch --name "prep" python preprocess.py
+gbatch --name "prep" python preprocess.py
 Submitted batch job 1 (prep)
 
 # 任务 2：训练（等待任务 1）
-$ gbatch --depends-on 1 --name "train" python train.py
+gbatch --depends-on 1 --name "train" python train.py
 Submitted batch job 2 (train)
 ```
 
@@ -44,7 +44,7 @@ Submitted batch job 2 (train)
 查看依赖关系：
 
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST    TIME         TIMELIMIT
 1        prep      CD    00:02:15     UNLIMITED
 └─ 2     train     R     00:05:30     04:00:00
@@ -140,7 +140,7 @@ gbatch --depends-on @~2 --time 30 python analysis_c.py
 **示例（默认自动取消）**：
 ```bash
 # 任务 1 失败
-$ gqueue
+gqueue
 JOBID    NAME      ST    TIME
 1        prep      F     00:01:23
 2        train     CA    00:00:00
@@ -154,13 +154,13 @@ JOBID    NAME      ST    TIME
 gbatch --depends-on 1 --no-auto-cancel python train.py
 
 # 如果任务 1 失败，任务 2 将保持在队列中
-$ gqueue
+gqueue
 JOBID    NAME      ST    TIME
 1        prep      F     00:01:23
 2        train     PD    00:00:00
 
 # 任务 2 永远不会运行 - 必须手动取消它
-$ gcancel 2
+gcancel 2
 ```
 
 ### 超时依赖
@@ -179,7 +179,7 @@ $ gcancel 2
 
 **检查取消影响**：
 ```bash
-$ gcancel --dry-run 1
+gcancel --dry-run 1
 Would cancel job 1 (prep)
 Warning: The following jobs depend on job 1:
   - Job 2 (train)
@@ -194,7 +194,7 @@ These jobs will never start if job 1 is cancelled.
 树视图清晰地显示任务依赖：
 
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME           ST    TIME         TIMELIMIT
 1        data-prep      CD    00:05:23     01:00:00
 ├─ 2     train-model-a  R     00:15:45     04:00:00
@@ -214,10 +214,10 @@ gflow 检测并防止循环依赖：
 
 ```bash
 # 这将失败
-$ gbatch --depends-on 2 python a.py
+gbatch --depends-on 2 python a.py
 Submitted batch job 1
 
-$ gbatch --depends-on 1 python b.py
+gbatch --depends-on 1 python b.py
 Error: Circular dependency detected: Job 2 depends on Job 1, which depends on Job 2
 ```
 
@@ -620,7 +620,7 @@ gbatch --depends-on 6 --time 30 python evaluate.py  # 任务 7
 
 **使用树视图可视化**：
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME                ST    TIME         TIMELIMIT
 1        collect_method_a    CD    00:15:30     00:30:00
 2        collect_method_b    F     00:10:00     00:30:00

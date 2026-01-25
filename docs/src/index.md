@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "gflow"
   text: "Lightweight Job Scheduler"
-  tagline: "A single-node job scheduler inspired by Slurm, designed for efficiently managing tasks on machines with GPU resources"
+  tagline: "A single-node job scheduler inspired by Slurm, designed for efficiently managing jobs on machines with GPU resources"
   actions:
     - theme: brand
       text: Get Started

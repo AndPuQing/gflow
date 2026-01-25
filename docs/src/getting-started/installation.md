@@ -100,82 +100,72 @@ After installation, verify that gflow is properly installed:
 
 Check versions:
 ```bash
-$ gflowd --version
+gflowd --version
 <!-- cmdrun gflowd --version -->
 ```
 
 ```bash
-$ ginfo --version
+ginfo --version
 <!-- cmdrun ginfo --version -->
 ```
 
 ```bash
-$ gbatch --version
+gbatch --version
 <!-- cmdrun gbatch --version -->
 ```
 
 ```bash
-$ gqueue --version
+gqueue --version
 <!-- cmdrun gqueue --version -->
 ```
 
 ```bash
-$ gcancel --version
+gcancel --version
 <!-- cmdrun gcancel --version -->
 ```
 
 Verify commands are in PATH:
 ```bash
-$ which ginfo
+which ginfo
 ```
 
 All commands are properly installed and available in your PATH.
 
-## Post-Installation Setup
+## Sanity Check
 
-### 1. Test tmux
-Make sure tmux is working:
+### 1. tmux
+Make sure tmux works:
 ```bash
 tmux new-session -d -s test
 tmux has-session -t test && echo "tmux is working!"
 tmux kill-session -t test
 ```
 
-### 2. GPU Detection (Optional)
+### 2. Daemon + GPU detection (Optional)
 
 If you have NVIDIA GPUs, verify they're detected:
 
 ```bash
 # Start the daemon
-$ gflowd up
+gflowd up
 
 # Verify it started
-$ gflowd status
+gflowd status
 ```
 
 Check system info and GPU allocation:
 ```bash
-$ ginfo
+ginfo
 ```
 
 The daemon shows GPU information if NVIDIA GPUs are available.
-
-### 3. Create Configuration Directory
-
-gflow will create this automatically, but you can do it manually:
-
-```bash
-mkdir -p ~/.config/gflow
-mkdir -p ~/.local/share/gflow/logs
-```
-
-## Configuration Files
+## File Locations
 
 gflow uses the following directories:
 
 | Location | Purpose |
 |----------|---------|
-| `~/.config/gflow/gflowd.toml` | Configuration file (optional) |
+| `~/.config/gflow/gflow.toml` | Configuration file (optional) |
 | `~/.local/share/gflow/state.json` | Persistent job state |
 | `~/.local/share/gflow/logs/` | Job output logs |
 

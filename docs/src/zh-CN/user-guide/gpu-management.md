@@ -13,7 +13,7 @@ gflow 通过 NVML 库为 NVIDIA GPU 提供自动检测、分配和管理。它�
 查看系统 GPU 信息：
 
 ```bash
-$ ginfo
+ginfo
 ```
 
 示例输出：
@@ -93,10 +93,10 @@ gbatch --gpus 4 python distributed_train.py
 **示例**：
 ```bash
 # 提交请求 2 个 GPU 的任务
-$ gbatch --gpus 2 nvidia-smi
+gbatch --gpus 2 nvidia-smi
 
 # 检查分配
-$ gqueue -f JOBID,NAME,NODES,NODELIST
+gqueue -f JOBID,NAME,NODES,NODELIST
 JOBID    NAME                NODES    NODELIST(REASON)
 42       brave-river-1234    2        1,2
 
@@ -143,14 +143,14 @@ python train.py
 # 系统有 2 个 GPU
 
 # 任务 1：使用 2 个 GPU
-$ gbatch --gpus 2 python long_train.py
+gbatch --gpus 2 python long_train.py
 Submitted batch job 1
 
 # 任务 2：请求 1 个 GPU（必须等待）
-$ gbatch --gpus 1 python train.py
+gbatch --gpus 1 python train.py
 Submitted batch job 2
 
-$ gqueue
+gqueue
 JOBID    NAME      ST    NODES    NODELIST(REASON)
 1        job-1     R     2        0,1
 2        job-2     PD    1        (Resources)
@@ -185,7 +185,7 @@ gbatch --priority 100 --gpus 1 python urgent_task.py
 # 这等待 4 个 GPU
 gbatch --gpus 4 python distributed_train.py
 
-$ gqueue
+gqueue
 JOBID    NAME      ST    NODES    NODELIST(REASON)
 5        job-5     PD    4        (Resources: Need 4 GPUs, only 1 available)
 ```
@@ -197,7 +197,7 @@ JOBID    NAME      ST    NODES    NODELIST(REASON)
 查看运行中任务的 GPU 分配：
 
 ```bash
-$ gqueue -s Running -f JOBID,NAME,NODES,NODELIST
+gqueue -s Running -f JOBID,NAME,NODES,NODELIST
 ```
 
 **示例输出**（当任务运行时）：
@@ -214,7 +214,7 @@ JOBID    NAME                NODES    NODELIST(REASON)
 
 ```bash
 # 查看系统信息
-$ ginfo
+ginfo
 
 # 使用 nvidia-smi 进行实时监控
 watch -n 1 nvidia-smi
@@ -452,7 +452,7 @@ watch -n 2 'gqueue -s Running,Queued -f JOBID,NAME,NODES,NODELIST'
 3. **任务在队列中**：
    ```bash
    # 任务等待 GPU
-   $ gqueue -j <job_id> -f JOBID,ST,NODES,NODELIST
+   gqueue -j <job_id> -f JOBID,ST,NODES,NODELIST
    JOBID    ST    NODES    NODELIST(REASON)
    42       PD    1        (Resources)
    ```

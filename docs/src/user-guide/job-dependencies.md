@@ -18,11 +18,11 @@ Submit a job that depends on another:
 
 ```bash
 # Job 1: Preprocessing
-$ gbatch --name "prep" python preprocess.py
+gbatch --name "prep" python preprocess.py
 Submitted batch job 1 (prep)
 
 # Job 2: Training (waits for job 1)
-$ gbatch --depends-on 1 --name "train" python train.py
+gbatch --depends-on 1 --name "train" python train.py
 Submitted batch job 2 (train)
 ```
 
@@ -44,7 +44,7 @@ This makes creating pipelines much simpler!
 View dependency relationships:
 
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST    TIME         TIMELIMIT
 1        prep      CD    00:02:15     UNLIMITED
 └─ 2     train     R     00:05:30     04:00:00
@@ -133,13 +133,13 @@ If a dependency job fails:
 **Example**:
 ```bash
 # Job 1 fails
-$ gqueue
+gqueue
 JOBID    NAME      ST    TIME
 1        prep      F     00:01:23
 2        train     PD    00:00:00
 
 # Job 2 will never run - must cancel it
-$ gcancel 2
+gcancel 2
 ```
 
 ### Timeout Dependencies
@@ -158,7 +158,7 @@ If you cancel a job with dependencies:
 
 **Check cancellation impact**:
 ```bash
-$ gcancel --dry-run 1
+gcancel --dry-run 1
 Would cancel job 1 (prep)
 Warning: The following jobs depend on job 1:
   - Job 2 (train)
@@ -173,7 +173,7 @@ These jobs will never start if job 1 is cancelled.
 The tree view shows job dependencies clearly:
 
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME           ST    TIME         TIMELIMIT
 1        data-prep      CD    00:05:23     01:00:00
 ├─ 2     train-model-a  R     00:15:45     04:00:00
@@ -193,10 +193,10 @@ gflow detects and prevents circular dependencies:
 
 ```bash
 # This will fail
-$ gbatch --depends-on 2 python a.py
+gbatch --depends-on 2 python a.py
 Submitted batch job 1
 
-$ gbatch --depends-on 1 python b.py
+gbatch --depends-on 1 python b.py
 Error: Circular dependency detected: Job 2 depends on Job 1, which depends on Job 2
 ```
 
@@ -588,7 +588,7 @@ gbatch --depends-on 100 python stage2b.py  # Job 102 - cancelled
 gbatch --depends-on-all 101,102 python stage3.py  # Job 103 - cancelled
 
 # Redo with cascade
-$ gjob redo 100 --cascade
+gjob redo 100 --cascade
 Resubmitting job 100 with parameters:
   Script:       stage1.py
   ...
@@ -658,7 +658,7 @@ gbatch --depends-on 6 --time 30 python evaluate.py  # Job 7
 
 **Visualize with tree view**:
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME                ST    TIME         TIMELIMIT
 1        collect_method_a    CD    00:15:30     00:30:00
 2        collect_method_b    F     00:10:00     00:30:00

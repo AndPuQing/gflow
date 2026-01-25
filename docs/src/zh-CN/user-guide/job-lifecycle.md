@@ -54,22 +54,22 @@ stateDiagram-v2
 
 **从 Queued**：
 - → **Running**：当依赖满足且资源可用时
-- → **Hold**：用户运行 `gjob hold <id>`
-- → **Cancelled**：用户运行 `gcancel <id>` 或依赖失败（启用自动取消时）
+- → **Hold**：用户运行 `gjob hold <job_id>`
+- → **Cancelled**：用户运行 `gcancel <job_id>` 或依赖失败（启用自动取消时）
 
 **从 Hold**：
-- → **Queued**：用户运行 `gjob release <id>`
-- → **Cancelled**：用户运行 `gcancel <id>`
+- → **Queued**：用户运行 `gjob release <job_id>`
+- → **Cancelled**：用户运行 `gcancel <job_id>`
 
 **从 Running**：
 - → **Finished**：任务脚本/命令以代码 0 退出
 - → **Failed**：任务脚本/命令以非零代码退出
-- → **Cancelled**：用户运行 `gcancel <id>`
+- → **Cancelled**：用户运行 `gcancel <job_id>`
 - → **Timeout**：任务超过时间限制（使用 `--time` 设置）
 
 **从完成状态**：
 - 无转换（最终状态）
-- 使用 `gjob redo <id>` 创建具有相同参数的新任务
+- 使用 `gjob redo <job_id>` 创建具有相同参数的新任务
 
 ## 任务状态原因
 
@@ -81,10 +81,10 @@ stateDiagram-v2
 | Queued | `WaitingForResources` | 任务正在等待可用的 GPU/内存 |
 | Hold | `JobHeldUser` | 任务被用户暂停 |
 | Cancelled | `CancelledByUser` | 用户明确取消了任务 |
-| Cancelled | `DependencyFailed:<id>` | 任务因任务 `<id>` 失败而自动取消 |
+| Cancelled | `DependencyFailed:<job_id>` | 任务因任务 `<job_id>` 失败而自动取消 |
 | Cancelled | `SystemError:<msg>` | 任务因系统错误而取消 |
 
-使用 `gjob show <id>` 或 `gqueue -f JOBID,ST,REASON` 查看原因。
+使用 `gjob show <job_id>` 或 `gqueue -f JOBID,ST,REASON` 查看原因。
 
 ## 状态检查工作流
 
@@ -134,4 +134,3 @@ flowchart TD
 - [任务依赖](./job-dependencies) - 任务依赖完整指南
 - [任务提交](./job-submission) - 任务提交选项
 - [时间限制](./time-limits) - 管理任务超时
-<!--- [gjob 参考](../reference/gjob-reference) - 完整命令参考-->

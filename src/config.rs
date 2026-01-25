@@ -62,7 +62,13 @@ pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::Conf
     });
 
     settings
-        .add_source(config::Environment::with_prefix("GFLOW"))
+        .add_source(
+            config::Environment::with_prefix("GFLOW")
+                .separator("_")
+                .try_parsing(true)
+                .list_separator(",")
+                .with_list_parse_key("daemon.gpus"),
+        )
         .build()?
         .try_deserialize()
 }

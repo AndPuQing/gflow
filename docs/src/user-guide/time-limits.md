@@ -137,7 +137,7 @@ User priority is multiplied by 1000, so it always dominates the scheduling decis
 3. **Monitoring**: The scheduler checks all running jobs every 5 seconds for timeout violations.
 
 4. **Timeout Detection**: If a job's elapsed time exceeds its time limit, the scheduler:
-   - Logs a warning: `Job <id> has exceeded time limit, terminating...`
+   - Logs a warning: `Job <job_id> has exceeded time limit, terminating...`
    - Sends `Ctrl-C` to the job's tmux session (graceful interrupt)
    - Transitions the job to `Timeout` state
    - Records the finish time
@@ -167,7 +167,7 @@ User priority is multiplied by 1000, so it always dominates the scheduling decis
 When a job exceeds its time limit, it transitions to the `Timeout` state:
 
 ```bash
-$ gqueue -j 42
+gqueue -j 42
 JOBID    NAME             ST    TIME         TIMELIMIT
 42       my-long-job      TO    00:10:05     00:10:00
 ```
@@ -211,7 +211,7 @@ Submitted batch job 42 (elegant-mountain-1234)
 
 **Check status**:
 ```bash
-$ gqueue -j 42 -f JOBID,NAME,ST,TIME,TIMELIMIT
+gqueue -j 42 -f JOBID,NAME,ST,TIME,TIMELIMIT
 JOBID    NAME                   ST    TIME         TIMELIMIT
 42       elegant-mountain-1234  R     00:15:23     02:00:00
 ```
@@ -226,7 +226,7 @@ gbatch --time 0:10 \
 
 **After 10 seconds**:
 ```bash
-$ gqueue -j 43 -f JOBID,NAME,ST,TIME,TIMELIMIT
+gqueue -j 43 -f JOBID,NAME,ST,TIME,TIMELIMIT
 JOBID    NAME                ST    TIME         TIMELIMIT
 43       quiet-river-5678    TO    00:00:13     00:00:10
 ```

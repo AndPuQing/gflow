@@ -90,7 +90,7 @@ gbatch --gpus 2 python multi_gpu_train.py
 
 **检查 GPU 分配**：
 ```bash
-$ gqueue -f JOBID,NAME,NODES,NODELIST
+gqueue -f JOBID,NAME,NODES,NODELIST
 JOBID    NAME                NODES    NODELIST(REASON)
 42       silent-pump-6338    1        0
 43       brave-river-1234    2        1,2
@@ -365,11 +365,11 @@ gjob update 123 --time-limit 04:00:00
 如果更新失败，您会看到清晰的错误消息：
 
 ```bash
-$ gjob update 123 --gpus 4
+gjob update 123 --gpus 4
 Error updating job 123: Job 123 is in state 'Running' and cannot be updated.
 Only queued or held jobs can be updated.
 
-$ gjob update 123 --depends-on 123
+gjob update 123 --depends-on 123
 Error updating job 123: Circular dependency detected: Job 123 depends on Job 123,
 which has a path back to Job 123
 ```
@@ -429,14 +429,14 @@ gbatch my_script.sh
 - `# GFLOW --time <TIME>`
 - `# GFLOW --priority <N>`
 - `# GFLOW --conda-env <ENV>`
-- `# GFLOW --depends-on <ID>`
+- `# GFLOW --depends-on <job_id>`
 
 ## 创建脚本模板
 
 使用 `gbatch new` 创建任务脚本模板：
 
 ```bash
-$ gbatch new my_job
+gbatch new my_job
 ```
 
 这会创建 `my_job.sh`，包含模板：
@@ -711,7 +711,7 @@ gbatch [OPTIONS] <COMMAND> [ARGS...]
 - `--gpus <N>` 或 `-g <N>`：GPU 数量
 - `--time <TIME>` 或 `-t <TIME>`：时间限制
 - `--priority <N>`：任务优先级（0-255，默认：10）
-- `--depends-on <ID>`：任务依赖
+- `--depends-on <job_id>`：任务依赖
 - `--conda-env <ENV>` 或 `-c <ENV>`：Conda 环境
 - `--array <SPEC>`：任务数组（例如"1-10"）
 - `--name <NAME>`：自定义任务名称
@@ -719,7 +719,7 @@ gbatch [OPTIONS] <COMMAND> [ARGS...]
 
 **获取帮助**：
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 

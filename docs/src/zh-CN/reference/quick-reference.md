@@ -114,6 +114,17 @@ gjob update <job_id> --param batch_size=64       # 更新参数
 gjob update <job_id> --gpus 4 --priority 20      # 更新多个字段
 ```
 
+### 运行时控制
+```bash
+# GPU 限制
+gctl show-gpus
+gctl set-gpus 0,2
+gctl set-gpus all
+
+# 任务组并发限制
+gctl set-limit <job_id> 2
+```
+
 ### 监控
 ```bash
 # 监控队列
@@ -178,7 +189,7 @@ gflow 在任务环境中设置的变量：
 
 ```
 ~/.config/gflow/
-  └── gflowd.toml              # 配置文件
+  └── gflow.toml               # 配置文件
 
 ~/.local/share/gflow/
   ├── state.json               # 任务状态（持久化）
@@ -369,7 +380,7 @@ gqueue -s Running -f JOBID,NODES,NODELIST
 
 ## 获取帮助
 
-- 详细文档：`docs/TIME_LIMITS.md`
+- 时间限制：[时间限制](/zh-CN/user-guide/time-limits)
 - 主要 README：`README.md`
 - 报告问题：GitHub Issues
 - 源代码：GitHub Repository
@@ -378,16 +389,16 @@ gqueue -s Running -f JOBID,NODES,NODELIST
 
 **快速帮助**：使用 `--help` 运行任何命令以获取详细选项：
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 
 ```bash
-$ gqueue --help
+gqueue --help
 <!-- cmdrun gqueue --help -->
 ```
 
 ```bash
-$ ginfo --help
+ginfo --help
 <!-- cmdrun ginfo --help -->
 ```

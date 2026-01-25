@@ -13,7 +13,7 @@ gflow provides automatic GPU detection, allocation, and management for NVIDIA GP
 View system GPU information:
 
 ```bash
-$ ginfo
+ginfo
 ```
 
 Example output:
@@ -93,10 +93,10 @@ When a job requests GPUs:
 **Example**:
 ```bash
 # Submit job requesting 2 GPUs
-$ gbatch --gpus 2 nvidia-smi
+gbatch --gpus 2 nvidia-smi
 
 # Check allocation
-$ gqueue -f JOBID,NAME,NODES,NODELIST
+gqueue -f JOBID,NAME,NODES,NODELIST
 JOBID    NAME                NODES    NODELIST(REASON)
 42       brave-river-1234    2        1,2
 
@@ -143,14 +143,14 @@ Jobs wait for GPUs when none are available:
 # System has 2 GPUs
 
 # Job 1: Uses 2 GPUs
-$ gbatch --gpus 2 python long_train.py
+gbatch --gpus 2 python long_train.py
 Submitted batch job 1
 
 # Job 2: Requests 1 GPU (must wait)
-$ gbatch --gpus 1 python train.py
+gbatch --gpus 1 python train.py
 Submitted batch job 2
 
-$ gqueue
+gqueue
 JOBID    NAME      ST    NODES    NODELIST(REASON)
 1        job-1     R     2        0,1
 2        job-2     PD    1        (Resources)
@@ -185,7 +185,7 @@ If a job requests more GPUs than currently available, it waits:
 # This waits for 4 GPUs
 gbatch --gpus 4 python distributed_train.py
 
-$ gqueue
+gqueue
 JOBID    NAME      ST    NODES    NODELIST(REASON)
 5        job-5     PD    4        (Resources: Need 4 GPUs, only 1 available)
 ```
@@ -197,7 +197,7 @@ JOBID    NAME      ST    NODES    NODELIST(REASON)
 View GPU allocation for running jobs:
 
 ```bash
-$ gqueue -s Running -f JOBID,NAME,NODES,NODELIST
+gqueue -s Running -f JOBID,NAME,NODES,NODELIST
 ```
 
 **Example output** (when jobs are running):
@@ -214,7 +214,7 @@ The `NODES` column shows how many GPUs each job requested, and `NODELIST` shows 
 
 ```bash
 # View system info
-$ ginfo
+ginfo
 
 # Use nvidia-smi for real-time monitoring
 watch -n 1 nvidia-smi
@@ -452,7 +452,7 @@ watch -n 2 'gqueue -s Running,Queued -f JOBID,NAME,NODES,NODELIST'
 3. **Job is queued**:
    ```bash
    # Job waits for GPU
-   $ gqueue -j <job_id> -f JOBID,ST,NODES,NODELIST
+   gqueue -j <job_id> -f JOBID,ST,NODES,NODELIST
    JOBID    ST    NODES    NODELIST(REASON)
    42       PD    1        (Resources)
    ```

@@ -32,10 +32,6 @@ export default defineConfig({
                                 link: "/getting-started/installation",
                             },
                             {
-                                text: "Shell Completion",
-                                link: "/getting-started/shell-completion",
-                            },
-                            {
                                 text: "Quick Start",
                                 link: "/getting-started/quick-start",
                             },
@@ -90,6 +86,10 @@ export default defineConfig({
                                 link: "/reference/gcancel-reference",
                             },
                             {
+                                text: "gctl Reference",
+                                link: "/reference/gctl-reference",
+                            },
+                            {
                                 text: "ginfo Reference",
                                 link: "/reference/ginfo-reference",
                             },
@@ -131,10 +131,6 @@ export default defineConfig({
                             {
                                 text: "安装",
                                 link: "/zh-CN/getting-started/installation",
-                            },
-                            {
-                                text: "Shell 补全",
-                                link: "/zh-CN/getting-started/shell-completion",
                             },
                             {
                                 text: "快速入门",
@@ -189,6 +185,10 @@ export default defineConfig({
                             {
                                 text: "gcancel 参考",
                                 link: "/zh-CN/reference/gcancel-reference",
+                            },
+                            {
+                                text: "gctl 参考",
+                                link: "/zh-CN/reference/gctl-reference",
                             },
                             {
                                 text: "ginfo 参考",

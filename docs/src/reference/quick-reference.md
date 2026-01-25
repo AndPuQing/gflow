@@ -114,6 +114,17 @@ gjob update <job_id> --param batch_size=64       # Update parameter
 gjob update <job_id> --gpus 4 --priority 20      # Update multiple fields
 ```
 
+### Runtime Control
+```bash
+# GPU restriction
+gctl show-gpus
+gctl set-gpus 0,2
+gctl set-gpus all
+
+# Group concurrency limit
+gctl set-limit <job_id> 2
+```
+
 ### Monitoring
 ```bash
 # Watch queue
@@ -178,7 +189,7 @@ Set by gflow in job environment:
 
 ```
 ~/.config/gflow/
-  └── gflowd.toml              # Configuration file
+  └── gflow.toml               # Configuration file
 
 ~/.local/share/gflow/
   ├── state.json               # Job state (persisted)
@@ -369,7 +380,7 @@ Common exit codes in logs:
 
 ## Getting Help
 
-- Detailed docs: `docs/TIME_LIMITS.md`
+- Time limits: [Time Limits](/user-guide/time-limits)
 - Main README: `README.md`
 - Report issues: GitHub Issues
 - Source code: GitHub Repository
@@ -378,16 +389,16 @@ Common exit codes in logs:
 
 **Quick Help**: Run any command with `--help` for detailed options:
 ```bash
-$ gbatch --help
+gbatch --help
 <!-- cmdrun gbatch --help -->
 ```
 
 ```bash
-$ gqueue --help
+gqueue --help
 <!-- cmdrun gqueue --help -->
 ```
 
 ```bash
-$ ginfo --help
+ginfo --help
 <!-- cmdrun ginfo --help -->
 ```

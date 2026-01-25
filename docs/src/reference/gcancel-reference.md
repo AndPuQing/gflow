@@ -7,8 +7,8 @@ Complete reference for the `gcancel` command - gflow's job cancellation tool.
 ```bash
 gcancel [OPTIONS] [IDS...]
 gcancel --dry-run [IDS...]
-gcancel --finish <ID>
-gcancel --fail <ID>
+gcancel --finish <job_id>
+gcancel --fail <job_id>
 ```
 
 ## Description
@@ -59,7 +59,7 @@ Preview cancellation without executing.
 
 **Example**:
 ```bash
-$ gcancel --dry-run 1
+gcancel --dry-run 1
 Would cancel job 1 (data-prep)
 
 ⚠️  Warning: The following jobs depend on job 1:
@@ -82,7 +82,7 @@ To proceed with cancellation, run:
 
 These options are used internally by gflow and are not intended for direct user interaction.
 
-#### `--finish <ID>`
+#### `--finish <job_id>`
 
 Mark job as finished (internal use only).
 
@@ -93,7 +93,7 @@ gcancel --finish 42
 
 **Note**: Used by the system to transition job states. Not recommended for manual use.
 
-#### `--fail <ID>`
+#### `--fail <job_id>`
 
 Mark job as failed (internal use only).
 
@@ -120,7 +120,7 @@ gcancel --config /path/to/custom.toml 42
 Display help message.
 
 ```bash
-$ gcancel --help
+gcancel --help
 <!-- cmdrun gcancel --help -->
 ```
 
@@ -129,7 +129,7 @@ $ gcancel --help
 Display version information.
 
 ```bash
-$ gcancel --version
+gcancel --version
 <!-- cmdrun gcancel --version -->
 ```
 
@@ -152,10 +152,10 @@ When a job is successfully cancelled:
 
 **Example**:
 ```bash
-$ gcancel 42
+gcancel 42
 Job 42 cancelled successfully
 
-$ gqueue -j 42
+gqueue -j 42
 JOBID    NAME      ST    TIME
 42       my-job    CA    00:05:23
 ```
@@ -171,23 +171,23 @@ Cancelling a job affects dependent jobs:
 **Example**:
 ```bash
 # Job 2 depends on Job 1
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      R
 └─ 2     train     PD
 
 # Cancel job 1
-$ gcancel 1
+gcancel 1
 Job 1 cancelled
 
 # Job 2 is now orphaned
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      CA
 └─ 2     train     PD    # Will never start
 
 # Must cancel job 2 manually
-$ gcancel 2
+gcancel 2
 ```
 
 ### Already Completed Jobs
@@ -195,7 +195,7 @@ $ gcancel 2
 Cannot cancel finished jobs:
 
 ```bash
-$ gcancel 42
+gcancel 42
 Error: Job 42 is already in terminal state (Finished)
 ```
 
@@ -208,7 +208,7 @@ Error: Job 42 is already in terminal state (Finished)
 ### Non-existent Jobs
 
 ```bash
-$ gcancel 999
+gcancel 999
 Error: Job 999 not found
 ```
 
@@ -246,7 +246,7 @@ gcancel 5
 
 ```bash
 # View pipeline
-$ gqueue -t
+gqueue -t
 JOBID    NAME      ST
 1        prep      R
 ├─ 2     train-a   PD
@@ -311,16 +311,16 @@ gbatch --gpus 1 --time 2:00:00 python train.py --fixed
 
 ```bash
 # Find failed job
-$ gqueue -s Failed
+gqueue -s Failed
 JOBID    NAME      ST
 5        prep      F
 
 # Cancel dependent jobs (they won't start anyway)
-$ gqueue -t | grep -A10 "^5"
+gqueue -t | grep -A10 "^5"
 5        prep      F
 └─ 6     train     PD
 
-$ gcancel 6
+gcancel 6
 ```
 
 ### Emergency Stop

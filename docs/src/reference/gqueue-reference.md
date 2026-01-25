@@ -157,7 +157,7 @@ Group jobs by state.
 
 **Example**:
 ```bash
-$ gqueue -g
+gqueue -g
 RUNNING:
 JOBID    NAME                ST    TIME         TIMELIMIT
 1        train-resnet        R     00:15:23     04:00:00
@@ -178,7 +178,7 @@ Display jobs in dependency tree format.
 
 **Example**:
 ```bash
-$ gqueue -t
+gqueue -t
 JOBID    NAME           ST    TIME         TIMELIMIT
 1        data-prep      CD    00:05:23     01:00:00
 ├─ 2     train-model-a  R     00:15:45     04:00:00
@@ -240,7 +240,7 @@ gqueue --config /path/to/custom.toml
 Display help message.
 
 ```bash
-$ gqueue --help
+gqueue --help
 <!-- cmdrun gqueue --help -->
 ```
 
@@ -249,7 +249,7 @@ $ gqueue --help
 Display version information.
 
 ```bash
-$ gqueue --version
+gqueue --version
 <!-- cmdrun gqueue --version -->
 ```
 

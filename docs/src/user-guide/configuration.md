@@ -4,7 +4,7 @@ This guide covers how to configure gflow for your environment.
 
 ## Overview
 
-gflow uses a simple configuration system based on TOML files and environment variables. Most users can use gflow without any configuration, but customization options are available for specific needs.
+gflow uses a simple configuration system based on a TOML file and optional environment variables. Most users can use gflow without any configuration, but customization options are available for specific needs.
 
 ## Configuration Files
 
@@ -14,7 +14,7 @@ gflow uses a simple configuration system based on TOML files and environment var
 ~/.config/gflow/gflow.toml
 ```
 
-This file is created automatically when you first run gflow commands. If it doesn't exist, gflow uses built-in defaults.
+If this file doesn't exist, gflow uses built-in defaults.
 
 ### Configuration File Structure
 
@@ -26,14 +26,11 @@ port = 59000
 
 # Optional: Specify GPU indices to use (commented out = use all)
 # gpus = [0, 1, 2]
-
-# Optional: Log level (error, warn, info, debug, trace)
-# log_level = "info"
 ```
 
 ### Custom Configuration Location
 
-Use the `--config` flag (available on all commands, but hidden from help):
+Use the `--config` flag:
 
 ```bash
 # Use custom config file
@@ -70,7 +67,7 @@ port = 59000        # Listen port
 
 #### GPU Selection
 
-Limit which GPUs gflow can use through config files, CLI flags, or runtime commands.
+Limit which GPUs gflow can use through config files, CLI flags, runtime commands, or environment variables.
 
 **Config file** (`~/.config/gflow/gflow.toml`):
 ```toml
@@ -126,7 +123,7 @@ gctl show-gpus
 
 View current GPU configuration:
 ```bash
-$ gctl show-gpus
+gctl show-gpus
 === GPU Configuration ===
 
 GPU Restriction: Only GPUs [0, 2] are allowed
@@ -142,11 +139,11 @@ GPU 3: Available (RESTRICTED)
 Change restriction at runtime:
 ```bash
 # Currently using GPUs 0,2
-$ gctl show-gpus
+gctl show-gpus
 GPU Restriction: Only GPUs [0, 2] are allowed
 
 # Change to use only GPU 0
-$ gctl set-gpus 0
+gctl set-gpus 0
 GPU restriction updated: only GPUs [0] will be used
 
 # Jobs now can only use GPU 0
@@ -155,27 +152,16 @@ GPU restriction updated: only GPUs [0] will be used
 
 Priority order (highest to lowest):
 1. CLI flag: `gflowd up --gpus 0,2`
-2. Environment variable: `GFLOW_DAEMON__GPUS='[0,2]'`
+2. Environment variable: `GFLOW_DAEMON_GPUS=0,2`
 3. Config file: `gpus = [0, 2]`
 4. Default: All detected GPUs
 
 **Default**: All detected GPUs are available
 
-#### Logging Level
+#### Logging
 
-Control daemon verbosity:
-
-```toml
-[daemon]
-log_level = "info"  # error | warn | info | debug | trace
-```
-
-**Levels**:
-- `error`: Only critical errors
-- `warn`: Warnings and errors
-- `info`: General information (default)
-- `debug`: Detailed debugging info
-- `trace`: Very verbose (includes all internal operations)
+- `gflowd`: use `-v/--verbose` (see `gflowd --help`) to increase verbosity.
+- Client commands (`gbatch`, `gqueue`, `ginfo`, `gjob`, `gctl`): use `RUST_LOG` (e.g. `RUST_LOG=info`, `RUST_LOG=debug`).
 
 ## Environment Variables
 
@@ -184,14 +170,12 @@ log_level = "info"  # error | warn | info | debug | trace
 gflow supports environment variable configuration with the `GFLOW_` prefix:
 
 ```bash
-# Set daemon host
-export GFLOW_DAEMON_HOST="localhost"
+# Set daemon host/port
+export GFLOW_DAEMON_HOST=localhost
+export GFLOW_DAEMON_PORT=59000
 
-# Set daemon port
-export GFLOW_DAEMON_PORT="59000"
-
-# Set log level
-export GFLOW_LOG_LEVEL="debug"
+# Restrict GPUs (comma-separated)
+export GFLOW_DAEMON_GPUS=0,2
 
 # Start daemon with these settings
 gflowd up
@@ -199,8 +183,8 @@ gflowd up
 
 **Precedence**:
 1. Command-line arguments (if available)
-2. Configuration file (`--config` or default)
-3. Environment variables
+2. Environment variables
+3. Configuration file (`--config` or default)
 4. Built-in defaults
 
 ## File Locations
