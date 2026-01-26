@@ -236,6 +236,9 @@ impl SchedulerRuntime {
                         self.scheduler.jobs = migrated_scheduler.jobs;
                         self.scheduler.set_next_job_id(next_id);
 
+                        // Rebuild user jobs index after loading state
+                        self.scheduler.rebuild_user_jobs_index();
+
                         // Re-initialize NVML and GPU slots (fresh detection)
                         match Nvml::init() {
                             Ok(nvml) => {

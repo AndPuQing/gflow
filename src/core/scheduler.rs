@@ -2,7 +2,7 @@ use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
 use crate::core::{GPUSlot, UUID};
-use compact_str::format_compact;
+use compact_str::{format_compact, CompactString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +27,10 @@ pub struct Scheduler {
     pub(crate) next_job_id: u32,
     /// GPU indices that scheduler is allowed to use (None = all GPUs)
     pub(crate) allowed_gpu_indices: Option<Vec<u32>>,
+    /// Index of job IDs by username for fast dependency resolution
+    /// Maps username -> sorted list of job IDs (ascending order)
+    #[serde(skip)]
+    pub(crate) user_jobs_index: HashMap<CompactString, Vec<u32>>,
 }
 
 impl Default for Scheduler {
@@ -41,6 +45,7 @@ impl Default for Scheduler {
             state_path: PathBuf::from("state.json"),
             next_job_id: 1,
             allowed_gpu_indices: None,
+            user_jobs_index: HashMap::new(),
         }
     }
 }
@@ -142,6 +147,13 @@ impl Scheduler {
         job.submitted_at = Some(std::time::SystemTime::now());
 
         let job_id = job.id;
+
+        // Update user jobs index (use reference to avoid clone)
+        self.user_jobs_index
+            .entry(job.submitted_by.clone())
+            .or_default()
+            .push(job_id);
+
         self.jobs.push(job);
         (job_id, run_name.into())
     }
@@ -220,19 +232,12 @@ impl Scheduler {
             return None;
         }
 
-        // Get all jobs submitted by the user, sorted by job ID (which corresponds to submission order)
-        let mut user_jobs: Vec<_> = self
-            .jobs
-            .iter()
-            .filter(|job| job.submitted_by == username)
-            .collect();
-
-        // Sort by job ID (ascending) since job IDs are assigned incrementally
-        user_jobs.sort_by_key(|job| job.id);
+        // Use index for fast lookup
+        let user_jobs = self.user_jobs_index.get(username)?;
 
         if trimmed == "@" {
-            // Most recent submission
-            return user_jobs.last().map(|job| job.id);
+            // Most recent submission (last in the list since IDs are ascending)
+            return user_jobs.last().copied();
         }
 
         if let Some(offset_str) = trimmed.strip_prefix("@~") {
@@ -244,7 +249,7 @@ impl Scheduler {
                 return None;
             }
             if offset <= user_jobs.len() {
-                return user_jobs.get(user_jobs.len() - offset).map(|job| job.id);
+                return Some(user_jobs[user_jobs.len() - offset]);
             }
         }
 
@@ -682,6 +687,18 @@ impl Scheduler {
         self.next_job_id = id;
     }
 
+    /// Rebuild user jobs index from current jobs
+    /// Should be called after loading state from disk
+    pub fn rebuild_user_jobs_index(&mut self) {
+        self.user_jobs_index.clear();
+        for job in &self.jobs {
+            self.user_jobs_index
+                .entry(job.submitted_by.clone())
+                .or_default()
+                .push(job.id);
+        }
+    }
+
     /// Get count of jobs by state for monitoring
     pub fn get_job_counts_by_state(&self) -> std::collections::HashMap<JobState, usize> {
         let mut counts = std::collections::HashMap::new();
@@ -748,6 +765,7 @@ impl SchedulerBuilder {
             state_path: self.state_path,
             next_job_id: 1,
             allowed_gpu_indices: self.allowed_gpu_indices,
+            user_jobs_index: HashMap::new(),
         }
     }
 }
