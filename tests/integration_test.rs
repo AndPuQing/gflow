@@ -6,7 +6,7 @@
 #![allow(deprecated)]
 
 use gflow::core::executor::Executor;
-use gflow::core::job::{Job, JobBuilder, JobState};
+use gflow::core::job::{DependencyIds, Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
 use std::collections::HashMap;
@@ -786,10 +786,10 @@ fn test_cascade_redo_dependency_chain() {
     // Verify the cascade redo preserved the dependency chain
     assert_eq!(
         scheduler.get_job(job5_id).unwrap().depends_on_ids,
-        vec![job4_id]
+        DependencyIds::from_slice(&[job4_id])
     );
     assert_eq!(
         scheduler.get_job(job6_id).unwrap().depends_on_ids,
-        vec![job5_id]
+        DependencyIds::from_slice(&[job5_id])
     );
 }

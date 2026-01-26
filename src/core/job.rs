@@ -1,10 +1,15 @@
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use strum::{Display, EnumIter, EnumString, FromRepr};
+
+/// Type alias for dependency IDs - uses SmallVec to avoid heap allocation for small lists
+/// Most jobs have 0-2 dependencies, so inline storage of 2 elements keeps same size as Vec
+pub type DependencyIds = SmallVec<[u32; 2]>;
 
 #[derive(Debug)]
 pub enum JobError {
@@ -163,7 +168,7 @@ pub struct Job {
     pub priority: u8,
     pub depends_on: Option<u32>, // Legacy single dependency (for backward compatibility)
     #[serde(default)]
-    pub depends_on_ids: Vec<u32>, // New multi-dependency field
+    pub depends_on_ids: DependencyIds, // New multi-dependency field
     #[serde(default)]
     pub dependency_mode: Option<DependencyMode>, // AND or OR logic
     #[serde(default)]
@@ -198,7 +203,7 @@ pub struct JobBuilder {
     run_dir: Option<PathBuf>,
     priority: Option<u8>,
     depends_on: Option<u32>,
-    depends_on_ids: Option<Vec<u32>>,
+    depends_on_ids: Option<DependencyIds>,
     dependency_mode: Option<Option<DependencyMode>>,
     auto_cancel_on_dependency_failure: Option<bool>,
     task_id: Option<u32>,
@@ -253,8 +258,8 @@ impl JobBuilder {
         self
     }
 
-    pub fn depends_on_ids(mut self, depends_on_ids: Vec<u32>) -> Self {
-        self.depends_on_ids = Some(depends_on_ids);
+    pub fn depends_on_ids(mut self, depends_on_ids: impl Into<DependencyIds>) -> Self {
+        self.depends_on_ids = Some(depends_on_ids.into());
         self
     }
 
@@ -366,7 +371,7 @@ impl Default for Job {
             run_dir: PathBuf::from("."),
             priority: 10,
             depends_on: None,
-            depends_on_ids: Vec::new(),
+            depends_on_ids: DependencyIds::new(),
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
@@ -395,7 +400,7 @@ impl Job {
     }
 
     /// Returns all dependency IDs (combining legacy single dependency and new multi-dependency)
-    pub fn all_dependency_ids(&self) -> Vec<u32> {
+    pub fn all_dependency_ids(&self) -> DependencyIds {
         let mut deps = self.depends_on_ids.clone();
         if let Some(dep) = self.depends_on {
             if !deps.contains(&dep) {

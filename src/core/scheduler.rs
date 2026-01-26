@@ -265,13 +265,7 @@ impl Scheduler {
 
         // Add existing dependencies
         for job in &self.jobs {
-            let deps = if !job.depends_on_ids.is_empty() {
-                job.depends_on_ids.clone()
-            } else if let Some(dep) = job.depends_on {
-                vec![dep]
-            } else {
-                vec![]
-            };
+            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
 
             if !deps.is_empty() {
                 graph.insert(job.id, deps);

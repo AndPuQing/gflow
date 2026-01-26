@@ -543,7 +543,7 @@ impl SchedulerRuntime {
         }
 
         if let Some(depends_on_ids) = request.depends_on_ids {
-            job.depends_on_ids = depends_on_ids;
+            job.depends_on_ids = depends_on_ids.into();
             updated_fields.push("depends_on_ids".to_string());
         }
 
