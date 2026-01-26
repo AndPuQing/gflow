@@ -121,7 +121,7 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
     ```bash
     gqueue
     ```
-    您也可以实时监控队列更新：`watch gqueue`。
+    您也可以实时监控队列更新：`watch --color gqueue`。
 
 4.  **停止调度器**：
     ```bash

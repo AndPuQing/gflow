@@ -121,7 +121,7 @@ This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gque
     ```bash
     gqueue
     ```
-    You can also watch the queue update live: `watch gqueue`.
+    You can also watch the queue update live: `watch --color gqueue`.
 
 4.  **Stop the scheduler**:
     ```bash
