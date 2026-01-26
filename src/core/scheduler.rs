@@ -31,6 +31,10 @@ pub struct Scheduler {
     /// Maps username -> sorted list of job IDs (ascending order)
     #[serde(skip)]
     pub(crate) user_jobs_index: HashMap<CompactString, Vec<u32>>,
+    /// Dependency graph for fast circular dependency validation
+    /// Maps job_id -> list of dependency job IDs
+    #[serde(skip)]
+    pub(crate) dependency_graph: HashMap<u32, Vec<u32>>,
 }
 
 impl Default for Scheduler {
@@ -46,6 +50,7 @@ impl Default for Scheduler {
             next_job_id: 1,
             allowed_gpu_indices: None,
             user_jobs_index: HashMap::new(),
+            dependency_graph: HashMap::new(),
         }
     }
 }
@@ -148,11 +153,17 @@ impl Scheduler {
 
         let job_id = job.id;
 
-        // Update user jobs index (use reference to avoid clone)
+        // Update user jobs index
         self.user_jobs_index
             .entry(job.submitted_by.clone())
             .or_default()
             .push(job_id);
+
+        // Update dependency graph only if job has dependencies
+        if !job.has_no_dependencies() {
+            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
+            self.dependency_graph.insert(job_id, deps);
+        }
 
         self.jobs.push(job);
         (job_id, run_name.into())
@@ -263,28 +274,12 @@ impl Scheduler {
         new_job_id: u32,
         dependency_ids: &[u32],
     ) -> Result<(), String> {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashSet;
 
-        // Build adjacency list for existing jobs + new job
-        let mut graph: HashMap<u32, Vec<u32>> = HashMap::new();
-
-        // Add existing dependencies
-        for job in &self.jobs {
-            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
-
-            if !deps.is_empty() {
-                graph.insert(job.id, deps);
-            }
-        }
-
-        // Add new job's dependencies
-        if !dependency_ids.is_empty() {
-            graph.insert(new_job_id, dependency_ids.to_vec());
-        }
-
+        // Use existing dependency graph instead of rebuilding
         // Run DFS from each dependency to check if it can reach new_job_id
         for &dep_id in dependency_ids {
-            if self.has_path_dfs(&graph, dep_id, new_job_id, &mut HashSet::new()) {
+            if self.has_path_dfs_cached(dep_id, new_job_id, &mut HashSet::new(), dependency_ids) {
                 return Err(format!(
                     "Circular dependency detected: Job {} depends on Job {}, \
                      which has a path back to Job {}",
@@ -296,13 +291,13 @@ impl Scheduler {
         Ok(())
     }
 
-    /// DFS to check if there's a path from start to target
-    fn has_path_dfs(
+    /// DFS to check if there's a path from start to target using cached graph
+    fn has_path_dfs_cached(
         &self,
-        graph: &std::collections::HashMap<u32, Vec<u32>>,
         current: u32,
         target: u32,
         visited: &mut std::collections::HashSet<u32>,
+        new_job_deps: &[u32],
     ) -> bool {
         if current == target {
             return true;
@@ -314,11 +309,19 @@ impl Scheduler {
 
         visited.insert(current);
 
-        if let Some(neighbors) = graph.get(&current) {
-            for &neighbor in neighbors {
-                if self.has_path_dfs(graph, neighbor, target, visited) {
-                    return true;
-                }
+        // Get neighbors from cached graph, or use new_job_deps if current == target
+        let neighbors = if current == target {
+            new_job_deps
+        } else {
+            self.dependency_graph
+                .get(&current)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[])
+        };
+
+        for &neighbor in neighbors {
+            if self.has_path_dfs_cached(neighbor, target, visited, new_job_deps) {
+                return true;
             }
         }
 
@@ -691,11 +694,20 @@ impl Scheduler {
     /// Should be called after loading state from disk
     pub fn rebuild_user_jobs_index(&mut self) {
         self.user_jobs_index.clear();
+        self.dependency_graph.clear();
+
         for job in &self.jobs {
+            // Rebuild user index
             self.user_jobs_index
                 .entry(job.submitted_by.clone())
                 .or_default()
                 .push(job.id);
+
+            // Rebuild dependency graph
+            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
+            if !deps.is_empty() {
+                self.dependency_graph.insert(job.id, deps);
+            }
         }
     }
 
@@ -766,6 +778,7 @@ impl SchedulerBuilder {
             next_job_id: 1,
             allowed_gpu_indices: self.allowed_gpu_indices,
             user_jobs_index: HashMap::new(),
+            dependency_graph: HashMap::new(),
         }
     }
 }
