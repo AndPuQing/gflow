@@ -93,16 +93,14 @@ mod tests {
     #[test]
     fn test_data_preservation_through_migration() {
         use crate::core::job::{Job, JobState};
-        use std::collections::HashMap;
 
         // Create test job
-        let mut jobs = HashMap::new();
         let job = Job {
             id: 1,
             state: JobState::Finished,
             ..Default::default()
         };
-        jobs.insert(1, job);
+        let jobs = vec![job];
 
         let scheduler = Scheduler {
             version: 0,
@@ -115,6 +113,6 @@ mod tests {
         assert_eq!(result.version, 2); // Now migrates to version 2
         assert_eq!(result.next_job_id(), 42);
         assert_eq!(result.jobs.len(), 1);
-        assert_eq!(result.jobs.get(&1).unwrap().state, JobState::Finished);
+        assert_eq!(result.get_job(1).unwrap().state, JobState::Finished);
     }
 }

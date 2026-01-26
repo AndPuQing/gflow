@@ -203,7 +203,7 @@ async fn list_jobs(
     axum::extract::Query(params): axum::extract::Query<ListJobsQuery>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
-    let mut jobs: Vec<_> = state.jobs().values().cloned().collect();
+    let mut jobs: Vec<_> = state.jobs().to_vec();
 
     // Apply state filter if provided
     if let Some(states_str) = params.state {
@@ -274,7 +274,7 @@ async fn create_job(
 
         // Validate all dependencies exist
         for dep_id in &all_deps {
-            if !state.jobs().contains_key(dep_id) {
+            if state.get_job(*dep_id).is_none() {
                 tracing::warn!(
                     dep_id = dep_id,
                     "Job submission failed: dependency job does not exist"
@@ -313,7 +313,7 @@ async fn create_job(
     #[cfg(feature = "metrics")]
     {
         let state = server_state.scheduler.read().await;
-        if let Some(job) = state.jobs().get(&job_id) {
+        if let Some(job) = state.get_job(job_id) {
             metrics::JOB_SUBMISSIONS
                 .with_label_values(&[&job.submitted_by])
                 .inc();
@@ -365,7 +365,7 @@ async fn create_jobs_batch(
 
             // Validate all dependencies exist
             for dep_id in &all_deps {
-                if !state.jobs().contains_key(dep_id) {
+                if state.get_job(*dep_id).is_none() {
                     tracing::warn!(
                         dep_id = dep_id,
                         "Batch job submission failed: dependency job does not exist"
@@ -435,8 +435,7 @@ async fn get_job(
 ) -> Result<Json<Job>, StatusCode> {
     let state = server_state.scheduler.read().await;
     state
-        .jobs()
-        .get(&id)
+        .get_job(id)
         .cloned()
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
@@ -453,14 +452,13 @@ async fn finish_job(
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
-        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+        state.get_job(id).map(|j| j.submitted_by.clone())
     };
 
     let (success, gpu_ids, memory_mb) = {
         let mut state = server_state.scheduler.write().await;
         let job_info = state
-            .jobs()
-            .get(&id)
+            .get_job(id)
             .map(|j| (j.gpu_ids.clone(), j.memory_limit_mb));
         let success = state.finish_job(id).await;
         if let Some((gpu_ids, memory_mb)) = job_info {
@@ -507,7 +505,7 @@ async fn get_job_log(
     let state = server_state.scheduler.read().await;
 
     // Check if job exists in memory
-    if state.jobs().contains_key(&id) {
+    if state.get_job(id).is_some() {
         match gflow::core::get_log_file_path(id) {
             Ok(path) => {
                 if path.exists() {
@@ -534,12 +532,12 @@ async fn fail_job(
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
-        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+        state.get_job(id).map(|j| j.submitted_by.clone())
     };
 
     let (_success, gpu_ids, memory_mb) = {
         let state = server_state.scheduler.read().await;
-        if let Some(job) = state.jobs().get(&id) {
+        if let Some(job) = state.get_job(id) {
             (true, job.gpu_ids.clone(), job.memory_limit_mb)
         } else {
             (false, None, None)
@@ -591,12 +589,12 @@ async fn cancel_job(
     #[cfg(feature = "metrics")]
     let user = {
         let state = server_state.scheduler.read().await;
-        state.jobs().get(&id).map(|j| j.submitted_by.clone())
+        state.get_job(id).map(|j| j.submitted_by.clone())
     };
 
     let (_success, gpu_ids, memory_mb) = {
         let state = server_state.scheduler.read().await;
-        if let Some(job) = state.jobs().get(&id) {
+        if let Some(job) = state.get_job(id) {
             (true, job.gpu_ids.clone(), job.memory_limit_mb)
         } else {
             (false, None, None)
@@ -845,8 +843,8 @@ async fn set_group_max_concurrency(
         let job_ids: Vec<u32> = state
             .jobs()
             .iter()
-            .filter(|(_, job)| job.group_id.as_ref() == Some(&group_id))
-            .map(|(id, _)| *id)
+            .filter(|job| job.group_id.as_ref() == Some(&group_id))
+            .map(|job| job.id)
             .collect();
 
         if job_ids.is_empty() {
@@ -942,8 +940,7 @@ async fn debug_job(
     let state = server_state.scheduler.read().await;
 
     state
-        .jobs()
-        .get(&id)
+        .get_job(id)
         .cloned()
         .map(debug::DebugJobInfo::from_job)
         .map(Json)
@@ -955,13 +952,13 @@ async fn debug_metrics(State(server_state): State<ServerState>) -> impl IntoResp
     let state = server_state.scheduler.read().await;
 
     let jobs_by_state: HashMap<JobState, usize> =
-        state.jobs().values().fold(HashMap::new(), |mut acc, job| {
+        state.jobs().iter().fold(HashMap::new(), |mut acc, job| {
             *acc.entry(job.state).or_insert(0) += 1;
             acc
         });
 
     let jobs_by_user: HashMap<String, debug::UserJobStats> =
-        state.jobs().values().fold(HashMap::new(), |mut acc, job| {
+        state.jobs().iter().fold(HashMap::new(), |mut acc, job| {
             let stats = acc
                 .entry(job.submitted_by.clone())
                 .or_insert(debug::UserJobStats {

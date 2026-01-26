@@ -294,7 +294,7 @@ impl SchedulerRuntime {
         let running_gpu_indices: std::collections::HashSet<u32> = self
             .scheduler
             .jobs
-            .values()
+            .iter()
             .filter(|j| j.state == JobState::Running)
             .filter_map(|j| j.gpu_ids.as_ref())
             .flat_map(|ids| ids.iter().copied())
@@ -358,8 +358,7 @@ impl SchedulerRuntime {
         // Clone job for return
         let job_clone = self
             .scheduler
-            .jobs
-            .get(&job_id)
+            .get_job(job_id)
             .cloned()
             .expect("Job should exist after submission");
 
@@ -379,7 +378,7 @@ impl SchedulerRuntime {
             let (job_id, run_name) = self.scheduler.submit_job(job);
             results.push((job_id, run_name, submitted_by));
 
-            if let Some(job) = self.scheduler.jobs.get(&job_id) {
+            if let Some(job) = self.scheduler.get_job(job_id) {
                 submitted_jobs.push(job.clone());
             }
         }
@@ -416,8 +415,7 @@ impl SchedulerRuntime {
         // Get run_name before modifying state (needed for PipePane cleanup)
         let run_name = self
             .scheduler
-            .jobs
-            .get(&job_id)
+            .get_job(job_id)
             .and_then(|j| j.run_name.clone());
 
         let result = self.scheduler.fail_job(job_id);
@@ -474,7 +472,7 @@ impl SchedulerRuntime {
 
     /// Update max_concurrent for a specific job
     pub fn update_job_max_concurrent(&mut self, job_id: u32, max_concurrent: usize) -> Option<Job> {
-        if let Some(job) = self.scheduler.jobs.get_mut(&job_id) {
+        if let Some(job) = self.scheduler.get_job_mut(job_id) {
             job.max_concurrent = Some(max_concurrent);
             let job_clone = job.clone();
             self.mark_dirty();
@@ -500,8 +498,7 @@ impl SchedulerRuntime {
         // Get mutable reference to the job
         let job = self
             .scheduler
-            .jobs
-            .get_mut(&job_id)
+            .get_job_mut(job_id)
             .ok_or_else(|| format!("Job {} not found", job_id))?;
 
         // Apply updates
@@ -595,8 +592,13 @@ impl SchedulerRuntime {
     }
 
     // Direct access to jobs for server handlers
-    pub fn jobs(&self) -> &HashMap<u32, Job> {
+    pub fn jobs(&self) -> &Vec<Job> {
         &self.scheduler.jobs
+    }
+
+    // Get a job by ID
+    pub fn get_job(&self, job_id: u32) -> Option<&Job> {
+        self.scheduler.get_job(job_id)
     }
 
     // Debug/metrics accessors
@@ -815,8 +817,7 @@ async fn trigger_scheduling(state: &SharedState) {
         let should_execute = {
             let state_guard = state.read().await;
             state_guard
-                .jobs()
-                .get(&job.id)
+                .get_job(job.id)
                 .map(|current_job| current_job.state == JobState::Running)
                 .unwrap_or(false)
         };
@@ -897,7 +898,7 @@ async fn zombie_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
             let state_guard = state.read().await;
             state_guard
                 .jobs()
-                .values()
+                .iter()
                 .filter(|j| j.state == JobState::Running)
                 .map(|j| (j.id, j.run_name.clone()))
                 .collect::<Vec<_>>()
@@ -935,14 +936,13 @@ async fn zombie_handler_task(
                     let state_guard = state.read().await;
                     state_guard
                         .scheduler
-                        .jobs
-                        .get(&job_id)
+                        .get_job(job_id)
                         .and_then(|j| j.run_name.clone())
                 };
 
                 // Update job state (write lock)
                 let mut state_guard = state.write().await;
-                if let Some(job) = state_guard.scheduler.jobs.get_mut(&job_id) {
+                if let Some(job) = state_guard.scheduler.get_job_mut(job_id) {
                     job.state = JobState::Failed;
                     job.finished_at = Some(std::time::SystemTime::now());
                     state_guard.mark_dirty();
@@ -980,7 +980,7 @@ async fn timeout_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
             let state_guard = state.read().await;
             state_guard
                 .jobs()
-                .values()
+                .iter()
                 .filter(|job| job.has_exceeded_time_limit())
                 .map(|job| {
                     tracing::warn!("Job {} has exceeded time limit, publishing event", job.id);
@@ -1013,7 +1013,7 @@ async fn timeout_handler_task(
 
                 // Update job state (write lock)
                 let mut state_guard = state.write().await;
-                if let Some(job) = state_guard.scheduler.jobs.get_mut(&job_id) {
+                if let Some(job) = state_guard.scheduler.get_job_mut(job_id) {
                     job.try_transition(job_id, JobState::Timeout);
 
                     // Auto-cancel dependent jobs

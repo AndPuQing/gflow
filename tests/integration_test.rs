@@ -117,16 +117,16 @@ fn test_job_submission_and_queuing() {
     let (job_id1, run_name1) = scheduler.submit_job(job1);
     assert_eq!(job_id1, 1);
     assert_eq!(run_name1, "gflow-job-1");
-    assert!(scheduler.jobs.contains_key(&1));
-    assert_eq!(scheduler.jobs[&1].state, JobState::Queued);
+    assert!(scheduler.job_exists(1));
+    assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
 
     // Submit second job
     let job2 = create_test_job("bob");
     let (job_id2, run_name2) = scheduler.submit_job(job2);
     assert_eq!(job_id2, 2);
     assert_eq!(run_name2, "gflow-job-2");
-    assert!(scheduler.jobs.contains_key(&2));
-    assert_eq!(scheduler.jobs[&2].state, JobState::Queued);
+    assert!(scheduler.job_exists(2));
+    assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
 
     // Verify queue state
     assert_eq!(scheduler.jobs.len(), 2);
@@ -146,7 +146,7 @@ fn test_job_execution_from_queue() {
     assert!(results[0].1.is_ok());
 
     // Verify job is running
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Running);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Running);
 
     // Verify executor was called
     assert_eq!(executor.execution_count(), 1);
@@ -177,7 +177,7 @@ fn test_multiple_jobs_execution() {
 
     // Verify all jobs are running
     for job_id in 1..=3 {
-        assert_eq!(scheduler.jobs[&job_id].state, JobState::Running);
+        assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Running);
     }
 }
 
@@ -206,24 +206,33 @@ fn test_dependency_resolution_basic() {
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, job_a_id);
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
+    assert_eq!(
+        scheduler.get_job(job_a_id).unwrap().state,
+        JobState::Running
+    );
+    assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
 
     // Try scheduling again - job B should still be waiting
     executor.clear();
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
 
     // Finish job A
     scheduler.finish_job(job_a_id);
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Finished);
+    assert_eq!(
+        scheduler.get_job(job_a_id).unwrap().state,
+        JobState::Finished
+    );
 
     // Now job B should run
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, job_b_id);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Running);
+    assert_eq!(
+        scheduler.get_job(job_b_id).unwrap().state,
+        JobState::Running
+    );
 }
 
 #[test]
@@ -250,22 +259,37 @@ fn test_dependency_chain() {
 
     // First schedule - only A runs
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
-    assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Queued);
+    assert_eq!(
+        scheduler.get_job(job_a_id).unwrap().state,
+        JobState::Running
+    );
+    assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
 
     // Finish A, schedule - B runs
     scheduler.finish_job(job_a_id);
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Finished);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Queued);
+    assert_eq!(
+        scheduler.get_job(job_a_id).unwrap().state,
+        JobState::Finished
+    );
+    assert_eq!(
+        scheduler.get_job(job_b_id).unwrap().state,
+        JobState::Running
+    );
+    assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
 
     // Finish B, schedule - C runs
     scheduler.finish_job(job_b_id);
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Finished);
-    assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Running);
+    assert_eq!(
+        scheduler.get_job(job_b_id).unwrap().state,
+        JobState::Finished
+    );
+    assert_eq!(
+        scheduler.get_job(job_c_id).unwrap().state,
+        JobState::Running
+    );
 }
 
 #[test]
@@ -286,16 +310,19 @@ fn test_dependency_not_started_if_parent_failed() {
 
     // Schedule and run job A
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Running);
+    assert_eq!(
+        scheduler.get_job(job_a_id).unwrap().state,
+        JobState::Running
+    );
 
     // Fail job A
     scheduler.fail_job(job_a_id);
-    assert_eq!(scheduler.jobs[&job_a_id].state, JobState::Failed);
+    assert_eq!(scheduler.get_job(job_a_id).unwrap().state, JobState::Failed);
 
     // Job B should not run because A failed
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
 }
 
 // ============================================================================
@@ -413,13 +440,13 @@ fn test_gpu_constraints() {
     assert_eq!(executor.execution_count(), 2);
 
     // Jobs 1 and 2 should be running, job 3 should be queued
-    assert_eq!(scheduler.jobs[&1].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&2].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&3].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(3).unwrap().state, JobState::Queued);
 
     // Verify GPU allocation
-    assert_eq!(scheduler.jobs[&1].gpu_ids, Some(vec![0]));
-    assert_eq!(scheduler.jobs[&2].gpu_ids, Some(vec![1]));
+    assert_eq!(scheduler.get_job(1).unwrap().gpu_ids, Some(vec![0]));
+    assert_eq!(scheduler.get_job(2).unwrap().gpu_ids, Some(vec![1]));
 
     // Mark GPUs as unavailable (simulating what gflowd would do)
     scheduler
@@ -437,7 +464,7 @@ fn test_gpu_constraints() {
     executor.clear();
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.jobs[&3].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(3).unwrap().state, JobState::Queued);
 }
 
 #[test]
@@ -455,8 +482,8 @@ fn test_multi_gpu_job() {
     // Schedule - job should run and get both GPUs
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 1);
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job_id].gpu_ids, Some(vec![0, 1]));
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(job_id).unwrap().gpu_ids, Some(vec![0, 1]));
 
     // Verify execution
     assert_eq!(executor.execution_count(), 1);
@@ -477,7 +504,7 @@ fn test_insufficient_gpus() {
     // Schedule - job should not run
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
     assert_eq!(executor.execution_count(), 0);
 }
 
@@ -515,9 +542,9 @@ fn test_memory_constraints() {
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 2);
 
-    assert_eq!(scheduler.jobs[&job1_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job2_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job3_id].state, JobState::Queued); // Waiting for memory
+    assert_eq!(scheduler.get_job(job1_id).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(job2_id).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(job3_id).unwrap().state, JobState::Queued); // Waiting for memory
 
     // Verify memory is tracked correctly
     scheduler.refresh_available_memory();
@@ -531,7 +558,7 @@ fn test_memory_constraints() {
     // Now job3 should be able to start
     let results2 = scheduler.schedule_jobs();
     assert_eq!(results2.len(), 1);
-    assert_eq!(scheduler.jobs[&job3_id].state, JobState::Running);
+    assert_eq!(scheduler.get_job(job3_id).unwrap().state, JobState::Running);
 }
 
 #[test]
@@ -549,7 +576,7 @@ fn test_job_exceeds_total_memory() {
     // Schedule - job should not run
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
     assert_eq!(executor.execution_count(), 0);
 }
 
@@ -608,16 +635,16 @@ fn test_group_concurrency_limit() {
     // Schedule - only 2 jobs should run (group limit)
     scheduler.schedule_jobs();
 
-    assert_eq!(scheduler.jobs[&1].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&2].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&3].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(3).unwrap().state, JobState::Queued);
 
     // Finish one job
     scheduler.finish_job(1);
 
     // Now the third job should run
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&3].state, JobState::Running);
+    assert_eq!(scheduler.get_job(3).unwrap().state, JobState::Running);
 }
 
 // ============================================================================
@@ -661,24 +688,30 @@ fn test_cascade_redo_dependency_chain() {
 
     // Schedule and run Job 1
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job1_id].state, JobState::Running);
+    assert_eq!(scheduler.get_job(job1_id).unwrap().state, JobState::Running);
 
     // Fail Job 1 - this should cascade cancel Job 2 and Job 3
     scheduler.fail_job(job1_id);
-    assert_eq!(scheduler.jobs[&job1_id].state, JobState::Failed);
+    assert_eq!(scheduler.get_job(job1_id).unwrap().state, JobState::Failed);
 
     // Trigger auto-cancellation
     scheduler.auto_cancel_dependent_jobs(job1_id);
 
     // Verify cascade cancellation
-    assert_eq!(scheduler.jobs[&job2_id].state, JobState::Cancelled);
     assert_eq!(
-        scheduler.jobs[&job2_id].reason,
+        scheduler.get_job(job2_id).unwrap().state,
+        JobState::Cancelled
+    );
+    assert_eq!(
+        scheduler.get_job(job2_id).unwrap().reason,
         Some(JobStateReason::DependencyFailed(job1_id))
     );
-    assert_eq!(scheduler.jobs[&job3_id].state, JobState::Cancelled);
     assert_eq!(
-        scheduler.jobs[&job3_id].reason,
+        scheduler.get_job(job3_id).unwrap().state,
+        JobState::Cancelled
+    );
+    assert_eq!(
+        scheduler.get_job(job3_id).unwrap().reason,
         Some(JobStateReason::DependencyFailed(job2_id))
     );
 
@@ -715,33 +748,48 @@ fn test_cascade_redo_dependency_chain() {
     let (job6_id, _) = scheduler.submit_job(job6);
 
     // Verify the new jobs are queued
-    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Queued);
-    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Queued);
-    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job4_id).unwrap().state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job5_id).unwrap().state, JobState::Queued);
+    assert_eq!(scheduler.get_job(job6_id).unwrap().state, JobState::Queued);
 
     // Schedule and run Job 4
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Queued); // Still waiting
+    assert_eq!(scheduler.get_job(job4_id).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(job5_id).unwrap().state, JobState::Queued); // Still waiting
 
     // Finish Job 4 - Job 5 should now run
     scheduler.finish_job(job4_id);
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job4_id].state, JobState::Finished);
-    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Running);
-    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Queued); // Still waiting
+    assert_eq!(
+        scheduler.get_job(job4_id).unwrap().state,
+        JobState::Finished
+    );
+    assert_eq!(scheduler.get_job(job5_id).unwrap().state, JobState::Running);
+    assert_eq!(scheduler.get_job(job6_id).unwrap().state, JobState::Queued); // Still waiting
 
     // Finish Job 5 - Job 6 should now run
     scheduler.finish_job(job5_id);
     scheduler.schedule_jobs();
-    assert_eq!(scheduler.jobs[&job5_id].state, JobState::Finished);
-    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Running);
+    assert_eq!(
+        scheduler.get_job(job5_id).unwrap().state,
+        JobState::Finished
+    );
+    assert_eq!(scheduler.get_job(job6_id).unwrap().state, JobState::Running);
 
     // Finish Job 6
     scheduler.finish_job(job6_id);
-    assert_eq!(scheduler.jobs[&job6_id].state, JobState::Finished);
+    assert_eq!(
+        scheduler.get_job(job6_id).unwrap().state,
+        JobState::Finished
+    );
 
     // Verify the cascade redo preserved the dependency chain
-    assert_eq!(scheduler.jobs[&job5_id].depends_on_ids, vec![job4_id]);
-    assert_eq!(scheduler.jobs[&job6_id].depends_on_ids, vec![job5_id]);
+    assert_eq!(
+        scheduler.get_job(job5_id).unwrap().depends_on_ids,
+        vec![job4_id]
+    );
+    assert_eq!(
+        scheduler.get_job(job6_id).unwrap().depends_on_ids,
+        vec![job5_id]
+    );
 }

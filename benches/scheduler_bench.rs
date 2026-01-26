@@ -189,6 +189,90 @@ fn bench_hashmap_insert_preallocated(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark Vec insertion (job_id as index)
+fn bench_vec_insert(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/vec_insert");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
+
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &jobs, |b, jobs| {
+            b.iter(|| {
+                let mut vec: Vec<Job> = Vec::new();
+                for job in jobs.iter() {
+                    vec.push(job.clone());
+                }
+                hint_black_box(vec);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark Vec insertion with pre-allocated capacity
+fn bench_vec_insert_preallocated(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/vec_insert_prealloc");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
+
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &jobs, |b, jobs| {
+            b.iter(|| {
+                let mut vec: Vec<Job> = Vec::with_capacity(size);
+                for job in jobs.iter() {
+                    vec.push(job.clone());
+                }
+                hint_black_box(vec);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark Vec lookup by index vs HashMap lookup by key
+fn bench_lookup_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/lookup");
+
+    for size in [10_000, 50_000, 100_000] {
+        let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
+
+        // Prepare HashMap
+        let mut map: HashMap<u32, Job> = HashMap::with_capacity(size);
+        for (i, job) in jobs.iter().enumerate() {
+            map.insert(i as u32, job.clone());
+        }
+
+        // Prepare Vec
+        let vec: Vec<Job> = jobs.clone();
+
+        let target_id = (size / 2) as u32;
+
+        group.bench_with_input(
+            BenchmarkId::new("hashmap", size),
+            &(&map, target_id),
+            |b, (map, id)| {
+                b.iter(|| hint_black_box(map.get(id)));
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("vec", size),
+            &(&vec, target_id),
+            |b, (vec, id)| {
+                b.iter(|| hint_black_box(vec.get(*id as usize)));
+            },
+        );
+    }
+
+    group.finish();
+}
+
 /// Benchmark Job clone cost
 fn bench_job_clone(c: &mut Criterion) {
     let mut group = c.benchmark_group("bottleneck/job_clone");
@@ -350,7 +434,7 @@ fn bench_query_all_jobs(c: &mut Criterion) {
             &scheduler,
             |b, scheduler| {
                 b.iter(|| {
-                    let jobs: Vec<&Job> = scheduler.jobs.values().collect();
+                    let jobs: Vec<&Job> = scheduler.jobs.iter().collect();
                     black_box(jobs.len())
                 });
             },
@@ -368,16 +452,13 @@ fn bench_query_by_state(c: &mut Criterion) {
         populate_scheduler(&mut scheduler, size);
 
         // Set some jobs to different states for realistic distribution
-        let job_ids: Vec<u32> = scheduler.jobs.keys().copied().collect();
-        for (i, &job_id) in job_ids.iter().enumerate() {
-            if let Some(job) = scheduler.jobs.get_mut(&job_id) {
-                match i % 5 {
-                    0 => job.state = JobState::Running,
-                    1 => job.state = JobState::Finished,
-                    2 => job.state = JobState::Failed,
-                    3 => job.state = JobState::Hold,
-                    _ => {} // Keep as Queued
-                }
+        for (i, job) in scheduler.jobs.iter_mut().enumerate() {
+            match i % 5 {
+                0 => job.state = JobState::Running,
+                1 => job.state = JobState::Finished,
+                2 => job.state = JobState::Failed,
+                3 => job.state = JobState::Hold,
+                _ => {} // Keep as Queued
             }
         }
 
@@ -388,7 +469,7 @@ fn bench_query_by_state(c: &mut Criterion) {
                 b.iter(|| {
                     let queued: Vec<&Job> = scheduler
                         .jobs
-                        .values()
+                        .iter()
                         .filter(|j| j.state == JobState::Queued)
                         .collect();
                     black_box(queued.len())
@@ -414,7 +495,7 @@ fn bench_query_by_user(c: &mut Criterion) {
                 b.iter(|| {
                     let user_jobs: Vec<&Job> = scheduler
                         .jobs
-                        .values()
+                        .iter()
                         .filter(|j| j.submitted_by == "user42")
                         .collect();
                     black_box(user_jobs.len())
@@ -439,7 +520,7 @@ fn bench_query_single_job(c: &mut Criterion) {
             BenchmarkId::new("jobs", size),
             &(scheduler, target_id),
             |b, (scheduler, target_id)| {
-                b.iter(|| black_box(scheduler.jobs.get(target_id)));
+                b.iter(|| black_box(scheduler.get_job(*target_id)));
             },
         );
     }
@@ -535,12 +616,9 @@ fn bench_refresh_available_memory(c: &mut Criterion) {
                     populate_scheduler(&mut scheduler, size);
 
                     // Set some jobs to Running state
-                    let job_ids: Vec<u32> = scheduler.jobs.keys().copied().collect();
-                    for (i, &job_id) in job_ids.iter().enumerate() {
+                    for (i, job) in scheduler.jobs.iter_mut().enumerate() {
                         if i % 10 == 0 {
-                            if let Some(job) = scheduler.jobs.get_mut(&job_id) {
-                                job.state = JobState::Running;
-                            }
+                            job.state = JobState::Running;
                         }
                     }
                     scheduler
@@ -565,16 +643,13 @@ fn bench_job_counts_by_state(c: &mut Criterion) {
         populate_scheduler(&mut scheduler, size);
 
         // Set jobs to different states
-        let job_ids: Vec<u32> = scheduler.jobs.keys().copied().collect();
-        for (i, &job_id) in job_ids.iter().enumerate() {
-            if let Some(job) = scheduler.jobs.get_mut(&job_id) {
-                match i % 5 {
-                    0 => job.state = JobState::Running,
-                    1 => job.state = JobState::Finished,
-                    2 => job.state = JobState::Failed,
-                    3 => job.state = JobState::Hold,
-                    _ => {}
-                }
+        for (i, job) in scheduler.jobs.iter_mut().enumerate() {
+            match i % 5 {
+                0 => job.state = JobState::Running,
+                1 => job.state = JobState::Finished,
+                2 => job.state = JobState::Failed,
+                3 => job.state = JobState::Hold,
+                _ => {}
             }
         }
 
@@ -585,48 +660,6 @@ fn bench_job_counts_by_state(c: &mut Criterion) {
                 b.iter(|| black_box(scheduler.get_job_counts_by_state()));
             },
         );
-    }
-
-    group.finish();
-}
-
-// ============================================================================
-// Cleanup Benchmarks
-// ============================================================================
-
-fn bench_cleanup_completed_jobs(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cleanup/completed_jobs");
-    group.sample_size(10);
-
-    for size in [10_000, 25_000, 50_000] {
-        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
-            b.iter_batched(
-                || {
-                    let mut scheduler = create_test_scheduler();
-                    populate_scheduler(&mut scheduler, size);
-
-                    // Mark 50% of jobs as finished with old timestamps
-                    let job_ids: Vec<u32> = scheduler.jobs.keys().copied().collect();
-                    for (i, &job_id) in job_ids.iter().enumerate() {
-                        if i % 2 == 0 {
-                            if let Some(job) = scheduler.jobs.get_mut(&job_id) {
-                                job.state = JobState::Finished;
-                                // Set finished_at to 48 hours ago
-                                job.finished_at = Some(
-                                    std::time::SystemTime::now()
-                                        - std::time::Duration::from_secs(48 * 3600),
-                                );
-                            }
-                        }
-                    }
-                    scheduler
-                },
-                |mut scheduler| {
-                    black_box(scheduler.cleanup_completed_jobs(24)); // 24 hour retention
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
     }
 
     group.finish();
@@ -647,6 +680,9 @@ criterion_group!(
     bench_job_creation_only,
     bench_hashmap_insert_only,
     bench_hashmap_insert_preallocated,
+    bench_vec_insert,
+    bench_vec_insert_preallocated,
+    bench_lookup_comparison,
     bench_job_clone,
     bench_string_allocation,
     bench_submit_job_overhead,
@@ -679,8 +715,6 @@ criterion_group!(
     bench_job_counts_by_state,
 );
 
-criterion_group!(cleanup_benches, bench_cleanup_completed_jobs,);
-
 criterion_main!(
     memory_benches,
     bottleneck_benches,
@@ -688,5 +722,4 @@ criterion_main!(
     query_benches,
     dependency_benches,
     scheduling_benches,
-    cleanup_benches,
 );

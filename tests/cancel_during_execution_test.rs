@@ -66,11 +66,14 @@ fn test_job_cancelled_between_prepare_and_execute() {
     assert_eq!(jobs_to_execute[0].id, job_id);
 
     // Verify job is now Running
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Running);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Running);
 
     // RACE CONDITION SIMULATION: Cancel the job AFTER prepare but BEFORE execute
     scheduler.cancel_job(job_id, None);
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Cancelled);
+    assert_eq!(
+        scheduler.get_job(job_id).unwrap().state,
+        JobState::Cancelled
+    );
 
     // Phase 2: Execute jobs (this should detect the state change and skip execution)
     let results = scheduler.execute_jobs_no_lock(&jobs_to_execute);
@@ -88,10 +91,16 @@ fn test_job_cancelled_between_prepare_and_execute() {
     // Without the fix: executed_jobs would contain job_id (BAD!)
     // With the fix: executed_jobs should be empty (GOOD!)
     println!("Executed jobs: {:?}", executed_jobs);
-    println!("Job final state: {:?}", scheduler.jobs[&job_id].state);
+    println!(
+        "Job final state: {:?}",
+        scheduler.get_job(job_id).unwrap().state
+    );
 
     // The job should remain in Cancelled state
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Cancelled);
+    assert_eq!(
+        scheduler.get_job(job_id).unwrap().state,
+        JobState::Cancelled
+    );
 }
 
 #[test]
@@ -120,7 +129,7 @@ fn test_job_failed_between_prepare_and_execute() {
     // RACE CONDITION: Fail the job AFTER prepare but BEFORE execute
     // (e.g., external monitoring system detected an issue)
     scheduler.fail_job(job_id);
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Failed);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Failed);
 
     // Phase 2: Execute jobs (should skip the failed job)
     let results = scheduler.execute_jobs_no_lock(&jobs_to_execute);
@@ -133,7 +142,7 @@ fn test_job_failed_between_prepare_and_execute() {
     println!("Executed jobs: {:?}", executed_jobs);
 
     // Job should remain in Failed state (not executed)
-    assert_eq!(scheduler.jobs[&job_id].state, JobState::Failed);
+    assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Failed);
 }
 
 #[test]
@@ -181,6 +190,12 @@ fn test_multiple_jobs_partial_cancellation() {
     // The cancelled jobs (2, 4) should NOT be in executed list
 
     // Verify states
-    assert_eq!(scheduler.jobs[&job_ids[1]].state, JobState::Cancelled);
-    assert_eq!(scheduler.jobs[&job_ids[3]].state, JobState::Cancelled);
+    assert_eq!(
+        scheduler.get_job(job_ids[1]).unwrap().state,
+        JobState::Cancelled
+    );
+    assert_eq!(
+        scheduler.get_job(job_ids[3]).unwrap().state,
+        JobState::Cancelled
+    );
 }

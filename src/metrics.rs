@@ -104,16 +104,10 @@ pub fn export_metrics() -> Result<String, Box<dyn std::error::Error>> {
 
 // Helper functions
 #[cfg(feature = "metrics")]
-pub fn update_job_state_metrics(jobs: &std::collections::HashMap<u32, crate::core::job::Job>) {
+pub fn update_job_state_metrics(jobs: &[crate::core::job::Job]) {
     use crate::core::job::JobState;
-    let queued = jobs
-        .values()
-        .filter(|j| j.state == JobState::Queued)
-        .count();
-    let running = jobs
-        .values()
-        .filter(|j| j.state == JobState::Running)
-        .count();
+    let queued = jobs.iter().filter(|j| j.state == JobState::Queued).count();
+    let running = jobs.iter().filter(|j| j.state == JobState::Running).count();
     JOBS_QUEUED
         .with_label_values(&[] as &[&str])
         .set(queued as f64);
@@ -123,6 +117,6 @@ pub fn update_job_state_metrics(jobs: &std::collections::HashMap<u32, crate::cor
 }
 
 #[cfg(not(feature = "metrics"))]
-pub fn update_job_state_metrics(_jobs: &std::collections::HashMap<u32, crate::core::job::Job>) {
+pub fn update_job_state_metrics(_jobs: &[crate::core::job::Job]) {
     // No-op when metrics feature is disabled
 }

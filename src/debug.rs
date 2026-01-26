@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 pub struct DebugState {
-    pub jobs: HashMap<u32, Job>,
+    pub jobs: Vec<Job>,
     pub next_job_id: u32,
     pub total_memory_mb: u64,
     pub available_memory_mb: u64,

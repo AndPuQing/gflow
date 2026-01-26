@@ -13,7 +13,7 @@ use std::time::Duration;
 pub struct Scheduler {
     #[serde(default)]
     pub version: u32,
-    pub jobs: HashMap<u32, Job>,
+    pub jobs: Vec<Job>,
     #[serde(skip)]
     pub(crate) executor: Option<Box<dyn Executor>>,
     #[serde(skip)]
@@ -32,7 +32,7 @@ impl Default for Scheduler {
     fn default() -> Self {
         Self {
             version: crate::core::migrations::CURRENT_VERSION,
-            jobs: HashMap::new(),
+            jobs: Vec::new(),
             executor: None,
             gpu_slots: HashMap::new(),
             total_memory_mb: 16 * 1024, // Default 16GB
@@ -45,6 +45,30 @@ impl Default for Scheduler {
 }
 
 impl Scheduler {
+    /// Get a job by ID (job IDs start at 1, so we subtract 1 for the index)
+    #[inline]
+    pub fn get_job(&self, job_id: u32) -> Option<&Job> {
+        if job_id == 0 {
+            return None;
+        }
+        self.jobs.get((job_id - 1) as usize)
+    }
+
+    /// Get a mutable job by ID
+    #[inline]
+    pub fn get_job_mut(&mut self, job_id: u32) -> Option<&mut Job> {
+        if job_id == 0 {
+            return None;
+        }
+        self.jobs.get_mut((job_id - 1) as usize)
+    }
+
+    /// Check if a job exists
+    #[inline]
+    pub fn job_exists(&self, job_id: u32) -> bool {
+        self.get_job(job_id).is_some()
+    }
+
     /// Get available GPU slots respecting restrictions
     pub fn get_available_gpu_slots(&self) -> Vec<u32> {
         let mut slots: Vec<u32> = self
@@ -115,7 +139,7 @@ impl Scheduler {
         };
         let job_id = job_.id;
         let run_name = job_.run_name.clone().unwrap_or_default();
-        self.jobs.insert(job_id, job_);
+        self.jobs.push(job_);
         (job_id, run_name)
     }
 
@@ -123,7 +147,7 @@ impl Scheduler {
     /// Returns: Some((should_close_tmux, run_name)) if job exists, None otherwise
     /// Note: Caller is responsible for persisting state and closing tmux if needed
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
+        if let Some(job) = self.get_job_mut(job_id) {
             let should_close_tmux = job.auto_close_tmux;
             let run_name = job.run_name.clone();
             job.try_transition(job_id, JobState::Finished);
@@ -136,7 +160,7 @@ impl Scheduler {
     /// Fail a job
     /// Note: Caller is responsible for persisting state after this
     pub fn fail_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
+        if let Some(job) = self.get_job_mut(job_id) {
             job.try_transition(job_id, JobState::Failed);
             true
         } else {
@@ -151,7 +175,7 @@ impl Scheduler {
         job_id: u32,
         reason: Option<JobStateReason>,
     ) -> Option<(bool, Option<String>)> {
-        let job = self.jobs.get_mut(&job_id)?;
+        let job = self.get_job_mut(job_id)?;
         let was_running = job.state == JobState::Running;
         let run_name = job.run_name.clone();
         job.try_transition(job_id, JobState::Cancelled);
@@ -162,7 +186,7 @@ impl Scheduler {
     /// Put a job on hold
     /// Note: Caller is responsible for persisting state after this
     pub fn hold_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
+        if let Some(job) = self.get_job_mut(job_id) {
             job.try_transition(job_id, JobState::Hold);
             true
         } else {
@@ -173,7 +197,7 @@ impl Scheduler {
     /// Release a job from hold back to queue
     /// Note: Caller is responsible for persisting state after this
     pub fn release_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
+        if let Some(job) = self.get_job_mut(job_id) {
             job.try_transition(job_id, JobState::Queued);
             true
         } else {
@@ -196,7 +220,7 @@ impl Scheduler {
         // Get all jobs submitted by the user, sorted by job ID (which corresponds to submission order)
         let mut user_jobs: Vec<_> = self
             .jobs
-            .values()
+            .iter()
             .filter(|job| job.submitted_by == username)
             .collect();
 
@@ -237,7 +261,7 @@ impl Scheduler {
         let mut graph: HashMap<u32, Vec<u32>> = HashMap::new();
 
         // Add existing dependencies
-        for (job_id, job) in &self.jobs {
+        for job in &self.jobs {
             let deps = if !job.depends_on_ids.is_empty() {
                 job.depends_on_ids.clone()
             } else if let Some(dep) = job.depends_on {
@@ -247,7 +271,7 @@ impl Scheduler {
             };
 
             if !deps.is_empty() {
-                graph.insert(*job_id, deps);
+                graph.insert(job.id, deps);
             }
         }
 
@@ -328,7 +352,7 @@ impl Scheduler {
         while let Some(current_failed_id) = jobs_to_process.pop() {
             let dependent_job_ids: Vec<u32> = self
                 .jobs
-                .values()
+                .iter()
                 .filter(|j| {
                     j.state == JobState::Queued
                         && j.auto_cancel_on_dependency_failure
@@ -338,7 +362,7 @@ impl Scheduler {
                 .collect();
 
             for job_id in dependent_job_ids {
-                if let Some(job) = self.jobs.get_mut(&job_id) {
+                if let Some(job) = self.get_job_mut(job_id) {
                     if job.try_transition(job_id, JobState::Cancelled) {
                         job.reason = Some(JobStateReason::DependencyFailed(current_failed_id));
                         tracing::info!(
@@ -362,8 +386,7 @@ impl Scheduler {
     pub fn validate_job_update(&self, job_id: u32, new_deps: Option<&[u32]>) -> Result<(), String> {
         // Check if job exists
         let job = self
-            .jobs
-            .get(&job_id)
+            .get_job(job_id)
             .ok_or_else(|| format!("Job {} not found", job_id))?;
 
         // Check if job is in updatable state (Queued or Hold)
@@ -378,7 +401,7 @@ impl Scheduler {
         if let Some(deps) = new_deps {
             // Check that all dependency IDs exist
             for &dep_id in deps {
-                if !self.jobs.contains_key(&dep_id) {
+                if !self.job_exists(dep_id) {
                     return Err(format!("Dependency job {} does not exist", dep_id));
                 }
             }
@@ -415,7 +438,7 @@ impl Scheduler {
     pub fn refresh_available_memory(&mut self) {
         let memory_used: u64 = self
             .jobs
-            .values()
+            .iter()
             .filter(|j| j.state == JobState::Running)
             .filter_map(|j| j.memory_limit_mb)
             .sum();
@@ -451,7 +474,7 @@ impl Scheduler {
         let mut available_gpus = self.get_available_gpu_slots();
         let finished_jobs: std::collections::HashSet<u32> = self
             .jobs
-            .values()
+            .iter()
             .filter(|j| j.state == JobState::Finished)
             .map(|j| j.id)
             .collect();
@@ -459,15 +482,14 @@ impl Scheduler {
         // Collect and sort runnable jobs
         let mut runnable_jobs: Vec<_> = self
             .jobs
-            .values()
+            .iter()
             .filter(|j| j.state == JobState::Queued)
             .filter(|j| Self::are_dependencies_satisfied(j, &finished_jobs))
             .map(|j| j.id)
             .collect();
 
         runnable_jobs.sort_by_key(|job_id| {
-            self.jobs
-                .get(job_id)
+            self.get_job(*job_id)
                 .map(|job| {
                     let time_bonus = Self::calculate_time_bonus(&job.time_limit);
                     std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
@@ -480,7 +502,7 @@ impl Scheduler {
         for job_id in runnable_jobs {
             // First, do immutable checks to determine if job can run
             let (has_enough_gpus, has_enough_memory, within_group_limit, required_memory) =
-                if let Some(job) = self.jobs.get(&job_id) {
+                if let Some(job) = self.get_job(job_id) {
                     let has_enough_gpus = job.gpus as usize <= available_gpus.len();
                     let required_memory = job.memory_limit_mb.unwrap_or(0);
                     let has_enough_memory = required_memory <= available_memory;
@@ -491,7 +513,7 @@ impl Scheduler {
                             // Count running jobs in this group
                             let running_in_group = self
                                 .jobs
-                                .values()
+                                .iter()
                                 .filter(|j| j.group_id.as_ref() == Some(group_id))
                                 .filter(|j| j.state == JobState::Running)
                                 .count();
@@ -527,7 +549,7 @@ impl Scheduler {
 
             // Now allocate resources if all checks pass
             if has_enough_gpus && has_enough_memory && within_group_limit {
-                if let Some(job) = self.jobs.get_mut(&job_id) {
+                if let Some(job) = self.get_job_mut(job_id) {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
                         .collect::<Vec<_>>();
@@ -537,15 +559,14 @@ impl Scheduler {
                     job.state = JobState::Running;
                     job.started_at = Some(std::time::SystemTime::now());
 
-                    available_memory = available_memory.saturating_sub(required_memory);
-                    self.available_memory_mb =
-                        self.available_memory_mb.saturating_sub(required_memory);
-
                     // Add to execution list
                     jobs_to_execute.push(job.clone());
                 }
+                // Update memory tracking after releasing the borrow
+                available_memory = available_memory.saturating_sub(required_memory);
+                self.available_memory_mb = self.available_memory_mb.saturating_sub(required_memory);
             } else if !has_enough_memory {
-                if let Some(job) = self.jobs.get(&job_id) {
+                if let Some(job) = self.get_job(job_id) {
                     tracing::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
                         job.id,
@@ -592,7 +613,7 @@ impl Scheduler {
     pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
         for (job_id, result) in results {
             if result.is_err() {
-                if let Some(job) = self.jobs.get_mut(job_id) {
+                if let Some(job) = self.get_job_mut(*job_id) {
                     job.try_transition(*job_id, JobState::Failed);
                     // Return GPUs and memory
                     if let Some(_gpu_ids) = job.gpu_ids.take() {
@@ -664,77 +685,10 @@ impl Scheduler {
         self.next_job_id = id;
     }
 
-    /// Clean up completed jobs from memory that finished more than `retention_hours` ago
-    ///
-    /// This removes jobs in final states (Finished, Failed, Cancelled, Timeout) from
-    /// the in-memory HashMap to prevent unbounded memory growth. Jobs are still
-    /// persisted in the database and can be queried via slow-path queries.
-    ///
-    /// # Arguments
-    /// * `retention_hours` - Keep jobs in memory for this many hours after completion
-    ///
-    /// # Returns
-    /// Number of jobs removed from memory
-    ///
-    /// # Note
-    /// Jobs with active dependencies (other jobs depending on them) are NOT removed
-    /// to maintain dependency resolution functionality.
-    pub fn cleanup_completed_jobs(&mut self, retention_hours: u64) -> usize {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let cutoff_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .saturating_sub(retention_hours * 3600);
-
-        // Single-pass algorithm: collect jobs_with_dependents and identify removable jobs simultaneously
-        let mut jobs_with_dependents = std::collections::HashSet::new();
-        let mut jobs_to_remove = Vec::new();
-
-        for (&job_id, job) in self.jobs.iter() {
-            // Track dependencies
-            if let Some(depends_on) = job.depends_on {
-                jobs_with_dependents.insert(depends_on);
-            }
-
-            // Check if job is removable (must be final, old enough)
-            if job.state.is_final() {
-                if let Some(finished_at) = job.finished_at {
-                    if let Ok(duration) = finished_at.duration_since(UNIX_EPOCH) {
-                        if duration.as_secs() < cutoff_time {
-                            jobs_to_remove.push(job_id);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Filter out jobs that have active dependents
-        jobs_to_remove.retain(|job_id| !jobs_with_dependents.contains(job_id));
-
-        let removed_count = jobs_to_remove.len();
-
-        // Remove jobs from memory using drain_filter pattern for efficiency
-        for job_id in jobs_to_remove {
-            self.jobs.remove(&job_id);
-        }
-
-        if removed_count > 0 {
-            tracing::info!(
-                "Cleaned up {} completed jobs from memory (retention: {}h)",
-                removed_count,
-                retention_hours
-            );
-        }
-
-        removed_count
-    }
-
     /// Get count of jobs by state for monitoring
     pub fn get_job_counts_by_state(&self) -> std::collections::HashMap<JobState, usize> {
         let mut counts = std::collections::HashMap::new();
-        for job in self.jobs.values() {
+        for job in &self.jobs {
             *counts.entry(job.state).or_insert(0) += 1;
         }
         counts
@@ -789,7 +743,7 @@ impl SchedulerBuilder {
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
-            jobs: HashMap::new(),
+            jobs: Vec::new(),
             executor: self.executor,
             gpu_slots: self.gpu_slots,
             total_memory_mb: self.total_memory_mb,
@@ -858,8 +812,8 @@ mod tests {
         let (job_id, run_name) = scheduler.submit_job(job);
         assert_eq!(job_id, 1);
         assert_eq!(run_name, "gflow-job-1");
-        assert!(scheduler.jobs.contains_key(&1));
-        assert_eq!(scheduler.jobs[&1].state, JobState::Queued);
+        assert!(scheduler.job_exists(1));
+        assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
     }
 
     #[test]
@@ -927,7 +881,7 @@ mod tests {
         let (job_id, _) = scheduler.submit_job(job);
 
         // Manually set to running
-        scheduler.jobs.get_mut(&job_id).unwrap().state = JobState::Running;
+        scheduler.get_job_mut(job_id).unwrap().state = JobState::Running;
 
         scheduler.refresh_available_memory();
         assert_eq!(scheduler.available_memory_mb, total - 1024);
@@ -947,7 +901,7 @@ mod tests {
         let (job_id, _) = scheduler.submit_job(job);
 
         // Verify job is Queued
-        assert_eq!(scheduler.jobs[&job_id].state, JobState::Queued);
+        assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
         let initial_available_memory = scheduler.available_memory_mb;
 
         // Try to schedule jobs without executor
@@ -958,7 +912,7 @@ mod tests {
 
         // Job should STILL be Queued (not stuck in Running)
         assert_eq!(
-            scheduler.jobs[&job_id].state,
+            scheduler.get_job(job_id).unwrap().state,
             JobState::Queued,
             "Job should remain Queued when no executor is present"
         );
@@ -971,13 +925,15 @@ mod tests {
 
         // GPU IDs should not be assigned
         assert_eq!(
-            scheduler.jobs[&job_id].gpu_ids, None,
+            scheduler.get_job(job_id).unwrap().gpu_ids,
+            None,
             "GPU IDs should not be assigned when no executor is present"
         );
 
         // started_at should not be set
         assert_eq!(
-            scheduler.jobs[&job_id].started_at, None,
+            scheduler.get_job(job_id).unwrap().started_at,
+            None,
             "started_at should not be set when no executor is present"
         );
     }
@@ -1011,9 +967,12 @@ mod tests {
         // Job B should be cancelled
         assert_eq!(cancelled.len(), 1);
         assert!(cancelled.contains(&job_b_id));
-        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
         assert_eq!(
-            scheduler.jobs[&job_b_id].reason,
+            scheduler.get_job(job_b_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_b_id).unwrap().reason,
             Some(JobStateReason::DependencyFailed(job_a_id))
         );
     }
@@ -1057,14 +1016,20 @@ mod tests {
         assert_eq!(cancelled.len(), 2);
         assert!(cancelled.contains(&job_b_id));
         assert!(cancelled.contains(&job_c_id));
-        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
-        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Cancelled);
         assert_eq!(
-            scheduler.jobs[&job_b_id].reason,
+            scheduler.get_job(job_b_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_c_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_b_id).unwrap().reason,
             Some(JobStateReason::DependencyFailed(job_a_id))
         );
         assert_eq!(
-            scheduler.jobs[&job_c_id].reason,
+            scheduler.get_job(job_c_id).unwrap().reason,
             Some(JobStateReason::DependencyFailed(job_b_id))
         );
     }
@@ -1124,10 +1089,22 @@ mod tests {
         assert!(cancelled.contains(&job_c_id));
         assert!(cancelled.contains(&job_d_id));
         assert!(cancelled.contains(&job_e_id));
-        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
-        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Cancelled);
-        assert_eq!(scheduler.jobs[&job_d_id].state, JobState::Cancelled);
-        assert_eq!(scheduler.jobs[&job_e_id].state, JobState::Cancelled);
+        assert_eq!(
+            scheduler.get_job(job_b_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_c_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_d_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(
+            scheduler.get_job(job_e_id).unwrap().state,
+            JobState::Cancelled
+        );
     }
 
     #[test]
@@ -1158,7 +1135,7 @@ mod tests {
 
         // Job B should NOT be cancelled
         assert_eq!(cancelled.len(), 0);
-        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Queued);
+        assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
     }
 
     #[test]
@@ -1199,7 +1176,10 @@ mod tests {
         // Only B should be cancelled, not C (because C has auto_cancel disabled)
         assert_eq!(cancelled.len(), 1);
         assert!(cancelled.contains(&job_b_id));
-        assert_eq!(scheduler.jobs[&job_b_id].state, JobState::Cancelled);
-        assert_eq!(scheduler.jobs[&job_c_id].state, JobState::Queued);
+        assert_eq!(
+            scheduler.get_job(job_b_id).unwrap().state,
+            JobState::Cancelled
+        );
+        assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
     }
 }
