@@ -361,11 +361,7 @@ fn bench_query_by_user(c: &mut Criterion) {
             &scheduler,
             |b, scheduler| {
                 b.iter(|| {
-                    let user_jobs: Vec<&Job> = scheduler
-                        .jobs
-                        .iter()
-                        .filter(|j| j.submitted_by == "user42")
-                        .collect();
+                    let user_jobs = scheduler.get_jobs_by_user("user42");
                     black_box(user_jobs.len())
                 });
             },

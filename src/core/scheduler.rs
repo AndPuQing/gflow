@@ -719,6 +719,16 @@ impl Scheduler {
         }
         counts
     }
+
+    /// Get all jobs submitted by a specific user using the index for O(n) performance
+    /// where n is the number of jobs by that user (not total jobs)
+    pub fn get_jobs_by_user(&self, username: &str) -> Vec<&Job> {
+        if let Some(job_ids) = self.user_jobs_index.get(username) {
+            job_ids.iter().filter_map(|&id| self.get_job(id)).collect()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 /// Builder for creating Scheduler instances with dependency injection
