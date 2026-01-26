@@ -29,10 +29,9 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
     if from_version < 1 {
         scheduler = migrate_v0_to_v1(scheduler)?;
     }
-    // Future migrations go here:
-    // if from_version < 2 {
-    //     scheduler = migrate_v1_to_v2(scheduler)?;
-    // }
+    if from_version < 2 {
+        scheduler = migrate_v1_to_v2(scheduler)?;
+    }
 
     scheduler.version = CURRENT_VERSION;
     Ok(scheduler)
@@ -42,6 +41,16 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
 fn migrate_v0_to_v1(mut scheduler: Scheduler) -> Result<Scheduler> {
     tracing::info!("Migrating from v0 to v1: adding version field");
     scheduler.version = 1;
+    Ok(scheduler)
+}
+
+/// Migrate from version 1 to version 2 (HashMap<u32, Job> to Vec<Job>)
+fn migrate_v1_to_v2(mut scheduler: Scheduler) -> Result<Scheduler> {
+    tracing::info!("Migrating from v1 to v2: converting jobs HashMap to Vec");
+    // The jobs field is already a Vec in the current Scheduler struct,
+    // so if we successfully deserialized it, the migration is already done.
+    // This function exists for completeness and future-proofing.
+    scheduler.version = 2;
     Ok(scheduler)
 }
 
@@ -114,5 +123,162 @@ mod tests {
         assert_eq!(result.next_job_id(), 42);
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.get_job(1).unwrap().state, JobState::Finished);
+    }
+
+    #[test]
+    fn test_deserialize_old_hashmap_format() {
+        use crate::core::job::JobState;
+
+        // Old format: jobs as a HashMap (JSON object)
+        // Using minimal fields to avoid complex serialization issues
+        let old_format_json = r#"{
+            "version": 1,
+            "jobs": {
+                "1": {
+                    "id": 1,
+                    "state": "Finished",
+                    "script": null,
+                    "command": null,
+                    "gpus": 0,
+                    "conda_env": null,
+                    "run_dir": ".",
+                    "priority": 0,
+                    "depends_on": null,
+                    "depends_on_ids": [],
+                    "dependency_mode": null,
+                    "auto_cancel_on_dependency_failure": true,
+                    "task_id": null,
+                    "time_limit": null,
+                    "memory_limit_mb": null,
+                    "submitted_by": "",
+                    "redone_from": null,
+                    "auto_close_tmux": false,
+                    "parameters": {},
+                    "group_id": null,
+                    "max_concurrent": null,
+                    "run_name": null,
+                    "gpu_ids": null,
+                    "submitted_at": null,
+                    "started_at": null,
+                    "finished_at": null
+                },
+                "2": {
+                    "id": 2,
+                    "state": "Queued",
+                    "script": null,
+                    "command": null,
+                    "gpus": 0,
+                    "conda_env": null,
+                    "run_dir": ".",
+                    "priority": 0,
+                    "depends_on": null,
+                    "depends_on_ids": [],
+                    "dependency_mode": null,
+                    "auto_cancel_on_dependency_failure": true,
+                    "task_id": null,
+                    "time_limit": null,
+                    "memory_limit_mb": null,
+                    "submitted_by": "",
+                    "redone_from": null,
+                    "auto_close_tmux": false,
+                    "parameters": {},
+                    "group_id": null,
+                    "max_concurrent": null,
+                    "run_name": null,
+                    "gpu_ids": null,
+                    "submitted_at": null,
+                    "started_at": null,
+                    "finished_at": null
+                }
+            },
+            "state_path": "state.json",
+            "next_job_id": 3,
+            "allowed_gpu_indices": null
+        }"#;
+
+        let scheduler: Scheduler = serde_json::from_str(old_format_json).unwrap();
+        assert_eq!(scheduler.version, 1);
+        assert_eq!(scheduler.jobs.len(), 2);
+        assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Finished);
+        assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
+        assert_eq!(scheduler.next_job_id(), 3);
+    }
+
+    #[test]
+    fn test_deserialize_new_vec_format() {
+        use crate::core::job::JobState;
+
+        // New format: jobs as a Vec (JSON array)
+        let new_format_json = r#"{
+            "version": 2,
+            "jobs": [
+                {
+                    "id": 1,
+                    "state": "Finished",
+                    "script": null,
+                    "command": null,
+                    "gpus": 0,
+                    "conda_env": null,
+                    "run_dir": ".",
+                    "priority": 0,
+                    "depends_on": null,
+                    "depends_on_ids": [],
+                    "dependency_mode": null,
+                    "auto_cancel_on_dependency_failure": true,
+                    "task_id": null,
+                    "time_limit": null,
+                    "memory_limit_mb": null,
+                    "submitted_by": "",
+                    "redone_from": null,
+                    "auto_close_tmux": false,
+                    "parameters": {},
+                    "group_id": null,
+                    "max_concurrent": null,
+                    "run_name": null,
+                    "gpu_ids": null,
+                    "submitted_at": null,
+                    "started_at": null,
+                    "finished_at": null
+                },
+                {
+                    "id": 2,
+                    "state": "Queued",
+                    "script": null,
+                    "command": null,
+                    "gpus": 0,
+                    "conda_env": null,
+                    "run_dir": ".",
+                    "priority": 0,
+                    "depends_on": null,
+                    "depends_on_ids": [],
+                    "dependency_mode": null,
+                    "auto_cancel_on_dependency_failure": true,
+                    "task_id": null,
+                    "time_limit": null,
+                    "memory_limit_mb": null,
+                    "submitted_by": "",
+                    "redone_from": null,
+                    "auto_close_tmux": false,
+                    "parameters": {},
+                    "group_id": null,
+                    "max_concurrent": null,
+                    "run_name": null,
+                    "gpu_ids": null,
+                    "submitted_at": null,
+                    "started_at": null,
+                    "finished_at": null
+                }
+            ],
+            "state_path": "state.json",
+            "next_job_id": 3,
+            "allowed_gpu_indices": null
+        }"#;
+
+        let scheduler: Scheduler = serde_json::from_str(new_format_json).unwrap();
+        assert_eq!(scheduler.version, 2);
+        assert_eq!(scheduler.jobs.len(), 2);
+        assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Finished);
+        assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
+        assert_eq!(scheduler.next_job_id(), 3);
     }
 }

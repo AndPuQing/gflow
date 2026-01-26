@@ -3,10 +3,38 @@ use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
 use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+
+/// Custom deserializer for jobs field that handles both old HashMap and new Vec formats
+fn deserialize_jobs<'de, D>(deserializer: D) -> Result<Vec<Job>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+
+    let value = Value::deserialize(deserializer)?;
+
+    match value {
+        // New format: array of jobs
+        Value::Array(arr) => serde_json::from_value(Value::Array(arr)).map_err(D::Error::custom),
+        // Old format: object/map with job IDs as keys
+        Value::Object(map) => {
+            let mut jobs = Vec::new();
+            for (_key, job_value) in map {
+                let job: Job = serde_json::from_value(job_value).map_err(D::Error::custom)?;
+                jobs.push(job);
+            }
+            // Sort by job ID to maintain order
+            jobs.sort_by_key(|j| j.id);
+            Ok(jobs)
+        }
+        _ => Err(D::Error::custom("jobs must be an array or object")),
+    }
+}
 
 /// Core scheduler with dependency injection for execution strategy
 #[derive(Serialize, Deserialize)]
@@ -14,6 +42,7 @@ use std::time::Duration;
 pub struct Scheduler {
     #[serde(default)]
     pub version: u32,
+    #[serde(deserialize_with = "deserialize_jobs")]
     pub jobs: Vec<Job>,
     #[serde(skip)]
     pub(crate) executor: Option<Box<dyn Executor>>,
