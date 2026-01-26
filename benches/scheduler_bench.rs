@@ -6,7 +6,7 @@
 //! - Job submission throughput
 //! - Scheduling decision performance
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use gflow::core::job::{DependencyMode, Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
@@ -148,7 +148,7 @@ fn bench_job_clone(c: &mut Criterion) {
     let job = create_test_job(12345);
 
     group.bench_function("single_clone", |b| {
-        b.iter(|| black_box(job.clone()));
+        b.iter(|| std::hint::black_box(job.clone()));
     });
 
     group.finish();
@@ -244,7 +244,7 @@ fn bench_job_submission(c: &mut Criterion) {
 
                 b.iter(|| {
                     let job = create_test_job(existing_jobs as u32 + 1);
-                    black_box(scheduler.submit_job(job));
+                    std::hint::black_box(scheduler.submit_job(job));
                 });
             },
         );
@@ -273,7 +273,7 @@ fn bench_batch_submission(c: &mut Criterion) {
                     |mut scheduler| {
                         for i in 0..1000 {
                             let job = create_test_job(existing_jobs as u32 + i + 1);
-                            black_box(scheduler.submit_job(job));
+                            std::hint::black_box(scheduler.submit_job(job));
                         }
                     },
                     criterion::BatchSize::SmallInput,
@@ -303,7 +303,7 @@ fn bench_query_all_jobs(c: &mut Criterion) {
             |b, scheduler| {
                 b.iter(|| {
                     let jobs: Vec<&Job> = scheduler.jobs.iter().collect();
-                    black_box(jobs.len())
+                    std::hint::black_box(jobs.len())
                 });
             },
         );
@@ -340,7 +340,7 @@ fn bench_query_by_state(c: &mut Criterion) {
                         .iter()
                         .filter(|j| j.state == JobState::Queued)
                         .collect();
-                    black_box(queued.len())
+                    std::hint::black_box(queued.len())
                 });
             },
         );
@@ -362,7 +362,7 @@ fn bench_query_by_user(c: &mut Criterion) {
             |b, scheduler| {
                 b.iter(|| {
                     let user_jobs = scheduler.get_jobs_by_user("user42");
-                    black_box(user_jobs.len())
+                    std::hint::black_box(user_jobs.len())
                 });
             },
         );
@@ -384,7 +384,7 @@ fn bench_query_single_job(c: &mut Criterion) {
             BenchmarkId::new("jobs", size),
             &(scheduler, target_id),
             |b, (scheduler, target_id)| {
-                b.iter(|| black_box(scheduler.get_job(*target_id)));
+                b.iter(|| std::hint::black_box(scheduler.get_job(*target_id)));
             },
         );
     }
@@ -409,7 +409,7 @@ fn bench_resolve_dependency(c: &mut Criterion) {
             |b, scheduler| {
                 b.iter(|| {
                     // Resolve "@" (most recent job by user)
-                    black_box(scheduler.resolve_dependency("user42", "@"))
+                    std::hint::black_box(scheduler.resolve_dependency("user42", "@"))
                 });
             },
         );
@@ -433,7 +433,11 @@ fn bench_validate_circular_dependency(c: &mut Criterion) {
             BenchmarkId::new("jobs", size),
             &(scheduler, new_job_id, deps),
             |b, (scheduler, new_job_id, deps)| {
-                b.iter(|| black_box(scheduler.validate_no_circular_dependency(*new_job_id, deps)));
+                b.iter(|| {
+                    std::hint::black_box(
+                        scheduler.validate_no_circular_dependency(*new_job_id, deps),
+                    )
+                });
             },
         );
     }
@@ -461,7 +465,7 @@ fn bench_get_available_gpu_slots(c: &mut Criterion) {
             BenchmarkId::new("jobs", size),
             &scheduler,
             |b, scheduler| {
-                b.iter(|| black_box(scheduler.get_available_gpu_slots()));
+                b.iter(|| std::hint::black_box(scheduler.get_available_gpu_slots()));
             },
         );
     }
@@ -489,7 +493,7 @@ fn bench_refresh_available_memory(c: &mut Criterion) {
                 },
                 |mut scheduler| {
                     scheduler.refresh_available_memory();
-                    black_box(scheduler.available_memory_mb())
+                    std::hint::black_box(scheduler.available_memory_mb())
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -521,7 +525,7 @@ fn bench_job_counts_by_state(c: &mut Criterion) {
             BenchmarkId::new("jobs", size),
             &scheduler,
             |b, scheduler| {
-                b.iter(|| black_box(scheduler.get_job_counts_by_state()));
+                b.iter(|| std::hint::black_box(scheduler.get_job_counts_by_state()));
             },
         );
     }
