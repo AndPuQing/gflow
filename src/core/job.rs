@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -157,7 +158,7 @@ pub struct Job {
     pub script: Option<PathBuf>,
     pub command: Option<String>,
     pub gpus: u32,
-    pub conda_env: Option<String>,
+    pub conda_env: Option<CompactString>,
     pub run_dir: PathBuf,
     pub priority: u8,
     pub depends_on: Option<u32>, // Legacy single dependency (for backward compatibility)
@@ -170,7 +171,7 @@ pub struct Job {
     pub task_id: Option<u32>,
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
-    pub submitted_by: String,
+    pub submitted_by: CompactString,
     pub redone_from: Option<u32>, // The job ID this job was redone from
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
     pub parameters: HashMap<String, String>, // Parameter values for template substitution
@@ -178,7 +179,7 @@ pub struct Job {
     pub max_concurrent: Option<usize>, // Max concurrent jobs in this group
 
     /// Optional fields that get populated by gflowd
-    pub run_name: Option<String>, // tmux session name
+    pub run_name: Option<CompactString>, // tmux session name
     pub state: JobState,
     pub gpu_ids: Option<Vec<u32>>, // GPU IDs assigned to this job
     pub submitted_at: Option<SystemTime>, // When the job was submitted
@@ -193,7 +194,7 @@ pub struct JobBuilder {
     script: Option<PathBuf>,
     command: Option<String>,
     gpus: Option<u32>,
-    conda_env: Option<String>,
+    conda_env: Option<CompactString>,
     run_dir: Option<PathBuf>,
     priority: Option<u8>,
     depends_on: Option<u32>,
@@ -203,8 +204,8 @@ pub struct JobBuilder {
     task_id: Option<u32>,
     time_limit: Option<Duration>,
     memory_limit_mb: Option<u64>,
-    submitted_by: Option<String>,
-    run_name: Option<String>,
+    submitted_by: Option<CompactString>,
+    run_name: Option<CompactString>,
     redone_from: Option<u32>,
     auto_close_tmux: Option<bool>,
     parameters: Option<HashMap<String, String>>,
@@ -232,8 +233,8 @@ impl JobBuilder {
         self
     }
 
-    pub fn conda_env(mut self, conda_env: impl Into<Option<String>>) -> Self {
-        self.conda_env = conda_env.into();
+    pub fn conda_env(mut self, conda_env: Option<String>) -> Self {
+        self.conda_env = conda_env.map(CompactString::from);
         self
     }
 
@@ -283,12 +284,12 @@ impl JobBuilder {
     }
 
     pub fn submitted_by(mut self, submitted_by: impl Into<String>) -> Self {
-        self.submitted_by = Some(submitted_by.into());
+        self.submitted_by = Some(CompactString::from(submitted_by.into()));
         self
     }
 
-    pub fn run_name(mut self, run_name: impl Into<Option<String>>) -> Self {
-        self.run_name = run_name.into();
+    pub fn run_name(mut self, run_name: Option<String>) -> Self {
+        self.run_name = run_name.map(CompactString::from);
         self
     }
 
@@ -334,7 +335,9 @@ impl JobBuilder {
             task_id: self.task_id,
             time_limit: self.time_limit,
             memory_limit_mb: self.memory_limit_mb,
-            submitted_by: self.submitted_by.unwrap_or_else(|| "unknown".into()),
+            submitted_by: self
+                .submitted_by
+                .unwrap_or_else(|| CompactString::const_new("unknown")),
             run_name: self.run_name,
             redone_from: self.redone_from,
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
@@ -369,7 +372,7 @@ impl Default for Job {
             task_id: None,
             time_limit: None,
             memory_limit_mb: None,
-            submitted_by: String::from("unknown"),
+            submitted_by: CompactString::const_new("unknown"),
             redone_from: None,
             auto_close_tmux: false,
             parameters: HashMap::new(),

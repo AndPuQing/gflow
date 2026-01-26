@@ -85,7 +85,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
             jobs_vec.retain(|job| {
                 job.run_name
                     .as_ref()
-                    .is_some_and(|run_name| names_vec.contains(run_name))
+                    .is_some_and(|run_name| names_vec.iter().any(|n| n == run_name.as_str()))
             });
         }
     }
@@ -98,7 +98,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
         jobs_vec.retain(|job| {
             job.run_name
                 .as_ref()
-                .is_some_and(|run_name| tmux_sessions.contains(run_name))
+                .is_some_and(|run_name| tmux_sessions.contains(run_name.as_str()))
         });
     }
 
@@ -334,7 +334,7 @@ fn format_job_cell(
         "TIMELIMIT" => job
             .time_limit
             .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
-        "USER" => job.submitted_by.clone(),
+        "USER" => job.submitted_by.to_string(),
         _ => String::new(),
     }
 }
@@ -348,7 +348,7 @@ fn format_job_name_with_session_status(
         return "-".to_string();
     };
 
-    if tmux_sessions.contains(name) {
+    if tmux_sessions.contains(name.as_str()) {
         format!("{} {}", name, "○".green())
     } else {
         name.to_string()
@@ -680,7 +680,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
-            run_name: Some(name.to_string()),
+            run_name: Some(name.into()),
             state: JobState::Finished,
             gpu_ids: Some(vec![0]),
             submitted_at: None,
@@ -688,7 +688,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
-            submitted_by: "testuser".to_string(),
+            submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),
@@ -712,7 +712,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
-            run_name: Some(name.to_string()),
+            run_name: Some(name.into()),
             state,
             gpu_ids: Some(vec![0]),
             submitted_at: None,
@@ -720,7 +720,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
-            submitted_by: "testuser".to_string(),
+            submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),
@@ -744,7 +744,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
-            run_name: Some(name.to_string()),
+            run_name: Some(name.into()),
             state: JobState::Finished,
             gpu_ids: Some(vec![0]),
             submitted_at: None,
@@ -752,7 +752,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
-            submitted_by: "testuser".to_string(),
+            submitted_by: "testuser".into(),
             redone_from,
             auto_close_tmux: false,
             parameters: std::collections::HashMap::new(),

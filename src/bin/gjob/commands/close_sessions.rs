@@ -38,7 +38,7 @@ pub async fn handle_close_sessions(
             .await?;
         for job in running_jobs {
             if let Some(name) = job.run_name {
-                gflow_sessions.remove(&name);
+                gflow_sessions.remove(name.as_str());
             }
         }
 
@@ -75,7 +75,7 @@ pub async fn handle_close_sessions(
                     .is_none_or(|pat| session_name.contains(pat));
 
             if matches && (states.is_some() || job.state.is_final()) {
-                sessions_to_close.insert(session_name.clone());
+                sessions_to_close.insert(session_name.to_string());
             }
         }
 

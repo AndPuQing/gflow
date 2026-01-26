@@ -61,7 +61,7 @@ pub async fn handle_redo(
     let conda_env = if let Some(ref override_env) = conda_env_override {
         Some(override_env.clone())
     } else {
-        original_job.conda_env.clone()
+        original_job.conda_env.as_ref().map(|s| s.to_string())
     };
     builder = builder.conda_env(conda_env.clone());
     if let Some(ref env) = conda_env {
@@ -221,7 +221,7 @@ async fn redo_with_cascade(
         // Use original job parameters (no overrides for cascade jobs)
         builder = builder.gpus(cascade_job.gpus);
         builder = builder.priority(cascade_job.priority);
-        builder = builder.conda_env(cascade_job.conda_env.clone());
+        builder = builder.conda_env(cascade_job.conda_env.as_ref().map(|s| s.to_string()));
         builder = builder.time_limit(cascade_job.time_limit);
         builder = builder.memory_limit_mb(cascade_job.memory_limit_mb);
 

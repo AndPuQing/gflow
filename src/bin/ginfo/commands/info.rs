@@ -30,7 +30,8 @@ fn print_gpu_allocation(info: &gflow::core::info::SchedulerInfo, jobs: &[gflow::
             for &idx in gpu_ids {
                 let name = j
                     .run_name
-                    .clone()
+                    .as_ref()
+                    .map(|s| s.to_string())
                     .unwrap_or_else(|| "<unknown>".to_string());
                 usage.insert(idx, (j.id, name));
             }

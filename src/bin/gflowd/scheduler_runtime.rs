@@ -374,7 +374,7 @@ impl SchedulerRuntime {
         let mut submitted_jobs = Vec::with_capacity(jobs.len());
 
         for job in jobs {
-            let submitted_by = job.submitted_by.clone();
+            let submitted_by = job.submitted_by.to_string();
             let (job_id, run_name) = self.scheduler.submit_job(job);
             results.push((job_id, run_name, submitted_by));
 
@@ -518,7 +518,7 @@ impl SchedulerRuntime {
         }
 
         if let Some(conda_env) = request.conda_env {
-            job.conda_env = conda_env;
+            job.conda_env = conda_env.map(compact_str::CompactString::from);
             updated_fields.push("conda_env".to_string());
         }
 
@@ -914,7 +914,7 @@ async fn zombie_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
         // Check which jobs are zombies
         for (job_id, run_name) in running_jobs {
             if let Some(rn) = run_name {
-                if !existing_sessions.contains(&rn) {
+                if !existing_sessions.contains(rn.as_str()) {
                     tracing::warn!("Found zombie job (id: {}), publishing event", job_id);
                     event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
                 }
@@ -984,7 +984,7 @@ async fn timeout_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
                 .filter(|job| job.has_exceeded_time_limit())
                 .map(|job| {
                     tracing::warn!("Job {} has exceeded time limit, publishing event", job.id);
-                    (job.id, job.run_name.clone())
+                    (job.id, job.run_name.as_ref().map(|s| s.to_string()))
                 })
                 .collect::<Vec<_>>()
         };

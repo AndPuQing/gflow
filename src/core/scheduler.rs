@@ -2,6 +2,7 @@ use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
 use crate::core::{GPUSlot, UUID};
+use compact_str::format_compact;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -128,19 +129,21 @@ impl Scheduler {
     pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
         job.id = self.next_job_id;
         self.next_job_id += 1;
-        let job_ = Job {
-            state: JobState::Queued,
-            gpu_ids: None,
-            run_name: job
-                .run_name
-                .or_else(|| Some(format!("gflow-job-{}", job.id))),
-            submitted_at: Some(std::time::SystemTime::now()),
-            ..job
-        };
-        let job_id = job_.id;
-        let run_name = job_.run_name.clone().unwrap_or_default();
-        self.jobs.push(job_);
-        (job_id, run_name)
+
+        // Generate run_name and keep a copy before moving into job
+        let run_name = job
+            .run_name
+            .take()
+            .unwrap_or_else(|| format_compact!("gflow-job-{}", job.id));
+
+        job.state = JobState::Queued;
+        job.gpu_ids = None;
+        job.run_name = Some(run_name.clone());
+        job.submitted_at = Some(std::time::SystemTime::now());
+
+        let job_id = job.id;
+        self.jobs.push(job);
+        (job_id, run_name.into())
     }
 
     /// Finish a job and return whether auto_close_tmux is enabled along with run_name
@@ -149,7 +152,7 @@ impl Scheduler {
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
         if let Some(job) = self.get_job_mut(job_id) {
             let should_close_tmux = job.auto_close_tmux;
-            let run_name = job.run_name.clone();
+            let run_name = job.run_name.as_ref().map(|s| s.to_string());
             job.try_transition(job_id, JobState::Finished);
             Some((should_close_tmux, run_name))
         } else {
@@ -177,7 +180,7 @@ impl Scheduler {
     ) -> Option<(bool, Option<String>)> {
         let job = self.get_job_mut(job_id)?;
         let was_running = job.state == JobState::Running;
-        let run_name = job.run_name.clone();
+        let run_name = job.run_name.as_ref().map(|s| s.to_string());
         job.try_transition(job_id, JobState::Cancelled);
         job.reason = reason.or(Some(JobStateReason::CancelledByUser));
         Some((was_running, run_name))

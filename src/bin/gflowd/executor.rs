@@ -40,7 +40,7 @@ impl TmuxExecutor {
 impl Executor for TmuxExecutor {
     fn execute(&self, job: &Job) -> Result<()> {
         if let Some(session_name) = job.run_name.as_ref() {
-            let session = TmuxSession::new(session_name.clone());
+            let session = TmuxSession::new(session_name.to_string());
 
             // Enable pipe-pane to capture output to log file
             let log_path = gflow::core::get_log_file_path(job.id)?;

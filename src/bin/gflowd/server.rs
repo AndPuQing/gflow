@@ -220,7 +220,7 @@ async fn list_jobs(
     if let Some(users_str) = params.user {
         let users: Vec<String> = users_str.split(',').map(|s| s.trim().to_string()).collect();
         if !users.is_empty() {
-            jobs.retain(|job| users.contains(&job.submitted_by));
+            jobs.retain(|job| users.iter().any(|u| u == job.submitted_by.as_str()));
         }
     }
 
@@ -960,7 +960,7 @@ async fn debug_metrics(State(server_state): State<ServerState>) -> impl IntoResp
     let jobs_by_user: HashMap<String, debug::UserJobStats> =
         state.jobs().iter().fold(HashMap::new(), |mut acc, job| {
             let stats = acc
-                .entry(job.submitted_by.clone())
+                .entry(job.submitted_by.to_string())
                 .or_insert(debug::UserJobStats {
                     submitted: 0,
                     running: 0,
