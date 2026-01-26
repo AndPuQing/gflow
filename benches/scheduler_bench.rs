@@ -10,14 +10,10 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use gflow::core::job::{DependencyMode, Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
-use mimalloc::MiMalloc;
 use std::collections::HashMap;
 use std::hint::black_box as hint_black_box;
 use std::path::PathBuf;
 use std::time::Duration;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
 
 /// Create a test job with realistic fields populated
 fn create_test_job(index: u32) -> Job {
@@ -37,7 +33,7 @@ fn create_test_job(index: u32) -> Job {
         .time_limit(Some(Duration::from_secs((index % 24 + 1) as u64 * 3600)))
         .memory_limit_mb(Some((index % 16 + 1) as u64 * 1024))
         .conda_env(Some(format!("env{}", index % 10)))
-        .auto_close_tmux(index % 2 == 0)
+        .auto_close_tmux(index.is_multiple_of(2))
         .build()
 }
 
