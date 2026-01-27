@@ -39,6 +39,8 @@ jobs:
                   manylinux: auto
               env:
                   CFLAGS: "-Wno-error"
+                  CFLAGS_aarch64_unknown_linux_gnu: "-Wno-error"
+                  CFLAGS_armv7_unknown_linux_gnueabihf: "-Wno-error"
             - name: Upload wheels
               uses: actions/upload-artifact@v6
               with:
@@ -70,6 +72,8 @@ jobs:
                   manylinux: musllinux_1_2
               env:
                   CFLAGS: "-Wno-error"
+                  CFLAGS_aarch64_unknown_linux_musl: "-Wno-error"
+                  CFLAGS_armv7_unknown_linux_musleabihf: "-Wno-error"
             - name: Upload wheels
               uses: actions/upload-artifact@v6
               with:
