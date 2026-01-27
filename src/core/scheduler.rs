@@ -504,7 +504,7 @@ impl Scheduler {
     /// scheduler.handle_execution_failures(&results);
     /// ```
     pub fn prepare_jobs_for_execution(&mut self) -> Vec<Job> {
-        let mut jobs_to_execute = Vec::new();
+        let mut job_ids_to_execute = Vec::new();
         let mut available_gpus = self.get_available_gpu_slots();
         let finished_jobs: std::collections::HashSet<u32> = self
             .jobs
@@ -593,8 +593,8 @@ impl Scheduler {
                     job.state = JobState::Running;
                     job.started_at = Some(std::time::SystemTime::now());
 
-                    // Add to execution list
-                    jobs_to_execute.push(job.clone());
+                    // Collect job ID instead of cloning immediately
+                    job_ids_to_execute.push(job_id);
                 }
                 // Update memory tracking after releasing the borrow
                 available_memory = available_memory.saturating_sub(required_memory);
@@ -611,7 +611,11 @@ impl Scheduler {
             }
         }
 
-        jobs_to_execute
+        // Clone jobs only once after all allocations are done
+        job_ids_to_execute
+            .into_iter()
+            .filter_map(|id| self.get_job(id).cloned())
+            .collect()
     }
 
     /// Phase 2: Execute jobs (call executor - can be done WITHOUT holding lock)

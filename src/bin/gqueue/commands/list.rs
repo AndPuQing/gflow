@@ -143,11 +143,11 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
 
     // Group by state if requested
     if options.group {
-        display_grouped_jobs(jobs_vec, options.format.as_deref(), &tmux_sessions);
+        display_grouped_jobs(&jobs_vec, options.format.as_deref(), &tmux_sessions);
     } else if options.tree {
-        display_jobs_tree(jobs_vec, options.format.as_deref(), &tmux_sessions);
+        display_jobs_tree(&jobs_vec, options.format.as_deref(), &tmux_sessions);
     } else {
-        display_jobs_table(jobs_vec, options.format.as_deref(), &tmux_sessions);
+        display_jobs_table(&jobs_vec, options.format.as_deref(), &tmux_sessions);
     }
 
     Ok(())
@@ -179,7 +179,7 @@ fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
 
 /// Displays jobs in a standard table format
 fn display_jobs_table(
-    jobs: Vec<gflow::core::job::Job>,
+    jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
 ) {
@@ -203,7 +203,44 @@ fn display_jobs_table(
     for job in jobs {
         let row: Vec<String> = headers
             .iter()
-            .map(|header| format_job_cell(&job, header, tmux_sessions))
+            .map(|header| format_job_cell(job, header, tmux_sessions))
+            .collect();
+        builder.push_record(row);
+    }
+
+    let mut table = builder.build();
+    table.with(Style::blank());
+
+    println!("{}", table);
+}
+
+/// Displays jobs in a standard table format (for references)
+fn display_jobs_table_refs(
+    jobs: &[&gflow::core::job::Job],
+    format: Option<&str>,
+    tmux_sessions: &HashSet<String>,
+) {
+    if jobs.is_empty() {
+        println!("No jobs to display.");
+        return;
+    }
+
+    let format = format
+        .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
+        .to_string();
+    let headers: Vec<&str> = format.split(',').collect();
+
+    // Build table using tabled Builder
+    let mut builder = Builder::default();
+
+    // Add header row
+    builder.push_record(headers.clone());
+
+    // Add data rows
+    for job in jobs {
+        let row: Vec<String> = headers
+            .iter()
+            .map(|header| format_job_cell(job, header, tmux_sessions))
             .collect();
         builder.push_record(row);
     }
@@ -215,15 +252,16 @@ fn display_jobs_table(
 }
 
 fn display_grouped_jobs(
-    jobs: Vec<gflow::core::job::Job>,
+    jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
 ) {
     use gflow::core::job::JobState;
 
-    let mut grouped = std::collections::HashMap::new();
+    let mut grouped: std::collections::HashMap<JobState, Vec<&gflow::core::job::Job>> =
+        std::collections::HashMap::new();
     for job in jobs {
-        grouped.entry(job.state).or_insert_with(Vec::new).push(job);
+        grouped.entry(job.state).or_default().push(job);
     }
 
     let states_order = [
@@ -245,7 +283,7 @@ fn display_grouped_jobs(
 
             println!("{} ({})", state, state_jobs.len());
             println!("{}", "─".repeat(60));
-            display_jobs_table(state_jobs.clone(), format, tmux_sessions);
+            display_jobs_table_refs(state_jobs, format, tmux_sessions);
         }
     }
 }
@@ -374,10 +412,9 @@ struct RenderContext<'a> {
 }
 
 /// Builds a dependency tree from a list of jobs, with cycle detection
-fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
+fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNode> {
     // Create a map of job_id -> job for quick lookup
-    let job_map: HashMap<u32, gflow::core::job::Job> =
-        jobs.iter().map(|j| (j.id, j.clone())).collect();
+    let job_map: HashMap<u32, &gflow::core::job::Job> = jobs.iter().map(|j| (j.id, j)).collect();
 
     // Create a map of parent_id -> child jobs (for dependency relationships)
     let mut children_map: HashMap<Option<u32>, Vec<u32>> = HashMap::new();
@@ -388,7 +425,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     // Track all jobs that appear as dependency children (globally)
     let mut all_dependency_children: HashSet<u32> = HashSet::new();
 
-    for job in &jobs {
+    for job in jobs {
         children_map.entry(job.depends_on).or_default().push(job.id);
 
         // Track all jobs that have a dependency parent
@@ -404,7 +441,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
     // Build tree nodes recursively with cycle detection
     fn build_node(
         job_id: u32,
-        job_map: &HashMap<u32, gflow::core::job::Job>,
+        job_map: &HashMap<u32, &gflow::core::job::Job>,
         children_map: &HashMap<Option<u32>, Vec<u32>>,
         redo_map: &HashMap<u32, Vec<u32>>,
         all_dependency_children: &HashSet<u32>,
@@ -421,7 +458,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
         }
 
         // Check if job exists in the map
-        let job = job_map.get(&job_id)?.clone();
+        let job = (*job_map.get(&job_id)?).clone();
 
         // Mark as visited and in recursion stack
         visited.insert(job_id);
@@ -513,7 +550,7 @@ fn build_dependency_tree(jobs: Vec<gflow::core::job::Job>) -> Vec<JobNode> {
 
 /// Displays jobs in a tree format showing dependency relationships
 fn display_jobs_tree(
-    jobs: Vec<gflow::core::job::Job>,
+    jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
 ) {
@@ -528,7 +565,7 @@ fn display_jobs_tree(
     let headers: Vec<&str> = format.split(',').collect();
 
     // Build dependency tree
-    let tree = build_dependency_tree(jobs.clone());
+    let tree = build_dependency_tree(jobs);
 
     // Build table using tabled Builder
     let mut builder = Builder::default();
@@ -774,7 +811,7 @@ mod tests {
             create_test_job_with_state(7, "job-7", JobState::Cancelled),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -785,7 +822,7 @@ mod tests {
             create_test_job(3, "child-job-2", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -797,7 +834,7 @@ mod tests {
             create_test_job(4, "level-3-job", Some(3)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -810,7 +847,7 @@ mod tests {
             create_test_job(5, "child-2-2", Some(3)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -825,7 +862,7 @@ mod tests {
             // this in our current structure without modifying the data after creation
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -836,7 +873,7 @@ mod tests {
             create_test_job(3, "job-3", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -847,7 +884,7 @@ mod tests {
             create_test_job(3, "job-3", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -862,14 +899,14 @@ mod tests {
             create_test_job(7, "deep-child", Some(4)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
     fn test_empty_job_list() {
         let jobs: Vec<Job> = vec![];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -880,7 +917,7 @@ mod tests {
             create_test_job(3, "short", Some(1)),
         ];
         println!();
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -893,7 +930,7 @@ mod tests {
         ];
         println!();
         println!("Test: Redo relationship (job 3 is redone from job 1)");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -907,7 +944,7 @@ mod tests {
         ];
         println!();
         println!("Test: Mixed dependencies and redo relationships");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -920,7 +957,7 @@ mod tests {
         ];
         println!();
         println!("Test: Mixed dependencies and redo relationships");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -941,7 +978,7 @@ mod tests {
         println!("Test: Job with both dependency and redo relationship (user's scenario)");
         println!("Job 165 depends on 163 AND is a redo of 164");
         println!("Expected: Job 165 appears once under 163, with '→ see job 165 below' reference under 164");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -957,7 +994,7 @@ mod tests {
         println!();
         println!("Test: Repeated redo operations (chain of redos)");
         println!("100 -> 101 (redo of 100) -> 102 (redo of 101) -> 103 (redo of 102)");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -973,7 +1010,7 @@ mod tests {
         println!();
         println!("Test: Multiple redos of the same job");
         println!("Jobs 201, 202, 203 are all redos of job 200");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -991,7 +1028,7 @@ mod tests {
         println!("Test: Redo job with its own dependencies");
         println!("300 -> 301 (depends on 300)");
         println!("302 (redo of 300) -> 303 (depends on 302)");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -1018,7 +1055,7 @@ mod tests {
         println!("400 -> 401 -> 402");
         println!("403 (redo of 401, depends on 400)");
         println!("404 (redo of 402, depends on 403)");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -1039,7 +1076,7 @@ mod tests {
         println!("500 -> 501");
         println!("502 (redo of 500, but depends on 501)");
         println!("Expected: 502 appears under 501, reference under 500");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 
     #[test]
@@ -1065,6 +1102,6 @@ mod tests {
         println!("600 -> 601 -> 602");
         println!("603 and 604 are both redos of 602");
         println!("Expected: 602 appears under 601, 603 and 604 are root jobs with redo indicators");
-        display_jobs_tree(jobs, None, &HashSet::new());
+        display_jobs_tree(&jobs, None, &HashSet::new());
     }
 }

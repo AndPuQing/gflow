@@ -169,11 +169,11 @@ fn generate_param_combinations(
     let mut combinations = vec![HashMap::new()];
 
     for (param_name, values) in param_specs {
-        let mut new_combinations = Vec::new();
+        let mut new_combinations = Vec::with_capacity(combinations.len() * values.len());
         for combo in &combinations {
             for value in values {
                 let mut new_combo = combo.clone();
-                new_combo.insert(param_name.clone(), value.clone());
+                new_combo.insert(param_name.to_string(), value.to_string());
                 new_combinations.push(new_combo);
             }
         }
@@ -286,7 +286,7 @@ pub(crate) async fn handle_add(
             println!("Would submit {} batch job(s):", param_combinations.len());
             for (idx, params) in param_combinations.iter().enumerate() {
                 let job = build_job_with_params(
-                    add_args.clone(),
+                    &add_args,
                     params.clone(),
                     &client,
                     stdin_content.as_ref(),
@@ -312,8 +312,7 @@ pub(crate) async fn handle_add(
         let mut jobs = Vec::with_capacity(param_combinations.len());
         for params in param_combinations {
             let mut job =
-                build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
-                    .await?;
+                build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
@@ -372,7 +371,7 @@ pub(crate) async fn handle_add(
             println!("Would submit {} batch job(s):", param_combinations.len());
             for (idx, params) in param_combinations.iter().enumerate() {
                 let job = build_job_with_params(
-                    add_args.clone(),
+                    &add_args,
                     params.clone(),
                     &client,
                     stdin_content.as_ref(),
@@ -398,8 +397,7 @@ pub(crate) async fn handle_add(
         let mut jobs = Vec::with_capacity(param_combinations.len());
         for params in param_combinations {
             let mut job =
-                build_job_with_params(add_args.clone(), params, &client, stdin_content.as_ref())
-                    .await?;
+                build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
@@ -450,13 +448,8 @@ pub(crate) async fn handle_add(
         if add_args.dry_run {
             println!("Would submit {} array job(s):", task_ids.len());
             for (idx, task_id) in task_ids.iter().enumerate() {
-                let job = build_job(
-                    add_args.clone(),
-                    Some(*task_id),
-                    &client,
-                    stdin_content.as_ref(),
-                )
-                .await?;
+                let job =
+                    build_job(&add_args, Some(*task_id), &client, stdin_content.as_ref()).await?;
 
                 let cmd = if let Some(c) = &job.command {
                     c.clone()
@@ -479,13 +472,8 @@ pub(crate) async fn handle_add(
         // Build all array jobs first
         let mut jobs = Vec::with_capacity(task_ids.len());
         for task_id in task_ids {
-            let mut job = build_job(
-                add_args.clone(),
-                Some(task_id),
-                &client,
-                stdin_content.as_ref(),
-            )
-            .await?;
+            let mut job =
+                build_job(&add_args, Some(task_id), &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id.clone();
             job.max_concurrent = add_args.max_concurrent;
@@ -522,7 +510,7 @@ pub(crate) async fn handle_add(
 
     // Dry-run for non-param, non-array jobs
     if add_args.dry_run {
-        let job = build_job(add_args, None, &client, stdin_content.as_ref()).await?;
+        let job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
         println!("Would submit 1 batch job:");
         let cmd = if let Some(c) = &job.command {
             c.clone()
@@ -536,7 +524,7 @@ pub(crate) async fn handle_add(
     }
 
     // Single job submission (existing logic)
-    let job = build_job(add_args, None, &client, stdin_content.as_ref()).await?;
+    let job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
     let response = client.add_job(job).await.context("Failed to add job")?;
     println!(
         "Submitted batch job {} ({})",
@@ -554,7 +542,7 @@ fn detect_current_conda_env() -> Option<String> {
 }
 
 async fn build_job(
-    args: cli::AddArgs,
+    args: &cli::AddArgs,
     task_id: Option<u32>,
     client: &Client,
     stdin_content: Option<&String>,
@@ -621,7 +609,7 @@ async fn build_job(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
+        builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
         let final_time_limit = if time_limit.is_some() {
@@ -655,7 +643,7 @@ async fn build_job(
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-            builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
+            builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
@@ -689,7 +677,7 @@ async fn build_job(
             builder = builder.priority(args.priority.unwrap_or(10));
 
             // Auto-detect conda environment if not specified
-            let conda_env = args.conda_env.or_else(detect_current_conda_env);
+            let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
 
             builder = builder.time_limit(time_limit);
@@ -704,7 +692,7 @@ async fn build_job(
 }
 
 async fn build_job_with_params(
-    args: cli::AddArgs,
+    args: &cli::AddArgs,
     parameters: HashMap<String, String>,
     client: &Client,
     stdin_content: Option<&String>,
@@ -779,7 +767,7 @@ async fn build_job_with_params(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
+        builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
         let final_time_limit = if time_limit.is_some() {
@@ -813,7 +801,7 @@ async fn build_job_with_params(
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-            builder = builder.conda_env(args.conda_env.or(script_args.conda_env));
+            builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
@@ -847,7 +835,7 @@ async fn build_job_with_params(
             builder = builder.priority(args.priority.unwrap_or(10));
 
             // Auto-detect conda environment if not specified
-            let conda_env = args.conda_env.or_else(detect_current_conda_env);
+            let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
 
             builder = builder.time_limit(time_limit);
