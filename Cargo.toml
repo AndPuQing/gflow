@@ -89,14 +89,18 @@ socket2 = "0.6"
 libc = "0.2"
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 chrono = { version = "0.4.42", features = ["clock"] }
-mimalloc = { version = "0.1", features = ["v3"], optional = true }
+mimalloc = { version = "0.1", features = ["v3"] }
 compact_str = { version = "0.9", features = ["serde"] }
 smallvec = { version = "1.13", features = ["serde"] }
 
 [features]
-default = ["mimalloc"]
+default = []
 metrics = ["prometheus", "lazy_static"]
-mimalloc = ["dep:mimalloc"]
+
+[patch.crates-io]
+# Use git version with fix for -Wdate-time cross-compilation issue
+# https://github.com/purpleprotocol/mimalloc_rust/pull/139
+libmimalloc-sys = { git = "https://github.com/purpleprotocol/mimalloc_rust", branch = "master" }
 
 [build-dependencies]
 anyhow = "1.0.95"

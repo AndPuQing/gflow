@@ -1,8 +1,5 @@
-// Use mimalloc only on x86_64 to avoid cross-compilation issues
-#[cfg(all(feature = "mimalloc", target_arch = "x86_64"))]
 use mimalloc::MiMalloc;
 
-#[cfg(all(feature = "mimalloc", target_arch = "x86_64"))]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
