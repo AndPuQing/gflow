@@ -89,7 +89,7 @@ socket2 = "0.6"
 libc = "0.2"
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 chrono = { version = "0.4.42", features = ["clock"] }
-mimalloc = "0.1"
+mimalloc = { version = "0.1", features = ["v3"] }
 compact_str = { version = "0.9", features = ["serde"] }
 smallvec = { version = "1.13", features = ["serde"] }
 

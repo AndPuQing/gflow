@@ -37,6 +37,8 @@ jobs:
                   args: --release --out dist
                   sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
                   manylinux: auto
+              env:
+                  CFLAGS: "-Wno-error"
             - name: Upload wheels
               uses: actions/upload-artifact@v6
               with:
@@ -66,6 +68,8 @@ jobs:
                   args: --release --out dist
                   sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
                   manylinux: musllinux_1_2
+              env:
+                  CFLAGS: "-Wno-error"
             - name: Upload wheels
               uses: actions/upload-artifact@v6
               with:
