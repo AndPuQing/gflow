@@ -89,16 +89,16 @@ socket2 = "0.6"
 libc = "0.2"
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 chrono = { version = "0.4.42", features = ["clock"] }
-mimalloc = { version = "0.1", features = ["v3"], optional = true }
 compact_str = { version = "0.9", features = ["serde"] }
 smallvec = { version = "1.13", features = ["serde"] }
 
-[features]
-default = ["mimalloc"]
-metrics = ["prometheus", "lazy_static"]
-mimalloc = ["dep:mimalloc"]
+# Use mimalloc only on x86_64 to avoid cross-compilation issues
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+mimalloc = { version = "0.1", features = ["v3"] }
 
-# Removed patch - upstream fix doesn't work for all cross-compilers
+[features]
+default = []
+metrics = ["prometheus", "lazy_static"]
 
 [build-dependencies]
 anyhow = "1.0.95"
