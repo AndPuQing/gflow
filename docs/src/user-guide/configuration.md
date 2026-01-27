@@ -99,6 +99,21 @@ gflow follows the XDG Base Directory spec:
 ~/.local/share/gflow/logs/<job_id>.log
 ```
 
+### Recovery mode (state.json issues)
+
+If `state.json` cannot be deserialized or migrated (e.g. after upgrading/downgrading versions), `gflowd` enters **recovery mode**:
+
+- `gflowd` continues running, but does not overwrite `state.json`.
+- State changes are persisted to a single-snapshot journal file: `~/.local/share/gflow/state.journal.jsonl` (it is overwritten on each save).
+- `/health` returns `200` with `status: "recovery"` and `mode: "journal"`.
+- A backup copy is created next to the state file (e.g. `state.json.backup.<timestamp>` or `state.json.corrupt.<timestamp>`).
+
+When `state.json` becomes readable again, `gflowd` loads the latest journal snapshot, rewrites `state.json`, and truncates the journal.
+
+If the journal file is not writable, `gflowd` falls back to **read-only** mode and mutating APIs return `503`.
+
+To recover, upgrade/downgrade to a version that can read/migrate your state, or restore from the backup file.
+
 ## Troubleshooting
 
 ### Config file not found

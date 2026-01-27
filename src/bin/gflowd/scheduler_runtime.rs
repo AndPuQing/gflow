@@ -28,6 +28,13 @@ pub struct SchedulerRuntime {
     executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
     dirty: bool,                 // Tracks if state has changed since last save
     state_saver: Option<StateSaverHandle>, // Handle for async background state persistence
+    state_writable: bool,        // False when state load/migration failed
+    state_load_error: Option<String>,
+    state_backup_path: Option<PathBuf>,
+    journal_path: PathBuf,
+    journal_writable: bool,
+    journal_error: Option<String>,
+    journal_applied: bool,
 }
 
 impl SchedulerRuntime {
@@ -91,6 +98,7 @@ impl SchedulerRuntime {
             Box::new(ArcExecutorWrapper(executor_arc.clone()));
 
         let state_file = state_dir.join("state.json");
+        let journal_path = state_dir.join("state.journal.jsonl");
         let scheduler = SchedulerBuilder::new()
             .with_executor(executor_for_scheduler)
             .with_gpu_slots(gpu_slots)
@@ -105,13 +113,63 @@ impl SchedulerRuntime {
             executor: executor_arc,
             dirty: false,
             state_saver: None,
+            state_writable: true,
+            state_load_error: None,
+            state_backup_path: None,
+            journal_path,
+            journal_writable: false,
+            journal_error: None,
+            journal_applied: false,
         };
         runtime.load_state();
+        runtime.init_journal();
         Ok(runtime)
     }
 
+    pub fn state_writable(&self) -> bool {
+        self.state_writable
+    }
+
+    pub fn journal_writable(&self) -> bool {
+        self.journal_writable
+    }
+
+    pub fn persistence_mode(&self) -> &'static str {
+        if self.state_writable {
+            "state"
+        } else if self.journal_writable {
+            "journal"
+        } else {
+            "read_only"
+        }
+    }
+
+    pub fn can_mutate(&self) -> bool {
+        self.state_writable || self.journal_writable
+    }
+
+    pub fn state_load_error(&self) -> Option<&str> {
+        self.state_load_error.as_deref()
+    }
+
+    pub fn state_backup_path(&self) -> Option<&std::path::Path> {
+        self.state_backup_path.as_deref()
+    }
+
+    pub fn journal_path(&self) -> &std::path::Path {
+        &self.journal_path
+    }
+
+    pub fn journal_error(&self) -> Option<&str> {
+        self.journal_error.as_deref()
+    }
+
     /// Save scheduler state to disk asynchronously
-    pub async fn save_state(&self) {
+    pub async fn save_state(&mut self) {
+        if !self.state_writable {
+            self.append_journal_snapshot().await;
+            return;
+        }
         let path = self.scheduler.state_path();
         let tmp_path = path.with_extension("json.tmp");
 
@@ -142,6 +200,21 @@ impl SchedulerRuntime {
                                         path.display(),
                                         e
                                     );
+                                } else if self.journal_applied {
+                                    if let Err(e) = tokio::fs::OpenOptions::new()
+                                        .write(true)
+                                        .truncate(true)
+                                        .open(&self.journal_path)
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to truncate journal file {}: {}",
+                                            self.journal_path.display(),
+                                            e
+                                        );
+                                    } else {
+                                        self.journal_applied = false;
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -170,6 +243,9 @@ impl SchedulerRuntime {
 
     /// Mark state as dirty without saving immediately
     fn mark_dirty(&mut self) {
+        if !(self.state_writable || self.journal_writable) {
+            return;
+        }
         self.dirty = true;
         // Notify state saver asynchronously (if configured)
         if let Some(ref saver) = self.state_saver {
@@ -181,7 +257,10 @@ impl SchedulerRuntime {
     pub async fn save_state_if_dirty(&mut self) {
         if self.dirty {
             self.save_state().await;
-            self.dirty = false;
+            // If persistence failed, keep dirty to retry later.
+            if self.state_writable || self.journal_writable {
+                self.dirty = false;
+            }
         }
     }
 
@@ -191,98 +270,80 @@ impl SchedulerRuntime {
     /// background state saves. The handle allows the scheduler to notify
     /// the state saver task when state changes occur.
     pub fn set_state_saver(&mut self, saver: StateSaverHandle) {
+        let should_kick = self.dirty;
         self.state_saver = Some(saver);
+        if should_kick {
+            if let Some(ref saver) = self.state_saver {
+                saver.mark_dirty();
+            }
+        }
     }
 
     /// Load scheduler state from disk
     pub fn load_state(&mut self) {
+        self.state_writable = true;
+        self.state_load_error = None;
+        self.state_backup_path = None;
+        self.journal_applied = false;
+
         let path = self.scheduler.state_path().clone();
+        let mut loaded: Option<Scheduler> = None;
+
         if path.exists() {
-            if let Ok(json) = std::fs::read_to_string(&path) {
-                match serde_json::from_str::<Scheduler>(&json) {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str::<Scheduler>(&json) {
                     Ok(loaded_scheduler) => {
-                        // Apply migrations
-                        let migrated_scheduler =
-                            match gflow::core::migrations::migrate_state(loaded_scheduler) {
-                                Ok(migrated) => migrated,
-                                Err(e) => {
-                                    tracing::error!(
-                                        "State migration failed: {}. Starting with fresh state.",
-                                        e
-                                    );
-                                    tracing::warn!(
-                                        "The old state file will be backed up to {}.backup",
-                                        path.display()
-                                    );
-                                    // Try to backup the state file
-                                    let backup_path = path.with_extension("json.backup");
-                                    if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                                        tracing::error!(
-                                            "Failed to backup state file: {}",
-                                            backup_err
-                                        );
-                                    } else {
-                                        tracing::info!(
-                                            "Backed up state file to {}",
-                                            backup_path.display()
-                                        );
-                                    }
-                                    return; // Exit early, keep default state
-                                }
-                            };
-
-                        // Update jobs and next_job_id from migrated state
-                        let next_id = migrated_scheduler.next_job_id();
-                        self.scheduler.jobs = migrated_scheduler.jobs;
-                        self.scheduler.set_next_job_id(next_id);
-
-                        // Rebuild user jobs index after loading state
-                        self.scheduler.rebuild_user_jobs_index();
-
-                        // Re-initialize NVML and GPU slots (fresh detection)
-                        match Nvml::init() {
-                            Ok(nvml) => {
-                                self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
-                                self.nvml = Some(nvml);
+                        match gflow::core::migrations::migrate_state(loaded_scheduler) {
+                            Ok(migrated) => {
+                                loaded = Some(migrated);
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to initialize NVML during state load: {}. Running without GPU support.", e);
-                                self.scheduler.update_gpu_slots(HashMap::new());
-                                self.nvml = None;
+                                let (backup_path, backup_err) = backup_state_file(&path, "backup");
+                                if let Some(err) = backup_err {
+                                    tracing::error!("Failed to backup state file: {}", err);
+                                }
+
+                                self.state_writable = false;
+                                self.state_load_error = Some(format!(
+                                "State migration failed: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file."
+                            ));
+                                self.state_backup_path = backup_path;
+                                tracing::error!("{}", self.state_load_error.as_deref().unwrap());
+
+                                // Keep the deserialized scheduler in memory and continue with journal persistence.
+                                loaded = serde_json::from_str::<Scheduler>(&json).ok();
                             }
                         }
-
-                        // Re-initialize memory tracking with current system values
-                        let total_memory_mb = Self::get_total_system_memory_mb();
-                        self.scheduler.update_memory(total_memory_mb);
-                        self.scheduler.refresh_available_memory();
-
-                        tracing::info!("Successfully loaded state from {}", path.display());
                     }
                     Err(e) => {
-                        tracing::error!(
-                            "Failed to deserialize state file {}: {}. Starting with fresh state.",
-                            path.display(),
-                            e
-                        );
-                        tracing::warn!(
-                            "Your job history may have been lost. The old state file will be backed up to {}.backup",
-                            path.display()
-                        );
-                        // Try to backup the corrupted state file
-                        let backup_path = path.with_extension("json.backup");
-                        if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                            tracing::error!(
-                                "Failed to backup corrupted state file: {}",
-                                backup_err
-                            );
-                        } else {
-                            tracing::info!("Backed up old state file to {}", backup_path.display());
+                        let (backup_path, backup_err) = backup_state_file(&path, "corrupt");
+                        if let Some(err) = backup_err {
+                            tracing::error!("Failed to backup corrupted state file: {}", err);
                         }
+
+                        self.state_writable = false;
+                        self.state_load_error = Some(format!(
+                            "Failed to deserialize state file {}: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file.",
+                            path.display()
+                        ));
+                        self.state_backup_path = backup_path;
+                        tracing::error!("{}", self.state_load_error.as_deref().unwrap());
+
+                        // Start from a non-overlapping job ID range to reduce future merge conflicts.
+                        self.scheduler.set_next_job_id(2_000_000_000);
                     }
+                },
+                Err(_) => {
+                    self.state_writable = false;
+                    self.state_load_error = Some(format!(
+                        "Failed to read state file from {}. gflowd entered recovery mode (journal) to avoid overwriting your state file.",
+                        path.display()
+                    ));
+                    tracing::error!("{}", self.state_load_error.as_deref().unwrap());
+
+                    // Start from a non-overlapping job ID range to reduce future merge conflicts.
+                    self.scheduler.set_next_job_id(2_000_000_000);
                 }
-            } else {
-                tracing::error!("Failed to read state file from {}", path.display());
             }
         } else {
             tracing::info!(
@@ -290,6 +351,194 @@ impl SchedulerRuntime {
                 path.display()
             );
         }
+
+        if should_apply_journal(&path, &self.journal_path) {
+            if let Some((snapshot, ts)) = load_last_journal_snapshot(&self.journal_path) {
+                tracing::warn!(
+                    "Loading scheduler state from journal snapshot (ts={}) at {}",
+                    ts,
+                    self.journal_path.display()
+                );
+                loaded = Some(snapshot);
+                self.journal_applied = true;
+                if self.state_writable {
+                    // Ensure we rewrite `state.json` so that it incorporates the journaled state.
+                    self.dirty = true;
+                }
+            }
+        }
+
+        if let Some(scheduler) = loaded {
+            self.apply_loaded_scheduler(scheduler);
+        }
+
+        self.reinitialize_runtime_resources();
+    }
+
+    fn init_journal(&mut self) {
+        self.journal_writable = false;
+        self.journal_error = None;
+
+        if let Some(parent) = self.journal_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.journal_error = Some(format!("Failed to create journal dir: {e}"));
+                tracing::error!("{}", self.journal_error.as_deref().unwrap());
+                return;
+            }
+        }
+
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&self.journal_path)
+        {
+            Ok(_) => {
+                self.journal_writable = true;
+            }
+            Err(e) => {
+                self.journal_error = Some(format!(
+                    "Failed to open journal file {}: {e}",
+                    self.journal_path.display()
+                ));
+                tracing::error!("{}", self.journal_error.as_deref().unwrap());
+            }
+        }
+    }
+
+    fn apply_loaded_scheduler(&mut self, loaded: Scheduler) {
+        let next_id = loaded.next_job_id();
+        let allowed_gpus = loaded.allowed_gpu_indices().cloned();
+
+        self.scheduler.version = loaded.version;
+        self.scheduler.jobs = loaded.jobs;
+        self.scheduler.set_next_job_id(next_id);
+        self.scheduler.set_allowed_gpu_indices(allowed_gpus);
+        self.scheduler.rebuild_user_jobs_index();
+    }
+
+    fn reinitialize_runtime_resources(&mut self) {
+        // Re-initialize NVML and GPU slots (fresh detection)
+        match Nvml::init() {
+            Ok(nvml) => {
+                self.scheduler.update_gpu_slots(Self::get_gpus(&nvml));
+                self.nvml = Some(nvml);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to initialize NVML during state load: {}. Running without GPU support.",
+                    e
+                );
+                self.scheduler.update_gpu_slots(HashMap::new());
+                self.nvml = None;
+            }
+        }
+
+        // Re-initialize memory tracking with current system values
+        let total_memory_mb = Self::get_total_system_memory_mb();
+        self.scheduler.update_memory(total_memory_mb);
+        self.scheduler.refresh_available_memory();
+    }
+
+    async fn append_journal_snapshot(&mut self) {
+        if !self.journal_writable {
+            tracing::error!(
+                "Refusing to persist state: state.json is not writable and journal is not writable"
+            );
+            return;
+        }
+
+        if let Some(parent) = self.journal_path.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                tracing::error!(
+                    "Failed to create journal directory {}: {}",
+                    parent.display(),
+                    e
+                );
+                self.journal_writable = false;
+                self.journal_error = Some(format!("Failed to create journal dir: {e}"));
+                return;
+            }
+        }
+
+        #[derive(serde::Serialize)]
+        struct JournalEntry<'a> {
+            ts: u64,
+            kind: &'static str,
+            scheduler: &'a Scheduler,
+        }
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let entry = JournalEntry {
+            ts,
+            kind: "snapshot",
+            scheduler: &self.scheduler,
+        };
+
+        let line = match serde_json::to_string(&entry) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Failed to serialize journal entry: {}", e);
+                return;
+            }
+        };
+
+        // For simplicity and bounded size, keep only a single snapshot in the journal.
+        // Write to a temp file and atomically rename into place.
+        let tmp_path = self.journal_path.with_extension("jsonl.tmp");
+        match tokio::fs::File::create(&tmp_path).await {
+            Ok(mut file) => {
+                if let Err(e) =
+                    tokio::io::AsyncWriteExt::write_all(&mut file, format!("{line}\n").as_bytes())
+                        .await
+                {
+                    tracing::error!(
+                        "Failed to write journal snapshot to {}: {}",
+                        tmp_path.display(),
+                        e
+                    );
+                    return;
+                }
+
+                if let Err(e) = file.sync_all().await {
+                    tracing::warn!(
+                        "Failed to fsync journal temp file {}: {}",
+                        tmp_path.display(),
+                        e
+                    );
+                }
+
+                if let Err(e) = tokio::fs::rename(&tmp_path, &self.journal_path).await {
+                    // Best-effort fallback: remove destination then retry.
+                    let _ = tokio::fs::remove_file(&self.journal_path).await;
+                    if let Err(e2) = tokio::fs::rename(&tmp_path, &self.journal_path).await {
+                        tracing::error!(
+                            "Failed to move journal snapshot from {} to {}: {} (retry error: {})",
+                            tmp_path.display(),
+                            self.journal_path.display(),
+                            e,
+                            e2
+                        );
+                        self.journal_writable = false;
+                        self.journal_error =
+                            Some(format!("Failed to finalize journal snapshot: {e2}"));
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create journal temp file {}: {}",
+                    tmp_path.display(),
+                    e
+                );
+                self.journal_writable = false;
+                self.journal_error = Some(format!("Failed to create journal temp file: {e}"));
+            }
+        };
     }
 
     /// Refresh GPU slot availability using NVML
@@ -627,6 +876,67 @@ impl SchedulerRuntime {
     }
 }
 
+fn should_apply_journal(state_path: &std::path::Path, journal_path: &std::path::Path) -> bool {
+    let Ok(j_meta) = std::fs::metadata(journal_path) else {
+        return false;
+    };
+    if j_meta.len() == 0 {
+        return false;
+    }
+    let Ok(j_mtime) = j_meta.modified() else {
+        return true;
+    };
+
+    let Ok(s_meta) = std::fs::metadata(state_path) else {
+        return true;
+    };
+    let Ok(s_mtime) = s_meta.modified() else {
+        return true;
+    };
+
+    j_mtime >= s_mtime
+}
+
+fn load_last_journal_snapshot(journal_path: &std::path::Path) -> Option<(Scheduler, u64)> {
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        ts: u64,
+        kind: String,
+        scheduler: Scheduler,
+    }
+
+    // Single-snapshot format: first line is the snapshot JSON.
+    let content = std::fs::read_to_string(journal_path).ok()?;
+    let line = content.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let entry = serde_json::from_str::<Entry>(line).ok()?;
+    if entry.kind != "snapshot" {
+        return None;
+    }
+    Some((entry.scheduler, entry.ts))
+}
+
+fn backup_state_file(
+    path: &std::path::Path,
+    kind: &str,
+) -> (Option<PathBuf>, Option<anyhow::Error>) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // `state.json` -> `state.json.backup.<ts>` (keeps the original file intact)
+    let backup_path = path.with_extension(format!("json.{kind}.{ts}"));
+    match std::fs::copy(path, &backup_path) {
+        Ok(_) => (Some(backup_path), None),
+        Err(e) => (None, Some(anyhow::anyhow!(e))),
+    }
+}
+
 impl GPU for SchedulerRuntime {
     fn get_gpus(nvml: &Nvml) -> HashMap<UUID, GPUSlot> {
         let mut gpu_slots = HashMap::new();
@@ -799,6 +1109,8 @@ async fn trigger_scheduling(state: &SharedState) {
         // GPU monitor runs, it will see the updated GPU availability
         if !jobs.is_empty() {
             state_guard.refresh_gpu_slots();
+            // prepare_jobs_for_execution mutates job state/resources, so we must persist
+            state_guard.mark_dirty();
         }
 
         jobs
@@ -1082,5 +1394,181 @@ async fn metrics_updater_task(state: SharedState) {
         gflow::metrics::MEMORY_TOTAL_MB
             .with_label_values(&[] as &[&str])
             .set(state_guard.total_memory_mb() as f64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::executor::Executor;
+    use gflow::core::job::{Job, JobState};
+
+    struct NoopExecutor;
+
+    impl Executor for NoopExecutor {
+        fn execute(&self, _job: &Job) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn enters_journal_mode_and_does_not_overwrite_state_on_migration_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_path = dir.path().join("state.json");
+
+        // Use a future version to force `migrate_state()` to fail.
+        let state_json = serde_json::json!({
+            "version": 999,
+            "jobs": [
+                {
+                    "id": 1,
+                    "state": "Queued",
+                    "script": null,
+                    "command": "echo test",
+                    "gpus": 0,
+                    "conda_env": null,
+                    "run_dir": ".",
+                    "priority": 0,
+                    "depends_on": null,
+                    "depends_on_ids": [],
+                    "dependency_mode": null,
+                    "auto_cancel_on_dependency_failure": true,
+                    "task_id": null,
+                    "time_limit": null,
+                    "memory_limit_mb": null,
+                    "submitted_by": "tester",
+                    "redone_from": null,
+                    "auto_close_tmux": false,
+                    "parameters": {},
+                    "group_id": null,
+                    "max_concurrent": null,
+                    "run_name": null,
+                    "gpu_ids": null,
+                    "submitted_at": null,
+                    "started_at": null,
+                    "finished_at": null,
+                    "reason": null
+                }
+            ],
+            "state_path": "state.json",
+            "next_job_id": 2,
+            "allowed_gpu_indices": null
+        })
+        .to_string();
+        std::fs::write(&state_path, &state_json).unwrap();
+        let original = std::fs::read_to_string(&state_path).unwrap();
+
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+        )
+        .unwrap();
+
+        assert!(!runtime.state_writable());
+        assert!(runtime.state_load_error().is_some());
+        assert!(runtime.state_backup_path().is_some_and(|p| p.exists()));
+        assert!(runtime.journal_writable());
+        assert_eq!(runtime.persistence_mode(), "journal");
+
+        // State is still visible for inspection.
+        let job = runtime.get_job(1).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+
+        // `save_state()` should append to journal and not overwrite the original file.
+        runtime.save_state().await;
+        let after = std::fs::read_to_string(&state_path).unwrap();
+        assert_eq!(after, original);
+
+        let journal_path = dir.path().join("state.journal.jsonl");
+        let journal = std::fs::read_to_string(&journal_path).unwrap();
+        assert!(journal.contains("\"kind\":\"snapshot\""));
+        assert!(journal.contains("\"jobs\""));
+
+        // Sanity: scheduler is still usable for read paths (no panic on info).
+        let _info = runtime.info();
+    }
+
+    #[tokio::test]
+    async fn prefers_newer_journal_snapshot_and_truncates_after_state_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_path = dir.path().join("state.json");
+        let journal_path = dir.path().join("state.journal.jsonl");
+
+        let job = serde_json::json!({
+            "id": 1,
+            "state": "Queued",
+            "script": null,
+            "command": "echo test",
+            "gpus": 0,
+            "conda_env": null,
+            "run_dir": ".",
+            "priority": 0,
+            "depends_on": null,
+            "depends_on_ids": [],
+            "dependency_mode": null,
+            "auto_cancel_on_dependency_failure": true,
+            "task_id": null,
+            "time_limit": null,
+            "memory_limit_mb": null,
+            "submitted_by": "tester",
+            "redone_from": null,
+            "auto_close_tmux": false,
+            "parameters": {},
+            "group_id": null,
+            "max_concurrent": null,
+            "run_name": null,
+            "gpu_ids": null,
+            "submitted_at": null,
+            "started_at": null,
+            "finished_at": null,
+            "reason": null
+        });
+
+        let state_json = serde_json::json!({
+            "version": gflow::core::migrations::CURRENT_VERSION,
+            "jobs": [ job ],
+            "state_path": "state.json",
+            "next_job_id": 2,
+            "allowed_gpu_indices": null
+        })
+        .to_string();
+        std::fs::write(&state_path, &state_json).unwrap();
+
+        // Journal snapshot shows the job as Finished.
+        let mut finished_job = serde_json::json!(job);
+        finished_job["state"] = serde_json::Value::String("Finished".to_string());
+        let journal_entry = serde_json::json!({
+            "ts": 9999999999u64,
+            "kind": "snapshot",
+            "scheduler": {
+                "version": gflow::core::migrations::CURRENT_VERSION,
+                "jobs": [ finished_job ],
+                "state_path": "state.json",
+                "next_job_id": 2,
+                "allowed_gpu_indices": null
+            }
+        })
+        .to_string();
+        std::fs::write(&journal_path, format!("{journal_entry}\n")).unwrap();
+
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(runtime.persistence_mode(), "state");
+        assert_eq!(runtime.get_job(1).unwrap().state, JobState::Finished);
+
+        // load_state marked the runtime dirty, so this should consolidate into state.json and truncate the journal.
+        runtime.save_state_if_dirty().await;
+
+        let journal_after = std::fs::read_to_string(&journal_path).unwrap();
+        assert!(journal_after.trim().is_empty());
+
+        let state_after = std::fs::read_to_string(&state_path).unwrap();
+        assert!(state_after.contains("\"Finished\""));
     }
 }

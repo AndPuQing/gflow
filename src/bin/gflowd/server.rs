@@ -13,7 +13,7 @@ use crate::state_saver::StateSaverHandle;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -30,6 +30,31 @@ struct ServerState {
     scheduler: SharedState,
     event_bus: Arc<EventBus>,
     _state_saver: StateSaverHandle,
+}
+
+async fn reject_if_read_only(server_state: &ServerState) -> Option<Response> {
+    let state = server_state.scheduler.read().await;
+    if state.can_mutate() {
+        return None;
+    }
+
+    let backup_path = state.state_backup_path().map(|p| p.display().to_string());
+    let journal_path = state.journal_path().display().to_string();
+
+    Some(
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "gflowd is in read-only mode (no persistence available)",
+                "detail": state.state_load_error(),
+                "state_backup": backup_path,
+                "journal": journal_path,
+                "journal_error": state.journal_error(),
+                "hint": "Fix/upgrade the version that can migrate your state.json, or restore from the backup file. If the journal path is unwritable, fix permissions."
+            })),
+        )
+            .into_response(),
+    )
 }
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -63,11 +88,19 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     });
     state_saver_handle.set_task_handle(state_saver_task);
 
-    // Spawn event-driven scheduler task
-    tokio::spawn(async move {
-        tracing::info!("Starting event-driven scheduler...");
-        scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
-    });
+    // Spawn event-driven scheduler task only when we can persist (state.json or journal).
+    // Otherwise the daemon is read-only and should not mutate jobs.
+    let can_schedule = scheduler.read().await.can_mutate();
+    if can_schedule {
+        tokio::spawn(async move {
+            tracing::info!("Starting event-driven scheduler...");
+            scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
+        });
+    } else {
+        tracing::error!(
+            "No persistence available; gflowd started in read-only mode (no scheduling, no mutations)"
+        );
+    }
 
     // Create server state with scheduler, event bus, and state saver
     let server_state = ServerState {
@@ -248,10 +281,10 @@ async fn list_jobs(
 }
 
 #[axum::debug_handler]
-async fn create_job(
-    State(server_state): State<ServerState>,
-    Json(input): Json<Job>,
-) -> impl IntoResponse {
+async fn create_job(State(server_state): State<ServerState>, Json(input): Json<Job>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(
         user = %input.submitted_by,
         gpus = input.gpus,
@@ -284,7 +317,8 @@ async fn create_job(
                     Json(serde_json::json!({
                         "error": format!("Dependency job {} does not exist", dep_id)
                     })),
-                );
+                )
+                    .into_response();
             }
         }
 
@@ -297,7 +331,8 @@ async fn create_job(
                 Json(serde_json::json!({
                     "error": cycle_msg
                 })),
-            );
+            )
+                .into_response();
         }
 
         let (job_id, run_name, _job_clone) = state.submit_job(input).await;
@@ -326,25 +361,31 @@ async fn create_job(
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": job_id, "run_name": run_name })),
     )
+        .into_response()
 }
 
 #[axum::debug_handler]
 async fn create_jobs_batch(
     State(server_state): State<ServerState>,
     Json(input): Json<Vec<Job>>,
-) -> impl IntoResponse {
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     if input.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Batch must contain at least one job"})),
-        );
+        )
+            .into_response();
     }
 
     if input.len() > 1000 {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(serde_json::json!({"error": "Batch size exceeds maximum of 1000 jobs"})),
-        );
+        )
+            .into_response();
     }
 
     tracing::info!(count = input.len(), "Received batch job submission");
@@ -375,7 +416,8 @@ async fn create_jobs_batch(
                         Json(serde_json::json!({
                             "error": format!("Dependency job {} does not exist", dep_id)
                         })),
-                    );
+                    )
+                        .into_response();
                 }
             }
 
@@ -388,7 +430,8 @@ async fn create_jobs_batch(
                     Json(serde_json::json!({
                         "error": cycle_msg
                     })),
-                );
+                )
+                    .into_response();
             }
         }
 
@@ -426,6 +469,7 @@ async fn create_jobs_batch(
         StatusCode::CREATED,
         Json(serde_json::Value::Array(response)),
     )
+        .into_response()
 }
 
 #[axum::debug_handler]
@@ -442,10 +486,10 @@ async fn get_job(
 }
 
 #[axum::debug_handler]
-async fn finish_job(
-    State(server_state): State<ServerState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn finish_job(State(server_state): State<ServerState>, Path(id): Path<u32>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Finishing job");
 
     // Get job info before finishing (for metrics and events)
@@ -491,9 +535,9 @@ async fn finish_job(
     }
 
     if success {
-        (StatusCode::OK, Json(()))
+        (StatusCode::OK, Json(())).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(()))
+        (StatusCode::NOT_FOUND, Json(())).into_response()
     }
 }
 
@@ -522,10 +566,10 @@ async fn get_job_log(
 }
 
 #[axum::debug_handler]
-async fn fail_job(
-    State(server_state): State<ServerState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn fail_job(State(server_state): State<ServerState>, Path(id): Path<u32>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Failing job");
 
     // Get user and job info before failing (for metrics and events)
@@ -572,17 +616,17 @@ async fn fail_job(
     }
 
     if result {
-        (StatusCode::OK, Json(()))
+        (StatusCode::OK, Json(())).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(()))
+        (StatusCode::NOT_FOUND, Json(())).into_response()
     }
 }
 
 #[axum::debug_handler]
-async fn cancel_job(
-    State(server_state): State<ServerState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn cancel_job(State(server_state): State<ServerState>, Path(id): Path<u32>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Cancelling job");
 
     // Get user and job info before cancelling (for metrics and events)
@@ -629,17 +673,17 @@ async fn cancel_job(
     }
 
     if result {
-        (StatusCode::OK, Json(()))
+        (StatusCode::OK, Json(())).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(()))
+        (StatusCode::NOT_FOUND, Json(())).into_response()
     }
 }
 
 #[axum::debug_handler]
-async fn hold_job(
-    State(server_state): State<ServerState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn hold_job(State(server_state): State<ServerState>, Path(id): Path<u32>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Holding job");
 
     let success = {
@@ -648,17 +692,17 @@ async fn hold_job(
     }; // Lock released here
 
     if success {
-        (StatusCode::OK, Json(()))
+        (StatusCode::OK, Json(())).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(()))
+        (StatusCode::NOT_FOUND, Json(())).into_response()
     }
 }
 
 #[axum::debug_handler]
-async fn release_job(
-    State(server_state): State<ServerState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn release_job(State(server_state): State<ServerState>, Path(id): Path<u32>) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Releasing job");
 
     let success = {
@@ -674,9 +718,9 @@ async fn release_job(
     }
 
     if success {
-        (StatusCode::OK, Json(()))
+        (StatusCode::OK, Json(())).into_response()
     } else {
-        (StatusCode::NOT_FOUND, Json(()))
+        (StatusCode::NOT_FOUND, Json(())).into_response()
     }
 }
 
@@ -685,7 +729,10 @@ async fn update_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
     Json(request): Json<UpdateJobRequest>,
-) -> impl IntoResponse {
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(job_id = id, "Updating job parameters");
 
     let result = {
@@ -707,6 +754,7 @@ async fn update_job(
                     "updated_fields": updated_fields,
                 })),
             )
+                .into_response()
         }
         Err(error) => {
             tracing::error!(job_id = id, error = %error, "Failed to update job");
@@ -716,6 +764,7 @@ async fn update_job(
                     "error": error,
                 })),
             )
+                .into_response()
         }
     }
 }
@@ -749,11 +798,48 @@ struct ResolveDependencyQuery {
 }
 
 #[axum::debug_handler]
-async fn get_health() -> impl IntoResponse {
+async fn get_health(State(server_state): State<ServerState>) -> impl IntoResponse {
     let pid = std::process::id();
+
+    let state = server_state.scheduler.read().await;
+    let state_writable = state.state_writable();
+    let journal_writable = state.journal_writable();
+    let mode = state.persistence_mode();
+    if state_writable {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "ok", "pid": pid })),
+        );
+    }
+
+    let backup_path = state.state_backup_path().map(|p| p.display().to_string());
+    let journal_path = state.journal_path().display().to_string();
+
+    if journal_writable {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "recovery",
+                "mode": mode,
+                "pid": pid,
+                "detail": state.state_load_error(),
+                "state_backup": backup_path,
+                "journal": journal_path,
+                "journal_error": state.journal_error(),
+            })),
+        );
+    }
+
     (
-        StatusCode::OK,
-        Json(serde_json::json!({ "status": "ok", "pid": pid })),
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "status": "read_only",
+            "pid": pid,
+            "detail": state.state_load_error(),
+            "state_backup": backup_path,
+            "journal": journal_path,
+            "journal_error": state.journal_error(),
+        })),
     )
 }
 
@@ -766,7 +852,10 @@ struct SetGpusRequest {
 async fn set_allowed_gpus(
     State(server_state): State<ServerState>,
     Json(request): Json<SetGpusRequest>,
-) -> impl IntoResponse {
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     let mut state = server_state.scheduler.write().await;
 
     // Validate GPU indices
@@ -787,7 +876,8 @@ async fn set_allowed_gpus(
                         invalid, detected_count
                     )
                 })),
-            );
+            )
+                .into_response();
         }
     }
 
@@ -801,6 +891,7 @@ async fn set_allowed_gpus(
             "allowed_gpu_indices": request.allowed_indices
         })),
     )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -829,7 +920,10 @@ async fn set_group_max_concurrency(
     State(server_state): State<ServerState>,
     Path(group_id): Path<String>,
     Json(request): Json<SetGroupMaxConcurrencyRequest>,
-) -> impl IntoResponse {
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
     tracing::info!(
         group_id = %group_id,
         max_concurrent = request.max_concurrent,
@@ -853,7 +947,8 @@ async fn set_group_max_concurrency(
                 Json(serde_json::json!({
                     "error": format!("No jobs found with group_id '{}'", group_id)
                 })),
-            );
+            )
+                .into_response();
         }
 
         // Update max_concurrent for all jobs in the group
@@ -881,6 +976,7 @@ async fn set_group_max_concurrency(
             "updated_jobs": updated_jobs.len()
         })),
     )
+        .into_response()
 }
 
 // Metrics endpoint
