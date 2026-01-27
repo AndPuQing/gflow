@@ -1,5 +1,9 @@
+// Use mimalloc only on x86_64 to avoid cross-compilation issues
+// ARM cross-compilers don't support the -Wdate-time flag used by libmimalloc-sys
+#[cfg(all(feature = "mimalloc", target_arch = "x86_64"))]
 use mimalloc::MiMalloc;
 
+#[cfg(all(feature = "mimalloc", target_arch = "x86_64"))]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
