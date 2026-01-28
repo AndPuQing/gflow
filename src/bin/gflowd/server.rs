@@ -96,6 +96,14 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
             "/groups/{group_id}/max-concurrency",
             post(handlers::set_group_max_concurrency),
         )
+        .route(
+            "/reservations",
+            get(handlers::list_reservations).post(handlers::create_reservation),
+        )
+        .route(
+            "/reservations/{id}",
+            get(handlers::get_reservation).delete(handlers::cancel_reservation),
+        )
         .route("/metrics", get(handlers::get_metrics))
         .route("/debug/state", get(handlers::debug_state))
         .route("/debug/jobs/{id}", get(handlers::debug_job))

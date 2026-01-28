@@ -38,10 +38,60 @@ pub enum Commands {
         limit: usize,
     },
 
+    /// Manage GPU reservations
+    Reserve {
+        #[command(subcommand)]
+        command: ReserveCommands,
+    },
+
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for
         #[arg(value_enum)]
         shell: Shell,
+    },
+}
+
+#[derive(Debug, Parser)]
+pub enum ReserveCommands {
+    /// Create a GPU reservation
+    Create {
+        /// Username for the reservation
+        #[arg(long)]
+        user: String,
+        /// Number of GPUs to reserve
+        #[arg(long)]
+        gpus: u32,
+        /// Start time (ISO8601 format or "YYYY-MM-DD HH:MM")
+        #[arg(long)]
+        start: String,
+        /// Duration (e.g., "1h", "30m", "2h30m")
+        #[arg(long)]
+        duration: String,
+    },
+
+    /// List GPU reservations
+    List {
+        /// Filter by username
+        #[arg(long)]
+        user: Option<String>,
+        /// Filter by status (pending, active, completed, cancelled)
+        #[arg(long)]
+        status: Option<String>,
+        /// Show only active reservations
+        #[arg(long)]
+        active: bool,
+    },
+
+    /// Get details of a specific reservation
+    Get {
+        /// Reservation ID
+        id: u32,
+    },
+
+    /// Cancel a GPU reservation
+    Cancel {
+        /// Reservation ID
+        id: u32,
     },
 }

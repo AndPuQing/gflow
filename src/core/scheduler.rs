@@ -1,6 +1,7 @@
 use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
+use crate::core::reservation::{GpuReservation, ReservationStatus};
 use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -64,6 +65,10 @@ pub struct Scheduler {
     /// Maps job_id -> list of dependency job IDs
     #[serde(skip)]
     pub(crate) dependency_graph: HashMap<u32, Vec<u32>>,
+    /// GPU reservations
+    pub reservations: Vec<GpuReservation>,
+    /// Next reservation ID
+    pub next_reservation_id: u32,
 }
 
 impl Default for Scheduler {
@@ -80,6 +85,8 @@ impl Default for Scheduler {
             allowed_gpu_indices: None,
             user_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
+            reservations: Vec::new(),
+            next_reservation_id: 1,
         }
     }
 }
@@ -504,6 +511,9 @@ impl Scheduler {
     /// scheduler.handle_execution_failures(&results);
     /// ```
     pub fn prepare_jobs_for_execution(&mut self) -> Vec<Job> {
+        // Update reservation statuses first
+        self.update_reservation_statuses();
+
         let mut job_ids_to_execute = Vec::new();
         let mut available_gpus = self.get_available_gpu_slots();
         let finished_jobs: std::collections::HashSet<u32> = self
@@ -535,54 +545,67 @@ impl Scheduler {
         let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
             // First, do immutable checks to determine if job can run
-            let (has_enough_gpus, has_enough_memory, within_group_limit, required_memory) =
-                if let Some(job) = self.get_job(job_id) {
-                    let has_enough_gpus = job.gpus as usize <= available_gpus.len();
-                    let required_memory = job.memory_limit_mb.unwrap_or(0);
-                    let has_enough_memory = required_memory <= available_memory;
+            let (
+                has_enough_gpus,
+                has_enough_memory,
+                within_group_limit,
+                respects_reservations,
+                required_memory,
+            ) = if let Some(job) = self.get_job(job_id) {
+                let has_enough_gpus = job.gpus as usize <= available_gpus.len();
+                let required_memory = job.memory_limit_mb.unwrap_or(0);
+                let has_enough_memory = required_memory <= available_memory;
 
-                    // Check group concurrency limit
-                    let within_group_limit = if let Some(ref group_id) = job.group_id {
-                        if let Some(max_concurrent) = job.max_concurrent {
-                            // Count running jobs in this group
-                            let running_in_group = self
-                                .jobs
-                                .iter()
-                                .filter(|j| j.group_id.as_ref() == Some(group_id))
-                                .filter(|j| j.state == JobState::Running)
-                                .count();
+                // Check if job respects active reservations
+                let respects_reservations = self.check_job_respects_reservations(
+                    &job.submitted_by,
+                    job.gpus,
+                    &available_gpus,
+                );
 
-                            if running_in_group >= max_concurrent {
-                                tracing::debug!(
-                                    "Job {} waiting: group {} has {}/{} running jobs",
-                                    job.id,
-                                    group_id,
-                                    running_in_group,
-                                    max_concurrent
-                                );
-                                false
-                            } else {
-                                true
-                            }
+                // Check group concurrency limit
+                let within_group_limit = if let Some(ref group_id) = job.group_id {
+                    if let Some(max_concurrent) = job.max_concurrent {
+                        // Count running jobs in this group
+                        let running_in_group = self
+                            .jobs
+                            .iter()
+                            .filter(|j| j.group_id.as_ref() == Some(group_id))
+                            .filter(|j| j.state == JobState::Running)
+                            .count();
+
+                        if running_in_group >= max_concurrent {
+                            tracing::debug!(
+                                "Job {} waiting: group {} has {}/{} running jobs",
+                                job.id,
+                                group_id,
+                                running_in_group,
+                                max_concurrent
+                            );
+                            false
                         } else {
-                            true // No limit specified
+                            true
                         }
                     } else {
-                        true // Not part of a group
-                    };
-
-                    (
-                        has_enough_gpus,
-                        has_enough_memory,
-                        within_group_limit,
-                        required_memory,
-                    )
+                        true // No limit specified
+                    }
                 } else {
-                    continue;
+                    true // Not part of a group
                 };
 
+                (
+                    has_enough_gpus,
+                    has_enough_memory,
+                    within_group_limit,
+                    respects_reservations,
+                    required_memory,
+                )
+            } else {
+                continue;
+            };
+
             // Now allocate resources if all checks pass
-            if has_enough_gpus && has_enough_memory && within_group_limit {
+            if has_enough_gpus && has_enough_memory && within_group_limit && respects_reservations {
                 if let Some(job) = self.get_job_mut(job_id) {
                     let gpus_for_job = available_gpus
                         .drain(..job.gpus as usize)
@@ -606,6 +629,15 @@ impl Scheduler {
                         job.id,
                         required_memory,
                         available_memory
+                    );
+                }
+            } else if !respects_reservations {
+                if let Some(job) = self.get_job(job_id) {
+                    tracing::debug!(
+                        "Job {} blocked by active GPU reservations (user: {}, needs {} GPUs)",
+                        job.id,
+                        job.submitted_by,
+                        job.gpus
                     );
                 }
             }
@@ -762,6 +794,248 @@ impl Scheduler {
             Vec::new()
         }
     }
+
+    // ===== GPU Reservation Methods =====
+
+    /// Create a new GPU reservation
+    pub fn create_reservation(
+        &mut self,
+        user: CompactString,
+        gpu_count: u32,
+        start_time: std::time::SystemTime,
+        duration: std::time::Duration,
+    ) -> anyhow::Result<u32> {
+        use crate::core::reservation::{GpuReservation, ReservationStatus};
+
+        // Validate GPU count
+        let total_gpus = self.gpu_slots_count() as u32;
+        if gpu_count == 0 {
+            anyhow::bail!("GPU count must be greater than 0");
+        }
+        if gpu_count > total_gpus {
+            anyhow::bail!(
+                "Requested {} GPUs but only {} GPUs available",
+                gpu_count,
+                total_gpus
+            );
+        }
+
+        // Validate start time (not in past)
+        let now = std::time::SystemTime::now();
+        if start_time < now {
+            anyhow::bail!("Start time cannot be in the past");
+        }
+
+        // Check for conflicts with existing reservations
+        let end_time = start_time + duration;
+        let mut total_reserved_at_time = 0u32;
+
+        for reservation in &self.reservations {
+            if reservation.status == ReservationStatus::Cancelled {
+                continue;
+            }
+
+            if reservation.overlaps_with(start_time, end_time) {
+                total_reserved_at_time += reservation.gpu_count;
+            }
+        }
+
+        if total_reserved_at_time + gpu_count > total_gpus {
+            anyhow::bail!(
+                "Reservation conflicts: {} GPUs already reserved during this time, cannot reserve {} more (total: {})",
+                total_reserved_at_time,
+                gpu_count,
+                total_gpus
+            );
+        }
+
+        // Create reservation
+        let id = self.next_reservation_id;
+        self.next_reservation_id += 1;
+
+        let reservation = GpuReservation {
+            id,
+            user,
+            gpu_count,
+            start_time,
+            duration,
+            status: ReservationStatus::Pending,
+            created_at: now,
+            cancelled_at: None,
+        };
+
+        self.reservations.push(reservation);
+
+        // Sort reservations by start_time for efficient queries
+        self.reservations.sort_by_key(|r| r.start_time);
+
+        Ok(id)
+    }
+
+    /// Get a reservation by ID
+    pub fn get_reservation(&self, id: u32) -> Option<&GpuReservation> {
+        self.reservations.iter().find(|r| r.id == id)
+    }
+
+    /// Get a mutable reservation by ID
+    pub fn get_reservation_mut(&mut self, id: u32) -> Option<&mut GpuReservation> {
+        self.reservations.iter_mut().find(|r| r.id == id)
+    }
+
+    /// Cancel a reservation
+    pub fn cancel_reservation(&mut self, id: u32) -> anyhow::Result<()> {
+        use crate::core::reservation::ReservationStatus;
+
+        let reservation = self
+            .get_reservation_mut(id)
+            .ok_or_else(|| anyhow::anyhow!("Reservation {} not found", id))?;
+
+        match reservation.status {
+            ReservationStatus::Completed => {
+                anyhow::bail!("Cannot cancel completed reservation");
+            }
+            ReservationStatus::Cancelled => {
+                anyhow::bail!("Reservation already cancelled");
+            }
+            ReservationStatus::Pending | ReservationStatus::Active => {
+                reservation.status = ReservationStatus::Cancelled;
+                reservation.cancelled_at = Some(std::time::SystemTime::now());
+                Ok(())
+            }
+        }
+    }
+
+    /// List reservations with optional filters
+    pub fn list_reservations(
+        &self,
+        user_filter: Option<&str>,
+        status_filter: Option<ReservationStatus>,
+        active_only: bool,
+    ) -> Vec<&GpuReservation> {
+        let now = std::time::SystemTime::now();
+
+        self.reservations
+            .iter()
+            .filter(|r| {
+                // User filter
+                if let Some(user) = user_filter {
+                    if r.user != user {
+                        return false;
+                    }
+                }
+
+                // Status filter
+                if let Some(status) = status_filter {
+                    if r.status != status {
+                        return false;
+                    }
+                }
+
+                // Active only filter
+                if active_only && !r.is_active(now) {
+                    return false;
+                }
+
+                true
+            })
+            .collect()
+    }
+
+    /// Update reservation statuses based on current time
+    pub fn update_reservation_statuses(&mut self) {
+        let now = std::time::SystemTime::now();
+
+        for reservation in &mut self.reservations {
+            reservation.update_status(now);
+        }
+    }
+
+    /// Get currently active reservations
+    pub fn get_active_reservations(&self) -> Vec<&GpuReservation> {
+        use crate::core::reservation::ReservationStatus;
+
+        let now = std::time::SystemTime::now();
+
+        self.reservations
+            .iter()
+            .filter(|r| r.status == ReservationStatus::Active && r.is_active(now))
+            .collect()
+    }
+
+    /// Cleanup old completed/cancelled reservations (older than 7 days)
+    pub fn cleanup_old_reservations(&mut self) {
+        use crate::core::reservation::ReservationStatus;
+
+        let now = std::time::SystemTime::now();
+        let seven_days = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+        self.reservations.retain(|r| {
+            match r.status {
+                ReservationStatus::Completed => {
+                    // Keep if ended less than 7 days ago
+                    if let Ok(elapsed) = now.duration_since(r.end_time()) {
+                        elapsed < seven_days
+                    } else {
+                        true // Keep if we can't calculate (shouldn't happen)
+                    }
+                }
+                ReservationStatus::Cancelled => {
+                    // Keep if cancelled less than 7 days ago
+                    if let Some(cancelled_at) = r.cancelled_at {
+                        if let Ok(elapsed) = now.duration_since(cancelled_at) {
+                            elapsed < seven_days
+                        } else {
+                            true
+                        }
+                    } else {
+                        true // Keep if no cancellation time (shouldn't happen)
+                    }
+                }
+                ReservationStatus::Pending | ReservationStatus::Active => true, // Always keep
+            }
+        });
+    }
+
+    /// Check if a job respects active reservations
+    /// Returns true if the job can proceed, false if it should be blocked
+    fn check_job_respects_reservations(
+        &self,
+        job_user: &str,
+        job_gpu_count: u32,
+        available_gpus: &[u32],
+    ) -> bool {
+        let active_reservations = self.get_active_reservations();
+
+        if active_reservations.is_empty() {
+            return true; // No active reservations, job can proceed
+        }
+
+        let total_gpus = self.gpu_slots_count() as u32;
+
+        // Calculate total reserved GPUs and reserved GPUs for this user
+        let mut total_reserved = 0u32;
+        let mut user_reserved = 0u32;
+
+        for reservation in &active_reservations {
+            total_reserved += reservation.gpu_count;
+            if reservation.user == job_user {
+                user_reserved += reservation.gpu_count;
+            }
+        }
+
+        // Calculate unreserved GPUs
+        let unreserved_gpus = total_gpus.saturating_sub(total_reserved);
+
+        // If user has reservation, they can use their reserved GPUs
+        if user_reserved > 0 {
+            // User can use up to their reserved GPU count
+            job_gpu_count <= user_reserved
+        } else {
+            // User has no reservation, can only use unreserved GPUs
+            // Also check that there are enough available GPUs in the pool
+            job_gpu_count <= unreserved_gpus && job_gpu_count <= available_gpus.len() as u32
+        }
+    }
 }
 
 /// Builder for creating Scheduler instances with dependency injection
@@ -822,6 +1096,8 @@ impl SchedulerBuilder {
             allowed_gpu_indices: self.allowed_gpu_indices,
             user_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
+            reservations: Vec::new(),
+            next_reservation_id: 1,
         }
     }
 }

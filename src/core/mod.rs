@@ -3,6 +3,7 @@ pub mod info;
 pub mod job;
 pub mod macros;
 pub mod migrations;
+pub mod reservation;
 pub mod scheduler;
 
 use std::{collections::HashMap, env, path::PathBuf};

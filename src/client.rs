@@ -509,6 +509,139 @@ impl Client {
 
         Ok(updated_jobs)
     }
+
+    /// Create a GPU reservation
+    pub async fn create_reservation(
+        &self,
+        user: String,
+        gpu_count: u32,
+        start_time: std::time::SystemTime,
+        duration_secs: u64,
+    ) -> anyhow::Result<u32> {
+        let request_body = serde_json::json!({
+            "user": user,
+            "gpu_count": gpu_count,
+            "start_time": start_time,
+            "duration_secs": duration_secs,
+        });
+
+        let response = self
+            .client
+            .post(format!("{}/reservations", self.base_url))
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to create reservation: {}", error_msg));
+        }
+
+        let result: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+
+        let reservation_id = result
+            .get("reservation_id")
+            .and_then(|v| v.as_u64())
+            .context("Invalid response format: missing or invalid reservation_id")?
+            as u32;
+
+        Ok(reservation_id)
+    }
+
+    /// List GPU reservations
+    pub async fn list_reservations(
+        &self,
+        user: Option<String>,
+        status: Option<String>,
+        active_only: bool,
+    ) -> anyhow::Result<Vec<crate::core::reservation::GpuReservation>> {
+        let mut url = format!("{}/reservations", self.base_url);
+        let mut query_params = Vec::new();
+
+        if let Some(user) = user {
+            query_params.push(format!("user={}", user));
+        }
+        if let Some(status) = status {
+            query_params.push(format!("status={}", status));
+        }
+        if active_only {
+            query_params.push("active_only=true".to_string());
+        }
+
+        if !query_params.is_empty() {
+            url.push('?');
+            url.push_str(&query_params.join("&"));
+        }
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to list reservations: {}", error_msg));
+        }
+
+        let reservations = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+
+        Ok(reservations)
+    }
+
+    /// Get a specific GPU reservation by ID
+    pub async fn get_reservation(
+        &self,
+        id: u32,
+    ) -> anyhow::Result<Option<crate::core::reservation::GpuReservation>> {
+        let response = self
+            .client
+            .get(format!("{}/reservations/{}", self.base_url, id))
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to get reservation: {}", error_msg));
+        }
+
+        let reservation = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+
+        Ok(Some(reservation))
+    }
+
+    /// Cancel a GPU reservation
+    pub async fn cancel_reservation(&self, id: u32) -> anyhow::Result<()> {
+        let response = self
+            .client
+            .delete(format!("{}/reservations/{}", self.base_url, id))
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to cancel reservation: {}", error_msg));
+        }
+
+        Ok(())
+    }
 }
 
 /// Helper function to get a job and print a warning if not found.

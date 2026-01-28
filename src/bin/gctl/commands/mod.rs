@@ -3,6 +3,10 @@ use clap::CommandFactory;
 use clap_complete::generate;
 use gflow::client::Client;
 
+pub mod reserve_cancel;
+pub mod reserve_create;
+pub mod reserve_get;
+pub mod reserve_list;
 pub mod set_gpus;
 pub mod set_group_max_concurrency;
 pub mod show_gpus;
@@ -28,6 +32,30 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
             )
             .await?;
         }
+        cli::Commands::Reserve { command } => match command {
+            cli::ReserveCommands::Create {
+                user,
+                gpus,
+                start,
+                duration,
+            } => {
+                reserve_create::handle_reserve_create(client, &user, gpus, &start, &duration)
+                    .await?;
+            }
+            cli::ReserveCommands::List {
+                user,
+                status,
+                active,
+            } => {
+                reserve_list::handle_reserve_list(client, user, status, active).await?;
+            }
+            cli::ReserveCommands::Get { id } => {
+                reserve_get::handle_reserve_get(client, id).await?;
+            }
+            cli::ReserveCommands::Cancel { id } => {
+                reserve_cancel::handle_reserve_cancel(client, id).await?;
+            }
+        },
         cli::Commands::Completion { shell } => {
             let mut cmd = cli::GCtl::command();
             generate(shell, &mut cmd, "gctl", &mut std::io::stdout());

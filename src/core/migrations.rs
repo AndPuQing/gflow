@@ -1,7 +1,7 @@
 use super::scheduler::Scheduler;
 use anyhow::{anyhow, Result};
 
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 3;
 
 /// Migrate state from any version to the current version
 pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
@@ -32,6 +32,9 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
     if from_version < 2 {
         scheduler = migrate_v1_to_v2(scheduler)?;
     }
+    if from_version < 3 {
+        scheduler = migrate_v2_to_v3(scheduler)?;
+    }
 
     scheduler.version = CURRENT_VERSION;
     Ok(scheduler)
@@ -51,6 +54,15 @@ fn migrate_v1_to_v2(mut scheduler: Scheduler) -> Result<Scheduler> {
     // so if we successfully deserialized it, the migration is already done.
     // This function exists for completeness and future-proofing.
     scheduler.version = 2;
+    Ok(scheduler)
+}
+
+/// Migrate from version 2 to version 3 (adding GPU reservations)
+fn migrate_v2_to_v3(mut scheduler: Scheduler) -> Result<Scheduler> {
+    tracing::info!("Migrating from v2 to v3: adding GPU reservations");
+    scheduler.reservations = Vec::new();
+    scheduler.next_reservation_id = 1;
+    scheduler.version = 3;
     Ok(scheduler)
 }
 
@@ -95,7 +107,7 @@ mod tests {
         let original_next_id = scheduler.next_job_id();
 
         let result = migrate_state(scheduler).unwrap();
-        assert_eq!(result.version, 2); // Now migrates to version 2
+        assert_eq!(result.version, 3); // Now migrates to version 3
         assert_eq!(result.next_job_id(), original_next_id); // Data preserved
     }
 
@@ -119,7 +131,7 @@ mod tests {
         };
 
         let result = migrate_state(scheduler).unwrap();
-        assert_eq!(result.version, 2); // Now migrates to version 2
+        assert_eq!(result.version, 3); // Now migrates to version 3
         assert_eq!(result.next_job_id(), 42);
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.get_job(1).unwrap().state, JobState::Finished);

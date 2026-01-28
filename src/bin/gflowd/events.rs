@@ -48,6 +48,12 @@ pub enum SchedulerEvent {
 
     /// Periodic health check trigger
     PeriodicHealthCheck,
+
+    /// A GPU reservation was created
+    ReservationCreated { reservation_id: u32 },
+
+    /// A GPU reservation was cancelled
+    ReservationCancelled { reservation_id: u32 },
 }
 
 /// Event bus for publishing and subscribing to scheduler events

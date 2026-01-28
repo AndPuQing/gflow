@@ -861,6 +861,41 @@ impl SchedulerRuntime {
     pub fn available_memory_mb(&self) -> u64 {
         self.scheduler.available_memory_mb()
     }
+
+    // GPU Reservation methods
+    pub fn create_reservation(
+        &mut self,
+        user: compact_str::CompactString,
+        gpu_count: u32,
+        start_time: std::time::SystemTime,
+        duration: std::time::Duration,
+    ) -> anyhow::Result<u32> {
+        let result = self
+            .scheduler
+            .create_reservation(user, gpu_count, start_time, duration)?;
+        self.mark_dirty();
+        Ok(result)
+    }
+
+    pub fn get_reservation(&self, id: u32) -> Option<&gflow::core::reservation::GpuReservation> {
+        self.scheduler.get_reservation(id)
+    }
+
+    pub fn cancel_reservation(&mut self, id: u32) -> anyhow::Result<()> {
+        self.scheduler.cancel_reservation(id)?;
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub fn list_reservations(
+        &self,
+        user_filter: Option<&str>,
+        status_filter: Option<gflow::core::reservation::ReservationStatus>,
+        active_only: bool,
+    ) -> Vec<&gflow::core::reservation::GpuReservation> {
+        self.scheduler
+            .list_reservations(user_filter, status_filter, active_only)
+    }
 }
 
 fn should_apply_journal(state_path: &std::path::Path, journal_path: &std::path::Path) -> bool {
