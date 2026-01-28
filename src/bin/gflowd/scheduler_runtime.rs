@@ -189,7 +189,7 @@ impl SchedulerRuntime {
             }
         }
 
-        match serde_json::to_string_pretty(&self.scheduler) {
+        match serde_json::to_string(&self.scheduler) {
             Ok(json) => {
                 match tokio::fs::File::create(&tmp_path).await {
                     Ok(mut file) => {
