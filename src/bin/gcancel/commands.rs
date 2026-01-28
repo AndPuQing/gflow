@@ -4,11 +4,8 @@ pub mod cancel;
 pub mod fail;
 pub mod finish;
 
-pub async fn handle_commands(
-    config: &gflow::config::Config,
-    command: CancelCommand,
-) -> anyhow::Result<()> {
-    let client = gflow::client::Client::build(config)?;
+pub async fn handle_commands(config: &gflow::Config, command: CancelCommand) -> anyhow::Result<()> {
+    let client = gflow::Client::build(config)?;
 
     match command {
         CancelCommand::Cancel { ids, dry_run } => {

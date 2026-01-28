@@ -510,3 +510,17 @@ impl Client {
         Ok(updated_jobs)
     }
 }
+
+/// Helper function to get a job and print a warning if not found.
+/// Returns Ok(Some(job)) if found, Ok(None) if not found (with warning printed).
+///
+/// This is a convenience function to reduce boilerplate in CLI tools.
+pub async fn get_job_or_warn(client: &Client, job_id: u32) -> anyhow::Result<Option<Job>> {
+    match client.get_job(job_id).await? {
+        Some(job) => Ok(Some(job)),
+        None => {
+            eprintln!("Error: Job {} not found", job_id);
+            Ok(None)
+        }
+    }
+}

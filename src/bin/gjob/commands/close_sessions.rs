@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState, tmux, utils::parse_job_ids};
+use gflow::{core::job::JobState, tmux, utils::parse_job_ids};
 use std::collections::HashSet;
 
 fn is_missing_session_error(message: &str) -> bool {
@@ -31,8 +31,7 @@ pub async fn handle_close_sessions(
         }
 
         // Exclude running job sessions - only query Running state for efficiency
-        let config = gflow::config::load_config(config_path.as_ref())?;
-        let client = Client::build(&config)?;
+        let client = gflow::create_client(config_path)?;
         let running_jobs = client
             .list_jobs_with_query(Some("Running".to_string()), None, None, None, None)
             .await?;
@@ -49,8 +48,7 @@ pub async fn handle_close_sessions(
 
         sessions_to_close = gflow_sessions;
     } else {
-        let config = gflow::config::load_config(config_path.as_ref())?;
-        let client = Client::build(&config)?;
+        let client = gflow::create_client(config_path)?;
 
         let jobs = client.list_jobs().await?;
 

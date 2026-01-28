@@ -1,5 +1,4 @@
 use anyhow::Result;
-use gflow::client::Client;
 use gflow::core::job::Job;
 use gflow::utils::{parse_job_ids, substitute_parameters};
 use gflow::{print_field, print_optional_field};
@@ -7,8 +6,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 pub async fn handle_show(config_path: &Option<PathBuf>, job_ids_str: String) -> Result<()> {
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
+    let client = gflow::create_client(config_path)?;
 
     let job_ids = parse_job_ids(&job_ids_str)?;
 
@@ -18,12 +16,8 @@ pub async fn handle_show(config_path: &Option<PathBuf>, job_ids_str: String) -> 
             println!();
         }
 
-        let job = match client.get_job(job_id).await? {
-            Some(job) => job,
-            None => {
-                eprintln!("Job {} not found.", job_id);
-                continue;
-            }
+        let Some(job) = gflow::client::get_job_or_warn(&client, job_id).await? else {
+            continue;
         };
 
         print_job_details(&job);

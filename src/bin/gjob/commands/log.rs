@@ -1,11 +1,9 @@
 use anyhow::{Context, Result};
-use gflow::client::Client;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 pub async fn handle_log(config_path: &Option<PathBuf>, job_id_str: &str) -> Result<()> {
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
+    let client = gflow::create_client(config_path)?;
 
     // Resolve job ID (handle @ shorthand)
     let job_id = crate::utils::resolve_job_id(&client, job_id_str).await?;

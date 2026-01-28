@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gflow::{client::Client, tmux::is_session_exist};
+use gflow::tmux::is_session_exist;
 
 pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<()> {
     let session_exists = is_session_exist(super::TMUX_SESSION_NAME);
@@ -11,7 +11,7 @@ pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<(
     }
 
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
-    let client = Client::build(&config)?;
+    let client = gflow::Client::build(&config)?;
 
     match client.get_health().await {
         Ok(health) => {

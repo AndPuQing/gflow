@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use gflow::client::{Client, UpdateJobRequest};
+use gflow::client::UpdateJobRequest;
 use gflow::print_field;
 use gflow::utils::parse_job_ids;
 use std::collections::HashMap;
@@ -30,9 +30,7 @@ pub async fn handle_update(
     config_path: &Option<std::path::PathBuf>,
     params: UpdateJobParams,
 ) -> Result<()> {
-    // Load config and create client
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
+    let client = gflow::create_client(config_path)?;
 
     let job_ids = parse_job_ids(&params.job_ids_str)?;
 

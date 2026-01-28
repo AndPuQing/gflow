@@ -18,8 +18,7 @@ pub async fn handle_redo(
     clear_deps: bool,
     cascade: bool,
 ) -> Result<()> {
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
+    let client = gflow::create_client(config_path)?;
 
     // Resolve job ID (handle @ shorthand)
     let job_id = crate::utils::resolve_job_id(&client, job_id_str).await?;

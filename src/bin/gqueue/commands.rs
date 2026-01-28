@@ -1,10 +1,10 @@
 use anyhow::Result;
-use gflow::{client::Client, config::Config};
+use gflow::client::Client;
 
 pub mod list;
 use list::ListOptions;
 
-pub async fn handle_commands(config: &Config, args: &crate::cli::ListArgs) -> Result<()> {
+pub async fn handle_commands(config: &gflow::Config, args: &crate::cli::ListArgs) -> Result<()> {
     let client = Client::build(config)?;
 
     let options = ListOptions {

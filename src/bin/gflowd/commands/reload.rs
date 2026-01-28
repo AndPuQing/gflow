@@ -10,7 +10,7 @@ pub async fn handle_reload(
 ) -> Result<()> {
     // Load config to get daemon URL
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
-    let client = gflow::client::Client::build(&config)?;
+    let client = gflow::Client::build(&config)?;
 
     // 1. Check if daemon is running
     let pid = get_daemon_pid().await?;

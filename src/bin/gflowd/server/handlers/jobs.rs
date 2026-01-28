@@ -31,41 +31,60 @@ pub(in crate::server) async fn list_jobs(
     axum::extract::Query(params): axum::extract::Query<ListJobsQuery>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
-    let mut jobs: Vec<_> = state.jobs().to_vec();
 
-    // Apply state filter if provided
-    if let Some(states_str) = params.state {
-        let states: Vec<JobState> = states_str
+    // Parse filters once before iteration
+    let state_filter: Option<Vec<JobState>> = params.state.as_ref().map(|states_str| {
+        states_str
             .split(',')
             .filter_map(|s| s.trim().parse().ok())
-            .collect();
-        if !states.is_empty() {
-            jobs.retain(|job| states.contains(&job.state));
-        }
-    }
+            .collect()
+    });
 
-    // Apply user filter if provided
-    if let Some(users_str) = params.user {
-        let users: Vec<String> = users_str.split(',').map(|s| s.trim().to_string()).collect();
-        if !users.is_empty() {
-            jobs.retain(|job| users.iter().any(|u| u == job.submitted_by.as_str()));
-        }
-    }
+    let user_filter: Option<Vec<String>> = params
+        .user
+        .as_ref()
+        .map(|users_str| users_str.split(',').map(|s| s.trim().to_string()).collect());
 
-    // Apply created_after filter if provided
-    if let Some(secs) = params.created_after {
+    let time_filter = params.created_after.and_then(|secs| {
         use std::time::{Duration, UNIX_EPOCH};
+        UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
+    });
 
-        if let Some(created_after) = UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
-        {
-            jobs.retain(|job| job.submitted_at.is_some_and(|ts| ts >= created_after));
-        }
-    }
+    // Single-pass filter: iterate once and collect matching jobs
+    let mut jobs: Vec<_> = state
+        .jobs()
+        .iter()
+        .filter(|job| {
+            // Apply state filter
+            if let Some(ref states) = state_filter {
+                if !states.is_empty() && !states.contains(&job.state) {
+                    return false;
+                }
+            }
+
+            // Apply user filter
+            if let Some(ref users) = user_filter {
+                if !users.is_empty() && !users.iter().any(|u| u == job.submitted_by.as_str()) {
+                    return false;
+                }
+            }
+
+            // Apply time filter
+            if let Some(created_after) = time_filter {
+                if job.submitted_at.is_none_or(|ts| ts < created_after) {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .cloned()
+        .collect();
 
     // Sort by job ID
-    jobs.sort_by_key(|j| j.id);
+    jobs.sort_unstable_by_key(|j| j.id);
 
-    // Apply pagination if provided
+    // Apply pagination
     let total = jobs.len();
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(total);

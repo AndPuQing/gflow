@@ -16,8 +16,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let config = gflow::config::load_config(gctl.config.as_ref())?;
-    let client = gflow::client::Client::build(&config)?;
+    let client = gflow::create_client(&gctl.config)?;
 
     commands::handle_commands(&client, gctl.command).await
 }

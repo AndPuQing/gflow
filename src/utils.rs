@@ -591,3 +591,41 @@ mod tests {
         assert!((now - result - 31449600).abs() < 2);
     }
 }
+
+/// Validates that a job is in the expected state.
+/// Returns an error with a user-friendly message if the state doesn't match.
+///
+/// This is a convenience function to reduce boilerplate in CLI tools.
+///
+/// # Examples
+///
+/// ```no_run
+/// use gflow::utils::validate_job_state;
+/// use gflow::core::job::{Job, JobState, JobBuilder};
+///
+/// let job = JobBuilder::new()
+///     .submitted_by("test".to_string())
+///     .run_dir("/tmp")
+///     .build();
+///
+/// // This will succeed since the job is in Queued state
+/// validate_job_state(&job, JobState::Queued, "held").unwrap();
+/// ```
+pub fn validate_job_state(
+    job: &crate::core::job::Job,
+    expected_state: crate::core::job::JobState,
+    operation: &str,
+) -> Result<()> {
+    if job.state != expected_state {
+        Err(anyhow!(
+            "Job {} is in state '{}' and cannot be {}. Only {} jobs can be {}.",
+            job.id,
+            job.state,
+            operation,
+            expected_state,
+            operation
+        ))
+    } else {
+        Ok(())
+    }
+}

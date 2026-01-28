@@ -120,6 +120,10 @@ harness = false
 name = "serialization_bench"
 harness = false
 
+[[bench]]
+name = "filtering_bench"
+harness = false
+
 [profile.release]
 strip = true
 lto = "fat"
