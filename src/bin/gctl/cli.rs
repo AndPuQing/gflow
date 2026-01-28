@@ -81,6 +81,9 @@ pub enum ReserveCommands {
         /// Show only active reservations
         #[arg(long)]
         active: bool,
+        /// Display as timeline visualization
+        #[arg(long)]
+        timeline: bool,
     },
 
     /// Get details of a specific reservation

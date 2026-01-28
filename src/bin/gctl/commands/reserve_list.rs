@@ -3,11 +3,14 @@ use gflow::client::Client;
 use gflow::core::reservation::ReservationStatus;
 use tabled::{builder::Builder, settings::style::Style};
 
+use crate::reserve_timeline::{render_timeline, TimelineConfig};
+
 pub async fn handle_reserve_list(
     client: &Client,
     user: Option<String>,
     status: Option<String>,
     active_only: bool,
+    timeline: bool,
 ) -> Result<()> {
     let reservations = client.list_reservations(user, status, active_only).await?;
 
@@ -16,26 +19,33 @@ pub async fn handle_reserve_list(
         return Ok(());
     }
 
-    let mut builder = Builder::default();
-    builder.push_record(["ID", "USER", "GPUS", "START", "END", "STATUS"]);
+    if timeline {
+        // Render timeline view
+        let config = TimelineConfig::default();
+        render_timeline(&reservations, config);
+    } else {
+        // Render table view
+        let mut builder = Builder::default();
+        builder.push_record(["ID", "USER", "GPUS", "START", "END", "STATUS"]);
 
-    for reservation in reservations {
-        let start_time = format_system_time_short(reservation.start_time);
-        let end_time = format_system_time_short(reservation.end_time());
-        let status_str = format_status(reservation.status);
+        for reservation in reservations {
+            let start_time = format_system_time_short(reservation.start_time);
+            let end_time = format_system_time_short(reservation.end_time());
+            let status_str = format_status(reservation.status);
 
-        builder.push_record([
-            reservation.id.to_string(),
-            reservation.user.to_string(),
-            reservation.gpu_count.to_string(),
-            start_time,
-            end_time,
-            status_str,
-        ]);
+            builder.push_record([
+                reservation.id.to_string(),
+                reservation.user.to_string(),
+                reservation.gpu_count.to_string(),
+                start_time,
+                end_time,
+                status_str,
+            ]);
+        }
+
+        let table = builder.build().with(Style::blank()).to_string();
+        println!("{}", table);
     }
-
-    let table = builder.build().with(Style::blank()).to_string();
-    println!("{}", table);
 
     Ok(())
 }

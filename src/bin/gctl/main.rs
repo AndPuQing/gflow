@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod commands;
+mod reserve_timeline;
 
 #[tokio::main]
 async fn main() -> Result<()> {
