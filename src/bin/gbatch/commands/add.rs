@@ -3,6 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
 use gflow::core::job::Job;
+use gflow::utils::parsers::{parse_array_spec, parse_range_spec};
 use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
 
 /// Substitute {param_name} patterns in command with actual values (for preview only)
@@ -25,96 +26,6 @@ fn substitute_template(template: &str, parameters: &HashMap<String, String>) -> 
         result = result.replace(&pattern, &sanitized_value);
     }
     result
-}
-
-/// Parse range specification (start:stop or start:stop:step)
-/// Returns a vector of stringified values
-fn parse_range_spec(spec: &str) -> Result<Vec<String>> {
-    let parts: Vec<&str> = spec.split(':').collect();
-
-    match parts.len() {
-        2 => {
-            // start:stop (default step = 1)
-            let start = parts[0].trim().parse::<f64>()?;
-            let stop = parts[1].trim().parse::<f64>()?;
-            let step = if start <= stop { 1.0 } else { -1.0 };
-            generate_range(start, stop, step)
-        }
-        3 => {
-            // start:stop:step
-            let start = parts[0].trim().parse::<f64>()?;
-            let stop = parts[1].trim().parse::<f64>()?;
-            let step = parts[2].trim().parse::<f64>()?;
-
-            if step == 0.0 {
-                return Err(anyhow!("Step cannot be zero"));
-            }
-
-            generate_range(start, stop, step)
-        }
-        _ => Err(anyhow!(
-            "Invalid range format. Expected 'start:stop' or 'start:stop:step'"
-        )),
-    }
-}
-
-/// Generate range values from start to stop with given step
-fn generate_range(start: f64, stop: f64, step: f64) -> Result<Vec<String>> {
-    if (step > 0.0 && start > stop) || (step < 0.0 && start < stop) {
-        return Err(anyhow!("Step direction doesn't match start/stop"));
-    }
-
-    // Determine decimal places to use for formatting based on step
-    let step_str = format!("{}", step.abs());
-    let decimal_places = if let Some(dot_pos) = step_str.find('.') {
-        let after_dot = &step_str[dot_pos + 1..];
-        // Remove trailing zeros and count
-        after_dot.trim_end_matches('0').len()
-    } else {
-        0
-    };
-
-    let mut values = Vec::new();
-    let mut index = 0;
-
-    // Use epsilon for float comparison
-    const EPSILON: f64 = 1e-10;
-
-    loop {
-        // Calculate current value from index to avoid accumulation of floating point errors
-        let current = start + step * (index as f64);
-
-        // Check if we've exceeded the stop value
-        if step > 0.0 && current > stop + EPSILON {
-            break;
-        }
-        if step < 0.0 && current < stop - EPSILON {
-            break;
-        }
-
-        // Round to avoid floating point precision issues
-        let power = 10_f64.powi(decimal_places.max(10) as i32);
-        let rounded = (current * power).round() / power;
-
-        // Format as integer if it's a whole number, otherwise as float with appropriate precision
-        let formatted = if (rounded - rounded.round()).abs() < EPSILON {
-            format!("{}", rounded.round() as i64)
-        } else if decimal_places > 0 {
-            format!("{:.prec$}", rounded, prec = decimal_places)
-        } else {
-            format!("{}", rounded)
-        };
-
-        values.push(formatted);
-        index += 1;
-
-        // Safety limit
-        if values.len() > 10000 {
-            return Err(anyhow!("Range too large (max 10000 values)"));
-        }
-    }
-
-    Ok(values)
 }
 
 /// Parse a single parameter spec like "name=val1,val2,val3"
@@ -847,26 +758,6 @@ async fn build_job_with_params(
     builder = builder.auto_close_tmux(args.auto_close);
 
     Ok(builder.build())
-}
-
-fn parse_array_spec(spec: &str) -> Result<Vec<u32>> {
-    if let Some(parts) = spec.split_once('-') {
-        let start = parts
-            .0
-            .parse::<u32>()
-            .context("Invalid array start index")?;
-        let end = parts.1.parse::<u32>().context("Invalid array end index")?;
-        if start > end {
-            return Err(anyhow!(
-                "Array start index cannot be greater than end index"
-            ));
-        }
-        Ok((start..=end).collect())
-    } else {
-        Err(anyhow!(
-            "Invalid array format. Expected format like '1-10'."
-        ))
-    }
 }
 
 fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
