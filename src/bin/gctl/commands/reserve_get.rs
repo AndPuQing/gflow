@@ -1,41 +1,48 @@
 use anyhow::Result;
 use gflow::client::Client;
 use gflow::core::reservation::ReservationStatus;
+use gflow::print_field;
 
 pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
     let reservation = client.get_reservation(id).await?;
 
     match reservation {
         Some(r) => {
-            println!("Reservation ID: {}", r.id);
-            println!("User: {}", r.user);
-            println!("GPU Count: {}", r.gpu_count);
-            println!(
-                "Start Time: {}",
+            println!("Reservation Details:");
+            print_field!("ID", "{}", r.id);
+            print_field!("User", "{}", r.user);
+            print_field!("GPUCount", "{}", r.gpu_count);
+            print_field!(
+                "StartTime",
+                "{}",
                 gflow::utils::format_system_time(r.start_time)
             );
-            println!(
-                "End Time: {}",
+            print_field!(
+                "EndTime",
+                "{}",
                 gflow::utils::format_system_time(r.end_time())
             );
-            println!(
-                "Duration: {}",
+            print_field!(
+                "Duration",
+                "{}",
                 gflow::utils::format_duration_compact(r.duration)
             );
-            println!("Status: {}", format_status(r.status));
-            println!(
-                "Created At: {}",
+            print_field!("Status", "{}", format_status(r.status));
+            print_field!(
+                "CreatedAt",
+                "{}",
                 gflow::utils::format_system_time(r.created_at)
             );
             if let Some(cancelled_at) = r.cancelled_at {
-                println!(
-                    "Cancelled At: {}",
+                print_field!(
+                    "CancelledAt",
+                    "{}",
                     gflow::utils::format_system_time(cancelled_at)
                 );
             }
         }
         None => {
-            println!("Reservation {} not found", id);
+            println!("Reservation {} not found.", id);
         }
     }
 

@@ -12,12 +12,12 @@ pub async fn handle_reserve_list(
     let reservations = client.list_reservations(user, status, active_only).await?;
 
     if reservations.is_empty() {
-        println!("No reservations found");
+        println!("No reservations found.");
         return Ok(());
     }
 
     let mut builder = Builder::default();
-    builder.push_record(["ID", "User", "GPUs", "Start", "End", "Status"]);
+    builder.push_record(["ID", "USER", "GPUS", "START", "END", "STATUS"]);
 
     for reservation in reservations {
         let start_time = format_system_time_short(reservation.start_time);
@@ -34,7 +34,7 @@ pub async fn handle_reserve_list(
         ]);
     }
 
-    let table = builder.build().with(Style::rounded()).to_string();
+    let table = builder.build().with(Style::blank()).to_string();
     println!("{}", table);
 
     Ok(())

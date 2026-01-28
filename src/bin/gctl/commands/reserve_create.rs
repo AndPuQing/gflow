@@ -1,5 +1,6 @@
 use anyhow::Result;
 use gflow::client::Client;
+use gflow::print_field;
 use gflow::utils::parsers::{parse_reservation_duration, parse_reservation_time};
 
 pub async fn handle_reserve_create(
@@ -20,8 +21,8 @@ pub async fn handle_reserve_create(
         .create_reservation(user.to_string(), gpus, start_time, duration_secs)
         .await?;
 
-    println!("Reservation created successfully");
-    println!("Reservation ID: {}", reservation_id);
+    println!("Reservation created successfully.");
+    print_field!("ReservationID", "{}", reservation_id);
 
     Ok(())
 }
