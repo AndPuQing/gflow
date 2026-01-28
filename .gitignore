@@ -7,3 +7,6 @@ docs/.vitepress/cache/
 docs/.vitepress/.temp
 docs/.vitepress/dist/
 docs/bun.lockb
+
+# Claude Code configuration (project-specific, not shared)
+CLAUDE.md
