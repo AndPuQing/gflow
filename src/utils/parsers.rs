@@ -2,6 +2,15 @@ use anyhow::{anyhow, Context, Result};
 use range_parser::parse;
 use std::time::{Duration, SystemTime};
 
+// Time constants (in seconds)
+const SECONDS_PER_MINUTE: u64 = 60;
+const SECONDS_PER_HOUR: u64 = 3600;
+const SECONDS_PER_DAY: u64 = 86400;
+const SECONDS_PER_WEEK: u64 = 604800;
+
+// Memory constants
+const MB_PER_GB: u64 = 1024;
+
 /// Parse time limit string into Duration.
 ///
 /// Supported formats:
@@ -28,7 +37,7 @@ pub fn parse_time_limit(time_str: &str) -> Result<Duration> {
             let val = time_str
                 .parse::<u64>()
                 .context("Invalid time format. Expected number of minutes")?;
-            Ok(Duration::from_secs(val * 60))
+            Ok(Duration::from_secs(val * SECONDS_PER_MINUTE))
         }
         2 => {
             // MM:SS
@@ -38,7 +47,7 @@ pub fn parse_time_limit(time_str: &str) -> Result<Duration> {
             let seconds = parts[1]
                 .parse::<u64>()
                 .context("Invalid seconds in MM:SS format")?;
-            Ok(Duration::from_secs(minutes * 60 + seconds))
+            Ok(Duration::from_secs(minutes * SECONDS_PER_MINUTE + seconds))
         }
         3 => {
             // HH:MM:SS
@@ -51,7 +60,9 @@ pub fn parse_time_limit(time_str: &str) -> Result<Duration> {
             let seconds = parts[2]
                 .parse::<u64>()
                 .context("Invalid seconds in HH:MM:SS format")?;
-            Ok(Duration::from_secs(hours * 3600 + minutes * 60 + seconds))
+            Ok(Duration::from_secs(
+                hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds,
+            ))
         }
         _ => Err(anyhow!(
             "Invalid time format. Expected formats: HH:MM:SS, MM:SS, or MM"
@@ -79,31 +90,30 @@ pub fn parse_memory_limit(memory_str: &str) -> Result<u64> {
     let memory_str = memory_str.trim();
 
     if memory_str.is_empty() {
-        return Err(anyhow!("Memory limit cannot be empty"));
+        anyhow::bail!("Memory limit cannot be empty");
     }
 
-    // Check if ends with 'G' or 'g' (gigabytes)
-    if memory_str.ends_with('G') || memory_str.ends_with('g') {
-        let value = memory_str[..memory_str.len() - 1]
+    // Try to parse with unit suffix
+    if let Some(value_str) = memory_str.strip_suffix(['G', 'g']) {
+        let value = value_str
             .trim()
             .parse::<u64>()
             .context("Invalid memory value in GB format")?;
-        Ok(value * 1024) // Convert GB to MB
+        return Ok(value * MB_PER_GB);
     }
-    // Check if ends with 'M' or 'm' (megabytes)
-    else if memory_str.ends_with('M') || memory_str.ends_with('m') {
-        let value = memory_str[..memory_str.len() - 1]
+
+    if let Some(value_str) = memory_str.strip_suffix(['M', 'm']) {
+        let value = value_str
             .trim()
             .parse::<u64>()
             .context("Invalid memory value in MB format")?;
-        Ok(value)
+        return Ok(value);
     }
-    // Otherwise, treat as megabytes
-    else {
-        memory_str
-            .parse::<u64>()
-            .context("Invalid memory format. Expected formats: 100G, 1024M, or 100 (MB)")
-    }
+
+    // No suffix - treat as megabytes
+    memory_str
+        .parse::<u64>()
+        .context("Invalid memory format. Expected formats: 100G, 1024M, or 100 (MB)")
 }
 
 /// Parse job IDs from string inputs, supporting ranges like "1-3" or comma-separated "1,2,3".
@@ -150,6 +160,18 @@ fn parse_indices(input: &str, item_type: &str) -> Result<Vec<u32>> {
     Ok(parsed)
 }
 
+/// Helper function to parse relative time and convert to Unix timestamp.
+fn parse_relative_time(value: u64, unit_seconds: u64, now: SystemTime) -> Result<i64> {
+    let duration = Duration::from_secs(value * unit_seconds);
+    let since = now
+        .checked_sub(duration)
+        .ok_or_else(|| anyhow!("Time calculation overflow"))?;
+    Ok(since
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .context("Failed to convert to Unix timestamp")?
+        .as_secs() as i64)
+}
+
 /// Parse time duration string into seconds since epoch (for filtering).
 ///
 /// Supported formats:
@@ -177,38 +199,17 @@ pub fn parse_since_time(time_str: &str) -> Result<i64> {
     // Handle relative time formats (1h, 2d, 3w)
     if let Some(stripped) = time_str.strip_suffix('h') {
         let hours = stripped.parse::<u64>().context("Invalid hours format")?;
-        let duration = Duration::from_secs(hours * 3600);
-        let since = now
-            .checked_sub(duration)
-            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
-        return Ok(since
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .context("Failed to convert to Unix timestamp")?
-            .as_secs() as i64);
+        return parse_relative_time(hours, SECONDS_PER_HOUR, now);
     }
 
     if let Some(stripped) = time_str.strip_suffix('d') {
         let days = stripped.parse::<u64>().context("Invalid days format")?;
-        let duration = Duration::from_secs(days * 86400);
-        let since = now
-            .checked_sub(duration)
-            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
-        return Ok(since
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .context("Failed to convert to Unix timestamp")?
-            .as_secs() as i64);
+        return parse_relative_time(days, SECONDS_PER_DAY, now);
     }
 
     if let Some(stripped) = time_str.strip_suffix('w') {
         let weeks = stripped.parse::<u64>().context("Invalid weeks format")?;
-        let duration = Duration::from_secs(weeks * 604800);
-        let since = now
-            .checked_sub(duration)
-            .ok_or_else(|| anyhow!("Time calculation overflow"))?;
-        return Ok(since
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .context("Failed to convert to Unix timestamp")?
-            .as_secs() as i64);
+        return parse_relative_time(weeks, SECONDS_PER_WEEK, now);
     }
 
     // Handle "today" - start of current day (00:00:00)
@@ -217,7 +218,7 @@ pub fn parse_since_time(time_str: &str) -> Result<i64> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .context("Failed to get current time")?
             .as_secs();
-        let today_start = (now_secs / 86400) * 86400; // Round down to start of day
+        let today_start = (now_secs / SECONDS_PER_DAY) * SECONDS_PER_DAY;
         return Ok(today_start as i64);
     }
 
@@ -227,7 +228,7 @@ pub fn parse_since_time(time_str: &str) -> Result<i64> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .context("Failed to get current time")?
             .as_secs();
-        let yesterday_start = ((now_secs / 86400) - 1) * 86400;
+        let yesterday_start = ((now_secs / SECONDS_PER_DAY) - 1) * SECONDS_PER_DAY;
         return Ok(yesterday_start as i64);
     }
 
@@ -236,9 +237,9 @@ pub fn parse_since_time(time_str: &str) -> Result<i64> {
         return Ok(timestamp);
     }
 
-    Err(anyhow!(
+    anyhow::bail!(
         "Invalid time format. Expected formats: '1h', '2d', '3w', 'today', 'yesterday', or Unix timestamp"
-    ))
+    )
 }
 
 /// Parse time string in various formats for GPU reservations.
@@ -302,11 +303,11 @@ pub fn parse_reservation_duration(duration_str: &str) -> Result<u64> {
             current_num.push(ch);
         } else if ch == 'h' || ch == 'H' {
             let hours: u64 = current_num.parse().context("Invalid number before 'h'")?;
-            total_secs += hours * 3600;
+            total_secs += hours * SECONDS_PER_HOUR;
             current_num.clear();
         } else if ch == 'm' || ch == 'M' {
             let minutes: u64 = current_num.parse().context("Invalid number before 'm'")?;
-            total_secs += minutes * 60;
+            total_secs += minutes * SECONDS_PER_MINUTE;
             current_num.clear();
         } else if ch == 's' || ch == 'S' {
             let seconds: u64 = current_num.parse().context("Invalid number before 's'")?;
@@ -462,6 +463,109 @@ pub fn parse_array_spec(spec: &str) -> Result<Vec<u32>> {
 mod tests {
     use super::*;
 
+    // Tests for parse_time_limit
+    #[test]
+    fn test_parse_time_limit_minutes_only() {
+        assert_eq!(parse_time_limit("30").unwrap(), Duration::from_secs(1800));
+        assert_eq!(parse_time_limit("1").unwrap(), Duration::from_secs(60));
+        assert_eq!(parse_time_limit("120").unwrap(), Duration::from_secs(7200));
+    }
+
+    #[test]
+    fn test_parse_time_limit_mm_ss() {
+        assert_eq!(
+            parse_time_limit("30:45").unwrap(),
+            Duration::from_secs(1845)
+        );
+        assert_eq!(parse_time_limit("1:30").unwrap(), Duration::from_secs(90));
+        assert_eq!(parse_time_limit("0:30").unwrap(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_parse_time_limit_hh_mm_ss() {
+        assert_eq!(
+            parse_time_limit("2:30:45").unwrap(),
+            Duration::from_secs(9045)
+        );
+        assert_eq!(
+            parse_time_limit("1:00:00").unwrap(),
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            parse_time_limit("0:30:15").unwrap(),
+            Duration::from_secs(1815)
+        );
+    }
+
+    #[test]
+    fn test_parse_time_limit_invalid() {
+        assert!(parse_time_limit("").is_err());
+        assert!(parse_time_limit("abc").is_err());
+        assert!(parse_time_limit("1:2:3:4").is_err());
+        assert!(parse_time_limit("1:abc").is_err());
+    }
+
+    // Tests for parse_memory_limit
+    #[test]
+    fn test_parse_memory_limit_megabytes() {
+        assert_eq!(parse_memory_limit("100").unwrap(), 100);
+        assert_eq!(parse_memory_limit("1024").unwrap(), 1024);
+        assert_eq!(parse_memory_limit("  512  ").unwrap(), 512);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_with_m_suffix() {
+        assert_eq!(parse_memory_limit("100M").unwrap(), 100);
+        assert_eq!(parse_memory_limit("100m").unwrap(), 100);
+        assert_eq!(parse_memory_limit("1024M").unwrap(), 1024);
+        assert_eq!(parse_memory_limit("  512M  ").unwrap(), 512);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_with_g_suffix() {
+        assert_eq!(parse_memory_limit("2G").unwrap(), 2048);
+        assert_eq!(parse_memory_limit("2g").unwrap(), 2048);
+        assert_eq!(parse_memory_limit("1G").unwrap(), 1024);
+        assert_eq!(parse_memory_limit("  4G  ").unwrap(), 4096);
+    }
+
+    #[test]
+    fn test_parse_memory_limit_invalid() {
+        assert!(parse_memory_limit("").is_err());
+        assert!(parse_memory_limit("  ").is_err());
+        assert!(parse_memory_limit("abc").is_err());
+        assert!(parse_memory_limit("100K").is_err());
+        assert!(parse_memory_limit("100T").is_err());
+    }
+
+    // Tests for parse_reservation_time
+    #[test]
+    fn test_parse_reservation_time_iso8601() {
+        let result = parse_reservation_time("2026-01-28T14:00:00Z");
+        assert!(result.is_ok());
+
+        let result = parse_reservation_time("2024-12-31T23:59:59+00:00");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_reservation_time_yyyy_mm_dd_hh_mm() {
+        let result = parse_reservation_time("2026-01-28 14:00");
+        assert!(result.is_ok());
+
+        let result = parse_reservation_time("2024-12-31 23:59");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_reservation_time_invalid() {
+        assert!(parse_reservation_time("").is_err());
+        assert!(parse_reservation_time("invalid").is_err());
+        assert!(parse_reservation_time("2026-01-28").is_err());
+        assert!(parse_reservation_time("14:00:00").is_err());
+    }
+
+    // Existing tests for parse_gpu_indices
     #[test]
     fn test_parse_gpu_indices_single() {
         assert_eq!(parse_gpu_indices("0").unwrap(), vec![0]);
