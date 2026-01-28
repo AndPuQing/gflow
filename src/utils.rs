@@ -381,6 +381,71 @@ pub const STYLES: Styles = Styles::styled()
     .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
     .placeholder(AnsiColor::Cyan.on_default());
 
+/// Format SystemTime as a human-readable string in UTC.
+///
+/// Formats the time as `YYYY-MM-DD HH:MM:SS UTC`.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::{SystemTime, Duration};
+/// use gflow::utils::format_system_time;
+///
+/// let time = SystemTime::UNIX_EPOCH + Duration::from_secs(1704067200);
+/// assert_eq!(format_system_time(time), "2024-01-01 00:00:00 UTC");
+/// ```
+pub fn format_system_time(time: SystemTime) -> String {
+    use chrono::{DateTime, Utc};
+
+    let duration = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let datetime =
+        DateTime::<Utc>::from_timestamp(duration.as_secs() as i64, 0).unwrap_or_default();
+
+    datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+}
+
+/// Format duration in a compact, human-readable format.
+///
+/// Displays the most significant units only (hours and minutes, or minutes and seconds).
+/// Unlike `format_duration()` which uses HH:MM:SS format, this provides a more
+/// natural reading format like "2h 30m" or "45s".
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+/// use gflow::utils::format_duration_compact;
+///
+/// assert_eq!(format_duration_compact(Duration::from_secs(45)), "45s");
+/// assert_eq!(format_duration_compact(Duration::from_secs(1845)), "30m 45s");
+/// assert_eq!(format_duration_compact(Duration::from_secs(9045)), "2h 30m");
+/// assert_eq!(format_duration_compact(Duration::from_secs(7200)), "2h");
+/// ```
+pub fn format_duration_compact(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+
+    if hours > 0 {
+        if minutes > 0 {
+            format!("{}h {}m", hours, minutes)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        if seconds > 0 {
+            format!("{}m {}s", minutes, seconds)
+        } else {
+            format!("{}m", minutes)
+        }
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
 /// Validates that a job is in the expected state.
 /// Returns an error with a user-friendly message if the state doesn't match.
 ///
@@ -627,5 +692,27 @@ mod tests {
 
         let result = parse_since_time("52w").unwrap();
         assert!((now - result - 31449600).abs() < 2);
+    }
+
+    #[test]
+    fn test_format_system_time() {
+        let time = SystemTime::UNIX_EPOCH + Duration::from_secs(1704067200);
+        assert_eq!(format_system_time(time), "2024-01-01 00:00:00 UTC");
+
+        let time = SystemTime::UNIX_EPOCH + Duration::from_secs(0);
+        assert_eq!(format_system_time(time), "1970-01-01 00:00:00 UTC");
+    }
+
+    #[test]
+    fn test_format_duration_compact() {
+        assert_eq!(format_duration_compact(Duration::from_secs(45)), "45s");
+        assert_eq!(
+            format_duration_compact(Duration::from_secs(1845)),
+            "30m 45s"
+        );
+        assert_eq!(format_duration_compact(Duration::from_secs(9045)), "2h 30m");
+        assert_eq!(format_duration_compact(Duration::from_secs(7200)), "2h");
+        assert_eq!(format_duration_compact(Duration::from_secs(120)), "2m");
+        assert_eq!(format_duration_compact(Duration::from_secs(0)), "0s");
     }
 }

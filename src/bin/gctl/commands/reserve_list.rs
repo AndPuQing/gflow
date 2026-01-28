@@ -20,8 +20,8 @@ pub async fn handle_reserve_list(
     builder.push_record(["ID", "User", "GPUs", "Start", "End", "Status"]);
 
     for reservation in reservations {
-        let start_time = format_system_time(reservation.start_time);
-        let end_time = format_system_time(reservation.end_time());
+        let start_time = format_system_time_short(reservation.start_time);
+        let end_time = format_system_time_short(reservation.end_time());
         let status_str = format_status(reservation.status);
 
         builder.push_record([
@@ -40,7 +40,8 @@ pub async fn handle_reserve_list(
     Ok(())
 }
 
-fn format_system_time(time: std::time::SystemTime) -> String {
+/// Format SystemTime for table display (shorter format without "UTC" suffix)
+fn format_system_time_short(time: std::time::SystemTime) -> String {
     use chrono::{DateTime, Utc};
 
     let duration = time
