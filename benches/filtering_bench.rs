@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use gflow::core::job::{Job, JobBuilder, JobState};
+use std::hint::black_box;
 use std::time::{Duration, SystemTime};
 
 /// Generate test jobs with varying states and users
@@ -86,7 +87,7 @@ fn filter_jobs_new(
 
             // Apply time filter
             if let Some(created_after) = time_filter {
-                if !job.submitted_at.is_some_and(|ts| ts >= created_after) {
+                if job.submitted_at.is_none_or(|ts| ts < created_after) {
                     return false;
                 }
             }
