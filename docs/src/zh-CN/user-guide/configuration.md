@@ -95,24 +95,32 @@ gflow 遵循 XDG Base Directory 规范：
 
 ```text
 ~/.config/gflow/gflow.toml
-~/.local/share/gflow/state.json
+~/.local/share/gflow/state.msgpack  (或 state.json 用于旧版本)
 ~/.local/share/gflow/logs/<job_id>.log
 ```
 
-### 恢复模式（state.json 异常）
+### 状态持久化格式
 
-如果 `state.json` 无法反序列化或迁移（例如升级/降级版本后），`gflowd` 会进入**恢复模式**：
+从 0.4.11 版本开始，gflowd 使用 **MessagePack** 二进制格式进行状态持久化：
 
-- `gflowd` 继续运行，但不会覆盖写入 `state.json`。
-- 状态变更会写入一个“单快照”日志文件：`~/.local/share/gflow/state.journal.jsonl`（每次保存都会覆盖写入）。
+- **新安装**：状态保存到 `state.msgpack`（二进制格式）
+- **自动迁移**：现有的 `state.json` 文件会在首次加载时自动迁移到 `state.msgpack`
+- **向后兼容**：gflowd 仍然可以读取旧的 `state.json` 文件
+
+### 恢复模式（状态文件异常）
+
+如果状态文件无法反序列化或迁移（例如升级/降级版本后），`gflowd` 会进入**恢复模式**：
+
+- `gflowd` 继续运行，但不会覆盖写入状态文件。
+- 状态变更会写入一个"单快照"日志文件：`~/.local/share/gflow/state.journal.jsonl`（每次保存都会覆盖写入）。
 - `/health` 返回 `200`，并包含 `status: "recovery"` 与 `mode: "journal"`。
-- 会在同目录创建一份备份（例如 `state.json.backup.<timestamp>` 或 `state.json.corrupt.<timestamp>`）。
+- 会在同目录创建一份备份（例如 `state.msgpack.backup.<timestamp>` 或 `state.msgpack.corrupt.<timestamp>`）。
 
-当 `state.json` 再次可读取后，`gflowd` 会加载最新的日志快照，重写 `state.json`，并清空日志文件。
+当状态文件再次可读取后，`gflowd` 会加载最新的日志快照，重写状态文件，并清空日志文件。
 
 如果日志文件不可写，`gflowd` 会退化为**只读**模式，此时所有会修改状态的 API 返回 `503`。
 
-恢复方式：升级/降级到能够读取/迁移该 `state.json` 的版本，或从备份文件恢复。
+恢复方式：升级/降级到能够读取/迁移该状态文件的版本，或从备份文件恢复。
 
 ## 故障排除
 

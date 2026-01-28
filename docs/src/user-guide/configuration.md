@@ -95,20 +95,28 @@ gflow follows the XDG Base Directory spec:
 
 ```text
 ~/.config/gflow/gflow.toml
-~/.local/share/gflow/state.json
+~/.local/share/gflow/state.msgpack  (or state.json for legacy)
 ~/.local/share/gflow/logs/<job_id>.log
 ```
 
-### Recovery mode (state.json issues)
+### State Persistence Format
 
-If `state.json` cannot be deserialized or migrated (e.g. after upgrading/downgrading versions), `gflowd` enters **recovery mode**:
+Starting from version 0.4.11, gflowd uses **MessagePack** binary format for state persistence:
 
-- `gflowd` continues running, but does not overwrite `state.json`.
+- **New installations**: State is saved to `state.msgpack` (binary format)
+- **Automatic migration**: Existing `state.json` files are automatically migrated to `state.msgpack` on first load
+- **Backward compatibility**: gflowd can still read old `state.json` files
+
+### Recovery mode (state file issues)
+
+If the state file cannot be deserialized or migrated (e.g. after upgrading/downgrading versions), `gflowd` enters **recovery mode**:
+
+- `gflowd` continues running, but does not overwrite the state file.
 - State changes are persisted to a single-snapshot journal file: `~/.local/share/gflow/state.journal.jsonl` (it is overwritten on each save).
 - `/health` returns `200` with `status: "recovery"` and `mode: "journal"`.
-- A backup copy is created next to the state file (e.g. `state.json.backup.<timestamp>` or `state.json.corrupt.<timestamp>`).
+- A backup copy is created next to the state file (e.g. `state.msgpack.backup.<timestamp>` or `state.msgpack.corrupt.<timestamp>`).
 
-When `state.json` becomes readable again, `gflowd` loads the latest journal snapshot, rewrites `state.json`, and truncates the journal.
+When the state file becomes readable again, `gflowd` loads the latest journal snapshot, rewrites the state file, and truncates the journal.
 
 If the journal file is not writable, `gflowd` falls back to **read-only** mode and mutating APIs return `503`.
 

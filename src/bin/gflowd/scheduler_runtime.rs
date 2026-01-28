@@ -1,5 +1,6 @@
 mod event_loop;
 mod monitors;
+mod serialization;
 
 pub use event_loop::run_event_driven;
 
@@ -174,73 +175,40 @@ impl SchedulerRuntime {
             self.append_journal_snapshot().await;
             return;
         }
-        let path = self.scheduler.state_path();
-        let tmp_path = path.with_extension("json.tmp");
 
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                tracing::error!(
-                    "Failed to create state directory {}: {}",
-                    parent.display(),
-                    e
-                );
-                return;
-            }
-        }
+        let state_dir = self
+            .scheduler
+            .state_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
 
-        match serde_json::to_string(&self.scheduler) {
-            Ok(json) => {
-                match tokio::fs::File::create(&tmp_path).await {
-                    Ok(mut file) => {
-                        match tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await
-                        {
-                            Ok(_) => {
-                                // Atomic rename
-                                if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
-                                    tracing::error!(
-                                        "Failed to rename state file from {} to {}: {}",
-                                        tmp_path.display(),
-                                        path.display(),
-                                        e
-                                    );
-                                } else if self.journal_applied {
-                                    if let Err(e) = tokio::fs::OpenOptions::new()
-                                        .write(true)
-                                        .truncate(true)
-                                        .open(&self.journal_path)
-                                        .await
-                                    {
-                                        tracing::warn!(
-                                            "Failed to truncate journal file {}: {}",
-                                            self.journal_path.display(),
-                                            e
-                                        );
-                                    } else {
-                                        self.journal_applied = false;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to write state to {}: {}",
-                                    tmp_path.display(),
-                                    e
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to create temporary state file {}: {}",
-                            tmp_path.display(),
+        // Use MessagePack format for better performance and smaller file size
+        match serialization::save_state(
+            &self.scheduler,
+            state_dir,
+            serialization::SerializationFormat::MessagePack,
+        ) {
+            Ok(_) => {
+                // If journal was applied, truncate it after successful state save
+                if self.journal_applied {
+                    if let Err(e) = tokio::fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(&self.journal_path)
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to truncate journal file {}: {}",
+                            self.journal_path.display(),
                             e
                         );
+                    } else {
+                        self.journal_applied = false;
                     }
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to serialize scheduler state: {}", e);
+                tracing::error!("Failed to save scheduler state: {}", e);
             }
         }
     }
@@ -290,73 +258,88 @@ impl SchedulerRuntime {
         self.state_backup_path = None;
         self.journal_applied = false;
 
-        let path = self.scheduler.state_path().clone();
+        let state_dir = self
+            .scheduler
+            .state_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
         let mut loaded: Option<Scheduler> = None;
 
-        if path.exists() {
-            match std::fs::read_to_string(&path) {
-                Ok(json) => match serde_json::from_str::<Scheduler>(&json) {
-                    Ok(loaded_scheduler) => {
-                        match gflow::core::migrations::migrate_state(loaded_scheduler) {
-                            Ok(migrated) => {
-                                loaded = Some(migrated);
-                            }
-                            Err(e) => {
-                                let (backup_path, backup_err) = backup_state_file(&path, "backup");
-                                if let Some(err) = backup_err {
-                                    tracing::error!("Failed to backup state file: {}", err);
-                                }
-
-                                self.state_writable = false;
-                                self.state_load_error = Some(format!(
-                                "State migration failed: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file."
-                            ));
-                                self.state_backup_path = backup_path;
-                                tracing::error!("{}", self.state_load_error.as_deref().unwrap());
-
-                                // Keep the deserialized scheduler in memory and continue with journal persistence.
-                                loaded = serde_json::from_str::<Scheduler>(&json).ok();
-                            }
-                        }
+        // Try to load state using the new serialization module (supports both formats)
+        match serialization::load_state_auto(&state_dir) {
+            Ok(Some(loaded_scheduler)) => {
+                // Apply migrations if needed
+                match gflow::core::migrations::migrate_state(loaded_scheduler) {
+                    Ok(migrated) => {
+                        loaded = Some(migrated);
                     }
                     Err(e) => {
-                        let (backup_path, backup_err) = backup_state_file(&path, "corrupt");
+                        // Backup the state file on migration failure
+                        let json_path = state_dir.join("state.json");
+                        let msgpack_path = state_dir.join("state.msgpack");
+                        let backup_path = if msgpack_path.exists() {
+                            &msgpack_path
+                        } else {
+                            &json_path
+                        };
+
+                        let (backup_result, backup_err) = backup_state_file(backup_path, "backup");
                         if let Some(err) = backup_err {
-                            tracing::error!("Failed to backup corrupted state file: {}", err);
+                            tracing::error!("Failed to backup state file: {}", err);
                         }
 
                         self.state_writable = false;
                         self.state_load_error = Some(format!(
-                            "Failed to deserialize state file {}: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file.",
-                            path.display()
+                            "State migration failed: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file."
                         ));
-                        self.state_backup_path = backup_path;
+                        self.state_backup_path = backup_result;
                         tracing::error!("{}", self.state_load_error.as_deref().unwrap());
 
-                        // Start from a non-overlapping job ID range to reduce future merge conflicts.
-                        self.scheduler.set_next_job_id(2_000_000_000);
+                        // Try to load without migration for read-only mode
+                        if let Ok(Some(scheduler)) = serialization::load_state_auto(&state_dir) {
+                            loaded = Some(scheduler);
+                        }
                     }
-                },
-                Err(_) => {
-                    self.state_writable = false;
-                    self.state_load_error = Some(format!(
-                        "Failed to read state file from {}. gflowd entered recovery mode (journal) to avoid overwriting your state file.",
-                        path.display()
-                    ));
-                    tracing::error!("{}", self.state_load_error.as_deref().unwrap());
-
-                    // Start from a non-overlapping job ID range to reduce future merge conflicts.
-                    self.scheduler.set_next_job_id(2_000_000_000);
                 }
             }
-        } else {
-            tracing::info!(
-                "No existing state file found at {}, starting fresh",
-                path.display()
-            );
+            Ok(None) => {
+                tracing::info!(
+                    "No existing state file found in {}, starting fresh",
+                    state_dir.display()
+                );
+            }
+            Err(e) => {
+                // Failed to load state - enter recovery mode
+                let json_path = state_dir.join("state.json");
+                let msgpack_path = state_dir.join("state.msgpack");
+                let failed_path = if msgpack_path.exists() {
+                    &msgpack_path
+                } else {
+                    &json_path
+                };
+
+                let (backup_result, backup_err) = backup_state_file(failed_path, "corrupt");
+                if let Some(err) = backup_err {
+                    tracing::error!("Failed to backup corrupted state file: {}", err);
+                }
+
+                self.state_writable = false;
+                self.state_load_error = Some(format!(
+                    "Failed to load state file from {}: {e}. gflowd entered recovery mode (journal) to avoid overwriting your state file.",
+                    state_dir.display()
+                ));
+                self.state_backup_path = backup_result;
+                tracing::error!("{}", self.state_load_error.as_deref().unwrap());
+
+                // Start from a non-overlapping job ID range to reduce future merge conflicts.
+                self.scheduler.set_next_job_id(2_000_000_000);
+            }
         }
 
-        if should_apply_journal(&path, &self.journal_path) {
+        // Apply journal if needed
+        let legacy_json_path = state_dir.join("state.json");
+        if should_apply_journal(&legacy_json_path, &self.journal_path) {
             if let Some((snapshot, ts)) = load_last_journal_snapshot(&self.journal_path) {
                 tracing::warn!(
                     "Loading scheduler state from journal snapshot (ts={}) at {}",
@@ -366,7 +349,7 @@ impl SchedulerRuntime {
                 loaded = Some(snapshot);
                 self.journal_applied = true;
                 if self.state_writable {
-                    // Ensure we rewrite `state.json` so that it incorporates the journaled state.
+                    // Ensure we rewrite state so that it incorporates the journaled state.
                     self.dirty = true;
                 }
             }
@@ -1134,7 +1117,16 @@ mod tests {
         let journal_after = std::fs::read_to_string(&journal_path).unwrap();
         assert!(journal_after.trim().is_empty());
 
-        let state_after = std::fs::read_to_string(&state_path).unwrap();
-        assert!(state_after.contains("\"Finished\""));
+        // State is now saved in MessagePack format
+        let msgpack_path = dir.path().join("state.msgpack");
+        assert!(msgpack_path.exists(), "state.msgpack should exist");
+
+        // Verify the state was saved correctly by loading it back
+        let state_bytes = std::fs::read(&msgpack_path).unwrap();
+        let loaded_scheduler: Scheduler = rmp_serde::from_slice(&state_bytes).unwrap();
+        assert_eq!(
+            loaded_scheduler.get_job(1).unwrap().state,
+            JobState::Finished
+        );
     }
 }
