@@ -26,8 +26,17 @@ impl Default for TimelineConfig {
 
 /// Render reservations as a timeline visualization
 pub fn render_timeline(reservations: &[GpuReservation], config: TimelineConfig) {
+    render_timeline_to_writer(reservations, config, &mut std::io::stdout());
+}
+
+/// Render reservations as a timeline visualization to a writer (for testing)
+fn render_timeline_to_writer<W: std::io::Write>(
+    reservations: &[GpuReservation],
+    config: TimelineConfig,
+    writer: &mut W,
+) {
     if reservations.is_empty() {
-        println!("No reservations found.");
+        writeln!(writer, "No reservations found.").ok();
         return;
     }
 
@@ -35,13 +44,13 @@ pub fn render_timeline(reservations: &[GpuReservation], config: TimelineConfig) 
     let (range_start, range_end) = config.time_range;
 
     // Print header
-    println!("\nGPU Reservations Timeline");
-    println!("{}", "═".repeat(config.width));
+    writeln!(writer, "\nGPU Reservations Timeline").ok();
+    writeln!(writer, "{}", "═".repeat(config.width)).ok();
 
     // Print time axis
-    print_time_axis(range_start, range_end, config.width, now);
+    print_time_axis_to_writer(range_start, range_end, config.width, now, writer);
 
-    println!();
+    writeln!(writer).ok();
 
     // Sort reservations by start time
     let mut sorted_reservations = reservations.to_vec();
@@ -49,16 +58,31 @@ pub fn render_timeline(reservations: &[GpuReservation], config: TimelineConfig) 
 
     // Print each reservation
     for reservation in sorted_reservations {
-        print_reservation_bar(&reservation, range_start, range_end, config.width, now);
+        print_reservation_bar_to_writer(
+            &reservation,
+            range_start,
+            range_end,
+            config.width,
+            now,
+            writer,
+        );
     }
 
     // Print summary
-    println!();
-    print_summary(reservations, now);
+    writeln!(writer).ok();
+    print_summary_to_writer(reservations, now, writer);
 }
 
-/// Print the time axis with markers
-fn print_time_axis(start: SystemTime, end: SystemTime, width: usize, now: SystemTime) {
+/// Print the time axis with markers to a writer
+fn print_time_axis_to_writer<W: std::io::Write>(
+    start: SystemTime,
+    end: SystemTime,
+    width: usize,
+    now: SystemTime,
+    writer: &mut W,
+) {
+    use chrono::Timelike;
+
     let start_dt = system_time_to_datetime(start);
     let end_dt = system_time_to_datetime(end);
 
@@ -77,9 +101,27 @@ fn print_time_axis(start: SystemTime, end: SystemTime, width: usize, now: System
         12
     };
 
+    // Round start time to the nearest interval hour
+    // For example, if interval is 2 hours, round to 00:00, 02:00, 04:00, etc.
+    let start_hour = start_dt.hour();
+    let rounded_hour = (start_hour / interval_hours) * interval_hours;
+    let mut current = start_dt
+        .with_hour(rounded_hour)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap()
+        .with_nanosecond(0)
+        .unwrap();
+
+    // If rounded time is before start, move to next interval
+    if datetime_to_system_time(current) < start {
+        current += ChronoDuration::hours(interval_hours as i64);
+    }
+
     // Print time markers
     let mut time_markers = Vec::new();
-    let mut current = start_dt;
     let mut last_date = None;
     while current <= end_dt {
         let pos = time_to_position(datetime_to_system_time(current), start, end, width);
@@ -111,7 +153,7 @@ fn print_time_axis(start: SystemTime, end: SystemTime, width: usize, now: System
         axis[now_pos] = '┃';
     }
 
-    println!("{}", axis.iter().collect::<String>());
+    writeln!(writer, "{}", axis.iter().collect::<String>()).ok();
 
     // Print time labels
     let mut label_line = vec![' '; width];
@@ -144,16 +186,17 @@ fn print_time_axis(start: SystemTime, end: SystemTime, width: usize, now: System
         }
     }
 
-    println!("{}", label_line.iter().collect::<String>());
+    writeln!(writer, "{}", label_line.iter().collect::<String>()).ok();
 }
 
-/// Print a single reservation as a bar
-fn print_reservation_bar(
+/// Print a single reservation as a bar to a writer
+fn print_reservation_bar_to_writer<W: std::io::Write>(
     reservation: &GpuReservation,
     range_start: SystemTime,
     range_end: SystemTime,
     width: usize,
     _now: SystemTime,
+    writer: &mut W,
 ) {
     let res_start = reservation.start_time;
     let res_end = reservation.end_time();
@@ -163,15 +206,20 @@ fn print_reservation_bar(
         return;
     }
 
-    // Calculate bar position and length
+    // Label takes 16 characters (15 for label + 1 space)
+    const LABEL_WIDTH: usize = 16;
+    let bar_width = width.saturating_sub(LABEL_WIDTH);
+
+    // Calculate bar position and length using the FULL width (same as axis)
+    // This ensures alignment with the time axis
     let bar_start = time_to_position(res_start.max(range_start), range_start, range_end, width);
     let bar_end = time_to_position(res_end.min(range_end), range_start, range_end, width);
     let bar_length = bar_end.saturating_sub(bar_start).max(1);
 
-    // Create the bar
-    let mut bar = vec![' '; width];
+    // Create the bar with reduced width (to account for label)
+    let mut bar = vec![' '; bar_width];
 
-    // Fill the bar
+    // Fill the bar, but adjust positions to account for the label offset
     let bar_char = match reservation.status {
         ReservationStatus::Active => '█',
         ReservationStatus::Pending => '░',
@@ -181,8 +229,9 @@ fn print_reservation_bar(
 
     #[allow(clippy::needless_range_loop)]
     for pos in bar_start..bar_start + bar_length {
-        if pos < width {
-            bar[pos] = bar_char;
+        // Adjust position: subtract LABEL_WIDTH because the bar area starts after the label
+        if pos >= LABEL_WIDTH && pos - LABEL_WIDTH < bar_width {
+            bar[pos - LABEL_WIDTH] = bar_char;
         }
     }
 
@@ -197,7 +246,7 @@ fn print_reservation_bar(
     // Print user label and bar
     let bar_str: String = bar.iter().collect();
 
-    println!("{:<15} {}", label, bar_str);
+    writeln!(writer, "{:<15} {}", label, bar_str).ok();
 
     // Print status info below
     let status_info = format!(
@@ -206,7 +255,7 @@ fn print_reservation_bar(
         format_time_short(res_start),
         format_time_short(res_end)
     );
-    println!("{}", status_info);
+    writeln!(writer, "{}", status_info).ok();
 }
 
 /// Convert time to position on the timeline
@@ -246,8 +295,12 @@ fn format_time_short(time: SystemTime) -> String {
     dt.format("%H:%M").to_string()
 }
 
-/// Print summary statistics
-fn print_summary(reservations: &[GpuReservation], now: SystemTime) {
+/// Print summary statistics to a writer
+fn print_summary_to_writer<W: std::io::Write>(
+    reservations: &[GpuReservation],
+    now: SystemTime,
+    writer: &mut W,
+) {
     let active_count = reservations.iter().filter(|r| r.is_active(now)).count();
 
     let pending_count = reservations
@@ -261,13 +314,19 @@ fn print_summary(reservations: &[GpuReservation], now: SystemTime) {
         .map(|r| r.gpu_count)
         .sum();
 
-    println!("{}", "─".repeat(80));
-    println!(
+    writeln!(writer, "{}", "─".repeat(80)).ok();
+    writeln!(
+        writer,
         "Summary: {} active, {} pending | {} GPUs currently reserved",
         active_count, pending_count, total_active_gpus
-    );
-    println!();
-    println!("Legend: █ Active  ░ Pending  ▓ Completed  ▒ Cancelled");
+    )
+    .ok();
+    writeln!(writer).ok();
+    writeln!(
+        writer,
+        "Legend: █ Active  ░ Pending  ▓ Completed  ▒ Cancelled"
+    )
+    .ok();
 }
 
 /// Convert SystemTime to DateTime<Local>
@@ -328,5 +387,213 @@ mod tests {
         let config = TimelineConfig::default();
         // Should not panic
         render_timeline(&[reservation], config);
+    }
+
+    #[test]
+    fn test_timeline_alignment() {
+        // Create a fixed time range for deterministic testing
+        let base_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let range_start = base_time;
+        let range_end = base_time + Duration::from_secs(12 * 3600); // 12 hours
+
+        // Create a reservation in the middle of the range
+        let res_start = base_time + Duration::from_secs(6 * 3600); // 6 hours from start
+        let reservation = GpuReservation {
+            id: 1,
+            user: CompactString::from("testuser"),
+            gpu_count: 1,
+            start_time: res_start,
+            duration: Duration::from_secs(2 * 3600), // 2 hours duration
+            status: ReservationStatus::Active,
+            created_at: base_time,
+            cancelled_at: None,
+        };
+
+        let config = TimelineConfig {
+            width: 80,
+            time_range: (range_start, range_end),
+        };
+
+        // Render to a buffer
+        let mut output = Vec::new();
+        render_timeline_to_writer(&[reservation], config, &mut output);
+        let output_str = String::from_utf8(output).unwrap();
+
+        // Verify output contains expected elements
+        assert!(output_str.contains("GPU Reservations Timeline"));
+        assert!(output_str.contains("testuser (1 GPU)"));
+        assert!(output_str.contains("Active"));
+        assert!(output_str.contains("Legend:"));
+
+        // Verify alignment: axis should start at position 0, bars at position 16
+        let lines: Vec<&str> = output_str.lines().collect();
+
+        // Find the axis line (contains ┬ or ─)
+        let axis_line = lines
+            .iter()
+            .find(|l| l.contains('┬') || l.contains('─'))
+            .unwrap();
+
+        // Find the reservation bar line (contains █ or ░)
+        let bar_line = lines
+            .iter()
+            .find(|l| l.contains('█') || l.contains('░'))
+            .unwrap();
+
+        // Axis should start at position 0 (no leading spaces)
+        let axis_prefix_len = axis_line.chars().take_while(|c| *c == ' ').count();
+        assert_eq!(axis_prefix_len, 0, "Axis should start at position 0");
+
+        // Bar line should have a label prefix (15 chars) + 1 space = 16 chars
+        // Then the bar characters start
+        let bar_char_pos = bar_line.chars().position(|c| c == '█' || c == '░').unwrap();
+        assert!(
+            bar_char_pos >= 16,
+            "Bar should start at or after position 16 (after label), found at {}",
+            bar_char_pos
+        );
+    }
+
+    #[test]
+    fn test_timeline_bar_position() {
+        // Test that bars are positioned correctly relative to time range
+        let base_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let range_start = base_time;
+        let range_end = base_time + Duration::from_secs(10 * 3600); // 10 hours
+        let width = 100;
+
+        // Reservation at the start
+        let res_at_start = GpuReservation {
+            id: 1,
+            user: CompactString::from("user1"),
+            gpu_count: 1,
+            start_time: range_start,
+            duration: Duration::from_secs(1 * 3600), // 1 hour
+            status: ReservationStatus::Pending,
+            created_at: base_time,
+            cancelled_at: None,
+        };
+
+        // Reservation in the middle
+        let res_at_middle = GpuReservation {
+            id: 2,
+            user: CompactString::from("user2"),
+            gpu_count: 1,
+            start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
+            duration: Duration::from_secs(1 * 3600),                 // 1 hour
+            status: ReservationStatus::Active,
+            created_at: base_time,
+            cancelled_at: None,
+        };
+
+        let config = TimelineConfig {
+            width,
+            time_range: (range_start, range_end),
+        };
+
+        let mut output = Vec::new();
+        render_timeline_to_writer(&[res_at_start, res_at_middle], config, &mut output);
+        let output_str = String::from_utf8(output).unwrap();
+
+        // Both reservations should be rendered
+        assert!(output_str.contains("user1"));
+        assert!(output_str.contains("user2"));
+
+        // Verify status characters are present
+        assert!(output_str.contains('░')); // Pending
+        assert!(output_str.contains('█')); // Active
+    }
+
+    #[test]
+    fn test_timeline_end_to_end_output() {
+        // End-to-end test with exact output verification
+        // Use a fixed time range for deterministic output
+        let base_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let range_start = base_time;
+        let range_end = base_time + Duration::from_secs(8 * 3600); // 8 hours
+
+        // Create two reservations with known positions
+        let reservation1 = GpuReservation {
+            id: 1,
+            user: CompactString::from("alice"),
+            gpu_count: 2,
+            start_time: range_start + Duration::from_secs(2 * 3600), // 2 hours from start
+            duration: Duration::from_secs(2 * 3600),                 // 2 hours duration
+            status: ReservationStatus::Active,
+            created_at: base_time,
+            cancelled_at: None,
+        };
+
+        let reservation2 = GpuReservation {
+            id: 2,
+            user: CompactString::from("bob"),
+            gpu_count: 1,
+            start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
+            duration: Duration::from_secs(1 * 3600),                 // 1 hour duration
+            status: ReservationStatus::Pending,
+            created_at: base_time,
+            cancelled_at: None,
+        };
+
+        let config = TimelineConfig {
+            width: 80,
+            time_range: (range_start, range_end),
+        };
+
+        let mut output = Vec::new();
+        render_timeline_to_writer(&[reservation1, reservation2], config, &mut output);
+        let actual_output = String::from_utf8(output).unwrap();
+
+        // Expected output - generated from actual output
+        // Time markers are now aligned to even hours (08:00, 10:00, 12:00)
+        let expected_lines = vec![
+            "",
+            "GPU Reservations Timeline",
+            "════════════════════════════════════════════════════════════════════════════════",
+            "──────────────────┬───────────────────┬───────────────────┬───────────────────┬─",
+            "                  11/15 08:00         10:00               12:00                 ",
+            "",
+            "alice (2 GPUs)      ████████████████████                                        ",
+            "  └─ Active (08:13→10:13)",
+            "bob (1 GPU)                                       ░░░░░░░░░░                    ",
+            "  └─ Pending (11:13→12:13)",
+            "",
+            "────────────────────────────────────────────────────────────────────────────────",
+            "Summary: 0 active, 1 pending | 0 GPUs currently reserved",
+            "",
+            "Legend: █ Active  ░ Pending  ▓ Completed  ▒ Cancelled",
+        ];
+        let expected_output = expected_lines.join("\n") + "\n";
+
+        // Compare line by line for better error messages
+        let actual_lines: Vec<&str> = actual_output.lines().collect();
+        let expected_lines: Vec<&str> = expected_output.lines().collect();
+
+        if actual_lines.len() != expected_lines.len() {
+            eprintln!("=== ACTUAL OUTPUT ===");
+            eprintln!("{}", actual_output);
+            eprintln!("=== EXPECTED OUTPUT ===");
+            eprintln!("{}", expected_output);
+            panic!(
+                "Output should have {} lines, but got {}",
+                expected_lines.len(),
+                actual_lines.len()
+            );
+        }
+
+        for (i, (actual, expected)) in actual_lines.iter().zip(expected_lines.iter()).enumerate() {
+            if actual != expected {
+                eprintln!("Line {} mismatch:", i);
+                eprintln!("Expected: {:?} (len={})", expected, expected.len());
+                eprintln!("Actual:   {:?} (len={})", actual, actual.len());
+                panic!("Line {} does not match", i);
+            }
+        }
+
+        // Verify complete output matches
+        assert_eq!(
+            actual_output, expected_output,
+            "Complete output should match exactly"
+        );
     }
 }

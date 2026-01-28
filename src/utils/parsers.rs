@@ -257,23 +257,43 @@ pub fn parse_since_time(time_str: &str) -> Result<i64> {
 /// assert!(parse_reservation_time("2026-01-28 14:00").is_ok());
 /// ```
 pub fn parse_reservation_time(time_str: &str) -> Result<SystemTime> {
-    use chrono::{DateTime, NaiveDateTime};
+    use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Timelike};
 
     // Try ISO8601 format first
-    if let Ok(dt) = DateTime::parse_from_rfc3339(time_str) {
-        return Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64));
+    let dt = if let Ok(dt) = DateTime::parse_from_rfc3339(time_str) {
+        dt.with_timezone(&Local)
+    } else if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M") {
+        // Try "YYYY-MM-DD HH:MM" format - interpret as local time
+        Local
+            .from_local_datetime(&dt)
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("Ambiguous or invalid local time: {}", time_str))?
+    } else {
+        anyhow::bail!(
+            "Invalid time format: {}. Use ISO8601 (e.g., '2026-01-28T14:00:00Z') or 'YYYY-MM-DD HH:MM'",
+            time_str
+        )
+    };
+
+    // Validate that minutes are either 00 or 30
+    let minute = dt.minute();
+    if minute != 0 && minute != 30 {
+        anyhow::bail!(
+            "Reservation time must be on the hour (:00) or half-hour (:30). Got: {}",
+            time_str
+        );
     }
 
-    // Try "YYYY-MM-DD HH:MM" format
-    if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M") {
-        let timestamp = dt.and_utc().timestamp();
-        return Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(timestamp as u64));
+    // Validate that seconds are 00
+    if dt.second() != 0 {
+        anyhow::bail!(
+            "Reservation time must not include seconds. Got: {}",
+            time_str
+        );
     }
 
-    anyhow::bail!(
-        "Invalid time format: {}. Use ISO8601 (e.g., '2026-01-28T14:00:00Z') or 'YYYY-MM-DD HH:MM'",
-        time_str
-    )
+    let timestamp = dt.timestamp();
+    Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(timestamp as u64))
 }
 
 /// Parse duration string for GPU reservations (e.g., "1h", "30m", "2h30m").
@@ -281,9 +301,9 @@ pub fn parse_reservation_time(time_str: &str) -> Result<SystemTime> {
 /// Supported formats:
 /// - `"1h"` — hours
 /// - `"30m"` — minutes
-/// - `"45s"` — seconds
 /// - `"2h30m"` — combined (hours and minutes)
-/// - `"1h30m45s"` — combined (hours, minutes, and seconds)
+///
+/// **Restriction**: Duration must be a multiple of 30 minutes (0.5 hours).
 ///
 /// # Examples
 ///
@@ -310,20 +330,27 @@ pub fn parse_reservation_duration(duration_str: &str) -> Result<u64> {
             total_secs += minutes * SECONDS_PER_MINUTE;
             current_num.clear();
         } else if ch == 's' || ch == 'S' {
-            let seconds: u64 = current_num.parse().context("Invalid number before 's'")?;
-            total_secs += seconds;
-            current_num.clear();
+            anyhow::bail!("Seconds are not allowed in reservation duration. Use hours (h) or minutes (m) only.");
         } else {
             anyhow::bail!("Invalid character in duration: {}", ch);
         }
     }
 
     if !current_num.is_empty() {
-        anyhow::bail!("Duration must end with a unit (h, m, or s)");
+        anyhow::bail!("Duration must end with a unit (h or m)");
     }
 
     if total_secs == 0 {
         anyhow::bail!("Duration must be greater than 0");
+    }
+
+    // Validate that duration is a multiple of 30 minutes (1800 seconds)
+    const HALF_HOUR_SECS: u64 = 1800;
+    if !total_secs.is_multiple_of(HALF_HOUR_SECS) {
+        anyhow::bail!(
+            "Reservation duration must be a multiple of 30 minutes (e.g., 30m, 1h, 1h30m, 2h). Got: {}",
+            duration_str
+        );
     }
 
     Ok(total_secs)
@@ -541,20 +568,34 @@ mod tests {
     // Tests for parse_reservation_time
     #[test]
     fn test_parse_reservation_time_iso8601() {
+        // Valid: on the hour
         let result = parse_reservation_time("2026-01-28T14:00:00Z");
         assert!(result.is_ok());
 
-        let result = parse_reservation_time("2024-12-31T23:59:59+00:00");
+        // Valid: half hour
+        let result = parse_reservation_time("2026-01-28T14:30:00Z");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_parse_reservation_time_yyyy_mm_dd_hh_mm() {
+        // Valid: on the hour
         let result = parse_reservation_time("2026-01-28 14:00");
         assert!(result.is_ok());
 
-        let result = parse_reservation_time("2024-12-31 23:59");
+        // Valid: half hour
+        let result = parse_reservation_time("2026-01-28 14:30");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_reservation_time_invalid_minutes() {
+        // Invalid: not on hour or half-hour
+        assert!(parse_reservation_time("2026-01-28 14:15").is_err());
+        assert!(parse_reservation_time("2026-01-28 14:45").is_err());
+        assert!(parse_reservation_time("2026-01-28 14:01").is_err());
+        assert!(parse_reservation_time("2026-01-28 14:59").is_err());
+        assert!(parse_reservation_time("2026-01-28T14:15:00Z").is_err());
     }
 
     #[test]
@@ -774,12 +815,26 @@ mod tests {
 
     #[test]
     fn test_parse_reservation_duration() {
-        assert_eq!(parse_reservation_duration("1h").unwrap(), 3600);
+        // Valid: multiples of 30 minutes
         assert_eq!(parse_reservation_duration("30m").unwrap(), 1800);
+        assert_eq!(parse_reservation_duration("1h").unwrap(), 3600);
+        assert_eq!(parse_reservation_duration("1h30m").unwrap(), 5400);
+        assert_eq!(parse_reservation_duration("2h").unwrap(), 7200);
         assert_eq!(parse_reservation_duration("2h30m").unwrap(), 9000);
-        assert_eq!(parse_reservation_duration("1h30m45s").unwrap(), 5445);
         assert_eq!(parse_reservation_duration("90m").unwrap(), 5400);
 
+        // Invalid: not multiples of 30 minutes
+        assert!(parse_reservation_duration("15m").is_err());
+        assert!(parse_reservation_duration("45m").is_err());
+        assert!(parse_reservation_duration("1h15m").is_err());
+        assert!(parse_reservation_duration("1h45m").is_err());
+        assert!(parse_reservation_duration("20m").is_err());
+
+        // Invalid: seconds not allowed
+        assert!(parse_reservation_duration("1h30m45s").is_err());
+        assert!(parse_reservation_duration("30s").is_err());
+
+        // Invalid: format errors
         assert!(parse_reservation_duration("").is_err());
         assert!(parse_reservation_duration("1").is_err());
         assert!(parse_reservation_duration("abc").is_err());
