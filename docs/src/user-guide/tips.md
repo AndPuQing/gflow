@@ -111,7 +111,7 @@ gjob redo <job_id> --cascade
 
 ## Restrict GPUs at Runtime
 
-Reserve a GPU for non-gflow workloads:
+Keep GPUs free for non-gflow workloads by restricting what gflow can allocate:
 
 ```bash
 gctl set-gpus 0,2
@@ -120,6 +120,19 @@ gctl set-gpus all
 ```
 
 See also: [Configuration -> GPU Selection](./configuration#gpu-selection).
+
+## GPU Reservations (`gctl reserve`)
+
+Block out GPUs for a user/time window (e.g. a demo) so other users can't take them while the reservation is active.
+
+```bash
+gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+gctl reserve list --active
+gctl reserve list --timeline --range 48h
+gctl reserve cancel <reservation_id>
+```
+
+`--start` supports ISO8601 (e.g. `2026-01-28T14:00:00Z`) or `YYYY-MM-DD HH:MM` (local time). Times must be on `:00` or `:30`; durations are multiples of 30 minutes.
 
 ## See Also
 

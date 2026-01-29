@@ -44,3 +44,39 @@ gctl set-limit <job_id> 2
 gctl set-limit <group_id> 2
 ```
 
+### `gctl reserve create --user <user> --gpus <n> --start <time> --duration <duration>`
+
+创建 GPU 预留（按 GPU 数量）并绑定到指定用户。
+
+```bash
+gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+```
+
+`--start` 支持 ISO8601（例如 `2026-01-28T14:00:00Z`）或 `YYYY-MM-DD HH:MM`（本地时间）。开始时间分钟必须是 `00` 或 `30`；时长必须是 30 分钟的整数倍。
+
+### `gctl reserve list`
+
+列出预留记录。
+
+```bash
+gctl reserve list
+gctl reserve list --active
+gctl reserve list --user alice --status active
+gctl reserve list --timeline --range 48h
+```
+
+### `gctl reserve get <reservation_id>`
+
+查看某条预留的详细信息。
+
+```bash
+gctl reserve get <reservation_id>
+```
+
+### `gctl reserve cancel <reservation_id>`
+
+取消预留。
+
+```bash
+gctl reserve cancel <reservation_id>
+```

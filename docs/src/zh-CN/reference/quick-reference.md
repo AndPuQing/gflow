@@ -124,6 +124,12 @@ gctl set-gpus all
 
 # 任务组并发限制
 gctl set-limit <job_or_group_id> 2
+
+# GPU 预留（按用户/时间窗口预留 GPU）
+gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+gctl reserve list --active
+gctl reserve list --timeline --range 48h
+gctl reserve cancel <reservation_id>
 ```
 
 ## 时间格式（`--time`）

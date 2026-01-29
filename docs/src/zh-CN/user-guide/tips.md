@@ -111,7 +111,7 @@ gjob redo <job_id> --cascade
 
 ## 运行时限制可用 GPU
 
-给非 gflow 工作负载预留 GPU：
+通过限制 gflow 允许分配的 GPU，给非 gflow 工作负载留出 GPU：
 
 ```bash
 gctl set-gpus 0,2
@@ -120,6 +120,19 @@ gctl set-gpus all
 ```
 
 另见：[配置 -> GPU 选择](./configuration#gpu-selection)。
+
+## GPU 预留（`gctl reserve`）
+
+为某个用户在某段时间内预留 GPU（例如演示/会议）；预留生效期间，其他用户无法占用这部分 GPU。
+
+```bash
+gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+gctl reserve list --active
+gctl reserve list --timeline --range 48h
+gctl reserve cancel <reservation_id>
+```
+
+`--start` 支持 ISO8601（例如 `2026-01-28T14:00:00Z`）或 `YYYY-MM-DD HH:MM`（本地时间）。开始时间分钟必须是 `00` 或 `30`；时长必须是 30 分钟的整数倍。
 
 ## 另见
 
