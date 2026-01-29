@@ -47,8 +47,19 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
                 status,
                 active,
                 timeline,
+                range,
+                from,
+                to,
             } => {
-                reserve_list::handle_reserve_list(client, user, status, active, timeline).await?;
+                reserve_list::handle_reserve_list(
+                    client,
+                    user,
+                    status,
+                    active,
+                    timeline,
+                    reserve_list::TimelineRangeOpts { range, from, to },
+                )
+                .await?;
             }
             cli::ReserveCommands::Get { id } => {
                 reserve_get::handle_reserve_get(client, id).await?;

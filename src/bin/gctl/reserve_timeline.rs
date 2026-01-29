@@ -359,7 +359,7 @@ mod tests {
         // At middle
         let middle = start + Duration::from_secs(1800);
         let pos = time_to_position(middle, start, end, width);
-        assert!(pos >= 49 && pos <= 51); // Allow for rounding
+        assert!((49..=51).contains(&pos)); // Allow for rounding
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
             user: CompactString::from("user1"),
             gpu_count: 1,
             start_time: range_start,
-            duration: Duration::from_secs(1 * 3600), // 1 hour
+            duration: Duration::from_secs(3600), // 1 hour
             status: ReservationStatus::Pending,
             created_at: base_time,
             cancelled_at: None,
@@ -480,7 +480,7 @@ mod tests {
             user: CompactString::from("user2"),
             gpu_count: 1,
             start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
-            duration: Duration::from_secs(1 * 3600),                 // 1 hour
+            duration: Duration::from_secs(3600),                     // 1 hour
             status: ReservationStatus::Active,
             created_at: base_time,
             cancelled_at: None,
@@ -529,7 +529,7 @@ mod tests {
             user: CompactString::from("bob"),
             gpu_count: 1,
             start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
-            duration: Duration::from_secs(1 * 3600),                 // 1 hour duration
+            duration: Duration::from_secs(3600),                     // 1 hour duration
             status: ReservationStatus::Pending,
             created_at: base_time,
             cancelled_at: None,

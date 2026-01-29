@@ -84,6 +84,33 @@ pub enum ReserveCommands {
         /// Display as timeline visualization
         #[arg(long)]
         timeline: bool,
+        /// Timeline time range (relative to now). Formats:
+        /// - "48h" (now..now+48h)
+        /// - "-24h" (now-24h..now)
+        /// - "-24h:+24h" (now-24h..now+24h)
+        #[arg(
+            long,
+            value_name = "RANGE",
+            requires = "timeline",
+            conflicts_with_all = ["from", "to"]
+        )]
+        range: Option<String>,
+        /// Timeline range start time (ISO8601 or "YYYY-MM-DD HH:MM").
+        #[arg(
+            long,
+            value_name = "TIME",
+            requires_all = ["timeline", "to"],
+            conflicts_with = "range"
+        )]
+        from: Option<String>,
+        /// Timeline range end time (ISO8601 or "YYYY-MM-DD HH:MM").
+        #[arg(
+            long,
+            value_name = "TIME",
+            requires_all = ["timeline", "from"],
+            conflicts_with = "range"
+        )]
+        to: Option<String>,
     },
 
     /// Get details of a specific reservation
