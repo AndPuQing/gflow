@@ -866,13 +866,13 @@ impl SchedulerRuntime {
     pub fn create_reservation(
         &mut self,
         user: compact_str::CompactString,
-        gpu_count: u32,
+        gpu_spec: gflow::core::reservation::GpuSpec,
         start_time: std::time::SystemTime,
         duration: std::time::Duration,
     ) -> anyhow::Result<u32> {
         let result = self
             .scheduler
-            .create_reservation(user, gpu_count, start_time, duration)?;
+            .create_reservation(user, gpu_spec, start_time, duration)?;
         self.mark_dirty();
         Ok(result)
     }

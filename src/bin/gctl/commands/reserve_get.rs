@@ -1,6 +1,6 @@
 use anyhow::Result;
 use gflow::client::Client;
-use gflow::core::reservation::ReservationStatus;
+use gflow::core::reservation::{GpuSpec, ReservationStatus};
 use gflow::print_field;
 
 pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
@@ -11,7 +11,22 @@ pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
             println!("Reservation Details:");
             print_field!("ID", "{}", r.id);
             print_field!("User", "{}", r.user);
-            print_field!("GPUCount", "{}", r.gpu_count);
+
+            // Display GPU specification
+            match &r.gpu_spec {
+                GpuSpec::Count(count) => {
+                    print_field!("GPUCount", "{}", count);
+                }
+                GpuSpec::Indices(indices) => {
+                    let indices_str = indices
+                        .iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    print_field!("GPUIndices", "{}", indices_str);
+                }
+            }
+
             print_field!(
                 "StartTime",
                 "{}",

@@ -606,10 +606,25 @@ impl Scheduler {
 
             // Now allocate resources if all checks pass
             if has_enough_gpus && has_enough_memory && within_group_limit && respects_reservations {
+                // Get user name before mutable borrow
+                let job_user = if let Some(job) = self.get_job(job_id) {
+                    job.submitted_by.clone()
+                } else {
+                    continue;
+                };
+
+                // Filter out GPUs that are reserved by other users
+                let usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
+
                 if let Some(job) = self.get_job_mut(job_id) {
-                    let gpus_for_job = available_gpus
-                        .drain(..job.gpus as usize)
+                    let gpus_for_job = usable_gpus
+                        .into_iter()
+                        .take(job.gpus as usize)
                         .collect::<Vec<_>>();
+
+                    // Remove allocated GPUs from available pool
+                    available_gpus.retain(|gpu| !gpus_for_job.contains(gpu));
+
                     job.gpu_ids = Some(gpus_for_job);
 
                     // Set state to Running and allocate memory
@@ -801,14 +816,17 @@ impl Scheduler {
     pub fn create_reservation(
         &mut self,
         user: CompactString,
-        gpu_count: u32,
+        gpu_spec: crate::core::reservation::GpuSpec,
         start_time: std::time::SystemTime,
         duration: std::time::Duration,
     ) -> anyhow::Result<u32> {
-        use crate::core::reservation::{GpuReservation, ReservationStatus};
+        use crate::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
+        use std::collections::HashSet;
 
-        // Validate GPU count
+        // Validate GPU spec
         let total_gpus = self.gpu_slots_count() as u32;
+        let gpu_count = gpu_spec.count();
+
         if gpu_count == 0 {
             anyhow::bail!("GPU count must be greater than 0");
         }
@@ -820,15 +838,31 @@ impl Scheduler {
             );
         }
 
+        // Validate GPU indices if specified
+        if let Some(indices) = gpu_spec.indices() {
+            for &idx in indices {
+                if idx >= total_gpus {
+                    anyhow::bail!(
+                        "GPU index {} is out of range (available: 0-{})",
+                        idx,
+                        total_gpus - 1
+                    );
+                }
+            }
+        }
+
         // Validate start time (not in past)
         let now = std::time::SystemTime::now();
         if start_time < now {
             anyhow::bail!("Start time cannot be in the past");
         }
 
-        // Check for conflicts with existing reservations
+        // Check for conflicts with existing reservations using smart allocation logic
         let end_time = start_time + duration;
-        let mut total_reserved_at_time = 0u32;
+
+        // Collect reserved indices and count-based reservations
+        let mut reserved_indices = HashSet::new();
+        let mut count_based_reserved = 0u32;
 
         for reservation in &self.reservations {
             if reservation.status == ReservationStatus::Cancelled {
@@ -836,17 +870,57 @@ impl Scheduler {
             }
 
             if reservation.overlaps_with(start_time, end_time) {
-                total_reserved_at_time += reservation.gpu_count;
+                match &reservation.gpu_spec {
+                    GpuSpec::Indices(indices) => {
+                        reserved_indices.extend(indices.iter().copied());
+                    }
+                    GpuSpec::Count(count) => {
+                        count_based_reserved += count;
+                    }
+                }
             }
         }
 
-        if total_reserved_at_time + gpu_count > total_gpus {
-            anyhow::bail!(
-                "Reservation conflicts: {} GPUs already reserved during this time, cannot reserve {} more (total: {})",
-                total_reserved_at_time,
-                gpu_count,
-                total_gpus
-            );
+        // Validate new reservation based on its type
+        match &gpu_spec {
+            GpuSpec::Indices(new_indices) => {
+                // Check if any requested index is already reserved
+                for &idx in new_indices {
+                    if reserved_indices.contains(&idx) {
+                        anyhow::bail!(
+                            "GPU index {} is already reserved during this time period",
+                            idx
+                        );
+                    }
+                }
+
+                // Check if there are enough unreserved GPUs for count-based reservations
+                let available_for_count = total_gpus
+                    .saturating_sub(reserved_indices.len() as u32)
+                    .saturating_sub(new_indices.len() as u32);
+
+                if count_based_reserved > available_for_count {
+                    anyhow::bail!(
+                        "Cannot reserve GPU indices: would leave insufficient GPUs ({}) for existing count-based reservations ({})",
+                        available_for_count,
+                        count_based_reserved
+                    );
+                }
+            }
+            GpuSpec::Count(new_count) => {
+                // Count-based reservation needs enough unreserved GPUs
+                let available_for_count = total_gpus.saturating_sub(reserved_indices.len() as u32);
+
+                if count_based_reserved + new_count > available_for_count {
+                    anyhow::bail!(
+                        "Reservation conflicts: {} GPUs explicitly reserved, {} GPUs reserved by count, cannot reserve {} more (total: {})",
+                        reserved_indices.len(),
+                        count_based_reserved,
+                        new_count,
+                        total_gpus
+                    );
+                }
+            }
         }
 
         // Create reservation
@@ -856,7 +930,7 @@ impl Scheduler {
         let reservation = GpuReservation {
             id,
             user,
-            gpu_count,
+            gpu_spec,
             start_time,
             duration,
             status: ReservationStatus::Pending,
@@ -981,6 +1055,9 @@ impl Scheduler {
         job_gpu_count: u32,
         available_gpus: &[u32],
     ) -> bool {
+        use crate::core::reservation::GpuSpec;
+        use std::collections::HashSet;
+
         let active_reservations = self.get_active_reservations();
 
         if active_reservations.is_empty() {
@@ -989,29 +1066,109 @@ impl Scheduler {
 
         let total_gpus = self.gpu_slots_count() as u32;
 
-        // Calculate total reserved GPUs and reserved GPUs for this user
-        let mut total_reserved = 0u32;
-        let mut user_reserved = 0u32;
+        // Collect reserved GPU indices by other users
+        let mut blocked_indices = HashSet::new();
+        let mut user_reserved_count = 0u32;
+        let mut user_reserved_indices = Vec::new();
+        let mut other_count_reserved = 0u32;
 
         for reservation in &active_reservations {
-            total_reserved += reservation.gpu_count;
             if reservation.user == job_user {
-                user_reserved += reservation.gpu_count;
+                // This user's reservations
+                match &reservation.gpu_spec {
+                    GpuSpec::Indices(indices) => {
+                        user_reserved_indices.extend(indices.iter().copied());
+                    }
+                    GpuSpec::Count(count) => {
+                        user_reserved_count += count;
+                    }
+                }
+            } else {
+                // Other users' reservations
+                match &reservation.gpu_spec {
+                    GpuSpec::Indices(indices) => {
+                        // Block specific GPU indices reserved by others
+                        blocked_indices.extend(indices.iter().copied());
+                    }
+                    GpuSpec::Count(count) => {
+                        // Other users' count-based reservations
+                        other_count_reserved += count;
+                    }
+                }
             }
         }
 
-        // Calculate unreserved GPUs
-        let unreserved_gpus = total_gpus.saturating_sub(total_reserved);
-
-        // If user has reservation, they can use their reserved GPUs
-        if user_reserved > 0 {
-            // User can use up to their reserved GPU count
-            job_gpu_count <= user_reserved
-        } else {
-            // User has no reservation, can only use unreserved GPUs
-            // Also check that there are enough available GPUs in the pool
-            job_gpu_count <= unreserved_gpus && job_gpu_count <= available_gpus.len() as u32
+        // If user has index-based reservation, they can use those specific GPUs
+        if !user_reserved_indices.is_empty() {
+            return job_gpu_count <= user_reserved_indices.len() as u32;
         }
+
+        // If user has count-based reservation, they can use unreserved GPUs
+        if user_reserved_count > 0 {
+            return job_gpu_count <= user_reserved_count;
+        }
+
+        // User has no reservation - can only use GPUs not blocked by index-based reservations
+        // and not needed by other count-based reservations
+        let available_for_unreserved = total_gpus
+            .saturating_sub(blocked_indices.len() as u32)
+            .saturating_sub(other_count_reserved);
+
+        // Check that job doesn't exceed available unreserved GPUs
+        // and that there are enough physically available GPUs
+        let usable_gpus: Vec<u32> = available_gpus
+            .iter()
+            .filter(|&&gpu| !blocked_indices.contains(&gpu))
+            .copied()
+            .collect();
+
+        job_gpu_count <= available_for_unreserved && job_gpu_count <= usable_gpus.len() as u32
+    }
+
+    /// Filter available GPUs to only include those usable by the given user
+    /// considering active reservations
+    fn filter_usable_gpus(&self, job_user: &str, available_gpus: &[u32]) -> Vec<u32> {
+        use crate::core::reservation::GpuSpec;
+        use std::collections::HashSet;
+
+        let active_reservations = self.get_active_reservations();
+
+        if active_reservations.is_empty() {
+            return available_gpus.to_vec();
+        }
+
+        // Collect reserved GPU indices and user's reservations
+        let mut blocked_indices = HashSet::new();
+        let mut user_reserved_indices = Vec::new();
+
+        for reservation in &active_reservations {
+            if reservation.user == job_user {
+                // This user's index-based reservations
+                if let GpuSpec::Indices(indices) = &reservation.gpu_spec {
+                    user_reserved_indices.extend(indices.iter().copied());
+                }
+            } else {
+                // Other users' index-based reservations block these GPUs
+                if let GpuSpec::Indices(indices) = &reservation.gpu_spec {
+                    blocked_indices.extend(indices.iter().copied());
+                }
+            }
+        }
+
+        // If user has index-based reservation, prioritize those GPUs
+        if !user_reserved_indices.is_empty() {
+            return user_reserved_indices
+                .into_iter()
+                .filter(|gpu| available_gpus.contains(gpu))
+                .collect();
+        }
+
+        // Otherwise, use any GPU not blocked by others
+        available_gpus
+            .iter()
+            .filter(|&&gpu| !blocked_indices.contains(&gpu))
+            .copied()
+            .collect()
     }
 }
 
@@ -1505,5 +1662,177 @@ mod tests {
             JobState::Cancelled
         );
         assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_create_reservation_with_indices() {
+        use crate::core::reservation::GpuSpec;
+        let mut scheduler = create_test_scheduler();
+
+        // Add some GPU slots
+        for i in 0..4 {
+            scheduler.gpu_slots.insert(
+                format!("GPU-{}", i),
+                GPUSlot {
+                    index: i,
+                    available: true,
+                    reason: None,
+                },
+            );
+        }
+
+        let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let duration = std::time::Duration::from_secs(7200);
+
+        // Create reservation with specific GPU indices
+        let result = scheduler.create_reservation(
+            "alice".into(),
+            GpuSpec::Indices(vec![0, 2]),
+            start_time,
+            duration,
+        );
+
+        assert!(result.is_ok());
+        let reservation_id = result.unwrap();
+        assert_eq!(reservation_id, 1);
+
+        let reservation = scheduler.get_reservation(reservation_id).unwrap();
+        assert_eq!(reservation.user, "alice");
+        assert_eq!(reservation.gpu_spec, GpuSpec::Indices(vec![0, 2]));
+        assert_eq!(reservation.gpu_spec.count(), 2);
+    }
+
+    #[test]
+    fn test_reservation_conflict_indices_vs_indices() {
+        use crate::core::reservation::GpuSpec;
+        let mut scheduler = create_test_scheduler();
+
+        // Add GPU slots
+        for i in 0..4 {
+            scheduler.gpu_slots.insert(
+                format!("GPU-{}", i),
+                GPUSlot {
+                    index: i,
+                    available: true,
+                    reason: None,
+                },
+            );
+        }
+
+        let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let duration = std::time::Duration::from_secs(7200);
+
+        // Create first reservation for GPU 0, 1
+        scheduler
+            .create_reservation(
+                "alice".into(),
+                GpuSpec::Indices(vec![0, 1]),
+                start_time,
+                duration,
+            )
+            .unwrap();
+
+        // Try to create overlapping reservation for GPU 1, 2 (should fail due to GPU 1 conflict)
+        let result = scheduler.create_reservation(
+            "bob".into(),
+            GpuSpec::Indices(vec![1, 2]),
+            start_time,
+            duration,
+        );
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("GPU index 1 is already reserved"));
+
+        // Create non-overlapping reservation for GPU 2, 3 (should succeed)
+        let result = scheduler.create_reservation(
+            "bob".into(),
+            GpuSpec::Indices(vec![2, 3]),
+            start_time,
+            duration,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reservation_conflict_count_vs_indices() {
+        use crate::core::reservation::GpuSpec;
+        let mut scheduler = create_test_scheduler();
+
+        // Add 4 GPU slots
+        for i in 0..4 {
+            scheduler.gpu_slots.insert(
+                format!("GPU-{}", i),
+                GPUSlot {
+                    index: i,
+                    available: true,
+                    reason: None,
+                },
+            );
+        }
+
+        let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let duration = std::time::Duration::from_secs(7200);
+
+        // Create index-based reservation for GPU 0, 1
+        scheduler
+            .create_reservation(
+                "alice".into(),
+                GpuSpec::Indices(vec![0, 1]),
+                start_time,
+                duration,
+            )
+            .unwrap();
+
+        // Try to create count-based reservation for 3 GPUs (should fail - only 2 unreserved GPUs left)
+        let result =
+            scheduler.create_reservation("bob".into(), GpuSpec::Count(3), start_time, duration);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("conflicts"));
+
+        // Create count-based reservation for 2 GPUs (should succeed - GPUs 2, 3 available)
+        let result =
+            scheduler.create_reservation("bob".into(), GpuSpec::Count(2), start_time, duration);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reservation_out_of_range_index() {
+        use crate::core::reservation::GpuSpec;
+        let mut scheduler = create_test_scheduler();
+
+        // Add only 2 GPU slots
+        for i in 0..2 {
+            scheduler.gpu_slots.insert(
+                format!("GPU-{}", i),
+                GPUSlot {
+                    index: i,
+                    available: true,
+                    reason: None,
+                },
+            );
+        }
+
+        let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        let duration = std::time::Duration::from_secs(7200);
+
+        // Try to reserve GPU index 3 (out of range)
+        let result = scheduler.create_reservation(
+            "alice".into(),
+            GpuSpec::Indices(vec![0, 3]),
+            start_time,
+            duration,
+        );
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("GPU index 3 is out of range"));
     }
 }

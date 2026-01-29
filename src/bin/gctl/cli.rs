@@ -59,9 +59,13 @@ pub enum ReserveCommands {
         /// Username for the reservation
         #[arg(long)]
         user: String,
-        /// Number of GPUs to reserve
-        #[arg(long)]
-        gpus: u32,
+        /// Number of GPUs to reserve (mutually exclusive with --gpu-spec)
+        #[arg(long, conflicts_with = "gpu_spec")]
+        gpus: Option<u32>,
+        /// GPU specification (e.g., "0,2" or "0-3" or "0-1,3,5-6")
+        /// Mutually exclusive with --gpus
+        #[arg(long, conflicts_with = "gpus")]
+        gpu_spec: Option<String>,
         /// Start time (ISO8601 format or "YYYY-MM-DD HH:MM")
         #[arg(long)]
         start: String,

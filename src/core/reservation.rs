@@ -15,6 +15,34 @@ pub enum ReservationStatus {
     Cancelled,
 }
 
+/// GPU specification for a reservation
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuSpec {
+    /// Reserve a specific number of GPUs (scheduler will allocate dynamically)
+    Count(u32),
+    /// Reserve specific GPU indices (e.g., [0, 2, 3])
+    Indices(Vec<u32>),
+}
+
+impl GpuSpec {
+    /// Get the number of GPUs in this specification
+    pub fn count(&self) -> u32 {
+        match self {
+            GpuSpec::Count(n) => *n,
+            GpuSpec::Indices(indices) => indices.len() as u32,
+        }
+    }
+
+    /// Get the GPU indices if this is an Indices spec, None otherwise
+    pub fn indices(&self) -> Option<&[u32]> {
+        match self {
+            GpuSpec::Indices(indices) => Some(indices),
+            GpuSpec::Count(_) => None,
+        }
+    }
+}
+
 /// A GPU reservation for a specific user
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuReservation {
@@ -22,8 +50,8 @@ pub struct GpuReservation {
     pub id: u32,
     /// Username who created the reservation
     pub user: CompactString,
-    /// Number of GPUs to reserve
-    pub gpu_count: u32,
+    /// GPU specification (count or specific indices)
+    pub gpu_spec: GpuSpec,
     /// When reservation starts
     pub start_time: SystemTime,
     /// How long reservation lasts
@@ -123,7 +151,7 @@ mod tests {
         let mut reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: start,
             duration,
             status: ReservationStatus::Pending,
@@ -163,7 +191,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: start,
             duration,
             status: ReservationStatus::Pending,
@@ -182,7 +210,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: start,
             duration,
             status: ReservationStatus::Pending,
@@ -235,7 +263,7 @@ mod tests {
         let mut reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: start,
             duration,
             status: ReservationStatus::Pending,
@@ -281,7 +309,7 @@ mod tests {
         let mut reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: start,
             duration,
             status: ReservationStatus::Pending,
@@ -303,7 +331,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration: Duration::from_secs(7200),
             status: ReservationStatus::Pending,
@@ -329,7 +357,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration,
             status: ReservationStatus::Active,
@@ -353,7 +381,7 @@ mod tests {
         let mut reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration: Duration::from_secs(3600),
             status: ReservationStatus::Completed,
@@ -368,5 +396,26 @@ mod tests {
         reservation.status = ReservationStatus::Cancelled;
         reservation.cancelled_at = Some(now);
         assert_eq!(reservation.next_transition_time(now), None);
+    }
+
+    #[test]
+    fn test_gpu_spec_count() {
+        let spec = GpuSpec::Count(4);
+        assert_eq!(spec.count(), 4);
+        assert_eq!(spec.indices(), None);
+    }
+
+    #[test]
+    fn test_gpu_spec_indices() {
+        let spec = GpuSpec::Indices(vec![0, 2, 3]);
+        assert_eq!(spec.count(), 3);
+        assert_eq!(spec.indices(), Some(&[0, 2, 3][..]));
+    }
+
+    #[test]
+    fn test_gpu_spec_empty_indices() {
+        let spec = GpuSpec::Indices(vec![]);
+        assert_eq!(spec.count(), 0);
+        assert_eq!(spec.indices(), Some(&[][..]));
     }
 }

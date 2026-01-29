@@ -514,16 +514,27 @@ impl Client {
     pub async fn create_reservation(
         &self,
         user: String,
-        gpu_count: u32,
+        gpu_spec: crate::core::reservation::GpuSpec,
         start_time: std::time::SystemTime,
         duration_secs: u64,
     ) -> anyhow::Result<u32> {
-        let request_body = serde_json::json!({
+        use crate::core::reservation::GpuSpec;
+
+        let mut request_body = serde_json::json!({
             "user": user,
-            "gpu_count": gpu_count,
             "start_time": start_time,
             "duration_secs": duration_secs,
         });
+
+        // Add gpu_count or gpu_indices based on spec type
+        match gpu_spec {
+            GpuSpec::Count(count) => {
+                request_body["gpu_count"] = serde_json::json!(count);
+            }
+            GpuSpec::Indices(indices) => {
+                request_body["gpu_indices"] = serde_json::json!(indices);
+            }
+        }
 
         let response = self
             .client

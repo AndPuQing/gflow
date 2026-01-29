@@ -9,12 +9,15 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 
-use gflow::core::reservation::{GpuReservation, ReservationStatus};
+use gflow::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReservationRequest {
     pub user: String,
-    pub gpu_count: u32,
+    /// GPU count (for count-based reservations)
+    pub gpu_count: Option<u32>,
+    /// GPU indices (for index-based reservations, e.g., [0, 2, 3])
+    pub gpu_indices: Option<Vec<u32>>,
     pub start_time: SystemTime,
     pub duration_secs: u64,
 }
@@ -40,8 +43,34 @@ pub async fn create_reservation(
     let duration = Duration::from_secs(req.duration_secs);
     let user = CompactString::from(req.user);
 
+    // Validate that exactly one of gpu_count or gpu_indices is provided
+    let gpu_spec = match (req.gpu_count, req.gpu_indices) {
+        (Some(count), None) => GpuSpec::Count(count),
+        (None, Some(indices)) => {
+            if indices.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "gpu_indices cannot be empty".to_string(),
+                ));
+            }
+            GpuSpec::Indices(indices)
+        }
+        (Some(_), Some(_)) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Cannot specify both gpu_count and gpu_indices".to_string(),
+            ));
+        }
+        (None, None) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Must specify either gpu_count or gpu_indices".to_string(),
+            ));
+        }
+    };
+
     let reservation_id = state
-        .create_reservation(user, req.gpu_count, req.start_time, duration)
+        .create_reservation(user, gpu_spec, req.start_time, duration)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     // Publish event

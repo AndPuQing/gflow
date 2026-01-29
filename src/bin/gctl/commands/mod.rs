@@ -36,11 +36,19 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
             cli::ReserveCommands::Create {
                 user,
                 gpus,
+                gpu_spec,
                 start,
                 duration,
             } => {
-                reserve_create::handle_reserve_create(client, &user, gpus, &start, &duration)
-                    .await?;
+                reserve_create::handle_reserve_create(
+                    client,
+                    &user,
+                    gpus.as_ref().copied(),
+                    gpu_spec.as_deref(),
+                    &start,
+                    &duration,
+                )
+                .await?;
             }
             cli::ReserveCommands::List {
                 user,

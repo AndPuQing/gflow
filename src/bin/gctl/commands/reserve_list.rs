@@ -78,11 +78,12 @@ pub async fn handle_reserve_list(
             let start_time = format_system_time_short(reservation.start_time);
             let end_time = format_system_time_short(reservation.end_time());
             let status_str = format_status(reservation.status);
+            let gpu_spec_str = format_gpu_spec(&reservation.gpu_spec);
 
             builder.push_record([
                 reservation.id.to_string(),
                 reservation.user.to_string(),
-                reservation.gpu_count.to_string(),
+                gpu_spec_str,
                 start_time,
                 end_time,
                 status_str,
@@ -189,6 +190,21 @@ fn format_status(status: ReservationStatus) -> String {
         ReservationStatus::Active => "Active".to_string(),
         ReservationStatus::Completed => "Completed".to_string(),
         ReservationStatus::Cancelled => "Cancelled".to_string(),
+    }
+}
+
+fn format_gpu_spec(spec: &gflow::core::reservation::GpuSpec) -> String {
+    use gflow::core::reservation::GpuSpec;
+    match spec {
+        GpuSpec::Count(count) => count.to_string(),
+        GpuSpec::Indices(indices) => {
+            // Format as comma-separated list
+            indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        }
     }
 }
 

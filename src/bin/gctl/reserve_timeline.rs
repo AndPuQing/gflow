@@ -252,13 +252,9 @@ fn print_reservation_bar_to_writer<W: std::io::Write>(
         }
     }
 
-    // Create label
-    let label = format!(
-        "{} ({} GPU{})",
-        reservation.user,
-        reservation.gpu_count,
-        if reservation.gpu_count > 1 { "s" } else { "" }
-    );
+    // Create label with GPU spec
+    let gpu_spec_str = format_gpu_spec(&reservation.gpu_spec);
+    let label = format!("{} (GPU: {})", reservation.user, gpu_spec_str);
 
     // Print user label and bar
     let bar_str: String = bar.iter().collect();
@@ -306,6 +302,24 @@ fn format_status(status: ReservationStatus) -> String {
     }
 }
 
+/// Format GPU spec for display
+fn format_gpu_spec(spec: &gflow::core::reservation::GpuSpec) -> String {
+    use gflow::core::reservation::GpuSpec;
+    match spec {
+        GpuSpec::Count(count) => {
+            format!("{} GPU{}", count, if *count > 1 { "s" } else { "" })
+        }
+        GpuSpec::Indices(indices) => {
+            let indices_str = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("GPU[{}]", indices_str)
+        }
+    }
+}
+
 /// Format time in short format (HH:MM)
 fn format_time_short(time: SystemTime) -> String {
     let dt = system_time_to_datetime(time);
@@ -333,7 +347,7 @@ fn print_summary_to_writer<W: std::io::Write>(
     let total_active_gpus: u32 = reservations
         .iter()
         .filter(|r| r.status == ReservationStatus::Active)
-        .map(|r| r.gpu_count)
+        .map(|r| r.gpu_spec.count())
         .sum();
 
     writeln!(writer, "{}", "─".repeat(80)).ok();
