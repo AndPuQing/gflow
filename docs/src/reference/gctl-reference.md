@@ -44,12 +44,19 @@ gctl set-limit <job_id> 2
 gctl set-limit <group_id> 2
 ```
 
-### `gctl reserve create --user <user> --gpus <n> --start <time> --duration <duration>`
+### `gctl reserve create`
 
-Create a GPU reservation (by GPU count) for a specific user.
+Create a GPU reservation for a specific user.
 
+**By GPU count** (scheduler allocates dynamically):
 ```bash
 gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+```
+
+**By specific GPU indices** (reserve exact GPUs):
+```bash
+gctl reserve create --user alice --gpu-spec 0,2 --start '2026-01-28 14:00' --duration 2h
+gctl reserve create --user bob --gpu-spec 0-3 --start '2026-01-28 16:00' --duration 1h
 ```
 
 `--start` supports ISO8601 (e.g. `2026-01-28T14:00:00Z`) or `YYYY-MM-DD HH:MM` (local time). Times must be on `:00` or `:30`; durations are multiples of 30 minutes.

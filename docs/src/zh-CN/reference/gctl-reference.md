@@ -44,12 +44,19 @@ gctl set-limit <job_id> 2
 gctl set-limit <group_id> 2
 ```
 
-### `gctl reserve create --user <user> --gpus <n> --start <time> --duration <duration>`
+### `gctl reserve create`
 
-创建 GPU 预留（按 GPU 数量）并绑定到指定用户。
+创建 GPU 预留并绑定到指定用户。
 
+**按 GPU 数量**（调度器动态分配）：
 ```bash
 gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h
+```
+
+**按具体 GPU 索引**（预留指定 GPU）：
+```bash
+gctl reserve create --user alice --gpu-spec 0,2 --start '2026-01-28 14:00' --duration 2h
+gctl reserve create --user bob --gpu-spec 0-3 --start '2026-01-28 16:00' --duration 1h
 ```
 
 `--start` 支持 ISO8601（例如 `2026-01-28T14:00:00Z`）或 `YYYY-MM-DD HH:MM`（本地时间）。开始时间分钟必须是 `00` 或 `30`；时长必须是 30 分钟的整数倍。
