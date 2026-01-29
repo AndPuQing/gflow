@@ -41,10 +41,11 @@ pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus
             event_bus.subscribe(),
             Arc::clone(&shared_state),
         )),
-        // Reservation monitor - updates statuses and cleans up every 60s
+        // Reservation monitor - uses precise timers for status transitions
         tokio::spawn(super::monitors::reservation_monitor_task(
             Arc::clone(&shared_state),
             Arc::clone(&event_bus),
+            event_bus.subscribe(),
         )),
         // Metrics updater - updates metrics every 5s
         #[cfg(feature = "metrics")]

@@ -229,20 +229,259 @@ pub(super) async fn metrics_updater_task(state: SharedState) {
     }
 }
 
-/// Reservation monitor task - updates reservation statuses every 60s
-pub(super) async fn reservation_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(60));
-
-    loop {
-        interval.tick().await;
-
+/// Reservation monitor task - uses precise timers for status transitions
+pub(super) async fn reservation_monitor_task(
+    state: SharedState,
+    event_bus: Arc<EventBus>,
+    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+) {
+    // CRITICAL: On startup/reload, immediately update reservation statuses
+    // to handle any transitions that occurred while gflowd was down
+    {
         let mut state_guard = state.write().await;
-
-        // Update reservation statuses (also removes completed/cancelled ones)
+        let before_count = state_guard.scheduler.reservations.len();
         state_guard.scheduler.update_reservation_statuses();
+        let after_count = state_guard.scheduler.reservations.len();
+
+        if before_count != after_count {
+            tracing::info!(
+                "Startup: Updated reservation statuses ({} -> {} active reservations)",
+                before_count,
+                after_count
+            );
+            state_guard.mark_dirty();
+        }
+        drop(state_guard);
 
         // Trigger scheduling in case reservations changed
-        drop(state_guard);
         event_bus.publish(SchedulerEvent::PeriodicHealthCheck);
+    }
+
+    loop {
+        // Calculate next transition time
+        let next_transition = {
+            let state_guard = state.read().await;
+            calculate_next_reservation_transition(&state_guard.scheduler.reservations)
+        };
+
+        match next_transition {
+            Some(deadline) => {
+                // Convert SystemTime to Instant for tokio
+                let now = std::time::SystemTime::now();
+                let sleep_duration = deadline
+                    .duration_since(now)
+                    .unwrap_or(Duration::from_secs(0));
+
+                // Wait until the next transition or a reservation change event
+                tokio::select! {
+                    _ = tokio::time::sleep(sleep_duration) => {
+                        // Transition time reached, update statuses
+                        let mut state_guard = state.write().await;
+                        state_guard.scheduler.update_reservation_statuses();
+                        drop(state_guard);
+                        event_bus.publish(SchedulerEvent::PeriodicHealthCheck);
+                    }
+                    result = events.recv() => {
+                        match result {
+                            Ok(SchedulerEvent::ReservationCreated { .. } | SchedulerEvent::ReservationCancelled { .. }) => {
+                                // Reservation list changed, recalculate next transition
+                                continue;
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                tracing::info!("Event bus closed, reservation monitor exiting");
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            None => {
+                // No reservations, wait for a new one to be created
+                match events.recv().await {
+                    Ok(SchedulerEvent::ReservationCreated { .. }) => {
+                        // New reservation added, recalculate
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("Event bus closed, reservation monitor exiting");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Calculate the next reservation status transition time
+fn calculate_next_reservation_transition(
+    reservations: &[gflow::core::reservation::GpuReservation],
+) -> Option<std::time::SystemTime> {
+    let now = std::time::SystemTime::now();
+
+    reservations
+        .iter()
+        .filter_map(|r| r.next_transition_time(now))
+        .min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::reservation::{GpuReservation, ReservationStatus};
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn test_calculate_next_transition_no_reservations() {
+        let reservations = vec![];
+        let result = calculate_next_reservation_transition(&reservations);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_calculate_next_transition_pending_reservation() {
+        let now = SystemTime::now();
+        let start_time = now + Duration::from_secs(3600); // 1 hour from now
+
+        let reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration: Duration::from_secs(7200), // 2 hours
+            status: ReservationStatus::Pending,
+            created_at: now,
+            cancelled_at: None,
+        };
+
+        let result = calculate_next_reservation_transition(&[reservation]);
+        assert_eq!(result, Some(start_time));
+    }
+
+    #[test]
+    fn test_calculate_next_transition_active_reservation() {
+        let now = SystemTime::now();
+        let start_time = now - Duration::from_secs(1800); // Started 30 min ago
+        let duration = Duration::from_secs(3600); // 1 hour total
+        let end_time = start_time + duration;
+
+        let mut reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration,
+            status: ReservationStatus::Active,
+            created_at: now - Duration::from_secs(2000),
+            cancelled_at: None,
+        };
+
+        let result = calculate_next_reservation_transition(&[reservation.clone()]);
+        assert_eq!(result, Some(end_time));
+
+        // Test with completed reservation (should be ignored)
+        reservation.status = ReservationStatus::Completed;
+        let result = calculate_next_reservation_transition(&[reservation]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_calculate_next_transition_multiple_reservations() {
+        let now = SystemTime::now();
+        let start1 = now + Duration::from_secs(3600); // 1 hour from now
+        let start2 = now + Duration::from_secs(1800); // 30 min from now (earlier)
+        let start3 = now + Duration::from_secs(7200); // 2 hours from now
+
+        let reservations = vec![
+            GpuReservation {
+                id: 1,
+                user: "alice".into(),
+                gpu_count: 2,
+                start_time: start1,
+                duration: Duration::from_secs(3600),
+                status: ReservationStatus::Pending,
+                created_at: now,
+                cancelled_at: None,
+            },
+            GpuReservation {
+                id: 2,
+                user: "bob".into(),
+                gpu_count: 1,
+                start_time: start2,
+                duration: Duration::from_secs(3600),
+                status: ReservationStatus::Pending,
+                created_at: now,
+                cancelled_at: None,
+            },
+            GpuReservation {
+                id: 3,
+                user: "charlie".into(),
+                gpu_count: 1,
+                start_time: start3,
+                duration: Duration::from_secs(3600),
+                status: ReservationStatus::Pending,
+                created_at: now,
+                cancelled_at: None,
+            },
+        ];
+
+        let result = calculate_next_reservation_transition(&reservations);
+        // Should return the earliest transition time (start2)
+        assert_eq!(result, Some(start2));
+    }
+
+    #[test]
+    fn test_calculate_next_transition_ignores_past_times() {
+        let now = SystemTime::now();
+        let past_time = now - Duration::from_secs(3600); // 1 hour ago
+        let future_time = now + Duration::from_secs(3600); // 1 hour from now
+
+        let reservations = vec![
+            GpuReservation {
+                id: 1,
+                user: "alice".into(),
+                gpu_count: 2,
+                start_time: past_time,
+                duration: Duration::from_secs(1800),
+                status: ReservationStatus::Pending,
+                created_at: now - Duration::from_secs(7200),
+                cancelled_at: None,
+            },
+            GpuReservation {
+                id: 2,
+                user: "bob".into(),
+                gpu_count: 1,
+                start_time: future_time,
+                duration: Duration::from_secs(3600),
+                status: ReservationStatus::Pending,
+                created_at: now,
+                cancelled_at: None,
+            },
+        ];
+
+        let result = calculate_next_reservation_transition(&reservations);
+        // Should ignore past time and return future_time
+        assert_eq!(result, Some(future_time));
+    }
+
+    #[test]
+    fn test_calculate_next_transition_cancelled_ignored() {
+        let now = SystemTime::now();
+        let start_time = now + Duration::from_secs(3600);
+
+        let reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration: Duration::from_secs(3600),
+            status: ReservationStatus::Cancelled,
+            created_at: now,
+            cancelled_at: Some(now),
+        };
+
+        let result = calculate_next_reservation_transition(&[reservation]);
+        assert!(result.is_none());
     }
 }

@@ -77,6 +77,38 @@ impl GpuReservation {
             }
         }
     }
+
+    /// Calculate the next status transition time for this reservation
+    ///
+    /// Returns `None` if the reservation is in a terminal state (Completed/Cancelled)
+    /// or if the transition time is in the past.
+    pub fn next_transition_time(&self, now: SystemTime) -> Option<SystemTime> {
+        match self.status {
+            ReservationStatus::Pending => {
+                // Next transition: start_time (Pending → Active)
+                if self.start_time > now {
+                    Some(self.start_time)
+                } else {
+                    // Already past start time, should transition immediately
+                    None
+                }
+            }
+            ReservationStatus::Active => {
+                // Next transition: end_time (Active → Completed)
+                let end = self.end_time();
+                if end > now {
+                    Some(end)
+                } else {
+                    // Already past end time, should transition immediately
+                    None
+                }
+            }
+            ReservationStatus::Completed | ReservationStatus::Cancelled => {
+                // Terminal states, no future transitions
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -261,5 +293,80 @@ mod tests {
         let after = end + Duration::from_secs(100);
         reservation.update_status(after);
         assert_eq!(reservation.status, ReservationStatus::Completed);
+    }
+
+    #[test]
+    fn test_next_transition_time_pending() {
+        let now = SystemTime::now();
+        let start_time = now + Duration::from_secs(3600); // 1 hour from now
+
+        let reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration: Duration::from_secs(7200),
+            status: ReservationStatus::Pending,
+            created_at: now,
+            cancelled_at: None,
+        };
+
+        // Should return start_time for pending reservation
+        assert_eq!(reservation.next_transition_time(now), Some(start_time));
+
+        // If current time is past start_time, should return None
+        let future = start_time + Duration::from_secs(100);
+        assert_eq!(reservation.next_transition_time(future), None);
+    }
+
+    #[test]
+    fn test_next_transition_time_active() {
+        let now = SystemTime::now();
+        let start_time = now - Duration::from_secs(1800); // Started 30 min ago
+        let duration = Duration::from_secs(3600); // 1 hour total
+        let end_time = start_time + duration;
+
+        let reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration,
+            status: ReservationStatus::Active,
+            created_at: now - Duration::from_secs(2000),
+            cancelled_at: None,
+        };
+
+        // Should return end_time for active reservation
+        assert_eq!(reservation.next_transition_time(now), Some(end_time));
+
+        // If current time is past end_time, should return None
+        let future = end_time + Duration::from_secs(100);
+        assert_eq!(reservation.next_transition_time(future), None);
+    }
+
+    #[test]
+    fn test_next_transition_time_terminal_states() {
+        let now = SystemTime::now();
+        let start_time = now - Duration::from_secs(7200);
+
+        let mut reservation = GpuReservation {
+            id: 1,
+            user: "alice".into(),
+            gpu_count: 2,
+            start_time,
+            duration: Duration::from_secs(3600),
+            status: ReservationStatus::Completed,
+            created_at: now - Duration::from_secs(8000),
+            cancelled_at: None,
+        };
+
+        // Completed reservation should return None
+        assert_eq!(reservation.next_transition_time(now), None);
+
+        // Cancelled reservation should return None
+        reservation.status = ReservationStatus::Cancelled;
+        reservation.cancelled_at = Some(now);
+        assert_eq!(reservation.next_transition_time(now), None);
     }
 }
