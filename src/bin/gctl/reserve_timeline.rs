@@ -140,6 +140,9 @@ fn print_time_axis_to_writer<W: std::io::Write>(
     // Print the axis line
     let mut axis = vec!['─'; width];
 
+    // Add marker at the start (position 0)
+    axis[0] = '┬';
+
     // Mark positions
     for (pos, _) in &time_markers {
         if *pos < width {
@@ -322,11 +325,7 @@ fn print_summary_to_writer<W: std::io::Write>(
     )
     .ok();
     writeln!(writer).ok();
-    writeln!(
-        writer,
-        "Legend: █ Active  ░ Pending  ▓ Completed  ▒ Cancelled"
-    )
-    .ok();
+    writeln!(writer, "Legend: █ Active  ░ Pending").ok();
 }
 
 /// Convert SystemTime to DateTime<Local>
@@ -550,7 +549,7 @@ mod tests {
             "",
             "GPU Reservations Timeline",
             "════════════════════════════════════════════════════════════════════════════════",
-            "──────────────────┬───────────────────┬───────────────────┬───────────────────┬─",
+            "┬─────────────────┬───────────────────┬───────────────────┬───────────────────┬─",
             "                  11/15 08:00         10:00               12:00                 ",
             "",
             "alice (2 GPUs)      ████████████████████                                        ",
@@ -561,7 +560,7 @@ mod tests {
             "────────────────────────────────────────────────────────────────────────────────",
             "Summary: 0 active, 1 pending | 0 GPUs currently reserved",
             "",
-            "Legend: █ Active  ░ Pending  ▓ Completed  ▒ Cancelled",
+            "Legend: █ Active  ░ Pending",
         ];
         let expected_output = expected_lines.join("\n") + "\n";
 

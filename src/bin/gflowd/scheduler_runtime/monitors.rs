@@ -229,7 +229,7 @@ pub(super) async fn metrics_updater_task(state: SharedState) {
     }
 }
 
-/// Reservation monitor task - updates reservation statuses and cleans up old ones every 60s
+/// Reservation monitor task - updates reservation statuses every 60s
 pub(super) async fn reservation_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
 
@@ -238,11 +238,8 @@ pub(super) async fn reservation_monitor_task(state: SharedState, event_bus: Arc<
 
         let mut state_guard = state.write().await;
 
-        // Update reservation statuses
+        // Update reservation statuses (also removes completed/cancelled ones)
         state_guard.scheduler.update_reservation_statuses();
-
-        // Cleanup old reservations (older than 7 days)
-        state_guard.scheduler.cleanup_old_reservations();
 
         // Trigger scheduling in case reservations changed
         drop(state_guard);

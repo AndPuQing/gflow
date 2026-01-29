@@ -941,13 +941,24 @@ impl Scheduler {
             .collect()
     }
 
-    /// Update reservation statuses based on current time
+    /// Update reservation statuses based on current time and remove completed/cancelled ones
     pub fn update_reservation_statuses(&mut self) {
+        use crate::core::reservation::ReservationStatus;
+
         let now = std::time::SystemTime::now();
 
+        // Update statuses
         for reservation in &mut self.reservations {
             reservation.update_status(now);
         }
+
+        // Remove completed/cancelled reservations immediately
+        self.reservations.retain(|r| {
+            matches!(
+                r.status,
+                ReservationStatus::Pending | ReservationStatus::Active
+            )
+        });
     }
 
     /// Get currently active reservations
@@ -960,40 +971,6 @@ impl Scheduler {
             .iter()
             .filter(|r| r.status == ReservationStatus::Active && r.is_active(now))
             .collect()
-    }
-
-    /// Cleanup old completed/cancelled reservations (older than 7 days)
-    pub fn cleanup_old_reservations(&mut self) {
-        use crate::core::reservation::ReservationStatus;
-
-        let now = std::time::SystemTime::now();
-        let seven_days = std::time::Duration::from_secs(7 * 24 * 60 * 60);
-
-        self.reservations.retain(|r| {
-            match r.status {
-                ReservationStatus::Completed => {
-                    // Keep if ended less than 7 days ago
-                    if let Ok(elapsed) = now.duration_since(r.end_time()) {
-                        elapsed < seven_days
-                    } else {
-                        true // Keep if we can't calculate (shouldn't happen)
-                    }
-                }
-                ReservationStatus::Cancelled => {
-                    // Keep if cancelled less than 7 days ago
-                    if let Some(cancelled_at) = r.cancelled_at {
-                        if let Ok(elapsed) = now.duration_since(cancelled_at) {
-                            elapsed < seven_days
-                        } else {
-                            true
-                        }
-                    } else {
-                        true // Keep if no cancellation time (shouldn't happen)
-                    }
-                }
-                ReservationStatus::Pending | ReservationStatus::Active => true, // Always keep
-            }
-        });
     }
 
     /// Check if a job respects active reservations

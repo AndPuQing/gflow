@@ -21,12 +21,15 @@ pub async fn handle_reserve_list(
     timeline: bool,
     timeline_range: TimelineRangeOpts,
 ) -> Result<()> {
-    let reservations = client.list_reservations(user, status, active_only).await?;
+    let mut reservations = client.list_reservations(user, status, active_only).await?;
 
     if reservations.is_empty() {
         println!("No reservations found.");
         return Ok(());
     }
+
+    // Sort reservations by ID (creation order)
+    reservations.sort_by_key(|r| r.id);
 
     if timeline {
         if timeline_range.range.is_some()
