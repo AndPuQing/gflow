@@ -54,7 +54,8 @@ fn render_timeline_to_writer<W: std::io::Write>(
     writeln!(writer, "{}", "═".repeat(config.width)).ok();
 
     // Print time axis
-    print_time_axis_to_writer(range_start, range_end, config.width, now, writer);
+    let aligned_start =
+        print_time_axis_to_writer(range_start, range_end, config.width, now, writer);
 
     writeln!(writer).ok();
 
@@ -66,7 +67,7 @@ fn render_timeline_to_writer<W: std::io::Write>(
     for reservation in sorted_reservations {
         print_reservation_bar_to_writer(
             &reservation,
-            range_start,
+            aligned_start,
             range_end,
             config.width,
             now,
@@ -80,13 +81,14 @@ fn render_timeline_to_writer<W: std::io::Write>(
 }
 
 /// Print the time axis with markers to a writer
+/// Returns the aligned start time for uniform marker spacing
 fn print_time_axis_to_writer<W: std::io::Write>(
     start: SystemTime,
     end: SystemTime,
     width: usize,
     now: SystemTime,
     writer: &mut W,
-) {
+) -> SystemTime {
     use chrono::Timelike;
 
     let start_dt = system_time_to_datetime(start);
@@ -126,11 +128,17 @@ fn print_time_axis_to_writer<W: std::io::Write>(
         current += ChronoDuration::hours(interval_hours as i64);
     }
 
+    // Move back one interval to add a marker at the beginning
+    current -= ChronoDuration::hours(interval_hours as i64);
+
+    // Align the range start to this first marker for uniform spacing
+    let aligned_start = datetime_to_system_time(current);
+
     // Print time markers
     let mut time_markers = Vec::new();
     let mut last_date = None;
     while current <= end_dt {
-        let pos = time_to_position(datetime_to_system_time(current), start, end, width);
+        let pos = time_to_position(datetime_to_system_time(current), aligned_start, end, width);
         // Show date only when it changes
         let current_date = current.date_naive();
         let time_str = if last_date.is_none() || last_date != Some(current_date) {
@@ -146,10 +154,7 @@ fn print_time_axis_to_writer<W: std::io::Write>(
     // Print the axis line
     let mut axis = vec!['─'; width];
 
-    // Add marker at the start (position 0)
-    axis[0] = '┬';
-
-    // Mark positions
+    // Mark positions (no forced position 0 marker)
     for (pos, _) in &time_markers {
         if *pos < width {
             axis[*pos] = '┬';
@@ -157,7 +162,7 @@ fn print_time_axis_to_writer<W: std::io::Write>(
     }
 
     // Mark "now" position
-    let now_pos = time_to_position(now, start, end, width);
+    let now_pos = time_to_position(now, aligned_start, end, width);
     if now_pos < width {
         axis[now_pos] = '┃';
     }
@@ -166,7 +171,7 @@ fn print_time_axis_to_writer<W: std::io::Write>(
 
     // Print time labels
     let mut label_line = vec![' '; width];
-    let now_pos = time_to_position(now, start, end, width);
+    let now_pos = time_to_position(now, aligned_start, end, width);
 
     for (pos, time_str) in &time_markers {
         // Skip if too close to "now" position
@@ -196,6 +201,9 @@ fn print_time_axis_to_writer<W: std::io::Write>(
     }
 
     writeln!(writer, "{}", label_line.iter().collect::<String>()).ok();
+
+    // Return the aligned start time for use in positioning reservations
+    aligned_start
 }
 
 /// Print a single reservation as a bar to a writer
@@ -307,10 +315,15 @@ fn format_time_short(time: SystemTime) -> String {
 /// Print summary statistics to a writer
 fn print_summary_to_writer<W: std::io::Write>(
     reservations: &[GpuReservation],
-    now: SystemTime,
+    _now: SystemTime,
     writer: &mut W,
 ) {
-    let active_count = reservations.iter().filter(|r| r.is_active(now)).count();
+    // Use the status field from the server instead of calculating based on client time
+    // This avoids inconsistencies due to time sync issues or update delays
+    let active_count = reservations
+        .iter()
+        .filter(|r| r.status == ReservationStatus::Active)
+        .count();
 
     let pending_count = reservations
         .iter()
@@ -319,7 +332,7 @@ fn print_summary_to_writer<W: std::io::Write>(
 
     let total_active_gpus: u32 = reservations
         .iter()
-        .filter(|r| r.is_active(now))
+        .filter(|r| r.status == ReservationStatus::Active)
         .map(|r| r.gpu_count)
         .sum();
 
