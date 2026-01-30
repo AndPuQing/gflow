@@ -329,7 +329,7 @@ fn calculate_next_reservation_transition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gflow::core::reservation::{GpuReservation, ReservationStatus};
+    use gflow::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
     use std::time::{Duration, SystemTime};
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration: Duration::from_secs(7200), // 2 hours
             status: ReservationStatus::Pending,
@@ -369,7 +369,7 @@ mod tests {
         let mut reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration,
             status: ReservationStatus::Active,
@@ -397,7 +397,7 @@ mod tests {
             GpuReservation {
                 id: 1,
                 user: "alice".into(),
-                gpu_count: 2,
+                gpu_spec: GpuSpec::Count(2),
                 start_time: start1,
                 duration: Duration::from_secs(3600),
                 status: ReservationStatus::Pending,
@@ -407,7 +407,7 @@ mod tests {
             GpuReservation {
                 id: 2,
                 user: "bob".into(),
-                gpu_count: 1,
+                gpu_spec: GpuSpec::Count(1),
                 start_time: start2,
                 duration: Duration::from_secs(3600),
                 status: ReservationStatus::Pending,
@@ -417,7 +417,7 @@ mod tests {
             GpuReservation {
                 id: 3,
                 user: "charlie".into(),
-                gpu_count: 1,
+                gpu_spec: GpuSpec::Count(1),
                 start_time: start3,
                 duration: Duration::from_secs(3600),
                 status: ReservationStatus::Pending,
@@ -441,7 +441,7 @@ mod tests {
             GpuReservation {
                 id: 1,
                 user: "alice".into(),
-                gpu_count: 2,
+                gpu_spec: GpuSpec::Count(2),
                 start_time: past_time,
                 duration: Duration::from_secs(1800),
                 status: ReservationStatus::Pending,
@@ -451,7 +451,7 @@ mod tests {
             GpuReservation {
                 id: 2,
                 user: "bob".into(),
-                gpu_count: 1,
+                gpu_spec: GpuSpec::Count(1),
                 start_time: future_time,
                 duration: Duration::from_secs(3600),
                 status: ReservationStatus::Pending,
@@ -473,7 +473,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: "alice".into(),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time,
             duration: Duration::from_secs(3600),
             status: ReservationStatus::Cancelled,

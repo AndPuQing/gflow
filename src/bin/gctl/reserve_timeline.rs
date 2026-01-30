@@ -375,6 +375,7 @@ fn datetime_to_system_time(dt: DateTime<Local>) -> SystemTime {
 mod tests {
     use super::*;
     use compact_str::CompactString;
+    use gflow::core::reservation::GpuSpec;
 
     #[test]
     fn test_time_to_position() {
@@ -408,7 +409,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: CompactString::from("alice"),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: now,
             duration: Duration::from_secs(3600),
             status: ReservationStatus::Active,
@@ -433,7 +434,7 @@ mod tests {
         let reservation = GpuReservation {
             id: 1,
             user: CompactString::from("testuser"),
-            gpu_count: 1,
+            gpu_spec: GpuSpec::Count(1),
             start_time: res_start,
             duration: Duration::from_secs(2 * 3600), // 2 hours duration
             status: ReservationStatus::Active,
@@ -453,7 +454,7 @@ mod tests {
 
         // Verify output contains expected elements
         assert!(output_str.contains("GPU Reservations Timeline"));
-        assert!(output_str.contains("testuser (1 GPU)"));
+        assert!(output_str.contains("testuser (GPU: 1 GPU)"));
         assert!(output_str.contains("Active"));
         assert!(output_str.contains("Legend:"));
 
@@ -498,7 +499,7 @@ mod tests {
         let res_at_start = GpuReservation {
             id: 1,
             user: CompactString::from("user1"),
-            gpu_count: 1,
+            gpu_spec: GpuSpec::Count(1),
             start_time: range_start,
             duration: Duration::from_secs(3600), // 1 hour
             status: ReservationStatus::Pending,
@@ -510,7 +511,7 @@ mod tests {
         let res_at_middle = GpuReservation {
             id: 2,
             user: CompactString::from("user2"),
-            gpu_count: 1,
+            gpu_spec: GpuSpec::Count(1),
             start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
             duration: Duration::from_secs(3600),                     // 1 hour
             status: ReservationStatus::Active,
@@ -548,7 +549,7 @@ mod tests {
         let reservation1 = GpuReservation {
             id: 1,
             user: CompactString::from("alice"),
-            gpu_count: 2,
+            gpu_spec: GpuSpec::Count(2),
             start_time: range_start + Duration::from_secs(2 * 3600), // 2 hours from start
             duration: Duration::from_secs(2 * 3600),                 // 2 hours duration
             status: ReservationStatus::Active,
@@ -559,7 +560,7 @@ mod tests {
         let reservation2 = GpuReservation {
             id: 2,
             user: CompactString::from("bob"),
-            gpu_count: 1,
+            gpu_spec: GpuSpec::Count(1),
             start_time: range_start + Duration::from_secs(5 * 3600), // 5 hours from start
             duration: Duration::from_secs(3600),                     // 1 hour duration
             status: ReservationStatus::Pending,
@@ -578,8 +579,8 @@ mod tests {
 
         // Verify output contains expected elements
         assert!(actual_output.contains("GPU Reservations Timeline"));
-        assert!(actual_output.contains("alice (2 GPUs)"));
-        assert!(actual_output.contains("bob (1 GPU)"));
+        assert!(actual_output.contains("alice (GPU: 2 GPUs)"));
+        assert!(actual_output.contains("bob (GPU: 1 GPU)"));
         assert!(actual_output.contains("Active"));
         assert!(actual_output.contains("Pending"));
         assert!(actual_output.contains("Legend: █ Active  ░ Pending"));
