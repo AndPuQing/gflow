@@ -1,4 +1,15 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  },
+  "github": {
+    "silent": true
+  },
+  "ignoreBuildStep": {
+    "command": "bash -c '[[ $(git diff HEAD^ HEAD --name-only | grep -E \"^docs/\") ]]'"
+  },
   "headers": [
     {
       "source": "/assets/(.*)",
