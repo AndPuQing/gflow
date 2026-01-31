@@ -418,4 +418,208 @@ mod tests {
         assert_eq!(spec.count(), 0);
         assert_eq!(spec.indices(), Some(&[][..]));
     }
+
+    // Property-based tests
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        // Strategy to generate valid time ranges
+        fn time_range_strategy() -> impl Strategy<Value = (SystemTime, Duration)> {
+            (1000u64..1_000_000_000, 1u64..86400).prop_map(|(start_secs, duration_secs)| {
+                let start = SystemTime::UNIX_EPOCH + Duration::from_secs(start_secs);
+                let duration = Duration::from_secs(duration_secs);
+                (start, duration)
+            })
+        }
+
+        proptest! {
+            /// Property: Overlap detection is symmetric
+            /// If reservation A overlaps with B, then B overlaps with A
+            #[test]
+            fn prop_overlap_is_symmetric(
+                (start1, dur1) in time_range_strategy(),
+                (start2, dur2) in time_range_strategy(),
+            ) {
+                let res1 = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start1,
+                    duration: dur1,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                let end2 = start2 + dur2;
+                let overlap_1_with_2 = res1.overlaps_with(start2, end2);
+
+                // Create res2 and check reverse
+                let res2 = GpuReservation {
+                    id: 2,
+                    user: "bob".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start2,
+                    duration: dur2,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                let end1 = start1 + dur1;
+                let overlap_2_with_1 = res2.overlaps_with(start1, end1);
+
+                prop_assert_eq!(overlap_1_with_2, overlap_2_with_1);
+            }
+
+            /// Property: A reservation never overlaps with itself at non-overlapping times
+            /// If we have a reservation [start, end), it should not overlap with [end+1, end+2)
+            #[test]
+            fn prop_no_overlap_after_end(
+                (start, dur) in time_range_strategy(),
+                gap in 1u64..1000,
+            ) {
+                let reservation = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start,
+                    duration: dur,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                let end = start + dur;
+                let after_start = end + Duration::from_secs(gap);
+                let after_end = after_start + Duration::from_secs(100);
+
+                prop_assert!(!reservation.overlaps_with(after_start, after_end));
+            }
+
+            /// Property: A reservation always overlaps with any time range that contains it
+            #[test]
+            fn prop_overlap_when_contained(
+                (start, dur) in time_range_strategy(),
+                before in 1u64..1000,
+                after in 1u64..1000,
+            ) {
+                let reservation = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start,
+                    duration: dur,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                let end = start + dur;
+                let container_start = start - Duration::from_secs(before);
+                let container_end = end + Duration::from_secs(after);
+
+                prop_assert!(reservation.overlaps_with(container_start, container_end));
+            }
+
+            /// Property: Status transitions are monotonic (never go backwards)
+            /// Pending -> Active -> Completed (or Cancelled from any state)
+            #[test]
+            fn prop_status_monotonic(
+                (start, dur) in time_range_strategy(),
+            ) {
+                let mut reservation = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start,
+                    duration: dur,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                let end = start + dur;
+
+                // Before start: should be Pending
+                let before = start - Duration::from_secs(100);
+                reservation.update_status(before);
+                prop_assert_eq!(reservation.status, ReservationStatus::Pending);
+
+                // At start: should be Active
+                reservation.update_status(start);
+                prop_assert_eq!(reservation.status, ReservationStatus::Active);
+
+                // After end: should be Completed
+                let after = end + Duration::from_secs(100);
+                reservation.update_status(after);
+                prop_assert_eq!(reservation.status, ReservationStatus::Completed);
+
+                // Once Completed, stays Completed
+                reservation.update_status(after + Duration::from_secs(1000));
+                prop_assert_eq!(reservation.status, ReservationStatus::Completed);
+            }
+
+            /// Property: end_time is always start_time + duration
+            #[test]
+            fn prop_end_time_calculation(
+                (start, dur) in time_range_strategy(),
+            ) {
+                let reservation = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start,
+                    duration: dur,
+                    status: ReservationStatus::Pending,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: None,
+                };
+
+                prop_assert_eq!(reservation.end_time(), start + dur);
+            }
+
+            /// Property: GpuSpec::Count always returns the count value
+            #[test]
+            fn prop_gpu_spec_count(count in 1u32..100) {
+                let spec = GpuSpec::Count(count);
+                prop_assert_eq!(spec.count(), count);
+                prop_assert_eq!(spec.indices(), None);
+            }
+
+            /// Property: GpuSpec::Indices count equals the length of indices vector
+            #[test]
+            fn prop_gpu_spec_indices(indices in prop::collection::vec(0u32..16, 0..10)) {
+                let spec = GpuSpec::Indices(indices.clone());
+                prop_assert_eq!(spec.count(), indices.len() as u32);
+                prop_assert_eq!(spec.indices(), Some(indices.as_slice()));
+            }
+
+            /// Property: Cancelled reservations are never active
+            #[test]
+            fn prop_cancelled_never_active(
+                (start, dur) in time_range_strategy(),
+                check_time in 1000u64..1_000_000_000,
+            ) {
+                let mut reservation = GpuReservation {
+                    id: 1,
+                    user: "alice".into(),
+                    gpu_spec: GpuSpec::Count(2),
+                    start_time: start,
+                    duration: dur,
+                    status: ReservationStatus::Cancelled,
+                    created_at: SystemTime::UNIX_EPOCH,
+                    cancelled_at: Some(SystemTime::UNIX_EPOCH),
+                };
+
+                let check = SystemTime::UNIX_EPOCH + Duration::from_secs(check_time);
+                prop_assert!(!reservation.is_active(check));
+
+                // Even if we try to update status, it should stay Cancelled
+                reservation.update_status(check);
+                prop_assert_eq!(reservation.status, ReservationStatus::Cancelled);
+            }
+        }
+    }
 }

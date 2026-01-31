@@ -111,6 +111,7 @@ tempfile = "3.16.0"
 nvml-wrapper = "0.11.0"
 tower = "0.5"
 criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1.5"
 
 [[bench]]
 name = "scheduler_bench"

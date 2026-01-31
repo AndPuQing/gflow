@@ -820,8 +820,8 @@ impl Scheduler {
         start_time: std::time::SystemTime,
         duration: std::time::Duration,
     ) -> anyhow::Result<u32> {
-        use crate::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
-        use std::collections::HashSet;
+        use crate::core::conflict;
+        use crate::core::reservation::{GpuReservation, ReservationStatus};
 
         // Validate GPU spec
         let total_gpus = self.gpu_slots_count() as u32;
@@ -857,71 +857,10 @@ impl Scheduler {
             anyhow::bail!("Start time cannot be in the past");
         }
 
-        // Check for conflicts with existing reservations using smart allocation logic
+        // Check for conflicts using pure functions
         let end_time = start_time + duration;
-
-        // Collect reserved indices and count-based reservations
-        let mut reserved_indices = HashSet::new();
-        let mut count_based_reserved = 0u32;
-
-        for reservation in &self.reservations {
-            if reservation.status == ReservationStatus::Cancelled {
-                continue;
-            }
-
-            if reservation.overlaps_with(start_time, end_time) {
-                match &reservation.gpu_spec {
-                    GpuSpec::Indices(indices) => {
-                        reserved_indices.extend(indices.iter().copied());
-                    }
-                    GpuSpec::Count(count) => {
-                        count_based_reserved += count;
-                    }
-                }
-            }
-        }
-
-        // Validate new reservation based on its type
-        match &gpu_spec {
-            GpuSpec::Indices(new_indices) => {
-                // Check if any requested index is already reserved
-                for &idx in new_indices {
-                    if reserved_indices.contains(&idx) {
-                        anyhow::bail!(
-                            "GPU index {} is already reserved during this time period",
-                            idx
-                        );
-                    }
-                }
-
-                // Check if there are enough unreserved GPUs for count-based reservations
-                let available_for_count = total_gpus
-                    .saturating_sub(reserved_indices.len() as u32)
-                    .saturating_sub(new_indices.len() as u32);
-
-                if count_based_reserved > available_for_count {
-                    anyhow::bail!(
-                        "Cannot reserve GPU indices: would leave insufficient GPUs ({}) for existing count-based reservations ({})",
-                        available_for_count,
-                        count_based_reserved
-                    );
-                }
-            }
-            GpuSpec::Count(new_count) => {
-                // Count-based reservation needs enough unreserved GPUs
-                let available_for_count = total_gpus.saturating_sub(reserved_indices.len() as u32);
-
-                if count_based_reserved + new_count > available_for_count {
-                    anyhow::bail!(
-                        "Reservation conflicts: {} GPUs explicitly reserved, {} GPUs reserved by count, cannot reserve {} more (total: {})",
-                        reserved_indices.len(),
-                        count_based_reserved,
-                        new_count,
-                        total_gpus
-                    );
-                }
-            }
-        }
+        let state = conflict::collect_reservation_state(&self.reservations, start_time, end_time);
+        conflict::check_reservation_conflict(&gpu_spec, &state, total_gpus)?;
 
         // Create reservation
         let id = self.next_reservation_id;
@@ -1834,5 +1773,280 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GPU index 3 is out of range"));
+    }
+
+    // Property-based tests for GPU allocation invariants
+    mod proptests {
+        use super::*;
+        use crate::core::reservation::GpuSpec;
+        use proptest::prelude::*;
+
+        // Helper to create a scheduler with N GPUs
+        fn scheduler_with_gpus(n: u32) -> Scheduler {
+            let mut scheduler = create_test_scheduler();
+            for i in 0..n {
+                scheduler.gpu_slots.insert(
+                    format!("GPU-{}", i),
+                    GPUSlot {
+                        index: i,
+                        available: true,
+                        reason: None,
+                    },
+                );
+            }
+            scheduler
+        }
+
+        proptest! {
+            /// Property: Total allocated GPUs never exceeds system total
+            /// Create multiple reservations and verify no over-allocation
+            #[test]
+            fn prop_no_gpu_overallocation(
+                total_gpus in 2u32..8,
+                reservation_count in 1usize..5,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                let mut successful_reservations = Vec::new();
+
+                // Try to create multiple reservations
+                for i in 0..reservation_count {
+                    let gpu_count = (i as u32 % total_gpus) + 1;
+                    let result = scheduler.create_reservation(
+                        format!("user{}", i).into(),
+                        GpuSpec::Count(gpu_count),
+                        start_time,
+                        duration,
+                    );
+
+                    if result.is_ok() {
+                        successful_reservations.push(gpu_count);
+                    }
+                }
+
+                // Verify: sum of successful reservations <= total_gpus
+                let total_allocated: u32 = successful_reservations.iter().sum();
+                prop_assert!(total_allocated <= total_gpus);
+            }
+
+            /// Property: Index-based reservations never have overlapping indices
+            #[test]
+            fn prop_no_index_overlap(
+                total_gpus in 4u32..8,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                // Create first reservation with indices [0, 1]
+                let res1 = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Indices(vec![0, 1]),
+                    start_time,
+                    duration,
+                );
+                prop_assert!(res1.is_ok());
+
+                // Try to create second reservation with overlapping index [1, 2]
+                let res2 = scheduler.create_reservation(
+                    "bob".into(),
+                    GpuSpec::Indices(vec![1, 2]),
+                    start_time,
+                    duration,
+                );
+                // Should fail due to index 1 conflict
+                prop_assert!(res2.is_err());
+
+                // Create third reservation with non-overlapping indices [2, 3]
+                let res3 = scheduler.create_reservation(
+                    "charlie".into(),
+                    GpuSpec::Indices(vec![2, 3]),
+                    start_time,
+                    duration,
+                );
+                // Should succeed
+                prop_assert!(res3.is_ok());
+            }
+
+            /// Property: Count-based reservations respect index-based reservations
+            #[test]
+            fn prop_count_respects_indices(
+                total_gpus in 4u32..8,
+                reserved_indices_count in 1u32..3,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                // Create index-based reservation
+                let indices: Vec<u32> = (0..reserved_indices_count).collect();
+                scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Indices(indices),
+                    start_time,
+                    duration,
+                ).unwrap();
+
+                let available_for_count = total_gpus - reserved_indices_count;
+
+                // Try to reserve exactly the available count (should succeed)
+                let res1 = scheduler.create_reservation(
+                    "bob".into(),
+                    GpuSpec::Count(available_for_count),
+                    start_time,
+                    duration,
+                );
+                prop_assert!(res1.is_ok());
+
+                // Try to reserve one more (should fail)
+                let res2 = scheduler.create_reservation(
+                    "charlie".into(),
+                    GpuSpec::Count(1),
+                    start_time,
+                    duration,
+                );
+                prop_assert!(res2.is_err());
+            }
+
+            /// Property: Non-overlapping time ranges never conflict
+            #[test]
+            fn prop_no_conflict_different_times(
+                total_gpus in 2u32..8,
+                gpu_count in 1u32..4,
+                time_gap in 1u64..1000,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let gpu_count = std::cmp::min(gpu_count, total_gpus);
+
+                let start1 = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration1 = std::time::Duration::from_secs(7200);
+
+                // Create first reservation
+                let res1 = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Count(gpu_count),
+                    start1,
+                    duration1,
+                );
+                prop_assert!(res1.is_ok());
+
+                // Create second reservation starting after first ends
+                let start2 = start1 + duration1 + std::time::Duration::from_secs(time_gap);
+                let duration2 = std::time::Duration::from_secs(3600);
+
+                let res2 = scheduler.create_reservation(
+                    "bob".into(),
+                    GpuSpec::Count(gpu_count),
+                    start2,
+                    duration2,
+                );
+                // Should succeed since time ranges don't overlap
+                prop_assert!(res2.is_ok());
+            }
+
+            /// Property: Cancelling a reservation frees up resources
+            #[test]
+            fn prop_cancel_frees_resources(
+                total_gpus in 2u32..8,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                // Reserve all GPUs
+                let res1_id = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Count(total_gpus),
+                    start_time,
+                    duration,
+                ).unwrap();
+
+                // Try to create another reservation (should fail)
+                let res2 = scheduler.create_reservation(
+                    "bob".into(),
+                    GpuSpec::Count(1),
+                    start_time,
+                    duration,
+                );
+                prop_assert!(res2.is_err());
+
+                // Cancel first reservation
+                scheduler.cancel_reservation(res1_id).unwrap();
+
+                // Now should be able to create new reservation
+                let res3 = scheduler.create_reservation(
+                    "charlie".into(),
+                    GpuSpec::Count(total_gpus),
+                    start_time,
+                    duration,
+                );
+                prop_assert!(res3.is_ok());
+            }
+
+            /// Property: Invalid GPU indices are always rejected
+            #[test]
+            fn prop_reject_invalid_indices(
+                total_gpus in 2u32..8,
+                invalid_index in 8u32..100,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                // Try to reserve an out-of-range GPU index
+                let result = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Indices(vec![0, invalid_index]),
+                    start_time,
+                    duration,
+                );
+
+                prop_assert!(result.is_err());
+                prop_assert!(result.unwrap_err().to_string().contains("out of range"));
+            }
+
+            /// Property: Zero GPU count is always rejected
+            #[test]
+            fn prop_reject_zero_gpus(
+                total_gpus in 2u32..8,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                let result = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Count(0),
+                    start_time,
+                    duration,
+                );
+
+                prop_assert!(result.is_err());
+                prop_assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
+            }
+
+            /// Property: Requesting more GPUs than available is always rejected
+            #[test]
+            fn prop_reject_excessive_gpus(
+                total_gpus in 2u32..8,
+                extra in 1u32..10,
+            ) {
+                let mut scheduler = scheduler_with_gpus(total_gpus);
+                let start_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+                let duration = std::time::Duration::from_secs(7200);
+
+                let excessive_count = total_gpus + extra;
+                let result = scheduler.create_reservation(
+                    "alice".into(),
+                    GpuSpec::Count(excessive_count),
+                    start_time,
+                    duration,
+                );
+
+                prop_assert!(result.is_err());
+            }
+        }
     }
 }
