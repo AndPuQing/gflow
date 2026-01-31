@@ -398,15 +398,6 @@ mod tests {
         use super::*;
         use proptest::prelude::*;
 
-        // Strategy to generate valid GPU indices
-        fn gpu_indices_strategy(max_gpus: u32) -> impl Strategy<Value = Vec<u32>> {
-            prop::collection::vec(0..max_gpus, 0..max_gpus as usize).prop_map(|mut indices| {
-                indices.sort_unstable();
-                indices.dedup();
-                indices
-            })
-        }
-
         proptest! {
             /// Property: Empty state never conflicts
             #[test]
