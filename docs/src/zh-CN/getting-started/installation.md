@@ -98,38 +98,13 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 安装后，验证 gflow 是否正确安装：
 
-检查版本：
 ```bash
+# 检查命令是否可用
+which gflowd ginfo gbatch gqueue gcancel
+
+# 验证版本
 gflowd --version
-<!-- cmdrun gflowd --version -->
 ```
-
-```bash
-ginfo --version
-<!-- cmdrun ginfo --version -->
-```
-
-```bash
-gbatch --version
-<!-- cmdrun gbatch --version -->
-```
-
-```bash
-gqueue --version
-<!-- cmdrun gqueue --version -->
-```
-
-```bash
-gcancel --version
-<!-- cmdrun gcancel --version -->
-```
-
-验证命令是否在 PATH 中：
-```bash
-which ginfo
-```
-
-所有命令都已正确安装并在您的 PATH 中可用。
 
 ## 快速检查
 

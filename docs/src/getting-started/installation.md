@@ -98,38 +98,13 @@ If you want to build from the latest source code:
 
 After installation, verify that gflow is properly installed:
 
-Check versions:
 ```bash
+# Check if commands are available
+which gflowd ginfo gbatch gqueue gcancel
+
+# Verify version
 gflowd --version
-<!-- cmdrun gflowd --version -->
 ```
-
-```bash
-ginfo --version
-<!-- cmdrun ginfo --version -->
-```
-
-```bash
-gbatch --version
-<!-- cmdrun gbatch --version -->
-```
-
-```bash
-gqueue --version
-<!-- cmdrun gqueue --version -->
-```
-
-```bash
-gcancel --version
-<!-- cmdrun gcancel --version -->
-```
-
-Verify commands are in PATH:
-```bash
-which ginfo
-```
-
-All commands are properly installed and available in your PATH.
 
 ## Sanity Check
 
