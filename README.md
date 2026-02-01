@@ -60,7 +60,7 @@ Or using `pip`:
 pip install runqd
 ```
 
-This will install pre-built binaries for Linux (x86_64, ARM64, ARMv7) with both GNU and MUSL libc support.
+This will install pre-built binaries for Linux (x86_64, ARM64).
 
 ### Install Nightly Build
 
