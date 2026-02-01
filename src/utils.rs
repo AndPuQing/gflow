@@ -1,4 +1,5 @@
 pub mod parsers;
+pub mod timezone;
 
 use anyhow::{anyhow, Result};
 use clap::builder::{

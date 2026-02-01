@@ -1,16 +1,19 @@
-use chrono::{DateTime, Duration as ChronoDuration, Local};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono_tz::Tz;
 use gflow::core::reservation::{GpuReservation, ReservationStatus};
 use std::time::{Duration, SystemTime};
 
 /// Configuration for timeline rendering
-pub struct TimelineConfig {
+pub struct TimelineConfig<'a> {
     /// Width of the timeline in characters
     pub width: usize,
     /// Time range to display (start, end)
     pub time_range: (SystemTime, SystemTime),
+    /// Timezone for display (None = local timezone)
+    pub timezone: Option<&'a str>,
 }
 
-impl Default for TimelineConfig {
+impl<'a> Default for TimelineConfig<'a> {
     fn default() -> Self {
         let now = SystemTime::now();
         // Default: show ±12 hours from now
@@ -20,6 +23,7 @@ impl Default for TimelineConfig {
         Self {
             width: 80,
             time_range: (start, end),
+            timezone: None,
         }
     }
 }
@@ -42,20 +46,21 @@ fn render_timeline_to_writer<W: std::io::Write>(
 
     let now = SystemTime::now();
     let (range_start, range_end) = config.time_range;
+    let tz = get_timezone(config.timezone);
 
     // Print header with current time
-    let now_dt = system_time_to_datetime(now);
+    let now_dt = system_time_to_datetime(now, &tz);
     writeln!(
         writer,
         "\nGPU Reservations Timeline ({})",
-        now_dt.format("%Y-%m-%d %H:%M:%S")
+        now_dt.format("%Y-%m-%d %H:%M:%S %Z")
     )
     .ok();
     writeln!(writer, "{}", "═".repeat(config.width)).ok();
 
     // Print time axis
     let aligned_start =
-        print_time_axis_to_writer(range_start, range_end, config.width, now, writer);
+        print_time_axis_to_writer(range_start, range_end, config.width, now, &tz, writer);
 
     writeln!(writer).ok();
 
@@ -71,6 +76,7 @@ fn render_timeline_to_writer<W: std::io::Write>(
             range_end,
             config.width,
             now,
+            &tz,
             writer,
         );
     }
@@ -87,12 +93,13 @@ fn print_time_axis_to_writer<W: std::io::Write>(
     end: SystemTime,
     width: usize,
     now: SystemTime,
+    tz: &Tz,
     writer: &mut W,
 ) -> SystemTime {
     use chrono::Timelike;
 
-    let start_dt = system_time_to_datetime(start);
-    let end_dt = system_time_to_datetime(end);
+    let start_dt = system_time_to_datetime(start, tz);
+    let end_dt = system_time_to_datetime(end, tz);
 
     // Calculate time span
     let duration = end.duration_since(start).unwrap_or_default();
@@ -213,6 +220,7 @@ fn print_reservation_bar_to_writer<W: std::io::Write>(
     range_end: SystemTime,
     width: usize,
     _now: SystemTime,
+    tz: &Tz,
     writer: &mut W,
 ) {
     let res_start = reservation.start_time;
@@ -265,8 +273,8 @@ fn print_reservation_bar_to_writer<W: std::io::Write>(
     let status_info = format!(
         "  └─ {} ({}→{})",
         format_status(reservation.status),
-        format_time_short(res_start),
-        format_time_short(res_end)
+        format_time_short(res_start, tz),
+        format_time_short(res_end, tz)
     );
     writeln!(writer, "{}", status_info).ok();
 }
@@ -321,8 +329,8 @@ fn format_gpu_spec(spec: &gflow::core::reservation::GpuSpec) -> String {
 }
 
 /// Format time in short format (HH:MM)
-fn format_time_short(time: SystemTime) -> String {
-    let dt = system_time_to_datetime(time);
+fn format_time_short(time: SystemTime, tz: &Tz) -> String {
+    let dt = system_time_to_datetime(time, tz);
     dt.format("%H:%M").to_string()
 }
 
@@ -361,13 +369,28 @@ fn print_summary_to_writer<W: std::io::Write>(
     writeln!(writer, "Legend: █ Active  ░ Pending").ok();
 }
 
-/// Convert SystemTime to DateTime<Local>
-fn system_time_to_datetime(time: SystemTime) -> DateTime<Local> {
-    time.into()
+/// Get timezone from config or use local timezone
+fn get_timezone(config_tz: Option<&str>) -> Tz {
+    if let Some(tz_str) = config_tz {
+        tz_str.parse::<Tz>().unwrap_or(chrono_tz::UTC)
+    } else {
+        // Use local timezone detection
+        gflow::utils::timezone::get_timezone(None).unwrap_or(chrono_tz::UTC)
+    }
 }
 
-/// Convert DateTime<Local> to SystemTime
-fn datetime_to_system_time(dt: DateTime<Local>) -> SystemTime {
+/// Convert SystemTime to DateTime in configured timezone
+fn system_time_to_datetime(time: SystemTime, tz: &Tz) -> DateTime<Tz> {
+    let duration = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    DateTime::<Utc>::from_timestamp(duration.as_secs() as i64, 0)
+        .unwrap_or_default()
+        .with_timezone(tz)
+}
+
+/// Convert DateTime to SystemTime
+fn datetime_to_system_time<T: chrono::TimeZone>(dt: DateTime<T>) -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64)
 }
 
@@ -445,6 +468,7 @@ mod tests {
         let config = TimelineConfig {
             width: 80,
             time_range: (range_start, range_end),
+            timezone: None,
         };
 
         // Render to a buffer
@@ -522,6 +546,7 @@ mod tests {
         let config = TimelineConfig {
             width,
             time_range: (range_start, range_end),
+            timezone: None,
         };
 
         let mut output = Vec::new();
@@ -571,6 +596,7 @@ mod tests {
         let config = TimelineConfig {
             width: 80,
             time_range: (range_start, range_end),
+            timezone: None,
         };
 
         let mut output = Vec::new();

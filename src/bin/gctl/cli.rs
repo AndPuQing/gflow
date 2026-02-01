@@ -72,6 +72,10 @@ pub enum ReserveCommands {
         /// Duration (e.g., "1h", "30m", "2h30m")
         #[arg(long)]
         duration: String,
+        /// Timezone for interpreting start time (e.g., "Asia/Shanghai", "UTC")
+        /// Overrides config file timezone setting
+        #[arg(long)]
+        timezone: Option<String>,
     },
 
     /// List GPU reservations

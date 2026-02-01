@@ -1,7 +1,8 @@
 use anyhow::Result;
 use gflow::client::Client;
+use gflow::config::Config;
 use gflow::core::reservation::ReservationStatus;
-use gflow::utils::parsers::parse_reservation_time;
+use gflow::utils::timezone::{format_system_time_short, parse_reservation_time_with_tz};
 use tabled::{builder::Builder, settings::style::Style};
 
 use crate::reserve_timeline::{render_timeline, TimelineConfig};
@@ -15,6 +16,7 @@ pub struct TimelineRangeOpts {
 
 pub async fn handle_reserve_list(
     client: &Client,
+    config: &Config,
     user: Option<String>,
     status: Option<String>,
     active_only: bool,
@@ -31,6 +33,8 @@ pub async fn handle_reserve_list(
     // Sort reservations by ID (creation order)
     reservations.sort_by_key(|r| r.id);
 
+    let config_tz = config.timezone.as_deref();
+
     if timeline {
         if timeline_range.range.is_some()
             && (timeline_range.from.is_some() || timeline_range.to.is_some())
@@ -42,26 +46,31 @@ pub async fn handle_reserve_list(
         }
 
         // Render timeline view
-        let config = if let Some(spec) = timeline_range.range.as_deref() {
+        let config_obj = if let Some(spec) = timeline_range.range.as_deref() {
             let now = std::time::SystemTime::now();
             TimelineConfig {
                 time_range: parse_relative_time_range(now, spec)?,
+                timezone: config_tz,
                 ..Default::default()
             }
         } else if let (Some(from), Some(to)) =
             (timeline_range.from.as_deref(), timeline_range.to.as_deref())
         {
-            let start = parse_reservation_time(from)?;
-            let end = parse_reservation_time(to)?;
+            let start = parse_reservation_time_with_tz(from, config_tz, None)?;
+            let end = parse_reservation_time_with_tz(to, config_tz, None)?;
             ensure_valid_time_range(start, end)?;
             TimelineConfig {
                 time_range: (start, end),
+                timezone: config_tz,
                 ..Default::default()
             }
         } else {
-            TimelineConfig::default()
+            TimelineConfig {
+                timezone: config_tz,
+                ..Default::default()
+            }
         };
-        render_timeline(&reservations, config);
+        render_timeline(&reservations, config_obj);
     } else {
         if timeline_range.range.is_some()
             || timeline_range.from.is_some()
@@ -75,8 +84,8 @@ pub async fn handle_reserve_list(
         builder.push_record(["ID", "USER", "GPUS", "START", "END", "STATUS"]);
 
         for reservation in reservations {
-            let start_time = format_system_time_short(reservation.start_time);
-            let end_time = format_system_time_short(reservation.end_time());
+            let start_time = format_system_time_short(reservation.start_time, config_tz)?;
+            let end_time = format_system_time_short(reservation.end_time(), config_tz)?;
             let status_str = format_status(reservation.status);
             let gpu_spec_str = format_gpu_spec(&reservation.gpu_spec);
 
@@ -169,19 +178,6 @@ fn shift_system_time(
         now.checked_sub(Duration::from_secs((-offset_secs) as u64))
             .ok_or_else(|| anyhow::anyhow!("Time range start is out of bounds"))
     }
-}
-
-/// Format SystemTime for table display (shorter format without "UTC" suffix)
-fn format_system_time_short(time: std::time::SystemTime) -> String {
-    use chrono::{DateTime, Utc};
-
-    let duration = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let datetime =
-        DateTime::<Utc>::from_timestamp(duration.as_secs() as i64, 0).unwrap_or_default();
-
-    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn format_status(status: ReservationStatus) -> String {

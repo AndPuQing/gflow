@@ -6,6 +6,10 @@ use std::path::PathBuf;
 pub struct Config {
     #[serde(default)]
     pub daemon: DaemonConfig,
+    /// Timezone for displaying and parsing times (e.g., "Asia/Shanghai", "America/Los_Angeles", "UTC")
+    /// If not set, uses local timezone
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

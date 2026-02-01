@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::CommandFactory;
 use clap_complete::generate;
 use gflow::client::Client;
+use gflow::config::Config;
 
 pub mod reserve_cancel;
 pub mod reserve_create;
@@ -13,7 +14,11 @@ pub mod show_gpus;
 
 use crate::cli;
 
-pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<()> {
+pub async fn handle_commands(
+    client: &Client,
+    config: &Config,
+    command: cli::Commands,
+) -> Result<()> {
     match command {
         cli::Commands::SetGpus { gpu_spec } => {
             set_gpus::handle_set_gpus(client, &gpu_spec).await?;
@@ -39,14 +44,19 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
                 gpu_spec,
                 start,
                 duration,
+                timezone,
             } => {
                 reserve_create::handle_reserve_create(
                     client,
-                    &user,
-                    gpus.as_ref().copied(),
-                    gpu_spec.as_deref(),
-                    &start,
-                    &duration,
+                    config,
+                    reserve_create::ReserveCreateParams {
+                        user: &user,
+                        gpus: gpus.as_ref().copied(),
+                        gpu_spec: gpu_spec.as_deref(),
+                        start: &start,
+                        duration: &duration,
+                        timezone: timezone.as_deref(),
+                    },
                 )
                 .await?;
             }
@@ -61,6 +71,7 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
             } => {
                 reserve_list::handle_reserve_list(
                     client,
+                    config,
                     user,
                     status,
                     active,
@@ -70,7 +81,7 @@ pub async fn handle_commands(client: &Client, command: cli::Commands) -> Result<
                 .await?;
             }
             cli::ReserveCommands::Get { id } => {
-                reserve_get::handle_reserve_get(client, id).await?;
+                reserve_get::handle_reserve_get(client, config, id).await?;
             }
             cli::ReserveCommands::Cancel { id } => {
                 reserve_cancel::handle_reserve_cancel(client, id).await?;

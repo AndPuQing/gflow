@@ -1,10 +1,14 @@
 use anyhow::Result;
 use gflow::client::Client;
+use gflow::config::Config;
 use gflow::core::reservation::{GpuSpec, ReservationStatus};
 use gflow::print_field;
+use gflow::utils::timezone::format_system_time;
 
-pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
+pub async fn handle_reserve_get(client: &Client, config: &Config, id: u32) -> Result<()> {
     let reservation = client.get_reservation(id).await?;
+
+    let config_tz = config.timezone.as_deref();
 
     match reservation {
         Some(r) => {
@@ -30,12 +34,12 @@ pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
             print_field!(
                 "StartTime",
                 "{}",
-                gflow::utils::format_system_time(r.start_time)
+                format_system_time(r.start_time, config_tz, "%Y-%m-%d %H:%M:%S %Z")?
             );
             print_field!(
                 "EndTime",
                 "{}",
-                gflow::utils::format_system_time(r.end_time())
+                format_system_time(r.end_time(), config_tz, "%Y-%m-%d %H:%M:%S %Z")?
             );
             print_field!(
                 "Duration",
@@ -46,13 +50,13 @@ pub async fn handle_reserve_get(client: &Client, id: u32) -> Result<()> {
             print_field!(
                 "CreatedAt",
                 "{}",
-                gflow::utils::format_system_time(r.created_at)
+                format_system_time(r.created_at, config_tz, "%Y-%m-%d %H:%M:%S %Z")?
             );
             if let Some(cancelled_at) = r.cancelled_at {
                 print_field!(
                     "CancelledAt",
                     "{}",
-                    gflow::utils::format_system_time(cancelled_at)
+                    format_system_time(cancelled_at, config_tz, "%Y-%m-%d %H:%M:%S %Z")?
                 );
             }
         }
