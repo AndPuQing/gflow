@@ -76,6 +76,31 @@ gctl show-gpus
 3. 配置文件（`daemon.gpus = [...]`）
 4. 默认：所有检测到的 GPU
 
+## 时区
+
+配置预约时间的显示和解析时区。
+
+配置文件：
+
+```toml
+timezone = "Asia/Shanghai"
+```
+
+命令级别覆盖：
+
+```bash
+gctl reserve create --user alice --gpus 2 --start "2026-02-01 14:00" --duration "2h" --timezone "UTC"
+```
+
+支持格式：
+- IANA 时区名称：`"Asia/Shanghai"`、`"America/Los_Angeles"`、`"UTC"`
+- 时间输入：ISO8601（`"2026-02-01T14:00:00Z"`）或简单格式（`"2026-02-01 14:00"`）
+
+优先级（从高到低）：
+1. CLI 参数（`--timezone`）
+2. 配置文件（`timezone = "..."`）
+3. 默认：本地系统时区
+
 ### 日志
 
 - `gflowd`：使用 `-v/--verbose`（见 `gflowd --help`）。

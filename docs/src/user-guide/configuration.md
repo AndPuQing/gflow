@@ -76,6 +76,31 @@ Precedence (highest → lowest):
 3. Config file (`daemon.gpus = [...]`)
 4. Default: all detected GPUs
 
+## Timezone
+
+Configure timezone for displaying and parsing reservation times.
+
+Config file:
+
+```toml
+timezone = "Asia/Shanghai"
+```
+
+Per-command override:
+
+```bash
+gctl reserve create --user alice --gpus 2 --start "2026-02-01 14:00" --duration "2h" --timezone "UTC"
+```
+
+Supported formats:
+- IANA timezone names: `"Asia/Shanghai"`, `"America/Los_Angeles"`, `"UTC"`
+- Time input: ISO8601 (`"2026-02-01T14:00:00Z"`) or simple format (`"2026-02-01 14:00"`)
+
+Precedence (highest → lowest):
+1. CLI flag (`--timezone`)
+2. Config file (`timezone = "..."`)
+3. Default: local system timezone
+
 ### Logging
 
 - `gflowd`: use `-v/--verbose` (see `gflowd --help`).
