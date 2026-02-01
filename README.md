@@ -16,6 +16,10 @@ English | [简体中文](README_CN.md)
 
 `gflow` is a lightweight, single-node job scheduler written in Rust, inspired by Slurm. It is designed for efficiently managing and scheduling tasks, especially on machines with GPU resources.
 
+## Demo
+
+[![asciicast](https://asciinema.org/a/ps79jhhtbo5cgJwO.svg)](https://asciinema.org/a/ps79jhhtbo5cgJwO)
+
 ## Core Features
 
 - **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.

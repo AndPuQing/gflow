@@ -2,10 +2,11 @@
 
 [![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://andpuqing.github.io/gflow/)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)](https://github.com/AndPuQing/gflow/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AndPuQing/gflow/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/AndPuQing/gflow)
 [![PyPI - Version](https://img.shields.io/pypi/v/runqd?style=flat-square&logo=pypi)](https://pypi.org/project/runqd/)
 [![TestPyPI - Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Ftest.pypi.org%2Fpypi%2Frunqd%2Fjson&query=%24.info.version&style=flat-square&logo=pypi&label=testpypi)](https://test.pypi.org/project/runqd/)
 [![Crates.io Version](https://img.shields.io/crates/v/gflow?style=flat-square&logo=rust)](https://crates.io/crates/gflow)
-[![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/gflow?style=flat-square)](https://crates.io/crates/gflow)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/runqd?style=flat-square)](https://pypi.org/project/runqd/)
 [![dependency status](https://deps.rs/repo/github/AndPuQing/gflow/status.svg?style=flat-square)](https://deps.rs/repo/github/AndPuQing/gflow)
 [![Crates.io License](https://img.shields.io/crates/l/gflow?style=flat-square)](https://crates.io/crates/gflow)
 [![Crates.io Size](https://img.shields.io/crates/size/gflow?style=flat-square)](https://crates.io/crates/gflow)
@@ -14,6 +15,10 @@
 [English](README.md) | 简体中文
 
 `gflow` 是一个使用 Rust 编写的轻量级单节点任务调度器，灵感来源于 Slurm。它专为高效管理和调度任务而设计，特别适用于配备 GPU 资源的机器。
+
+## 演示
+
+[![asciicast](https://asciinema.org/a/ps79jhhtbo5cgJwO.svg)](https://asciinema.org/a/ps79jhhtbo5cgJwO)
 
 ## 核心特性
 
@@ -59,7 +64,7 @@ uv tool install runqd
 pip install runqd
 ```
 
-这将为 Linux（x86_64、ARM64、ARMv7）安装预构建的二进制文件，支持 GNU 和 MUSL libc。
+这将为 Linux（x86_64、ARM64）安装预构建的二进制文件。
 
 ### 安装 Nightly 版本
 
@@ -131,13 +136,13 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 ## 文档
 
-- 在线文档：https://andpuqing.github.io/gflow/
-- 安装：`docs/src/zh-CN/getting-started/installation.md`
-- 快速入门：`docs/src/zh-CN/getting-started/quick-start.md`
-- 任务提交：`docs/src/zh-CN/user-guide/job-submission.md`
-- 时间限制：`docs/src/zh-CN/user-guide/time-limits.md`
-- 配置：`docs/src/zh-CN/user-guide/configuration.md`
-- 命令速查：`docs/src/zh-CN/reference/quick-reference.md`
+- 网站：https://andpuqing.github.io/gflow/
+- 安装：`docs/src/getting-started/installation.md`
+- 快速入门：`docs/src/getting-started/quick-start.md`
+- 任务提交：`docs/src/user-guide/job-submission.md`
+- 时间限制：`docs/src/user-guide/time-limits.md`
+- 配置：`docs/src/user-guide/configuration.md`
+- 命令速查：`docs/src/reference/quick-reference.md`
 
 ## Star 历史
 
