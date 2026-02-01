@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "gflow"
-version = "0.4.10"
+version = "0.4.11"
 dependencies = [
  "anyhow",
  "axum",
