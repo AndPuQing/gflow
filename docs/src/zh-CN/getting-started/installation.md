@@ -46,7 +46,7 @@ pipx install runqd
 pip install runqd
 ```
 
-这将为 Linux（x86_64、ARM64、ARMv7）安装预构建的二进制文件，支持 GNU 和 MUSL libc。
+这将为 Linux（x86_64、ARM64）安装预构建的二进制文件。
 
 ### 安装 Nightly 版本
 
