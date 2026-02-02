@@ -85,43 +85,6 @@ jobs:
                   name: wheels-linux-${{ matrix.platform.target }}
                   path: dist
 
-    musllinux:
-        needs: check
-        if: needs.check.outputs.should_build == 'true'
-        runs-on: ${{ matrix.platform.runner }}
-        timeout-minutes: 60
-        strategy:
-            matrix:
-                platform:
-                    - runner: ubuntu-22.04
-                      target: x86_64
-                    - runner: ubuntu-22.04
-                      target: aarch64
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Set nightly version
-              run: |
-                  # pyproject.toml uses PEP 440 format
-                  sed -i 's/^version = ".*"/version = "${{ needs.check.outputs.version }}"/' pyproject.toml
-                  # Cargo.toml uses semver with pre-release tag
-                  BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
-                  sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
-
-            - name: Build wheels
-              uses: PyO3/maturin-action@v1
-              with:
-                  target: ${{ matrix.platform.target }}
-                  args: --release --out dist
-                  sccache: true
-                  manylinux: musllinux_1_2
-
-            - name: Upload wheels
-              uses: actions/upload-artifact@v6
-              with:
-                  name: wheels-musllinux-${{ matrix.platform.target }}
-                  path: dist
-
     sdist:
         needs: check
         if: needs.check.outputs.should_build == 'true'
@@ -154,7 +117,7 @@ jobs:
         name: Publish to TestPyPI
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [check, linux, musllinux, sdist]
+        needs: [check, linux, sdist]
         if: needs.check.outputs.should_build == 'true'
         environment:
             name: testpypi
