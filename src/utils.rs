@@ -6,6 +6,7 @@ use clap::builder::{
     styling::{AnsiColor, Effects},
     Styles,
 };
+use compact_str::CompactString;
 use regex::Regex;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -33,7 +34,7 @@ pub use parsers::{
 /// ```
 pub fn substitute_parameters(
     command: &str,
-    parameters: &HashMap<String, String>,
+    parameters: &HashMap<CompactString, CompactString>,
 ) -> Result<String> {
     let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
     let mut result = command.to_string();
@@ -43,7 +44,7 @@ pub fn substitute_parameters(
         let param_name = &cap[1];
         if let Some(value) = parameters.get(param_name) {
             let pattern = format!("{{{}}}", param_name);
-            result = result.replace(&pattern, value);
+            result = result.replace(&pattern, value.as_str());
         } else {
             missing_params.push(param_name.to_string());
         }

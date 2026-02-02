@@ -187,7 +187,7 @@ pub(crate) async fn handle_add(
 
         // Generate group_id if max_concurrent is specified
         let group_id = if add_args.max_concurrent.is_some() {
-            Some(uuid::Uuid::new_v4().to_string())
+            Some(uuid::Uuid::new_v4())
         } else {
             None
         };
@@ -206,7 +206,7 @@ pub(crate) async fn handle_add(
 
                 // Show preview
                 let mut cmd = if let Some(c) = &job.command {
-                    c.clone()
+                    c.to_string()
                 } else if let Some(s) = &job.script {
                     s.to_string_lossy().to_string()
                 } else {
@@ -225,7 +225,7 @@ pub(crate) async fn handle_add(
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
-            job.group_id = group_id.clone();
+            job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
             jobs.push(job);
         }
@@ -272,7 +272,7 @@ pub(crate) async fn handle_add(
 
         // Generate group_id if max_concurrent is specified
         let group_id = if add_args.max_concurrent.is_some() {
-            Some(uuid::Uuid::new_v4().to_string())
+            Some(uuid::Uuid::new_v4())
         } else {
             None
         };
@@ -291,7 +291,7 @@ pub(crate) async fn handle_add(
 
                 // Show preview
                 let mut cmd = if let Some(c) = &job.command {
-                    c.clone()
+                    c.to_string()
                 } else if let Some(s) = &job.script {
                     s.to_string_lossy().to_string()
                 } else {
@@ -310,7 +310,7 @@ pub(crate) async fn handle_add(
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
-            job.group_id = group_id.clone();
+            job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
             jobs.push(job);
         }
@@ -350,7 +350,7 @@ pub(crate) async fn handle_add(
 
         // Generate group_id if max_concurrent is specified
         let group_id = if add_args.max_concurrent.is_some() {
-            Some(uuid::Uuid::new_v4().to_string())
+            Some(uuid::Uuid::new_v4())
         } else {
             None
         };
@@ -363,7 +363,7 @@ pub(crate) async fn handle_add(
                     build_job(&add_args, Some(*task_id), &client, stdin_content.as_ref()).await?;
 
                 let cmd = if let Some(c) = &job.command {
-                    c.clone()
+                    c.to_string()
                 } else if let Some(s) = &job.script {
                     s.to_string_lossy().to_string()
                 } else {
@@ -386,7 +386,7 @@ pub(crate) async fn handle_add(
             let mut job =
                 build_job(&add_args, Some(task_id), &client, stdin_content.as_ref()).await?;
             // Assign group_id and max_concurrent if needed
-            job.group_id = group_id.clone();
+            job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
             jobs.push(job);
         }
@@ -424,7 +424,7 @@ pub(crate) async fn handle_add(
         let job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
         println!("Would submit 1 batch job:");
         let cmd = if let Some(c) = &job.command {
-            c.clone()
+            c.to_string()
         } else if let Some(s) = &job.script {
             s.to_string_lossy().to_string()
         } else {

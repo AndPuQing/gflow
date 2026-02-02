@@ -109,7 +109,7 @@ pub async fn handle_redo(
     builder = builder.run_dir(original_job.run_dir.clone());
     builder = builder.task_id(original_job.task_id);
     builder = builder.auto_close_tmux(original_job.auto_close_tmux);
-    builder = builder.parameters(original_job.parameters.clone());
+    builder = builder.parameters_compact(original_job.parameters.clone());
 
     // Display parameters if any
     if !original_job.parameters.is_empty() {
@@ -240,8 +240,8 @@ async fn redo_with_cascade(
         builder = builder.run_dir(cascade_job.run_dir.clone());
         builder = builder.task_id(cascade_job.task_id);
         builder = builder.auto_close_tmux(cascade_job.auto_close_tmux);
-        builder = builder.parameters(cascade_job.parameters.clone());
-        builder = builder.group_id(cascade_job.group_id.clone());
+        builder = builder.parameters_compact(cascade_job.parameters.clone());
+        builder = builder.group_id_uuid(cascade_job.group_id);
         builder = builder.max_concurrent(cascade_job.max_concurrent);
 
         // Track that this job was redone from the original cascade job

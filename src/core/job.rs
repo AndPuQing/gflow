@@ -1,15 +1,46 @@
 use compact_str::CompactString;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use strum::{Display, EnumIter, EnumString, FromRepr};
+use uuid::Uuid;
 
 /// Type alias for dependency IDs - uses SmallVec to avoid heap allocation for small lists
 /// Most jobs have 0-2 dependencies, so inline storage of 2 elements keeps same size as Vec
 pub type DependencyIds = SmallVec<[u32; 2]>;
+
+/// Custom serializer for group_id that outputs string format for compatibility
+fn serialize_group_id<S>(group_id: &Option<Uuid>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match group_id {
+        Some(uuid) => serializer.serialize_some(&uuid.to_string()),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// Custom deserializer for group_id that accepts both string and binary UUID formats
+fn deserialize_group_id<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    match opt {
+        Some(s) => {
+            // Try to parse as UUID string
+            Uuid::parse_str(&s)
+                .map(Some)
+                .map_err(|e| D::Error::custom(format!("Invalid UUID string: {}", e)))
+        }
+        None => Ok(None),
+    }
+}
 
 #[derive(Debug)]
 pub enum JobError {
@@ -161,7 +192,7 @@ pub struct Job {
     /// Required fields at submission time
     pub id: u32,
     pub script: Option<PathBuf>,
-    pub command: Option<String>,
+    pub command: Option<CompactString>,
     pub gpus: u32,
     pub conda_env: Option<CompactString>,
     pub run_dir: PathBuf,
@@ -179,9 +210,14 @@ pub struct Job {
     pub submitted_by: CompactString,
     pub redone_from: Option<u32>, // The job ID this job was redone from
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
-    pub parameters: HashMap<String, String>, // Parameter values for template substitution
-    pub group_id: Option<String>, // UUID for job group (for batch submissions)
-    pub max_concurrent: Option<usize>, // Max concurrent jobs in this group
+    pub parameters: HashMap<CompactString, CompactString>, // Parameter values for template substitution
+    #[serde(
+        default,
+        serialize_with = "serialize_group_id",
+        deserialize_with = "deserialize_group_id"
+    )]
+    pub group_id: Option<Uuid>, // UUID for job group (for batch submissions)
+    pub max_concurrent: Option<usize>,                     // Max concurrent jobs in this group
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<CompactString>, // tmux session name
@@ -197,7 +233,7 @@ pub struct Job {
 #[derive(Default)]
 pub struct JobBuilder {
     script: Option<PathBuf>,
-    command: Option<String>,
+    command: Option<CompactString>,
     gpus: Option<u32>,
     conda_env: Option<CompactString>,
     run_dir: Option<PathBuf>,
@@ -213,8 +249,8 @@ pub struct JobBuilder {
     run_name: Option<CompactString>,
     redone_from: Option<u32>,
     auto_close_tmux: Option<bool>,
-    parameters: Option<HashMap<String, String>>,
-    group_id: Option<String>,
+    parameters: Option<HashMap<CompactString, CompactString>>,
+    group_id: Option<Uuid>,
     max_concurrent: Option<usize>,
 }
 
@@ -229,7 +265,7 @@ impl JobBuilder {
     }
 
     pub fn command(mut self, command: impl Into<String>) -> Self {
-        self.command = Some(command.into());
+        self.command = Some(CompactString::from(command.into()));
         self
     }
 
@@ -309,11 +345,26 @@ impl JobBuilder {
     }
 
     pub fn parameters(mut self, parameters: HashMap<String, String>) -> Self {
+        self.parameters = Some(
+            parameters
+                .into_iter()
+                .map(|(k, v)| (CompactString::from(k), CompactString::from(v)))
+                .collect(),
+        );
+        self
+    }
+
+    pub fn parameters_compact(mut self, parameters: HashMap<CompactString, CompactString>) -> Self {
         self.parameters = Some(parameters);
         self
     }
 
     pub fn group_id(mut self, group_id: Option<String>) -> Self {
+        self.group_id = group_id.and_then(|s| Uuid::parse_str(&s).ok());
+        self
+    }
+
+    pub fn group_id_uuid(mut self, group_id: Option<Uuid>) -> Self {
         self.group_id = group_id;
         self
     }
@@ -645,5 +696,146 @@ mod tests {
         assert_eq!(job.memory_limit_mb, None);
         assert_eq!(job.script, None);
         assert_eq!(job.command, None);
+    }
+
+    #[test]
+    fn test_backward_compatibility_string_to_compactstring() {
+        // Test that old JSON with String fields can be deserialized to CompactString
+        let old_json = r#"{
+            "id": 5,
+            "command": "python train.py --lr 0.001 --epochs 100",
+            "gpus": 2,
+            "conda_env": "pytorch",
+            "run_dir": "/home/user/work",
+            "priority": 10,
+            "submitted_by": "alice",
+            "run_name": "training-job-5",
+            "state": "Queued",
+            "parameters": {
+                "lr": "0.001",
+                "epochs": "100",
+                "batch_size": "32"
+            },
+            "group_id": "550e8400-e29b-41d4-a716-446655440000"
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(old_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize JSON with string fields: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(job.id, 5);
+        assert_eq!(
+            job.command.as_ref().map(|s| s.as_str()),
+            Some("python train.py --lr 0.001 --epochs 100")
+        );
+        assert_eq!(job.conda_env.as_ref().map(|s| s.as_str()), Some("pytorch"));
+        assert_eq!(job.submitted_by.as_str(), "alice");
+        assert_eq!(
+            job.run_name.as_ref().map(|s| s.as_str()),
+            Some("training-job-5")
+        );
+
+        // Verify parameters
+        assert_eq!(job.parameters.len(), 3);
+        assert_eq!(job.parameters.get("lr").map(|s| s.as_str()), Some("0.001"));
+        assert_eq!(
+            job.parameters.get("epochs").map(|s| s.as_str()),
+            Some("100")
+        );
+        assert_eq!(
+            job.parameters.get("batch_size").map(|s| s.as_str()),
+            Some("32")
+        );
+
+        // Verify group_id (now deserialized as UUID)
+        assert_eq!(
+            job.group_id.as_ref().map(|u| u.to_string()),
+            Some("550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_compactstring_serialization_roundtrip() {
+        // Test that CompactString fields serialize and deserialize correctly
+        let job = JobBuilder::new()
+            .command("python script.py --arg value")
+            .submitted_by("testuser")
+            .run_dir("/tmp/test")
+            .conda_env(Some("myenv".to_string()))
+            .parameters(HashMap::from([
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value2".to_string()),
+            ]))
+            .group_id(Some("test-group-id".to_string()))
+            .build();
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&job).expect("Failed to serialize");
+
+        // Deserialize back
+        let deserialized: Job = serde_json::from_str(&json).expect("Failed to deserialize");
+
+        assert_eq!(job.command, deserialized.command);
+        assert_eq!(job.submitted_by, deserialized.submitted_by);
+        assert_eq!(job.conda_env, deserialized.conda_env);
+        assert_eq!(job.parameters, deserialized.parameters);
+        assert_eq!(job.group_id, deserialized.group_id);
+    }
+
+    #[test]
+    fn test_group_id_uuid_serialization() {
+        // Test UUID serialization and deserialization
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let uuid = Uuid::parse_str(uuid_str).unwrap();
+
+        let job = JobBuilder::new()
+            .command("test command")
+            .submitted_by("testuser")
+            .run_dir("/tmp/test")
+            .group_id_uuid(Some(uuid))
+            .build();
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&job).expect("Failed to serialize");
+
+        // Verify it serializes as a string
+        assert!(json.contains(uuid_str));
+
+        // Deserialize back
+        let deserialized: Job = serde_json::from_str(&json).expect("Failed to deserialize");
+
+        assert_eq!(job.group_id, deserialized.group_id);
+        assert_eq!(deserialized.group_id, Some(uuid));
+    }
+
+    #[test]
+    fn test_group_id_backward_compatibility() {
+        // Test that old JSON with string group_id can be deserialized to UUID
+        let old_json = r#"{
+            "id": 6,
+            "gpus": 1,
+            "run_dir": "/tmp",
+            "priority": 10,
+            "submitted_by": "test",
+            "state": "Queued",
+            "group_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        }"#;
+
+        let result: Result<Job, _> = serde_json::from_str(old_json);
+        assert!(
+            result.is_ok(),
+            "Failed to deserialize old JSON with string group_id: {:?}",
+            result.err()
+        );
+
+        let job = result.unwrap();
+        assert_eq!(
+            job.group_id.map(|u| u.to_string()),
+            Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890".to_string())
+        );
     }
 }

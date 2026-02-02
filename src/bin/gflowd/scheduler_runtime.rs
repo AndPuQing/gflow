@@ -6,6 +6,7 @@ pub use event_loop::run_event_driven;
 
 use crate::state_saver::StateSaverHandle;
 use anyhow::Result;
+use compact_str::CompactString;
 use gflow::core::executor::Executor;
 use gflow::core::job::{Job, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
@@ -742,7 +743,7 @@ impl SchedulerRuntime {
 
         // Apply updates
         if let Some(command) = request.command {
-            job.command = Some(command);
+            job.command = Some(CompactString::from(command));
             updated_fields.push("command".to_string());
         }
 
@@ -767,7 +768,10 @@ impl SchedulerRuntime {
         }
 
         if let Some(parameters) = request.parameters {
-            job.parameters = parameters;
+            job.parameters = parameters
+                .into_iter()
+                .map(|(k, v)| (CompactString::from(k), CompactString::from(v)))
+                .collect();
             updated_fields.push("parameters".to_string());
         }
 

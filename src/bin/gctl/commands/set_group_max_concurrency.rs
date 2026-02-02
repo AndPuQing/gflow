@@ -15,14 +15,15 @@ pub async fn handle_set_group_max_concurrency(
             .context(format!("Failed to fetch job {}", job_id))?
             .ok_or_else(|| anyhow::anyhow!("Job {} not found", job_id))?;
 
-        let group_id = job
+        let group_uuid = job
             .group_id
             .ok_or_else(|| anyhow::anyhow!("Job {} is not part of a group", job_id))?;
 
+        let group_id = group_uuid.to_string();
         println!("Found job {} in group '{}'", job_id, group_id);
         group_id
     } else {
-        // Assume it's a group_id (UUID)
+        // Assume it's a group_id (UUID string)
         job_or_group_id.to_string()
     };
 

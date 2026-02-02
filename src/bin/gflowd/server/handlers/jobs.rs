@@ -764,6 +764,20 @@ pub(in crate::server) async fn set_group_max_concurrency(
         "Setting group max_concurrency"
     );
 
+    // Parse group_id string to UUID
+    let group_uuid = match uuid::Uuid::parse_str(&group_id) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Invalid UUID format: '{}'", group_id)
+                })),
+            )
+                .into_response();
+        }
+    };
+
     let updated_jobs = {
         let mut state = server_state.scheduler.write().await;
 
@@ -771,7 +785,7 @@ pub(in crate::server) async fn set_group_max_concurrency(
         let job_ids: Vec<u32> = state
             .jobs()
             .iter()
-            .filter(|job| job.group_id.as_ref() == Some(&group_id))
+            .filter(|job| job.group_id.as_ref() == Some(&group_uuid))
             .map(|job| job.id)
             .collect();
 

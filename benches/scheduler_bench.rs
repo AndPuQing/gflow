@@ -51,6 +51,43 @@ fn create_job_with_deps(index: u32, deps: Vec<u32>) -> Job {
         .build()
 }
 
+/// Create a job with parameters (realistic ML training scenario)
+fn create_job_with_params(index: u32) -> Job {
+    let mut params = HashMap::new();
+    params.insert(
+        "lr".to_string(),
+        format!("{:.4}", (index % 100) as f64 / 10000.0),
+    );
+    params.insert("epochs".to_string(), format!("{}", (index % 50) + 10));
+    params.insert(
+        "batch_size".to_string(),
+        format!("{}", 32 * (1 << (index % 4))),
+    );
+    params.insert(
+        "model".to_string(),
+        format!("resnet{}", 18 * (1 << (index % 3))),
+    );
+    params.insert(
+        "optimizer".to_string(),
+        if index % 2 == 0 {
+            "adam".to_string()
+        } else {
+            "sgd".to_string()
+        },
+    );
+    params.insert("seed".to_string(), format!("{}", index));
+
+    JobBuilder::new()
+        .submitted_by(format!("user{}", index % 100))
+        .run_dir(format!("/home/user{}/experiments", index % 100))
+        .command("python train.py --lr {lr} --epochs {epochs} --batch-size {batch_size} --model {model} --optimizer {optimizer} --seed {seed}".to_string())
+        .gpus(index % 4)
+        .priority((index % 20) as u8)
+        .parameters(params)
+        .conda_env(Some(format!("ml-env{}", index % 5)))
+        .build()
+}
+
 /// Create a scheduler with GPU slots for testing
 fn create_test_scheduler() -> Scheduler {
     let mut gpu_slots = HashMap::new();
@@ -204,6 +241,81 @@ fn bench_submit_job_overhead(c: &mut Criterion) {
             });
         });
     }
+
+    group.finish();
+}
+
+/// Benchmark job creation with parameters (realistic ML training scenario)
+fn bench_job_creation_with_params(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/job_creation_with_params");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter(|| {
+                let jobs: Vec<Job> = (0..size)
+                    .map(|i| create_job_with_params(i as u32))
+                    .collect();
+                hint_black_box(jobs);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark parameter string allocation specifically
+fn bench_parameter_allocation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/parameter_alloc");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter(|| {
+                let params_vec: Vec<HashMap<String, String>> = (0..size)
+                    .map(|i| {
+                        let mut params = HashMap::new();
+                        params.insert(
+                            "lr".to_string(),
+                            format!("{:.4}", (i % 100) as f64 / 10000.0),
+                        );
+                        params.insert("epochs".to_string(), format!("{}", (i % 50) + 10));
+                        params.insert("batch_size".to_string(), format!("{}", 32 * (1 << (i % 4))));
+                        params.insert(
+                            "model".to_string(),
+                            format!("resnet{}", 18 * (1 << (i % 3))),
+                        );
+                        params.insert(
+                            "optimizer".to_string(),
+                            if i % 2 == 0 {
+                                "adam".to_string()
+                            } else {
+                                "sgd".to_string()
+                            },
+                        );
+                        params.insert("seed".to_string(), format!("{}", i));
+                        params
+                    })
+                    .collect();
+                hint_black_box(params_vec);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark job cloning with parameters
+fn bench_job_clone_with_params(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/job_clone_with_params");
+
+    let job = create_job_with_params(12345);
+
+    group.bench_function("single_clone", |b| {
+        b.iter(|| std::hint::black_box(job.clone()));
+    });
 
     group.finish();
 }
@@ -549,6 +661,9 @@ criterion_group!(
     bench_job_clone,
     bench_string_allocation,
     bench_submit_job_overhead,
+    bench_job_creation_with_params,
+    bench_parameter_allocation,
+    bench_job_clone_with_params,
 );
 
 criterion_group!(
