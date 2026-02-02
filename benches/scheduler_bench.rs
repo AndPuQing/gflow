@@ -6,7 +6,7 @@
 //! - Job submission throughput
 //! - Scheduling decision performance
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use gflow::core::job::{DependencyMode, Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
@@ -160,7 +160,7 @@ fn bench_memory_job_storage(c: &mut Criterion) {
 // Bottleneck Analysis Benchmarks
 // ============================================================================
 
-/// Benchmark just Job creation (no scheduler, no HashMap)
+/// Benchmark Job creation (includes dropping the Vec<Job> at end of each iter)
 fn bench_job_creation_only(c: &mut Criterion) {
     let mut group = c.benchmark_group("bottleneck/job_creation");
     group.sample_size(10);
@@ -172,6 +172,57 @@ fn bench_job_creation_only(c: &mut Criterion) {
                 let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
                 hint_black_box(jobs);
             });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark Job creation only (drop happens outside the timed section).
+///
+/// This helps identify whether large-N slowdowns come from construction vs. teardown.
+fn bench_job_create_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/job_create_only");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || (),
+                |_| {
+                    let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
+                    hint_black_box(jobs)
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark dropping a pre-built Vec<Job> (construction happens outside the timed section).
+///
+/// Note: the input Vec is created immediately before dropping (during setup),
+/// so it may be "warm" in cache; still useful to compare scaling behavior.
+fn bench_job_drop_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bottleneck/job_drop_only");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.throughput(Throughput::Elements(size as u64));
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
+                    hint_black_box(jobs)
+                },
+                |jobs| {
+                    drop(jobs);
+                },
+                BatchSize::LargeInput,
+            );
         });
     }
 
@@ -658,6 +709,8 @@ criterion_group!(
 criterion_group!(
     bottleneck_benches,
     bench_job_creation_only,
+    bench_job_create_only,
+    bench_job_drop_only,
     bench_job_clone,
     bench_string_allocation,
     bench_submit_job_overhead,

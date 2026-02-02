@@ -1,6 +1,6 @@
 use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
-use crate::core::job::{DependencyMode, Job, JobState, JobStateReason};
+use crate::core::job::{DependencyMode, GpuIds, Job, JobState, JobStateReason};
 use crate::core::reservation::{GpuReservation, ReservationStatus};
 use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
@@ -671,10 +671,8 @@ impl Scheduler {
                 let usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
 
                 if let Some(job) = self.get_job_mut(job_id) {
-                    let gpus_for_job = usable_gpus
-                        .into_iter()
-                        .take(job.gpus as usize)
-                        .collect::<Vec<_>>();
+                    let gpus_for_job: GpuIds =
+                        usable_gpus.into_iter().take(job.gpus as usize).collect();
 
                     // Remove allocated GPUs from available pool
                     available_gpus.retain(|gpu| !gpus_for_job.contains(gpu));

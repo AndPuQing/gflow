@@ -16,6 +16,17 @@ pub use parsers::{
     parse_gpu_indices, parse_job_ids, parse_memory_limit, parse_since_time, parse_time_limit,
 };
 
+/// Trait for types that can provide parameter lookups
+pub trait ParameterLookup {
+    fn get_param(&self, key: &str) -> Option<&CompactString>;
+}
+
+impl ParameterLookup for HashMap<CompactString, CompactString> {
+    fn get_param(&self, key: &str) -> Option<&CompactString> {
+        self.get(key)
+    }
+}
+
 /// Substitute {param_name} patterns in command with actual values.
 ///
 /// # Examples
@@ -33,9 +44,9 @@ pub use parsers::{
 /// let result = substitute_parameters(template, &params).unwrap();
 /// assert_eq!(result, "python eval.py --task_id '123' --model 'gpt-4'");
 /// ```
-pub fn substitute_parameters(
+pub fn substitute_parameters<P: ParameterLookup + ?Sized>(
     command: &str,
-    parameters: &HashMap<CompactString, CompactString>,
+    parameters: &P,
 ) -> Result<String> {
     let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
     let mut result = command.to_string();
@@ -43,7 +54,7 @@ pub fn substitute_parameters(
 
     for cap in re.captures_iter(command) {
         let param_name = &cap[1];
-        if let Some(value) = parameters.get(param_name) {
+        if let Some(value) = parameters.get_param(param_name) {
             let pattern = format!("{{{}}}", param_name);
             result = result.replace(&pattern, value.as_str());
         } else {

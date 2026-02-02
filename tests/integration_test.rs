@@ -9,6 +9,7 @@ use gflow::core::executor::Executor;
 use gflow::core::job::{DependencyIds, Job, JobBuilder, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
+use smallvec::smallvec;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -446,8 +447,8 @@ fn test_gpu_constraints() {
     assert_eq!(scheduler.get_job(3).unwrap().state, JobState::Queued);
 
     // Verify GPU allocation
-    assert_eq!(scheduler.get_job(1).unwrap().gpu_ids, Some(vec![0]));
-    assert_eq!(scheduler.get_job(2).unwrap().gpu_ids, Some(vec![1]));
+    assert_eq!(scheduler.get_job(1).unwrap().gpu_ids, Some(smallvec![0]));
+    assert_eq!(scheduler.get_job(2).unwrap().gpu_ids, Some(smallvec![1]));
 
     // Mark GPUs as unavailable (simulating what gflowd would do)
     scheduler
@@ -484,7 +485,10 @@ fn test_multi_gpu_job() {
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 1);
     assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Running);
-    assert_eq!(scheduler.get_job(job_id).unwrap().gpu_ids, Some(vec![0, 1]));
+    assert_eq!(
+        scheduler.get_job(job_id).unwrap().gpu_ids,
+        Some(smallvec![0, 1])
+    );
 
     // Verify execution
     assert_eq!(executor.execution_count(), 1);
@@ -613,7 +617,7 @@ fn test_priority_with_resource_constraints() {
     // High priority job executed first
     let executions = executor.get_executions();
     assert_eq!(executions[0].id, high_id);
-    assert_eq!(executions[0].gpu_ids, Some(vec![0, 1]));
+    assert_eq!(executions[0].gpu_ids, Some(smallvec![0, 1]));
 }
 
 #[test]

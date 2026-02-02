@@ -1,5 +1,9 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState, tmux::get_all_session_names};
+use gflow::{
+    client::Client,
+    core::job::{GpuIds, JobState},
+    tmux::get_all_session_names,
+};
 use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
 use tabled::{builder::Builder, settings::style::Style};
@@ -331,7 +335,7 @@ fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
 }
 
 /// Formats GPU IDs as a comma-separated string
-fn format_gpu_ids(gpu_ids: Option<&Vec<u32>>) -> String {
+fn format_gpu_ids(gpu_ids: Option<&GpuIds>) -> String {
     gpu_ids.map_or_else(
         || "-".to_string(),
         |ids| {
@@ -719,7 +723,7 @@ mod tests {
             task_id: None,
             run_name: Some(name.into()),
             state: JobState::Finished,
-            gpu_ids: Some(vec![0]),
+            gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,
             started_at: None,
             finished_at: None,
@@ -728,7 +732,7 @@ mod tests {
             submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
-            parameters: std::collections::HashMap::new(),
+            parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,
@@ -751,7 +755,7 @@ mod tests {
             task_id: None,
             run_name: Some(name.into()),
             state,
-            gpu_ids: Some(vec![0]),
+            gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,
             started_at: None,
             finished_at: None,
@@ -760,7 +764,7 @@ mod tests {
             submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
-            parameters: std::collections::HashMap::new(),
+            parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,
@@ -783,7 +787,7 @@ mod tests {
             task_id: None,
             run_name: Some(name.into()),
             state: JobState::Finished,
-            gpu_ids: Some(vec![0]),
+            gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,
             started_at: None,
             finished_at: None,
@@ -792,7 +796,7 @@ mod tests {
             submitted_by: "testuser".into(),
             redone_from,
             auto_close_tmux: false,
-            parameters: std::collections::HashMap::new(),
+            parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,

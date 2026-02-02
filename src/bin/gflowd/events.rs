@@ -4,7 +4,7 @@
 //! scheduler operations without polling. Events are published when state
 //! changes occur and handlers react to these events.
 
-use gflow::core::job::{JobState, JobStateReason};
+use gflow::core::job::{GpuIds, JobState, JobStateReason};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -27,7 +27,7 @@ pub enum SchedulerEvent {
     JobCompleted {
         job_id: u32,
         final_state: JobState,
-        gpu_ids: Option<Vec<u32>>,
+        gpu_ids: Option<GpuIds>,
         memory_mb: Option<u64>,
     },
 
