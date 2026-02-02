@@ -16,10 +16,12 @@ pub type DependencyIds = SmallVec<[u32; 2]>;
 /// Most jobs use 1-4 GPUs, so inline storage of 4 elements eliminates heap allocation
 pub type GpuIds = SmallVec<[u32; 4]>;
 
-/// Type alias for job parameters - uses SmallVec to avoid HashMap overhead for typical parameter counts
-/// Most jobs have 0-2 parameters, so inline storage of 2 elements balances memory usage and allocation overhead
+/// Job parameters stored as a small Vec of key-value pairs.
+///
+/// This keeps `Job`'s inline size small (unlike `SmallVec` with large inline tuples)
+/// while avoiding `HashMap` hashing overhead for typical small parameter counts.
 #[derive(Debug, Clone)]
-pub struct Parameters(SmallVec<[(CompactString, CompactString); 2]>);
+pub struct Parameters(Vec<(CompactString, CompactString)>);
 
 impl PartialEq for Parameters {
     fn eq(&self, other: &Self) -> bool {
@@ -39,7 +41,7 @@ impl Eq for Parameters {}
 impl Parameters {
     /// Create a new empty Parameters collection
     pub fn new() -> Self {
-        Self(SmallVec::new())
+        Self(Vec::new())
     }
 
     /// Get a parameter value by key
@@ -53,8 +55,8 @@ impl Parameters {
     /// Insert a parameter, replacing any existing value with the same key
     pub fn insert(&mut self, key: CompactString, value: CompactString) {
         // Check if key exists and update it
-        if let Some(entry) = self.0.iter_mut().find(|(k, _)| k == key) {
-            entry.1 = value;
+        if let Some((_k, v)) = self.0.iter_mut().find(|(k, _)| k == &key) {
+            *v = value;
         } else {
             // Add new entry
             self.0.push((key, value));
@@ -85,7 +87,11 @@ impl Default for Parameters {
 
 impl FromIterator<(CompactString, CompactString)> for Parameters {
     fn from_iter<T: IntoIterator<Item = (CompactString, CompactString)>>(iter: T) -> Self {
-        Self(iter.into_iter().collect())
+        let mut params = Self::new();
+        for (k, v) in iter {
+            params.insert(k, v);
+        }
+        params
     }
 }
 
