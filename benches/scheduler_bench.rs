@@ -701,6 +701,10 @@ criterion_main!(
     dependency_benches,
     scheduling_benches,
     group_concurrency_benches,
+    state_transition_benches,
+    scheduling_flow_benches,
+    auto_cancel_benches,
+    reservation_benches,
 );
 
 // ============================================================================
@@ -776,4 +780,663 @@ fn bench_group_concurrency_scheduling(c: &mut Criterion) {
 criterion_group!(
     group_concurrency_benches,
     bench_group_concurrency_scheduling
+);
+
+// ============================================================================
+// State Transition Benchmarks
+// ============================================================================
+
+/// Benchmark job state transitions (finish, fail, cancel, hold, release)
+fn bench_state_transitions(c: &mut Criterion) {
+    let mut group = c.benchmark_group("state_transitions/finish_job");
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler(&mut scheduler, size);
+                    // Set some jobs to Running state so they can be finished
+                    for i in 0..1000 {
+                        let job_id = (i + 1) as u32;
+                        if let Some(job) = scheduler.get_job_mut(job_id) {
+                            job.state = JobState::Running;
+                            job.started_at = Some(std::time::SystemTime::now());
+                        }
+                    }
+                    scheduler
+                },
+                |mut scheduler| {
+                    // Finish 100 jobs
+                    for i in 0..100 {
+                        let job_id = (i + 1) as u32;
+                        hint_black_box(scheduler.finish_job(job_id));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_fail_job(c: &mut Criterion) {
+    let mut group = c.benchmark_group("state_transitions/fail_job");
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler(&mut scheduler, size);
+                    // Set some jobs to Running state
+                    for i in 0..1000 {
+                        let job_id = (i + 1) as u32;
+                        if let Some(job) = scheduler.get_job_mut(job_id) {
+                            job.state = JobState::Running;
+                            job.started_at = Some(std::time::SystemTime::now());
+                        }
+                    }
+                    scheduler
+                },
+                |mut scheduler| {
+                    // Fail 100 jobs
+                    for i in 0..100 {
+                        let job_id = (i + 1) as u32;
+                        hint_black_box(scheduler.fail_job(job_id));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_cancel_job(c: &mut Criterion) {
+    let mut group = c.benchmark_group("state_transitions/cancel_job");
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler(&mut scheduler, size);
+                    scheduler
+                },
+                |mut scheduler| {
+                    // Cancel 100 jobs (can cancel from any state)
+                    for i in 0..100 {
+                        let job_id = (i + 1) as u32;
+                        hint_black_box(scheduler.cancel_job(job_id, None));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_hold_release_job(c: &mut Criterion) {
+    let mut group = c.benchmark_group("state_transitions/hold_release");
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler(&mut scheduler, size);
+                    scheduler
+                },
+                |mut scheduler| {
+                    // Hold and release 100 jobs
+                    for i in 0..100 {
+                        let job_id = (i + 1) as u32;
+                        hint_black_box(scheduler.hold_job(job_id));
+                        hint_black_box(scheduler.release_job(job_id));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    state_transition_benches,
+    bench_state_transitions,
+    bench_fail_job,
+    bench_cancel_job,
+    bench_hold_release_job,
+);
+
+// ============================================================================
+// Complete Scheduling Decision Flow Benchmarks
+// ============================================================================
+
+/// Benchmark the complete prepare_jobs_for_execution flow
+/// This is the core scheduling method that includes:
+/// - Dependency checking
+/// - Priority sorting
+/// - Resource allocation (GPU, memory)
+/// - Group concurrency checks
+/// - Reservation checks
+fn bench_complete_scheduling_flow(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scheduling_flow/complete");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler(&mut scheduler, size);
+
+                    // Set some jobs to Finished to satisfy dependencies
+                    for i in 0..100 {
+                        let job_id = (i + 1) as u32;
+                        if let Some(job) = scheduler.get_job_mut(job_id) {
+                            job.state = JobState::Finished;
+                        }
+                    }
+
+                    scheduler
+                },
+                |mut scheduler| {
+                    let jobs = scheduler.prepare_jobs_for_execution();
+                    hint_black_box(jobs.len())
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark scheduling with complex dependencies
+fn bench_scheduling_with_dependencies(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scheduling_flow/with_dependencies");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    populate_scheduler_with_deps(&mut scheduler, size);
+
+                    // Mark root jobs as finished so dependent jobs can run
+                    let root_count = size / 10;
+                    for i in 0..root_count {
+                        let job_id = (i + 1) as u32;
+                        if let Some(job) = scheduler.get_job_mut(job_id) {
+                            job.state = JobState::Finished;
+                        }
+                    }
+
+                    scheduler
+                },
+                |mut scheduler| {
+                    let jobs = scheduler.prepare_jobs_for_execution();
+                    hint_black_box(jobs.len())
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark scheduling with memory constraints
+fn bench_scheduling_with_memory_limits(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scheduling_flow/memory_constrained");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    // Set lower memory limit to create contention
+                    scheduler.update_memory(32 * 1024); // 32GB
+
+                    // Create jobs with varying memory requirements
+                    for i in 0..size {
+                        let mut job = create_test_job(i as u32);
+                        // Some jobs need significant memory
+                        job.memory_limit_mb = Some(((i % 8) + 1) as u64 * 2048); // 2-16GB
+                        scheduler.submit_job(job);
+                    }
+
+                    scheduler
+                },
+                |mut scheduler| {
+                    let jobs = scheduler.prepare_jobs_for_execution();
+                    hint_black_box(jobs.len())
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark scheduling with high priority variation
+fn bench_scheduling_priority_sorting(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scheduling_flow/priority_sorting");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+
+                    // Create jobs with wide priority distribution
+                    for i in 0..size {
+                        let mut job = create_test_job(i as u32);
+                        job.priority = (i % 100) as u8; // 0-99 priority range
+                        scheduler.submit_job(job);
+                    }
+
+                    scheduler
+                },
+                |mut scheduler| {
+                    let jobs = scheduler.prepare_jobs_for_execution();
+                    hint_black_box(jobs.len())
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    scheduling_flow_benches,
+    bench_complete_scheduling_flow,
+    bench_scheduling_with_dependencies,
+    bench_scheduling_with_memory_limits,
+    bench_scheduling_priority_sorting,
+);
+
+// ============================================================================
+// Auto-Cancel Dependent Jobs Benchmarks
+// ============================================================================
+
+/// Create a dependency chain: job1 -> job2 -> job3 -> ... -> jobN
+fn create_dependency_chain(scheduler: &mut Scheduler, chain_length: usize) {
+    for i in 0..chain_length {
+        let mut job = create_test_job(i as u32);
+        if i > 0 {
+            // Each job depends on the previous one
+            job.depends_on_ids = smallvec::smallvec![i as u32];
+            job.auto_cancel_on_dependency_failure = true;
+        }
+        scheduler.submit_job(job);
+    }
+}
+
+/// Create a fan-out dependency pattern: one root job with many dependents
+fn create_fan_out_dependencies(scheduler: &mut Scheduler, root_id: u32, fan_out_count: usize) {
+    // Create root job
+    let root_job = create_test_job(root_id);
+    scheduler.submit_job(root_job);
+
+    // Create dependent jobs
+    for i in 0..fan_out_count {
+        let mut job = create_test_job(root_id + i as u32 + 1);
+        job.depends_on_ids = smallvec::smallvec![root_id];
+        job.auto_cancel_on_dependency_failure = true;
+        scheduler.submit_job(job);
+    }
+}
+
+/// Create a multi-level dependency tree
+fn create_dependency_tree(scheduler: &mut Scheduler, levels: usize, width: usize) {
+    let mut current_level_jobs = vec![1u32];
+    let mut next_job_id = 2u32;
+
+    // Create root
+    let root = create_test_job(1);
+    scheduler.submit_job(root);
+
+    // Create each level
+    for _level in 0..levels {
+        let mut next_level_jobs = Vec::new();
+
+        for parent_id in &current_level_jobs {
+            for _child in 0..width {
+                let mut job = create_test_job(next_job_id);
+                job.depends_on_ids = smallvec::smallvec![*parent_id];
+                job.auto_cancel_on_dependency_failure = true;
+                scheduler.submit_job(job);
+                next_level_jobs.push(next_job_id);
+                next_job_id += 1;
+            }
+        }
+
+        current_level_jobs = next_level_jobs;
+    }
+}
+
+/// Benchmark auto-cancel with chain dependencies
+fn bench_auto_cancel_chain(c: &mut Criterion) {
+    let mut group = c.benchmark_group("auto_cancel/chain");
+
+    for chain_length in [100, 500, 1000, 2000] {
+        group.bench_with_input(
+            BenchmarkId::new("chain_length", chain_length),
+            &chain_length,
+            |b, &chain_length| {
+                b.iter_batched(
+                    || {
+                        let mut scheduler = create_test_scheduler();
+                        create_dependency_chain(&mut scheduler, chain_length);
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        // Fail the first job, should cascade cancel all
+                        scheduler.fail_job(1);
+                        let cancelled = scheduler.auto_cancel_dependent_jobs(1);
+                        hint_black_box(cancelled.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark auto-cancel with fan-out dependencies
+fn bench_auto_cancel_fan_out(c: &mut Criterion) {
+    let mut group = c.benchmark_group("auto_cancel/fan_out");
+
+    for fan_out in [100, 500, 1000, 5000, 10000] {
+        group.bench_with_input(
+            BenchmarkId::new("dependents", fan_out),
+            &fan_out,
+            |b, &fan_out| {
+                b.iter_batched(
+                    || {
+                        let mut scheduler = create_test_scheduler();
+                        create_fan_out_dependencies(&mut scheduler, 1, fan_out);
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        // Fail the root job, should cancel all dependents
+                        scheduler.fail_job(1);
+                        let cancelled = scheduler.auto_cancel_dependent_jobs(1);
+                        hint_black_box(cancelled.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark auto-cancel with tree dependencies
+fn bench_auto_cancel_tree(c: &mut Criterion) {
+    let mut group = c.benchmark_group("auto_cancel/tree");
+    group.sample_size(10);
+
+    // Test different tree shapes: (levels, width per level)
+    for (levels, width) in [(3usize, 10usize), (4, 5), (5, 3), (6, 2)] {
+        let _total_jobs = (0..levels).map(|l| width.pow(l as u32)).sum::<usize>() + 1;
+        group.bench_with_input(
+            BenchmarkId::new("tree", format!("L{}xW{}", levels, width)),
+            &(levels, width),
+            |b, &(levels, width)| {
+                b.iter_batched(
+                    || {
+                        let mut scheduler = create_test_scheduler();
+                        create_dependency_tree(&mut scheduler, levels, width);
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        // Fail the root job, should cascade through entire tree
+                        scheduler.fail_job(1);
+                        let cancelled = scheduler.auto_cancel_dependent_jobs(1);
+                        hint_black_box(cancelled.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark auto-cancel in a large scheduler with mixed dependencies
+fn bench_auto_cancel_at_scale(c: &mut Criterion) {
+    let mut group = c.benchmark_group("auto_cancel/at_scale");
+    group.sample_size(10);
+
+    for total_jobs in [10_000, 25_000, 50_000] {
+        group.bench_with_input(
+            BenchmarkId::new("total_jobs", total_jobs),
+            &total_jobs,
+            |b, &total_jobs| {
+                b.iter_batched(
+                    || {
+                        let mut scheduler = create_test_scheduler();
+
+                        // Create a mix of independent jobs and dependent jobs
+                        // 10% are root jobs, 90% depend on roots
+                        let root_count = total_jobs / 10;
+
+                        // Create root jobs
+                        for i in 0..root_count {
+                            let job = create_test_job(i as u32);
+                            scheduler.submit_job(job);
+                        }
+
+                        // Create dependent jobs
+                        for i in root_count..total_jobs {
+                            let mut job = create_test_job(i as u32);
+                            let root_id = ((i % root_count) + 1) as u32;
+                            job.depends_on_ids = smallvec::smallvec![root_id];
+                            job.auto_cancel_on_dependency_failure = true;
+                            scheduler.submit_job(job);
+                        }
+
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        // Fail a root job with many dependents
+                        scheduler.fail_job(1);
+                        let cancelled = scheduler.auto_cancel_dependent_jobs(1);
+                        hint_black_box(cancelled.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    auto_cancel_benches,
+    bench_auto_cancel_chain,
+    bench_auto_cancel_fan_out,
+    bench_auto_cancel_tree,
+    bench_auto_cancel_at_scale,
+);
+
+// ============================================================================
+// Reservation Operations Benchmarks
+// ============================================================================
+
+/// Benchmark creating GPU reservations
+fn bench_create_reservation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("reservation/create");
+
+    for existing_reservations in [0, 10, 50, 100] {
+        group.bench_with_input(
+            BenchmarkId::new("existing", existing_reservations),
+            &existing_reservations,
+            |b, &existing_reservations| {
+                b.iter_batched(
+                    || {
+                        use gflow::core::reservation::GpuSpec;
+                        let mut scheduler = create_test_scheduler();
+
+                        // Create existing reservations
+                        for i in 0..existing_reservations {
+                            let user = format!("user{}", i % 10);
+                            let start = std::time::SystemTime::now()
+                                + std::time::Duration::from_secs(i as u64 * 3600);
+                            let duration = std::time::Duration::from_secs(3600);
+                            let _ = scheduler.create_reservation(
+                                user.into(),
+                                GpuSpec::Count(2),
+                                start,
+                                duration,
+                            );
+                        }
+
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        use gflow::core::reservation::GpuSpec;
+                        let start =
+                            std::time::SystemTime::now() + std::time::Duration::from_secs(7200);
+                        let duration = std::time::Duration::from_secs(3600);
+                        hint_black_box(scheduler.create_reservation(
+                            "testuser".into(),
+                            GpuSpec::Count(2),
+                            start,
+                            duration,
+                        ))
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark updating reservation statuses
+fn bench_update_reservation_statuses(c: &mut Criterion) {
+    let mut group = c.benchmark_group("reservation/update_statuses");
+
+    for reservation_count in [10, 50, 100, 500] {
+        group.bench_with_input(
+            BenchmarkId::new("count", reservation_count),
+            &reservation_count,
+            |b, &reservation_count| {
+                b.iter_batched(
+                    || {
+                        use gflow::core::reservation::GpuSpec;
+                        let mut scheduler = create_test_scheduler();
+                        let now = std::time::SystemTime::now();
+
+                        // Create reservations with different statuses
+                        for i in 0..reservation_count {
+                            let user = format!("user{}", i % 10);
+                            let offset = (i as i64 - reservation_count as i64 / 2) * 3600;
+                            let start = if offset < 0 {
+                                now - std::time::Duration::from_secs((-offset) as u64)
+                            } else {
+                                now + std::time::Duration::from_secs(offset as u64)
+                            };
+                            let duration = std::time::Duration::from_secs(7200);
+                            let _ = scheduler.create_reservation(
+                                user.into(),
+                                GpuSpec::Count(1),
+                                start,
+                                duration,
+                            );
+                        }
+
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        scheduler.update_reservation_statuses();
+                        hint_black_box(scheduler.reservations.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark scheduling with active reservations
+fn bench_scheduling_with_reservations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("reservation/scheduling_with_reservations");
+    group.sample_size(10);
+
+    for (job_count, reservation_count) in [(10_000, 10), (25_000, 25), (50_000, 50)] {
+        group.bench_with_input(
+            BenchmarkId::new(
+                "jobs_reservations",
+                format!("{}j_{}r", job_count, reservation_count),
+            ),
+            &(job_count, reservation_count),
+            |b, &(job_count, reservation_count)| {
+                b.iter_batched(
+                    || {
+                        use gflow::core::reservation::GpuSpec;
+                        let mut scheduler = create_test_scheduler();
+                        let now = std::time::SystemTime::now();
+
+                        // Create active reservations for different users
+                        for i in 0..reservation_count {
+                            let user = format!("user{}", i % 10);
+                            let start = now - std::time::Duration::from_secs(1800);
+                            let duration = std::time::Duration::from_secs(7200);
+                            let _ = scheduler.create_reservation(
+                                user.into(),
+                                GpuSpec::Count(1),
+                                start,
+                                duration,
+                            );
+                        }
+
+                        // Create jobs from various users
+                        populate_scheduler(&mut scheduler, job_count);
+
+                        scheduler
+                    },
+                    |mut scheduler| {
+                        let jobs = scheduler.prepare_jobs_for_execution();
+                        hint_black_box(jobs.len())
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    reservation_benches,
+    bench_create_reservation,
+    bench_update_reservation_statuses,
+    bench_scheduling_with_reservations,
 );
