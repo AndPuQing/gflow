@@ -55,7 +55,7 @@ impl Parameters {
     /// Insert a parameter, replacing any existing value with the same key
     pub fn insert(&mut self, key: CompactString, value: CompactString) {
         // Check if key exists and update it
-        if let Some((_k, v)) = self.0.iter_mut().find(|(k, _)| k == &key) {
+        if let Some((_k, v)) = self.0.iter_mut().find(|(k, _)| k == key) {
             *v = value;
         } else {
             // Add new entry
