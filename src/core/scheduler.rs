@@ -65,6 +65,10 @@ pub struct Scheduler {
     /// Maps job_id -> list of dependency job IDs
     #[serde(skip)]
     pub(crate) dependency_graph: HashMap<u32, Vec<u32>>,
+    /// Index of running job counts by group_id for O(1) group concurrency checks
+    /// Maps group_id -> count of running jobs in that group
+    #[serde(skip)]
+    pub(crate) group_running_count: HashMap<uuid::Uuid, usize>,
     /// GPU reservations
     pub reservations: Vec<GpuReservation>,
     /// Next reservation ID
@@ -85,6 +89,7 @@ impl Default for Scheduler {
             allowed_gpu_indices: None,
             user_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
+            group_running_count: HashMap::new(),
             reservations: Vec::new(),
             next_reservation_id: 1,
         }
@@ -205,6 +210,39 @@ impl Scheduler {
         (job_id, run_name.into())
     }
 
+    /// Update group_running_count index when a job transitions states
+    /// This maintains O(1) lookup for group concurrency checks
+    fn update_group_running_count(
+        &mut self,
+        job_id: u32,
+        old_state: JobState,
+        new_state: JobState,
+    ) {
+        // Only update if transitioning to/from Running state
+        let entering_running = new_state == JobState::Running && old_state != JobState::Running;
+        let leaving_running = old_state == JobState::Running && new_state != JobState::Running;
+
+        if !entering_running && !leaving_running {
+            return;
+        }
+
+        if let Some(job) = self.get_job(job_id) {
+            if let Some(group_id) = job.group_id {
+                if entering_running {
+                    *self.group_running_count.entry(group_id).or_insert(0) += 1;
+                } else if leaving_running {
+                    if let Some(count) = self.group_running_count.get_mut(&group_id) {
+                        *count = count.saturating_sub(1);
+                        // Clean up entry if count reaches 0
+                        if *count == 0 {
+                            self.group_running_count.remove(&group_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Finish a job and return whether auto_close_tmux is enabled along with run_name
     /// Returns: Some((should_close_tmux, run_name)) if job exists, None otherwise
     /// Note: Caller is responsible for persisting state and closing tmux if needed
@@ -212,7 +250,11 @@ impl Scheduler {
         if let Some(job) = self.get_job_mut(job_id) {
             let should_close_tmux = job.auto_close_tmux;
             let run_name = job.run_name.as_ref().map(|s| s.to_string());
-            job.try_transition(job_id, JobState::Finished);
+            let old_state = job.state;
+            let transitioned = job.try_transition(job_id, JobState::Finished);
+            if transitioned {
+                self.update_group_running_count(job_id, old_state, JobState::Finished);
+            }
             Some((should_close_tmux, run_name))
         } else {
             None
@@ -223,7 +265,11 @@ impl Scheduler {
     /// Note: Caller is responsible for persisting state after this
     pub fn fail_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.get_job_mut(job_id) {
-            job.try_transition(job_id, JobState::Failed);
+            let old_state = job.state;
+            let transitioned = job.try_transition(job_id, JobState::Failed);
+            if transitioned {
+                self.update_group_running_count(job_id, old_state, JobState::Failed);
+            }
             true
         } else {
             false
@@ -239,9 +285,13 @@ impl Scheduler {
     ) -> Option<(bool, Option<String>)> {
         let job = self.get_job_mut(job_id)?;
         let was_running = job.state == JobState::Running;
+        let old_state = job.state;
         let run_name = job.run_name.as_ref().map(|s| s.to_string());
-        job.try_transition(job_id, JobState::Cancelled);
+        let transitioned = job.try_transition(job_id, JobState::Cancelled);
         job.reason = reason.or(Some(JobStateReason::CancelledByUser));
+        if transitioned {
+            self.update_group_running_count(job_id, old_state, JobState::Cancelled);
+        }
         Some((was_running, run_name))
     }
 
@@ -249,7 +299,11 @@ impl Scheduler {
     /// Note: Caller is responsible for persisting state after this
     pub fn hold_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.get_job_mut(job_id) {
-            job.try_transition(job_id, JobState::Hold);
+            let old_state = job.state;
+            let transitioned = job.try_transition(job_id, JobState::Hold);
+            if transitioned {
+                self.update_group_running_count(job_id, old_state, JobState::Hold);
+            }
             true
         } else {
             false
@@ -260,7 +314,11 @@ impl Scheduler {
     /// Note: Caller is responsible for persisting state after this
     pub fn release_job(&mut self, job_id: u32) -> bool {
         if let Some(job) = self.get_job_mut(job_id) {
-            job.try_transition(job_id, JobState::Queued);
+            let old_state = job.state;
+            let transitioned = job.try_transition(job_id, JobState::Queued);
+            if transitioned {
+                self.update_group_running_count(job_id, old_state, JobState::Queued);
+            }
             true
         } else {
             false
@@ -566,13 +624,9 @@ impl Scheduler {
                 // Check group concurrency limit
                 let within_group_limit = if let Some(ref group_id) = job.group_id {
                     if let Some(max_concurrent) = job.max_concurrent {
-                        // Count running jobs in this group
-                        let running_in_group = self
-                            .jobs
-                            .iter()
-                            .filter(|j| j.group_id.as_ref() == Some(group_id))
-                            .filter(|j| j.state == JobState::Running)
-                            .count();
+                        // Use O(1) index lookup instead of O(n) scan
+                        let running_in_group =
+                            self.group_running_count.get(group_id).copied().unwrap_or(0);
 
                         if running_in_group >= max_concurrent {
                             tracing::debug!(
@@ -628,8 +682,14 @@ impl Scheduler {
                     job.gpu_ids = Some(gpus_for_job);
 
                     // Set state to Running and allocate memory
+                    let group_id = job.group_id; // Capture before mutable borrow
                     job.state = JobState::Running;
                     job.started_at = Some(std::time::SystemTime::now());
+
+                    // Update group running count index
+                    if let Some(gid) = group_id {
+                        *self.group_running_count.entry(gid).or_insert(0) += 1;
+                    }
 
                     // Collect job ID instead of cloning immediately
                     job_ids_to_execute.push(job_id);
@@ -775,6 +835,7 @@ impl Scheduler {
     pub fn rebuild_user_jobs_index(&mut self) {
         self.user_jobs_index.clear();
         self.dependency_graph.clear();
+        self.group_running_count.clear();
 
         for job in &self.jobs {
             // Rebuild user index
@@ -787,6 +848,13 @@ impl Scheduler {
             let deps: Vec<u32> = job.all_dependency_ids().into_vec();
             if !deps.is_empty() {
                 self.dependency_graph.insert(job.id, deps);
+            }
+
+            // Rebuild group running count index
+            if job.state == JobState::Running {
+                if let Some(group_id) = job.group_id {
+                    *self.group_running_count.entry(group_id).or_insert(0) += 1;
+                }
             }
         }
     }
@@ -1169,6 +1237,7 @@ impl SchedulerBuilder {
             allowed_gpu_indices: self.allowed_gpu_indices,
             user_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
+            group_running_count: HashMap::new(),
             reservations: Vec::new(),
             next_reservation_id: 1,
         }

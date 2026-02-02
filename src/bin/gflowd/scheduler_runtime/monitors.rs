@@ -89,12 +89,10 @@ pub(super) async fn zombie_handler_task(
 
                 // Update job state (write lock)
                 let mut state_guard = state.write().await;
-                if let Some(job) = state_guard.scheduler.get_job_mut(job_id) {
-                    job.state = JobState::Failed;
-                    job.finished_at = Some(std::time::SystemTime::now());
-                    state_guard.mark_dirty();
-                    tracing::info!("Marked zombie job {} as Failed", job_id);
-                }
+                // Use fail_job to properly update group_running_count index
+                state_guard.scheduler.fail_job(job_id);
+                state_guard.mark_dirty();
+                tracing::info!("Marked zombie job {} as Failed", job_id);
                 drop(state_guard); // Release lock before disabling PipePane
 
                 // Disable PipePane if session still exists (no lock held)

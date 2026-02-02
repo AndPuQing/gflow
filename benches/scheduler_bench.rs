@@ -700,4 +700,80 @@ criterion_main!(
     query_benches,
     dependency_benches,
     scheduling_benches,
+    group_concurrency_benches,
+);
+
+// ============================================================================
+// Group Concurrency Benchmarks (Issue #72)
+// ============================================================================
+
+/// Create jobs with group_id and max_concurrent for testing group concurrency checks
+fn populate_scheduler_with_groups(scheduler: &mut Scheduler, count: usize, groups: usize) {
+    use uuid::Uuid;
+
+    // Create a few group IDs
+    let group_ids: Vec<Uuid> = (0..groups).map(|_| Uuid::new_v4()).collect();
+
+    for i in 0..count {
+        let group_id = group_ids[i % groups];
+        let job = JobBuilder::new()
+            .submitted_by(format!("user{}", i % 100))
+            .run_dir(format!("/home/user{}/work", i % 100))
+            .command(format!("python script{}.py", i))
+            .gpus((i % 4) as u32)
+            .priority((i % 20) as u8)
+            .group_id_uuid(Some(group_id))
+            .max_concurrent(Some(10)) // Limit to 10 concurrent jobs per group
+            .build();
+        scheduler.submit_job(job);
+    }
+
+    // Set some jobs to Running state to trigger group concurrency checks
+    let jobs_per_group = count / groups;
+    for group_idx in 0..groups {
+        let start_idx = group_idx * jobs_per_group;
+        for i in 0..5 {
+            let job_id = (start_idx + i + 1) as u32;
+            if let Some(job) = scheduler.get_job_mut(job_id) {
+                job.state = JobState::Running;
+                job.started_at = Some(std::time::SystemTime::now());
+            }
+        }
+    }
+
+    // Rebuild indices to ensure group_running_count is correct
+    scheduler.rebuild_user_jobs_index();
+}
+
+/// Benchmark scheduling with group concurrency limits
+/// This tests the O(1) group_running_count index vs O(n) scan
+fn bench_group_concurrency_scheduling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("group_concurrency/scheduling");
+    group.sample_size(10);
+
+    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+            b.iter_batched(
+                || {
+                    let mut scheduler = create_test_scheduler();
+                    // Create jobs across 100 groups
+                    populate_scheduler_with_groups(&mut scheduler, size, 100);
+                    scheduler
+                },
+                |mut scheduler| {
+                    // This will trigger group concurrency checks for all queued jobs
+                    let jobs = scheduler.prepare_jobs_for_execution();
+                    hint_black_box(jobs.len())
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    group_concurrency_benches,
+    bench_group_concurrency_scheduling
 );
