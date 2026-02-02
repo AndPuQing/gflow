@@ -119,10 +119,6 @@ name = "scheduler_bench"
 harness = false
 
 [[bench]]
-name = "serialization_bench"
-harness = false
-
-[[bench]]
 name = "filtering_bench"
 harness = false
 
