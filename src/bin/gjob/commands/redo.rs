@@ -38,7 +38,7 @@ pub async fn handle_redo(
 
     // Preserve core job parameters
     if let Some(ref script) = original_job.script {
-        builder = builder.script(script.clone());
+        builder = builder.script((**script).clone());
         print_field!("Script", "{}", script.display());
     }
     if let Some(ref command) = original_job.command {
@@ -177,8 +177,9 @@ async fn find_cascade_jobs(client: &Client, parent_job_id: u32) -> Result<Vec<Jo
 
             // Check if this job was cancelled due to the current job's failure
             if job.state == JobState::Cancelled {
-                if let Some(JobStateReason::DependencyFailed(failed_dep_id)) = job.reason {
-                    if failed_dep_id == current_id {
+                if let Some(JobStateReason::DependencyFailed(failed_dep_id)) = job.reason.as_deref()
+                {
+                    if *failed_dep_id == current_id {
                         visited.insert(job.id);
                         queue.push_back(job.id);
                         cascade_jobs.push(job.clone());
@@ -211,7 +212,7 @@ async fn redo_with_cascade(
 
         // Preserve core job parameters
         if let Some(ref script) = cascade_job.script {
-            builder = builder.script(script.clone());
+            builder = builder.script((**script).clone());
         }
         if let Some(ref command) = cascade_job.command {
             builder = builder.command(command.clone());

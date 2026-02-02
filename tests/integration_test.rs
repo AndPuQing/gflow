@@ -709,7 +709,7 @@ fn test_cascade_redo_dependency_chain() {
     );
     assert_eq!(
         scheduler.get_job(job2_id).unwrap().reason,
-        Some(JobStateReason::DependencyFailed(job1_id))
+        Some(Box::new(JobStateReason::DependencyFailed(job1_id)))
     );
     assert_eq!(
         scheduler.get_job(job3_id).unwrap().state,
@@ -717,7 +717,7 @@ fn test_cascade_redo_dependency_chain() {
     );
     assert_eq!(
         scheduler.get_job(job3_id).unwrap().reason,
-        Some(JobStateReason::DependencyFailed(job2_id))
+        Some(Box::new(JobStateReason::DependencyFailed(job2_id)))
     );
 
     // Now simulate cascade redo:

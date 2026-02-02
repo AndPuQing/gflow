@@ -318,7 +318,7 @@ impl JobState {
 pub struct Job {
     /// Required fields at submission time
     pub id: u32,
-    pub script: Option<PathBuf>,
+    pub script: Option<Box<PathBuf>>,
     pub command: Option<CompactString>,
     pub gpus: u32,
     pub conda_env: Option<CompactString>,
@@ -355,7 +355,7 @@ pub struct Job {
     pub started_at: Option<SystemTime>,   // When the job started running
     pub finished_at: Option<SystemTime>,  // When the job finished or failed
     #[serde(default)]
-    pub reason: Option<JobStateReason>, // Reason for cancellation/failure
+    pub reason: Option<Box<JobStateReason>>, // Reason for cancellation/failure
 }
 
 #[derive(Default)]
@@ -505,7 +505,7 @@ impl JobBuilder {
     pub fn build(self) -> Job {
         Job {
             id: 0,
-            script: self.script,
+            script: self.script.map(Box::new),
             command: self.command,
             gpus: self.gpus.unwrap_or(0),
             conda_env: self.conda_env,

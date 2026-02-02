@@ -124,7 +124,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 789,
-            script: Some(PathBuf::from("/tmp/script.sh")),
+            script: Some(Box::new(PathBuf::from("/tmp/script.sh"))),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()

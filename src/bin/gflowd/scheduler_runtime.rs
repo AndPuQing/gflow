@@ -748,7 +748,7 @@ impl SchedulerRuntime {
         }
 
         if let Some(script) = request.script {
-            job.script = Some(script);
+            job.script = Some(Box::new(script));
             updated_fields.push("script".to_string());
         }
 

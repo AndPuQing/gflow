@@ -288,7 +288,7 @@ impl Scheduler {
         let old_state = job.state;
         let run_name = job.run_name.as_ref().map(|s| s.to_string());
         let transitioned = job.try_transition(job_id, JobState::Cancelled);
-        job.reason = reason.or(Some(JobStateReason::CancelledByUser));
+        job.reason = Some(Box::new(reason.unwrap_or(JobStateReason::CancelledByUser)));
         if transitioned {
             self.update_group_running_count(job_id, old_state, JobState::Cancelled);
         }
@@ -463,7 +463,9 @@ impl Scheduler {
             for job_id in dependent_job_ids {
                 if let Some(job) = self.get_job_mut(job_id) {
                     if job.try_transition(job_id, JobState::Cancelled) {
-                        job.reason = Some(JobStateReason::DependencyFailed(current_failed_id));
+                        job.reason = Some(Box::new(JobStateReason::DependencyFailed(
+                            current_failed_id,
+                        )));
                         tracing::info!(
                             "Auto-cancelled job {} due to failed dependency {}",
                             job_id,
@@ -1460,7 +1462,7 @@ mod tests {
         );
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().reason,
-            Some(JobStateReason::DependencyFailed(job_a_id))
+            Some(Box::new(JobStateReason::DependencyFailed(job_a_id)))
         );
     }
 
@@ -1513,11 +1515,11 @@ mod tests {
         );
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().reason,
-            Some(JobStateReason::DependencyFailed(job_a_id))
+            Some(Box::new(JobStateReason::DependencyFailed(job_a_id)))
         );
         assert_eq!(
             scheduler.get_job(job_c_id).unwrap().reason,
-            Some(JobStateReason::DependencyFailed(job_b_id))
+            Some(Box::new(JobStateReason::DependencyFailed(job_b_id)))
         );
     }
 

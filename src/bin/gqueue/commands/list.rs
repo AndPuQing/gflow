@@ -311,7 +311,7 @@ fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
     use gflow::core::job::JobStateReason;
 
     // If job already has a reason set, use it (except for CancelledByUser)
-    if let Some(reason) = &job.reason {
+    if let Some(reason) = job.reason.as_deref() {
         if matches!(reason, JobStateReason::CancelledByUser) {
             return "-".to_string();
         }
