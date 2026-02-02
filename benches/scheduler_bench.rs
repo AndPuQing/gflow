@@ -69,7 +69,7 @@ fn create_job_with_params(index: u32) -> Job {
     );
     params.insert(
         "optimizer".to_string(),
-        if index % 2 == 0 {
+        if index.is_multiple_of(2) {
             "adam".to_string()
         } else {
             "sgd".to_string()

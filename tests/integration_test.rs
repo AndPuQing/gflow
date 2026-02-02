@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Mock executor for testing that records executed jobs
 #[derive(Clone)]
@@ -619,14 +620,14 @@ fn test_priority_with_resource_constraints() {
 fn test_group_concurrency_limit() {
     let (mut scheduler, _executor) = create_test_scheduler();
 
-    let group_id = "test-group".to_string();
+    let group_id = Uuid::new_v4();
 
     // Submit 3 jobs in the same group with max_concurrent = 2
     for _ in 0..3 {
         let job = JobBuilder::new()
             .submitted_by("alice")
             .run_dir("/tmp")
-            .group_id(Some(group_id.clone()))
+            .group_id_uuid(Some(group_id))
             .max_concurrent(Some(2))
             .build();
         scheduler.submit_job(job);

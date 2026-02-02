@@ -707,7 +707,7 @@ mod tests {
         Job {
             id,
             script: None,
-            command: Some(format!("test command {}", id)),
+            command: Some(format!("test command {}", id).into()),
             gpus: 1,
             conda_env: None,
             run_dir: PathBuf::from("/tmp"),
@@ -739,7 +739,7 @@ mod tests {
         Job {
             id,
             script: None,
-            command: Some(format!("test command {}", id)),
+            command: Some(format!("test command {}", id).into()),
             gpus: 1,
             conda_env: None,
             run_dir: PathBuf::from("/tmp"),
@@ -771,7 +771,7 @@ mod tests {
         Job {
             id,
             script: None,
-            command: Some(format!("test command {}", id)),
+            command: Some(format!("test command {}", id).into()),
             gpus: 1,
             conda_env: None,
             run_dir: PathBuf::from("/tmp"),

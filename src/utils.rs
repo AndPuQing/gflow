@@ -23,10 +23,11 @@ pub use parsers::{
 /// ```
 /// use std::collections::HashMap;
 /// use gflow::utils::substitute_parameters;
+/// use compact_str::CompactString;
 ///
 /// let mut params = HashMap::new();
-/// params.insert("id".to_string(), "123".to_string());
-/// params.insert("model".to_string(), "gpt-4".to_string());
+/// params.insert("id".into(), "123".into());
+/// params.insert("model".into(), "gpt-4".into());
 ///
 /// let template = "python eval.py --task_id '{id}' --model '{model}'";
 /// let result = substitute_parameters(template, &params).unwrap();

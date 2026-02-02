@@ -87,7 +87,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 123,
-            command: Some("echo hello".to_string()),
+            command: Some("echo hello".into()),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
@@ -105,7 +105,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 456,
-            command: Some("echo 'hello world'".to_string()),
+            command: Some("echo 'hello world'".into()),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
@@ -142,7 +142,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 527,
-            command: Some("lighteval vllm 'model_name=meta-llama/Llama-3.2-1B-Instruct,dtype=bfloat16' 'lighteval|gsm8k|5'".to_string()),
+            command: Some("lighteval vllm 'model_name=meta-llama/Llama-3.2-1B-Instruct,dtype=bfloat16' 'lighteval|gsm8k|5'".into()),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
@@ -161,7 +161,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 100,
-            command: Some(r#"echo "hello world""#.to_string()),
+            command: Some(r#"echo "hello world""#.into()),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
@@ -180,7 +180,7 @@ mod tests {
         let executor = TmuxExecutor;
         let job = Job {
             id: 200,
-            command: Some("echo $HOME".to_string()),
+            command: Some("echo $HOME".into()),
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
