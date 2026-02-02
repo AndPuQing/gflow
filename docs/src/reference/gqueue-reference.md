@@ -70,4 +70,3 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `-g, --group`: group by state
 - `-t, --tree`: tree view (dependencies + redo links)
 - `-T, --tmux`: only jobs with active tmux sessions
-

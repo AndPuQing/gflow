@@ -31,4 +31,3 @@ gcancel 10-20
 ```bash
 gcancel --dry-run 42
 ```
-

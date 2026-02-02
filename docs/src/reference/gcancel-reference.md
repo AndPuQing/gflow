@@ -31,4 +31,3 @@ Preview which jobs can be cancelled, and queued/held jobs that depend on them:
 ```bash
 gcancel --dry-run 42
 ```
-
