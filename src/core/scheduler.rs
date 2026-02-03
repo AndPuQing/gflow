@@ -11,6 +11,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+macro_rules! define_simple_state_transition {
+    ($(#[$meta:meta])* $vis:vis fn $name:ident => $state:expr;) => {
+        $(#[$meta])*
+        $vis fn $name(&mut self, job_id: u32) -> bool {
+            self.transition_job_state(job_id, $state, None).is_some()
+        }
+    };
+}
+
 /// Custom deserializer for jobs field that handles both old HashMap and new Vec formats
 fn deserialize_jobs<'de, D>(deserializer: D) -> Result<Vec<Job>, D::Error>
 where
@@ -518,6 +527,7 @@ impl Scheduler {
 
     /// Update group_running_count index when a job transitions states
     /// This maintains O(1) lookup for group concurrency checks
+    #[inline]
     fn update_group_running_count(
         &mut self,
         group_id: Option<uuid::Uuid>,
@@ -546,87 +556,92 @@ impl Scheduler {
         }
     }
 
+    /// Unified state transition with automatic index updates.
+    ///
+    /// This is the "single choke point" that should be used for any transition that may
+    /// affect indices (e.g. `group_running_count`).
+    fn transition_job_state(
+        &mut self,
+        job_id: u32,
+        next: JobState,
+        reason: Option<JobStateReason>,
+    ) -> Option<bool> {
+        let (group_id, old_state, transitioned) = (|| {
+            let rt = self.get_job_runtime_mut(job_id)?;
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+
+            if old_state == next {
+                tracing::warn!(
+                    "Job {} already in state {}, ignoring transition",
+                    job_id,
+                    next
+                );
+                return Some((group_id, old_state, false));
+            }
+
+            if !old_state.can_transition_to(next) {
+                tracing::error!(
+                    "Job {} invalid transition: {} → {}",
+                    job_id,
+                    old_state,
+                    next
+                );
+                return Some((group_id, old_state, false));
+            }
+
+            // Keep timestamp mutation consistent with Job's transition logic.
+            match next {
+                JobState::Running => rt.started_at = Some(std::time::SystemTime::now()),
+                JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout => {
+                    rt.finished_at = Some(std::time::SystemTime::now())
+                }
+                _ => {}
+            }
+
+            if let Some(reason) = reason {
+                rt.reason = Some(Box::new(reason));
+            }
+
+            rt.state = next;
+            tracing::debug!("Job {} transitioned to {}", job_id, next);
+            Some((group_id, old_state, true))
+        })()?;
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, next);
+        }
+
+        Some(transitioned)
+    }
+
     /// Finish a job and return whether auto_close_tmux is enabled along with run_name
     /// Returns: Some((should_close_tmux, run_name)) if job exists, None otherwise
     /// Note: Caller is responsible for persisting state and closing tmux if needed
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
-        let (should_close_tmux, run_name, group_id, old_state, transitioned) = {
-            let (spec, rt) = self.get_job_parts_mut(job_id)?;
-            let should_close_tmux = spec.auto_close_tmux;
-            let run_name = spec.run_name.as_ref().map(|s| s.to_string());
-            let group_id = rt.group_id;
-            let old_state = rt.state;
+        let spec = self.get_job_spec(job_id)?;
+        let should_close_tmux = spec.auto_close_tmux;
+        let run_name = spec.run_name.as_ref().map(|s| s.to_string());
 
-            let transitioned = rt.state.can_transition_to(JobState::Finished);
-            if transitioned {
-                rt.state = JobState::Finished;
-                rt.finished_at = Some(std::time::SystemTime::now());
-            }
-
-            Some((
-                should_close_tmux,
-                run_name,
-                group_id,
-                old_state,
-                transitioned,
-            ))
-        }?;
-
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Finished);
-        }
+        // Attempt transition, but preserve the historical behavior of returning `Some(...)`
+        // as long as the job exists.
+        self.transition_job_state(job_id, JobState::Finished, None)?;
 
         Some((should_close_tmux, run_name))
     }
 
-    /// Fail a job
-    /// Note: Caller is responsible for persisting state after this
-    pub fn fail_job(&mut self, job_id: u32) -> bool {
-        let Some((group_id, old_state, transitioned)) = (|| {
-            let rt = self.get_job_runtime_mut(job_id)?;
-            let group_id = rt.group_id;
-            let old_state = rt.state;
-            let transitioned = rt.state.can_transition_to(JobState::Failed);
-            if transitioned {
-                rt.state = JobState::Failed;
-                rt.finished_at = Some(std::time::SystemTime::now());
-            }
-            Some((group_id, old_state, transitioned))
-        })() else {
-            return false;
-        };
+    define_simple_state_transition!(
+        /// Fail a job
+        /// Note: Caller is responsible for persisting state after this
+        pub fn fail_job => JobState::Failed;
+    );
 
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Failed);
-        }
-
-        true
-    }
-
-    /// Mark a job as timed out.
-    ///
-    /// Note: Caller is responsible for sending termination signals and persisting state.
-    pub fn timeout_job(&mut self, job_id: u32) -> bool {
-        let Some((group_id, old_state, transitioned)) = (|| {
-            let rt = self.get_job_runtime_mut(job_id)?;
-            let group_id = rt.group_id;
-            let old_state = rt.state;
-            let transitioned = rt.state.can_transition_to(JobState::Timeout);
-            if transitioned {
-                rt.state = JobState::Timeout;
-                rt.finished_at = Some(std::time::SystemTime::now());
-            }
-            Some((group_id, old_state, transitioned))
-        })() else {
-            return false;
-        };
-
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Timeout);
-        }
-
-        true
-    }
+    define_simple_state_transition!(
+        /// Mark a job as timed out.
+        ///
+        /// Note: Caller is responsible for sending termination signals and persisting state.
+        pub fn timeout_job => JobState::Timeout;
+    );
 
     /// Cancel a job and return run_name if it needs Ctrl-C (was Running)
     /// Note: Caller is responsible for sending Ctrl-C and persisting state
@@ -635,75 +650,30 @@ impl Scheduler {
         job_id: u32,
         reason: Option<JobStateReason>,
     ) -> Option<(bool, Option<String>)> {
-        let (was_running, run_name, group_id, old_state, transitioned) = {
-            let (spec, rt) = self.get_job_parts_mut(job_id)?;
-            let was_running = rt.state == JobState::Running;
-            let old_state = rt.state;
-            let run_name = spec.run_name.as_ref().map(|s| s.to_string());
-            let group_id = rt.group_id;
+        let was_running = self.get_job_runtime(job_id)?.state == JobState::Running;
+        let run_name = self
+            .get_job_spec(job_id)?
+            .run_name
+            .as_ref()
+            .map(|s| s.to_string());
 
-            rt.reason = Some(Box::new(reason.unwrap_or(JobStateReason::CancelledByUser)));
-            let transitioned = rt.state.can_transition_to(JobState::Cancelled);
-            if transitioned {
-                rt.state = JobState::Cancelled;
-                rt.finished_at = Some(std::time::SystemTime::now());
-            }
-
-            Some((was_running, run_name, group_id, old_state, transitioned))
-        }?;
-
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Cancelled);
-        }
+        let reason = reason.unwrap_or(JobStateReason::CancelledByUser);
+        self.transition_job_state(job_id, JobState::Cancelled, Some(reason))?;
 
         Some((was_running, run_name))
     }
 
-    /// Put a job on hold
-    /// Note: Caller is responsible for persisting state after this
-    pub fn hold_job(&mut self, job_id: u32) -> bool {
-        let Some((group_id, old_state, transitioned)) = (|| {
-            let rt = self.get_job_runtime_mut(job_id)?;
-            let group_id = rt.group_id;
-            let old_state = rt.state;
-            let transitioned = rt.state.can_transition_to(JobState::Hold);
-            if transitioned {
-                rt.state = JobState::Hold;
-            }
-            Some((group_id, old_state, transitioned))
-        })() else {
-            return false;
-        };
+    define_simple_state_transition!(
+        /// Put a job on hold
+        /// Note: Caller is responsible for persisting state after this
+        pub fn hold_job => JobState::Hold;
+    );
 
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Hold);
-        }
-
-        true
-    }
-
-    /// Release a job from hold back to queue
-    /// Note: Caller is responsible for persisting state after this
-    pub fn release_job(&mut self, job_id: u32) -> bool {
-        let Some((group_id, old_state, transitioned)) = (|| {
-            let rt = self.get_job_runtime_mut(job_id)?;
-            let group_id = rt.group_id;
-            let old_state = rt.state;
-            let transitioned = rt.state.can_transition_to(JobState::Queued);
-            if transitioned {
-                rt.state = JobState::Queued;
-            }
-            Some((group_id, old_state, transitioned))
-        })() else {
-            return false;
-        };
-
-        if transitioned {
-            self.update_group_running_count(group_id, old_state, JobState::Queued);
-        }
-
-        true
-    }
+    define_simple_state_transition!(
+        /// Release a job from hold back to queue
+        /// Note: Caller is responsible for persisting state after this
+        pub fn release_job => JobState::Queued;
+    );
 
     /// Resolve dependency shorthand to a job ID
     /// Supports formats:
@@ -861,28 +831,17 @@ impl Scheduler {
                 .collect();
 
             for job_id in dependent_job_ids {
-                let Some((group_id, old_state, transitioned)) = (|| {
-                    let rt = self.get_job_runtime_mut(job_id)?;
-                    let group_id = rt.group_id;
-                    let old_state = rt.state;
-                    let transitioned = rt.state.can_transition_to(JobState::Cancelled);
-                    if transitioned {
-                        rt.state = JobState::Cancelled;
-                        rt.finished_at = Some(std::time::SystemTime::now());
-                        rt.reason = Some(Box::new(JobStateReason::DependencyFailed(
-                            current_failed_id,
-                        )));
-                    }
-                    Some((group_id, old_state, transitioned))
-                })() else {
-                    continue;
-                };
-
+                let transitioned = self
+                    .transition_job_state(
+                        job_id,
+                        JobState::Cancelled,
+                        Some(JobStateReason::DependencyFailed(current_failed_id)),
+                    )
+                    .unwrap_or(false);
                 if !transitioned {
                     continue;
                 }
 
-                self.update_group_running_count(group_id, old_state, JobState::Cancelled);
                 tracing::info!(
                     "Auto-cancelled job {} due to failed dependency {}",
                     job_id,
@@ -1096,6 +1055,7 @@ impl Scheduler {
                 // Filter out GPUs that are reserved by other users
                 let usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
 
+                let mut allocated_gpus: Option<GpuIds> = None;
                 if let Some(rt) = self.job_runtimes.get_mut(idx) {
                     let gpus_for_job: GpuIds =
                         usable_gpus.into_iter().take(rt.gpus as usize).collect();
@@ -1104,23 +1064,31 @@ impl Scheduler {
                     available_gpus.retain(|gpu| !gpus_for_job.contains(gpu));
 
                     rt.gpu_ids = Some(gpus_for_job);
+                    allocated_gpus = rt.gpu_ids.clone();
+                }
 
-                    // Set state to Running and allocate memory
-                    let group_id = rt.group_id; // Capture before mutable borrow
-                    rt.state = JobState::Running;
-                    rt.started_at = Some(std::time::SystemTime::now());
+                let transitioned = self
+                    .transition_job_state(job_id, JobState::Running, None)
+                    .unwrap_or(false);
 
-                    // Update group running count index
-                    if let Some(gid) = group_id {
-                        *self.group_running_count.entry(gid).or_insert(0) += 1;
-                    }
-
+                if transitioned {
                     // Collect job ID instead of cloning immediately
                     job_ids_to_execute.push(job_id);
+
+                    // Update memory tracking after releasing the borrow
+                    available_memory = available_memory.saturating_sub(required_memory);
+                    self.available_memory_mb =
+                        self.available_memory_mb.saturating_sub(required_memory);
+                } else {
+                    // Roll back GPU allocation if we couldn't transition to Running.
+                    if let Some(allocated) = allocated_gpus {
+                        available_gpus.extend_from_slice(&allocated);
+                        available_gpus.sort_unstable();
+                    }
+                    if let Some(rt) = self.job_runtimes.get_mut(idx) {
+                        rt.gpu_ids = None;
+                    }
                 }
-                // Update memory tracking after releasing the borrow
-                available_memory = available_memory.saturating_sub(required_memory);
-                self.available_memory_mb = self.available_memory_mb.saturating_sub(required_memory);
             } else if !has_enough_memory {
                 if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
@@ -1182,27 +1150,18 @@ impl Scheduler {
     pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
         for (job_id, result) in results {
             if result.is_err() {
-                let Some((group_id, old_state, transitioned, had_gpus, required_memory)) = (|| {
+                let Some((had_gpus, required_memory)) = (|| {
                     let rt = self.get_job_runtime_mut(*job_id)?;
-                    let group_id = rt.group_id;
-                    let old_state = rt.state;
-                    let transitioned = rt.state.can_transition_to(JobState::Failed);
-                    if transitioned {
-                        rt.state = JobState::Failed;
-                        rt.finished_at = Some(std::time::SystemTime::now());
-                    }
-
                     let had_gpus = rt.gpu_ids.take().is_some();
                     let required_memory = rt.memory_limit_mb.unwrap_or(0);
-                    Some((group_id, old_state, transitioned, had_gpus, required_memory))
-                })(
-                ) else {
+                    Some((had_gpus, required_memory))
+                })() else {
                     continue;
                 };
 
-                if transitioned {
-                    self.update_group_running_count(group_id, old_state, JobState::Failed);
-                }
+                // Keep previous behavior: return `true` (job exists) even if transition isn't valid,
+                // and always release resources when they were allocated.
+                self.transition_job_state(*job_id, JobState::Failed, None);
 
                 // Return memory if we had allocated GPUs (i.e. we were running).
                 if had_gpus {
@@ -1716,6 +1675,7 @@ mod tests {
     use serde::Serialize;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use uuid::Uuid;
 
     /// Mock executor for testing
     struct MockExecutor {
@@ -1837,6 +1797,28 @@ mod tests {
         assert_eq!(run_name, "gflow-job-1");
         assert!(scheduler.job_exists(1));
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_group_running_count_updates_on_run_and_finish() {
+        let mut scheduler = create_test_scheduler();
+        let group_id = Uuid::new_v4();
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .group_id_uuid(Some(group_id))
+            .max_concurrent(Some(10))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let jobs = scheduler.prepare_jobs_for_execution();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, job_id);
+        assert_eq!(scheduler.group_running_count.get(&group_id), Some(&1));
+
+        scheduler.finish_job(job_id).unwrap();
+        assert!(scheduler.group_running_count.get(&group_id).is_none());
     }
 
     #[test]
