@@ -991,8 +991,14 @@ fn backup_state_file(
         .unwrap_or_default()
         .as_secs();
 
-    // `state.json` -> `state.json.backup.<ts>` (keeps the original file intact)
-    let backup_path = path.with_extension(format!("json.{kind}.{ts}"));
+    // Keep the original filename and extension, append a suffix:
+    // - `state.json` -> `state.json.backup.<ts>`
+    // - `state.msgpack` -> `state.msgpack.corrupt.<ts>`
+    let backup_name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) => format!("{name}.{kind}.{ts}"),
+        None => format!("state.{kind}.{ts}"),
+    };
+    let backup_path = path.with_file_name(backup_name);
     match std::fs::copy(path, &backup_path) {
         Ok(_) => (Some(backup_path), None),
         Err(e) => (None, Some(anyhow::anyhow!(e))),

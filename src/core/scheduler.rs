@@ -16,29 +16,59 @@ fn deserialize_jobs<'de, D>(deserializer: D) -> Result<Vec<Job>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    use serde::de::Error;
-    use serde_json::Value;
+    use serde::de::{IgnoredAny, MapAccess, SeqAccess, Visitor};
+    use std::fmt;
 
-    let value = Value::deserialize(deserializer)?;
+    struct JobsVisitor;
 
-    match value {
-        // Field absent in serialized data (e.g. v4+ MessagePack where we only persist split vectors)
-        Value::Null => Ok(Vec::new()),
-        // New format: array of jobs
-        Value::Array(arr) => serde_json::from_value(Value::Array(arr)).map_err(D::Error::custom),
-        // Old format: object/map with job IDs as keys
-        Value::Object(map) => {
+    impl<'de> Visitor<'de> for JobsVisitor {
+        type Value = Vec<Job>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("jobs as an array, a map of id->job, or null")
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Vec::new())
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Vec::new())
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
             let mut jobs = Vec::new();
-            for (_key, job_value) in map {
-                let job: Job = serde_json::from_value(job_value).map_err(D::Error::custom)?;
+            while let Some(job) = seq.next_element::<Job>()? {
                 jobs.push(job);
             }
-            // Sort by job ID to maintain order
+            Ok(jobs)
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            // Old format: map keyed by job ID. Key type differed across formats/versions
+            // (e.g. integer keys in MessagePack, string keys in JSON).
+            let mut jobs = Vec::new();
+            while let Some((_key, job)) = map.next_entry::<IgnoredAny, Job>()? {
+                jobs.push(job);
+            }
             jobs.sort_by_key(|j| j.id);
             Ok(jobs)
         }
-        _ => Err(D::Error::custom("jobs must be an array or object")),
     }
+
+    deserializer.deserialize_any(JobsVisitor)
 }
 
 /// Core scheduler with dependency injection for execution strategy
@@ -1642,6 +1672,8 @@ impl Default for SchedulerBuilder {
 mod tests {
     use super::*;
     use crate::core::job::JobBuilder;
+    use serde::Serialize;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     /// Mock executor for testing
@@ -1672,6 +1704,48 @@ mod tests {
             .with_state_path(PathBuf::from("/tmp/test.json"))
             .with_total_memory_mb(16 * 1024)
             .build()
+    }
+
+    #[test]
+    fn test_deserialize_legacy_jobs_map_msgpack_int_keys() {
+        #[derive(Serialize)]
+        struct LegacySchedulerState {
+            version: u32,
+            jobs: HashMap<u32, Job>,
+            state_path: PathBuf,
+            next_job_id: u32,
+            allowed_gpu_indices: Option<Vec<u32>>,
+            reservations: Vec<GpuReservation>,
+            next_reservation_id: u32,
+        }
+
+        let mut jobs = HashMap::new();
+        let mut job = JobBuilder::new().command("echo hi").gpus(1).build();
+        job.id = 1;
+        jobs.insert(1, job);
+
+        let legacy = LegacySchedulerState {
+            version: crate::core::migrations::CURRENT_VERSION,
+            jobs,
+            state_path: PathBuf::from("state.json"),
+            next_job_id: 2,
+            allowed_gpu_indices: None,
+            reservations: Vec::new(),
+            next_reservation_id: 1,
+        };
+
+        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+        let scheduler: Scheduler = rmp_serde::from_slice(&bytes).unwrap();
+
+        assert_eq!(scheduler.job_specs.len(), 1);
+        assert_eq!(scheduler.job_runtimes.len(), 1);
+        let cmd = scheduler
+            .get_job_spec(1)
+            .unwrap()
+            .command
+            .as_ref()
+            .map(|s| s.as_str());
+        assert_eq!(cmd, Some("echo hi"));
     }
 
     fn create_test_job(username: &str) -> Job {
