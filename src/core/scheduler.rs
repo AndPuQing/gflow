@@ -1946,12 +1946,9 @@ mod tests {
         let (job_id, _) = scheduler.submit_job(job);
 
         // Transition to Running (so indices stay consistent).
-        assert_eq!(
-            scheduler
-                .transition_job_state(job_id, JobState::Running, None)
-                .unwrap(),
-            true
-        );
+        assert!(scheduler
+            .transition_job_state(job_id, JobState::Running, None)
+            .unwrap());
 
         scheduler.refresh_available_memory();
         assert_eq!(scheduler.available_memory_mb, total - 1024);
@@ -1972,12 +1969,9 @@ mod tests {
             &vec![job_id]
         );
 
-        assert_eq!(
-            scheduler
-                .transition_job_state(job_id, JobState::Running, None)
-                .unwrap(),
-            true
-        );
+        assert!(scheduler
+            .transition_job_state(job_id, JobState::Running, None)
+            .unwrap());
 
         assert!(scheduler
             .state_jobs_index
