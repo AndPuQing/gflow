@@ -1,7 +1,7 @@
 use super::scheduler::Scheduler;
 use anyhow::{anyhow, Result};
 
-pub const CURRENT_VERSION: u32 = 3;
+pub const CURRENT_VERSION: u32 = 4;
 
 /// Migrate state from any version to the current version
 pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
@@ -16,7 +16,14 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
     }
 
     if from_version == CURRENT_VERSION {
-        return Ok(scheduler); // No migration needed
+        if scheduler.job_specs.len() != scheduler.job_runtimes.len() {
+            return Err(anyhow!(
+                "Invalid state: job_specs({}) and job_runtimes({}) length mismatch",
+                scheduler.job_specs.len(),
+                scheduler.job_runtimes.len()
+            ));
+        }
+        return Ok(scheduler);
     }
 
     tracing::info!(
@@ -35,8 +42,12 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
     if from_version < 3 {
         scheduler = migrate_v2_to_v3(scheduler)?;
     }
+    if from_version < 4 {
+        scheduler = migrate_v3_to_v4(scheduler)?;
+    }
 
     scheduler.version = CURRENT_VERSION;
+
     Ok(scheduler)
 }
 
@@ -63,6 +74,28 @@ fn migrate_v2_to_v3(mut scheduler: Scheduler) -> Result<Scheduler> {
     scheduler.reservations = Vec::new();
     scheduler.next_reservation_id = 1;
     scheduler.version = 3;
+    Ok(scheduler)
+}
+
+/// Migrate from version 3 to version 4 (splitting Job into JobSpec and JobRuntime)
+fn migrate_v3_to_v4(mut scheduler: Scheduler) -> Result<Scheduler> {
+    tracing::info!("Migrating from v3 to v4: splitting Job into JobSpec and JobRuntime");
+    // `Scheduler` deserialization already normalizes legacy `jobs` into split vectors. At this
+    // point we just validate and bump the version.
+    if scheduler.job_specs.len() != scheduler.job_runtimes.len() {
+        return Err(anyhow!(
+            "Invalid state during v3→v4 migration: job_specs({}) and job_runtimes({}) length mismatch",
+            scheduler.job_specs.len(),
+            scheduler.job_runtimes.len()
+        ));
+    }
+    scheduler.version = 4;
+
+    tracing::info!(
+        "Migration v3→v4 complete: split {} jobs into specs and runtimes",
+        scheduler.job_specs.len()
+    );
+
     Ok(scheduler)
 }
 
@@ -115,25 +148,20 @@ mod tests {
     fn test_data_preservation_through_migration() {
         use crate::core::job::{Job, JobState};
 
-        // Create test job
-        let job = Job {
-            id: 1,
-            state: JobState::Finished,
-            ..Default::default()
-        };
-        let jobs = vec![job];
+        // Simulate an old v0 state payload that persisted `jobs` only.
+        let old_json = serde_json::json!({
+            "version": 0,
+            "next_job_id": 42,
+            "jobs": [Job { id: 1, state: JobState::Finished, ..Default::default() }],
+        })
+        .to_string();
 
-        let scheduler = Scheduler {
-            version: 0,
-            next_job_id: 42,
-            jobs,
-            ..Default::default()
-        };
+        let scheduler: Scheduler = serde_json::from_str(&old_json).unwrap();
 
         let result = migrate_state(scheduler).unwrap();
         assert_eq!(result.version, CURRENT_VERSION); // Migrates to current version
         assert_eq!(result.next_job_id(), 42);
-        assert_eq!(result.jobs.len(), 1);
+        assert_eq!(result.jobs_len(), 1);
         assert_eq!(result.get_job(1).unwrap().state, JobState::Finished);
     }
 
@@ -210,7 +238,7 @@ mod tests {
 
         let scheduler: Scheduler = serde_json::from_str(old_format_json).unwrap();
         assert_eq!(scheduler.version, 1);
-        assert_eq!(scheduler.jobs.len(), 2);
+        assert_eq!(scheduler.jobs_len(), 2);
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Finished);
         assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
         assert_eq!(scheduler.next_job_id(), 3);
@@ -288,7 +316,7 @@ mod tests {
 
         let scheduler: Scheduler = serde_json::from_str(new_format_json).unwrap();
         assert_eq!(scheduler.version, 2);
-        assert_eq!(scheduler.jobs.len(), 2);
+        assert_eq!(scheduler.jobs_len(), 2);
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Finished);
         assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
         assert_eq!(scheduler.next_job_id(), 3);

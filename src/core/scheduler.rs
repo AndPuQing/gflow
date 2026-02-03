@@ -1,6 +1,8 @@
 use crate::core::executor::Executor;
 use crate::core::info::{GpuInfo, SchedulerInfo};
-use crate::core::job::{DependencyMode, GpuIds, Job, JobState, JobStateReason};
+use crate::core::job::{
+    DependencyMode, GpuIds, Job, JobRuntime, JobSpec, JobState, JobStateReason, JobView,
+};
 use crate::core::reservation::{GpuReservation, ReservationStatus};
 use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
@@ -20,6 +22,8 @@ where
     let value = Value::deserialize(deserializer)?;
 
     match value {
+        // Field absent in serialized data (e.g. v4+ MessagePack where we only persist split vectors)
+        Value::Null => Ok(Vec::new()),
         // New format: array of jobs
         Value::Array(arr) => serde_json::from_value(Value::Array(arr)).map_err(D::Error::custom),
         // Old format: object/map with job IDs as keys
@@ -38,13 +42,18 @@ where
 }
 
 /// Core scheduler with dependency injection for execution strategy
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(default)]
 pub struct Scheduler {
     #[serde(default)]
     pub version: u32,
-    #[serde(deserialize_with = "deserialize_jobs")]
-    pub jobs: Vec<Job>,
+
+    // Parallel vectors for split storage (serialized in v4+)
+    #[serde(default)]
+    pub(crate) job_specs: Vec<JobSpec>,
+    #[serde(default)]
+    pub(crate) job_runtimes: Vec<JobRuntime>,
+
     #[serde(skip)]
     pub(crate) executor: Option<Box<dyn Executor>>,
     #[serde(skip)]
@@ -75,11 +84,43 @@ pub struct Scheduler {
     pub next_reservation_id: u32,
 }
 
+#[derive(Deserialize)]
+#[serde(default)]
+struct SchedulerSerde {
+    pub version: u32,
+    pub job_specs: Vec<JobSpec>,
+    pub job_runtimes: Vec<JobRuntime>,
+    #[serde(deserialize_with = "deserialize_jobs", default)]
+    pub jobs: Vec<Job>,
+    pub(crate) state_path: PathBuf,
+    pub(crate) next_job_id: u32,
+    pub(crate) allowed_gpu_indices: Option<Vec<u32>>,
+    pub reservations: Vec<GpuReservation>,
+    pub next_reservation_id: u32,
+}
+
+impl Default for SchedulerSerde {
+    fn default() -> Self {
+        Self {
+            version: crate::core::migrations::CURRENT_VERSION,
+            job_specs: Vec::new(),
+            job_runtimes: Vec::new(),
+            jobs: Vec::new(),
+            state_path: PathBuf::from("state.json"),
+            next_job_id: 1,
+            allowed_gpu_indices: None,
+            reservations: Vec::new(),
+            next_reservation_id: 1,
+        }
+    }
+}
+
 impl Default for Scheduler {
     fn default() -> Self {
         Self {
             version: crate::core::migrations::CURRENT_VERSION,
-            jobs: Vec::new(),
+            job_specs: Vec::new(),
+            job_runtimes: Vec::new(),
             executor: None,
             gpu_slots: HashMap::new(),
             total_memory_mb: 16 * 1024, // Default 16GB
@@ -96,29 +137,191 @@ impl Default for Scheduler {
     }
 }
 
+impl<'de> Deserialize<'de> for Scheduler {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let persisted = SchedulerSerde::deserialize(deserializer)?;
+
+        let mut job_specs = persisted.job_specs;
+        let mut job_runtimes = persisted.job_runtimes;
+
+        // Normalize split/legacy job storage to keep downstream code and persistence consistent.
+        // - v4+ state files persist `job_specs` + `job_runtimes`
+        // - legacy state/journal snapshots may persist `jobs` only
+        let has_split = !job_specs.is_empty() || !job_runtimes.is_empty();
+
+        if has_split {
+            if job_specs.len() != job_runtimes.len() {
+                return Err(D::Error::custom(format!(
+                    "Invalid state: job_specs({}) and job_runtimes({}) length mismatch",
+                    job_specs.len(),
+                    job_runtimes.len()
+                )));
+            }
+        } else if !persisted.jobs.is_empty() {
+            // Populate split storage from legacy jobs.
+            let (specs, runtimes): (Vec<_>, Vec<_>) = persisted
+                .jobs
+                .into_iter()
+                .map(|job| job.into_parts())
+                .unzip();
+            job_specs = specs;
+            job_runtimes = runtimes;
+        }
+
+        let scheduler = Scheduler {
+            version: persisted.version,
+            job_specs,
+            job_runtimes,
+            executor: None,
+            gpu_slots: HashMap::new(),
+            total_memory_mb: 16 * 1024, // Default 16GB
+            available_memory_mb: 16 * 1024,
+            state_path: persisted.state_path,
+            next_job_id: persisted.next_job_id,
+            allowed_gpu_indices: persisted.allowed_gpu_indices,
+            user_jobs_index: HashMap::new(),
+            dependency_graph: HashMap::new(),
+            group_running_count: HashMap::new(),
+            reservations: persisted.reservations,
+            next_reservation_id: persisted.next_reservation_id,
+        };
+
+        Ok(scheduler)
+    }
+}
+
 impl Scheduler {
-    /// Get a job by ID (job IDs start at 1, so we subtract 1 for the index)
+    /// Get a JobSpec by ID (job IDs start at 1, so we subtract 1 for the index)
     #[inline]
-    pub fn get_job(&self, job_id: u32) -> Option<&Job> {
+    pub fn get_job_spec(&self, job_id: u32) -> Option<&JobSpec> {
         if job_id == 0 {
             return None;
         }
-        self.jobs.get((job_id - 1) as usize)
+        self.job_specs.get((job_id - 1) as usize)
     }
 
-    /// Get a mutable job by ID
+    /// Get a JobRuntime by ID
     #[inline]
-    pub fn get_job_mut(&mut self, job_id: u32) -> Option<&mut Job> {
+    pub fn get_job_runtime(&self, job_id: u32) -> Option<&JobRuntime> {
         if job_id == 0 {
             return None;
         }
-        self.jobs.get_mut((job_id - 1) as usize)
+        self.job_runtimes.get((job_id - 1) as usize)
+    }
+
+    /// Get a mutable JobRuntime by ID
+    #[inline]
+    pub fn get_job_runtime_mut(&mut self, job_id: u32) -> Option<&mut JobRuntime> {
+        if job_id == 0 {
+            return None;
+        }
+        self.job_runtimes.get_mut((job_id - 1) as usize)
+    }
+
+    /// Get a JobView combining spec and runtime
+    pub fn get_job_view(&self, job_id: u32) -> Option<JobView> {
+        let spec = self.get_job_spec(job_id)?;
+        let runtime = self.get_job_runtime(job_id)?;
+        Some(JobView::from_refs(spec, runtime))
+    }
+
+    /// Borrow `JobSpec + JobRuntime` for a job without allocating.
+    pub fn get_job_parts(&self, job_id: u32) -> Option<(&JobSpec, &JobRuntime)> {
+        let idx = job_id.checked_sub(1)? as usize;
+        let spec = self.job_specs.get(idx)?;
+        let rt = self.job_runtimes.get(idx)?;
+        Some((spec, rt))
+    }
+
+    /// Mutably borrow `JobSpec + JobRuntime` for a job without allocating.
+    pub fn get_job_parts_mut(&mut self, job_id: u32) -> Option<(&mut JobSpec, &mut JobRuntime)> {
+        let idx = job_id.checked_sub(1)? as usize;
+        let spec = self.job_specs.get_mut(idx)?;
+        let rt = self.job_runtimes.get_mut(idx)?;
+        Some((spec, rt))
+    }
+
+    /// Check invariant: job_specs and job_runtimes must have same length
+    #[inline]
+    fn check_invariant(&self) {
+        debug_assert_eq!(
+            self.job_specs.len(),
+            self.job_runtimes.len(),
+            "job_specs and job_runtimes must have same length"
+        );
+    }
+
+    /// Total jobs stored in the scheduler.
+    #[inline]
+    pub fn jobs_len(&self) -> usize {
+        self.job_runtimes.len()
+    }
+
+    /// Read-only access to all job specs (cold data).
+    pub fn job_specs(&self) -> &[JobSpec] {
+        &self.job_specs
+    }
+
+    /// Read-only access to all job runtimes (hot data).
+    pub fn job_runtimes(&self) -> &[JobRuntime] {
+        &self.job_runtimes
+    }
+
+    /// Materialize a legacy `Job` by composing `JobSpec + JobRuntime`.
+    ///
+    /// This is intentionally **not** the primary storage representation (to keep the hot
+    /// contiguous working set small). Prefer using `get_job_spec*` / `get_job_runtime*` for
+    /// internal logic.
+    #[inline]
+    pub fn get_job(&self, job_id: u32) -> Option<Job> {
+        let spec = self.get_job_spec(job_id)?;
+        let runtime = self.get_job_runtime(job_id)?;
+        Some(Job::from_parts(spec.clone(), runtime.clone()))
+    }
+
+    /// Materialize all jobs as legacy `Job` structs (allocates/clones).
+    pub fn jobs_as_vec(&self) -> Vec<Job> {
+        self.check_invariant();
+        self.job_specs
+            .iter()
+            .zip(self.job_runtimes.iter())
+            .map(|(spec, runtime)| Job::from_parts(spec.clone(), runtime.clone()))
+            .collect()
+    }
+
+    /// Apply persisted state from another Scheduler instance.
+    ///
+    /// This intentionally does NOT overwrite runtime-only fields like:
+    /// - executor
+    /// - gpu_slots
+    /// - total/available memory
+    /// - state_path
+    ///
+    /// It also normalizes split/legacy job storage so later serialization is consistent.
+    pub fn apply_persisted_state(&mut self, mut loaded: Scheduler) {
+        // Preserve runtime-only fields that shouldn't be overwritten by persisted state.
+        let state_path = self.state_path.clone();
+
+        self.version = loaded.version;
+        self.job_specs = std::mem::take(&mut loaded.job_specs);
+        self.job_runtimes = std::mem::take(&mut loaded.job_runtimes);
+        self.next_job_id = loaded.next_job_id;
+        self.allowed_gpu_indices = loaded.allowed_gpu_indices;
+        self.reservations = std::mem::take(&mut loaded.reservations);
+        self.next_reservation_id = loaded.next_reservation_id;
+
+        self.state_path = state_path;
     }
 
     /// Check if a job exists
     #[inline]
     pub fn job_exists(&self, job_id: u32) -> bool {
-        self.get_job(job_id).is_some()
+        job_id != 0 && (job_id as usize) <= self.job_runtimes.len()
     }
 
     /// Get available GPU slots respecting restrictions
@@ -177,44 +380,76 @@ impl Scheduler {
 
     /// Submit a job and return (job_id, run_name)
     /// Note: Caller is responsible for persisting state after this
-    pub fn submit_job(&mut self, mut job: Job) -> (u32, String) {
-        job.id = self.next_job_id;
+    pub fn submit_job(&mut self, job: Job) -> (u32, String) {
+        let job_id = self.next_job_id;
         self.next_job_id += 1;
 
-        // Generate run_name and keep a copy before moving into job
-        let run_name = job
+        let submitted_at = std::time::SystemTime::now();
+
+        // Split incoming legacy `Job` and normalize runtime-managed fields.
+        let (mut spec, mut runtime) = job.into_parts();
+
+        let run_name = spec
             .run_name
             .take()
-            .unwrap_or_else(|| format_compact!("gflow-job-{}", job.id));
+            .unwrap_or_else(|| format_compact!("gflow-job-{}", job_id));
 
-        job.state = JobState::Queued;
-        job.gpu_ids = None;
-        job.run_name = Some(run_name.clone());
-        job.submitted_at = Some(std::time::SystemTime::now());
+        // Persisted/spec fields
+        spec.run_name = Some(run_name.clone());
+        spec.submitted_at = Some(submitted_at);
 
-        let job_id = job.id;
+        // Hot/runtime fields
+        runtime.id = job_id;
+        runtime.state = JobState::Queued;
+        runtime.gpu_ids = None;
+        runtime.started_at = None;
+        runtime.finished_at = None;
+        runtime.reason = None;
 
-        // Update user jobs index
+        // Update user jobs index (used by dependency shorthand resolution).
         self.user_jobs_index
-            .entry(job.submitted_by.clone())
+            .entry(spec.submitted_by.clone())
             .or_default()
             .push(job_id);
 
-        // Update dependency graph only if job has dependencies
-        if !job.has_no_dependencies() {
-            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
+        // Update dependency graph only if job has dependencies.
+        if spec.depends_on.is_some() || !spec.depends_on_ids.is_empty() {
+            let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+            if let Some(dep) = spec.depends_on {
+                if !deps.contains(&dep) {
+                    deps.push(dep);
+                }
+            }
             self.dependency_graph.insert(job_id, deps);
         }
 
-        self.jobs.push(job);
+        // Store split representation only (no large Vec<Job> in memory).
+        self.job_specs.push(spec);
+        self.job_runtimes.push(runtime);
+        self.check_invariant();
+
         (job_id, run_name.into())
+    }
+
+    /// Update the cached dependency graph entry for a job.
+    ///
+    /// This affects:
+    /// - circular dependency validation (`validate_no_circular_dependency`)
+    ///
+    /// Scheduling itself uses `JobSpec` directly, so this cache is only for validation speed.
+    pub fn set_job_dependencies(&mut self, job_id: u32, deps: Vec<u32>) {
+        if deps.is_empty() {
+            self.dependency_graph.remove(&job_id);
+        } else {
+            self.dependency_graph.insert(job_id, deps);
+        }
     }
 
     /// Update group_running_count index when a job transitions states
     /// This maintains O(1) lookup for group concurrency checks
     fn update_group_running_count(
         &mut self,
-        job_id: u32,
+        group_id: Option<uuid::Uuid>,
         old_state: JobState,
         new_state: JobState,
     ) {
@@ -226,17 +461,14 @@ impl Scheduler {
             return;
         }
 
-        if let Some(job) = self.get_job(job_id) {
-            if let Some(group_id) = job.group_id {
-                if entering_running {
-                    *self.group_running_count.entry(group_id).or_insert(0) += 1;
-                } else if leaving_running {
-                    if let Some(count) = self.group_running_count.get_mut(&group_id) {
-                        *count = count.saturating_sub(1);
-                        // Clean up entry if count reaches 0
-                        if *count == 0 {
-                            self.group_running_count.remove(&group_id);
-                        }
+        if let Some(group_id) = group_id {
+            if entering_running {
+                *self.group_running_count.entry(group_id).or_insert(0) += 1;
+            } else if leaving_running {
+                if let Some(count) = self.group_running_count.get_mut(&group_id) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        self.group_running_count.remove(&group_id);
                     }
                 }
             }
@@ -247,33 +479,82 @@ impl Scheduler {
     /// Returns: Some((should_close_tmux, run_name)) if job exists, None otherwise
     /// Note: Caller is responsible for persisting state and closing tmux if needed
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
-        if let Some(job) = self.get_job_mut(job_id) {
-            let should_close_tmux = job.auto_close_tmux;
-            let run_name = job.run_name.as_ref().map(|s| s.to_string());
-            let old_state = job.state;
-            let transitioned = job.try_transition(job_id, JobState::Finished);
+        let (should_close_tmux, run_name, group_id, old_state, transitioned) = {
+            let (spec, rt) = self.get_job_parts_mut(job_id)?;
+            let should_close_tmux = spec.auto_close_tmux;
+            let run_name = spec.run_name.as_ref().map(|s| s.to_string());
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+
+            let transitioned = rt.state.can_transition_to(JobState::Finished);
             if transitioned {
-                self.update_group_running_count(job_id, old_state, JobState::Finished);
+                rt.state = JobState::Finished;
+                rt.finished_at = Some(std::time::SystemTime::now());
             }
-            Some((should_close_tmux, run_name))
-        } else {
-            None
+
+            Some((
+                should_close_tmux,
+                run_name,
+                group_id,
+                old_state,
+                transitioned,
+            ))
+        }?;
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, JobState::Finished);
         }
+
+        Some((should_close_tmux, run_name))
     }
 
     /// Fail a job
     /// Note: Caller is responsible for persisting state after this
     pub fn fail_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.get_job_mut(job_id) {
-            let old_state = job.state;
-            let transitioned = job.try_transition(job_id, JobState::Failed);
+        let Some((group_id, old_state, transitioned)) = (|| {
+            let rt = self.get_job_runtime_mut(job_id)?;
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+            let transitioned = rt.state.can_transition_to(JobState::Failed);
             if transitioned {
-                self.update_group_running_count(job_id, old_state, JobState::Failed);
+                rt.state = JobState::Failed;
+                rt.finished_at = Some(std::time::SystemTime::now());
             }
-            true
-        } else {
-            false
+            Some((group_id, old_state, transitioned))
+        })() else {
+            return false;
+        };
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, JobState::Failed);
         }
+
+        true
+    }
+
+    /// Mark a job as timed out.
+    ///
+    /// Note: Caller is responsible for sending termination signals and persisting state.
+    pub fn timeout_job(&mut self, job_id: u32) -> bool {
+        let Some((group_id, old_state, transitioned)) = (|| {
+            let rt = self.get_job_runtime_mut(job_id)?;
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+            let transitioned = rt.state.can_transition_to(JobState::Timeout);
+            if transitioned {
+                rt.state = JobState::Timeout;
+                rt.finished_at = Some(std::time::SystemTime::now());
+            }
+            Some((group_id, old_state, transitioned))
+        })() else {
+            return false;
+        };
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, JobState::Timeout);
+        }
+
+        true
     }
 
     /// Cancel a job and return run_name if it needs Ctrl-C (was Running)
@@ -283,46 +564,74 @@ impl Scheduler {
         job_id: u32,
         reason: Option<JobStateReason>,
     ) -> Option<(bool, Option<String>)> {
-        let job = self.get_job_mut(job_id)?;
-        let was_running = job.state == JobState::Running;
-        let old_state = job.state;
-        let run_name = job.run_name.as_ref().map(|s| s.to_string());
-        let transitioned = job.try_transition(job_id, JobState::Cancelled);
-        job.reason = Some(Box::new(reason.unwrap_or(JobStateReason::CancelledByUser)));
+        let (was_running, run_name, group_id, old_state, transitioned) = {
+            let (spec, rt) = self.get_job_parts_mut(job_id)?;
+            let was_running = rt.state == JobState::Running;
+            let old_state = rt.state;
+            let run_name = spec.run_name.as_ref().map(|s| s.to_string());
+            let group_id = rt.group_id;
+
+            rt.reason = Some(Box::new(reason.unwrap_or(JobStateReason::CancelledByUser)));
+            let transitioned = rt.state.can_transition_to(JobState::Cancelled);
+            if transitioned {
+                rt.state = JobState::Cancelled;
+                rt.finished_at = Some(std::time::SystemTime::now());
+            }
+
+            Some((was_running, run_name, group_id, old_state, transitioned))
+        }?;
+
         if transitioned {
-            self.update_group_running_count(job_id, old_state, JobState::Cancelled);
+            self.update_group_running_count(group_id, old_state, JobState::Cancelled);
         }
+
         Some((was_running, run_name))
     }
 
     /// Put a job on hold
     /// Note: Caller is responsible for persisting state after this
     pub fn hold_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.get_job_mut(job_id) {
-            let old_state = job.state;
-            let transitioned = job.try_transition(job_id, JobState::Hold);
+        let Some((group_id, old_state, transitioned)) = (|| {
+            let rt = self.get_job_runtime_mut(job_id)?;
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+            let transitioned = rt.state.can_transition_to(JobState::Hold);
             if transitioned {
-                self.update_group_running_count(job_id, old_state, JobState::Hold);
+                rt.state = JobState::Hold;
             }
-            true
-        } else {
-            false
+            Some((group_id, old_state, transitioned))
+        })() else {
+            return false;
+        };
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, JobState::Hold);
         }
+
+        true
     }
 
     /// Release a job from hold back to queue
     /// Note: Caller is responsible for persisting state after this
     pub fn release_job(&mut self, job_id: u32) -> bool {
-        if let Some(job) = self.get_job_mut(job_id) {
-            let old_state = job.state;
-            let transitioned = job.try_transition(job_id, JobState::Queued);
+        let Some((group_id, old_state, transitioned)) = (|| {
+            let rt = self.get_job_runtime_mut(job_id)?;
+            let group_id = rt.group_id;
+            let old_state = rt.state;
+            let transitioned = rt.state.can_transition_to(JobState::Queued);
             if transitioned {
-                self.update_group_running_count(job_id, old_state, JobState::Queued);
+                rt.state = JobState::Queued;
             }
-            true
-        } else {
-            false
+            Some((group_id, old_state, transitioned))
+        })() else {
+            return false;
+        };
+
+        if transitioned {
+            self.update_group_running_count(group_id, old_state, JobState::Queued);
         }
+
+        true
     }
 
     /// Resolve dependency shorthand to a job ID
@@ -422,22 +731,31 @@ impl Scheduler {
         false
     }
 
-    /// Check if job's dependencies are satisfied
-    fn are_dependencies_satisfied(
-        job: &Job,
+    /// Check if job's dependencies are satisfied (using split spec/runtime)
+    fn are_dependencies_satisfied_split(
+        spec: &JobSpec,
         finished_jobs: &std::collections::HashSet<u32>,
     ) -> bool {
-        if job.has_no_dependencies() {
+        // Check if job has no dependencies
+        if spec.depends_on.is_none() && spec.depends_on_ids.is_empty() {
             return true;
         }
 
-        match job.dependency_mode.as_ref().unwrap_or(&DependencyMode::All) {
-            DependencyMode::All => job
-                .dependency_ids_iter()
-                .all(|dep_id| finished_jobs.contains(&dep_id)),
-            DependencyMode::Any => job
-                .dependency_ids_iter()
-                .any(|dep_id| finished_jobs.contains(&dep_id)),
+        // Collect all dependency IDs
+        let mut dep_ids: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+        if let Some(dep) = spec.depends_on {
+            if !dep_ids.contains(&dep) {
+                dep_ids.push(dep);
+            }
+        }
+
+        match spec
+            .dependency_mode
+            .as_ref()
+            .unwrap_or(&DependencyMode::All)
+        {
+            DependencyMode::All => dep_ids.iter().all(|dep_id| finished_jobs.contains(dep_id)),
+            DependencyMode::Any => dep_ids.iter().any(|dep_id| finished_jobs.contains(dep_id)),
         }
     }
 
@@ -450,32 +768,58 @@ impl Scheduler {
         // Process jobs in waves: cancel direct dependents, then their dependents, etc.
         while let Some(current_failed_id) = jobs_to_process.pop() {
             let dependent_job_ids: Vec<u32> = self
-                .jobs
+                .job_runtimes
                 .iter()
-                .filter(|j| {
-                    j.state == JobState::Queued
-                        && j.auto_cancel_on_dependency_failure
-                        && j.all_dependency_ids().contains(&current_failed_id)
+                .enumerate()
+                .filter(|(_, rt)| rt.state == JobState::Queued)
+                .filter_map(|(idx, rt)| {
+                    let spec = self.job_specs.get(idx)?;
+                    if !spec.auto_cancel_on_dependency_failure {
+                        return None;
+                    }
+
+                    // Fast dependency membership check without allocating.
+                    if spec.depends_on == Some(current_failed_id)
+                        || spec.depends_on_ids.contains(&current_failed_id)
+                    {
+                        Some(rt.id)
+                    } else {
+                        None
+                    }
                 })
-                .map(|j| j.id)
                 .collect();
 
             for job_id in dependent_job_ids {
-                if let Some(job) = self.get_job_mut(job_id) {
-                    if job.try_transition(job_id, JobState::Cancelled) {
-                        job.reason = Some(Box::new(JobStateReason::DependencyFailed(
+                let Some((group_id, old_state, transitioned)) = (|| {
+                    let rt = self.get_job_runtime_mut(job_id)?;
+                    let group_id = rt.group_id;
+                    let old_state = rt.state;
+                    let transitioned = rt.state.can_transition_to(JobState::Cancelled);
+                    if transitioned {
+                        rt.state = JobState::Cancelled;
+                        rt.finished_at = Some(std::time::SystemTime::now());
+                        rt.reason = Some(Box::new(JobStateReason::DependencyFailed(
                             current_failed_id,
                         )));
-                        tracing::info!(
-                            "Auto-cancelled job {} due to failed dependency {}",
-                            job_id,
-                            current_failed_id
-                        );
-                        all_cancelled_jobs.push(job_id);
-                        // Add this cancelled job to the queue to check its dependents
-                        jobs_to_process.push(job_id);
                     }
+                    Some((group_id, old_state, transitioned))
+                })() else {
+                    continue;
+                };
+
+                if !transitioned {
+                    continue;
                 }
+
+                self.update_group_running_count(group_id, old_state, JobState::Cancelled);
+                tracing::info!(
+                    "Auto-cancelled job {} due to failed dependency {}",
+                    job_id,
+                    current_failed_id
+                );
+                all_cancelled_jobs.push(job_id);
+                // Add this cancelled job to the queue to check its dependents.
+                jobs_to_process.push(job_id);
             }
         }
 
@@ -485,16 +829,15 @@ impl Scheduler {
     /// Validate that a job can be updated
     /// Returns Ok(()) if update is valid, Err(String) with error message otherwise
     pub fn validate_job_update(&self, job_id: u32, new_deps: Option<&[u32]>) -> Result<(), String> {
-        // Check if job exists
-        let job = self
-            .get_job(job_id)
+        let rt = self
+            .get_job_runtime(job_id)
             .ok_or_else(|| format!("Job {} not found", job_id))?;
 
         // Check if job is in updatable state (Queued or Hold)
-        if job.state != JobState::Queued && job.state != JobState::Hold {
+        if rt.state != JobState::Queued && rt.state != JobState::Hold {
             return Err(format!(
                 "Job {} is in state '{}' and cannot be updated. Only queued or held jobs can be updated.",
-                job_id, job.state
+                job_id, rt.state
             ));
         }
 
@@ -538,10 +881,10 @@ impl Scheduler {
     /// Refresh available memory by calculating memory used by running jobs
     pub fn refresh_available_memory(&mut self) {
         let memory_used: u64 = self
-            .jobs
+            .job_runtimes
             .iter()
-            .filter(|j| j.state == JobState::Running)
-            .filter_map(|j| j.memory_limit_mb)
+            .filter(|rt| rt.state == JobState::Running)
+            .filter_map(|rt| rt.memory_limit_mb)
             .sum();
 
         self.available_memory_mb = self.total_memory_mb.saturating_sub(memory_used);
@@ -576,64 +919,80 @@ impl Scheduler {
 
         let mut job_ids_to_execute = Vec::new();
         let mut available_gpus = self.get_available_gpu_slots();
+
+        // Build finished jobs set by iterating only runtimes (hot data)
         let finished_jobs: std::collections::HashSet<u32> = self
-            .jobs
+            .job_runtimes
             .iter()
-            .filter(|j| j.state == JobState::Finished)
-            .map(|j| j.id)
+            .filter(|rt| rt.state == JobState::Finished)
+            .map(|rt| rt.id)
             .collect();
 
-        // Collect and sort runnable jobs
+        // Collect and sort runnable jobs - iterate only runtimes (hot path)
         let mut runnable_jobs: Vec<_> = self
-            .jobs
+            .job_runtimes
             .iter()
-            .filter(|j| j.state == JobState::Queued)
-            .filter(|j| Self::are_dependencies_satisfied(j, &finished_jobs))
-            .map(|j| j.id)
+            .enumerate()
+            .filter(|(_, rt)| rt.state == JobState::Queued)
+            .filter(|(idx, _rt)| {
+                // Access spec only when needed for dependency check
+                let spec = &self.job_specs[*idx];
+                Self::are_dependencies_satisfied_split(spec, &finished_jobs)
+            })
+            .map(|(_idx, rt)| rt.id)
             .collect();
 
+        // Sort by priority - only access runtime fields (hot data)
         runnable_jobs.sort_by_key(|job_id| {
-            self.get_job(*job_id)
-                .map(|job| {
-                    let time_bonus = Self::calculate_time_bonus(&job.time_limit);
-                    std::cmp::Reverse((job.priority, time_bonus, std::cmp::Reverse(job.id)))
-                })
-                .unwrap_or(std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id))))
+            let idx = (*job_id - 1) as usize;
+            if let Some(rt) = self.job_runtimes.get(idx) {
+                let time_bonus = Self::calculate_time_bonus(&rt.time_limit);
+                std::cmp::Reverse((rt.priority, time_bonus, std::cmp::Reverse(rt.id)))
+            } else {
+                std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id)))
+            }
         });
 
         // Allocate resources for runnable jobs
         let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
-            // First, do immutable checks to determine if job can run
+            let idx = (job_id - 1) as usize;
+
+            // First, do immutable checks using only runtime (hot data)
             let (
                 has_enough_gpus,
                 has_enough_memory,
                 within_group_limit,
                 respects_reservations,
                 required_memory,
-            ) = if let Some(job) = self.get_job(job_id) {
-                let has_enough_gpus = job.gpus as usize <= available_gpus.len();
-                let required_memory = job.memory_limit_mb.unwrap_or(0);
+                job_user,
+            ) = if let Some(rt) = self.job_runtimes.get(idx) {
+                let has_enough_gpus = rt.gpus as usize <= available_gpus.len();
+                let required_memory = rt.memory_limit_mb.unwrap_or(0);
                 let has_enough_memory = required_memory <= available_memory;
 
-                // Check if job respects active reservations
-                let respects_reservations = self.check_job_respects_reservations(
-                    &job.submitted_by,
-                    job.gpus,
-                    &available_gpus,
-                );
+                // Access spec only for submitted_by (needed for reservation check)
+                let job_user = self
+                    .job_specs
+                    .get(idx)
+                    .map(|s| s.submitted_by.clone())
+                    .unwrap_or_default();
 
-                // Check group concurrency limit
-                let within_group_limit = if let Some(ref group_id) = job.group_id {
-                    if let Some(max_concurrent) = job.max_concurrent {
-                        // Use O(1) index lookup instead of O(n) scan
+                // Check if job respects active reservations
+                let respects_reservations =
+                    self.check_job_respects_reservations(&job_user, rt.gpus, &available_gpus);
+
+                // Check group concurrency limit using runtime data only
+                let within_group_limit = if let Some(ref group_id) = rt.group_id {
+                    if let Some(max_concurrent) = rt.max_concurrent {
+                        // Use O(1) index lookup
                         let running_in_group =
                             self.group_running_count.get(group_id).copied().unwrap_or(0);
 
                         if running_in_group >= max_concurrent {
                             tracing::debug!(
                                 "Job {} waiting: group {} has {}/{} running jobs",
-                                job.id,
+                                rt.id,
                                 group_id,
                                 running_in_group,
                                 max_concurrent
@@ -655,6 +1014,7 @@ impl Scheduler {
                     within_group_limit,
                     respects_reservations,
                     required_memory,
+                    job_user,
                 )
             } else {
                 continue;
@@ -662,29 +1022,22 @@ impl Scheduler {
 
             // Now allocate resources if all checks pass
             if has_enough_gpus && has_enough_memory && within_group_limit && respects_reservations {
-                // Get user name before mutable borrow
-                let job_user = if let Some(job) = self.get_job(job_id) {
-                    job.submitted_by.clone()
-                } else {
-                    continue;
-                };
-
                 // Filter out GPUs that are reserved by other users
                 let usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
 
-                if let Some(job) = self.get_job_mut(job_id) {
+                if let Some(rt) = self.job_runtimes.get_mut(idx) {
                     let gpus_for_job: GpuIds =
-                        usable_gpus.into_iter().take(job.gpus as usize).collect();
+                        usable_gpus.into_iter().take(rt.gpus as usize).collect();
 
                     // Remove allocated GPUs from available pool
                     available_gpus.retain(|gpu| !gpus_for_job.contains(gpu));
 
-                    job.gpu_ids = Some(gpus_for_job);
+                    rt.gpu_ids = Some(gpus_for_job);
 
                     // Set state to Running and allocate memory
-                    let group_id = job.group_id; // Capture before mutable borrow
-                    job.state = JobState::Running;
-                    job.started_at = Some(std::time::SystemTime::now());
+                    let group_id = rt.group_id; // Capture before mutable borrow
+                    rt.state = JobState::Running;
+                    rt.started_at = Some(std::time::SystemTime::now());
 
                     // Update group running count index
                     if let Some(gid) = group_id {
@@ -698,21 +1051,21 @@ impl Scheduler {
                 available_memory = available_memory.saturating_sub(required_memory);
                 self.available_memory_mb = self.available_memory_mb.saturating_sub(required_memory);
             } else if !has_enough_memory {
-                if let Some(job) = self.get_job(job_id) {
+                if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
-                        job.id,
+                        rt.id,
                         required_memory,
                         available_memory
                     );
                 }
             } else if !respects_reservations {
-                if let Some(job) = self.get_job(job_id) {
+                if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} blocked by active GPU reservations (user: {}, needs {} GPUs)",
-                        job.id,
-                        job.submitted_by,
-                        job.gpus
+                        rt.id,
+                        job_user,
+                        rt.gpus
                     );
                 }
             }
@@ -721,7 +1074,7 @@ impl Scheduler {
         // Clone jobs only once after all allocations are done
         job_ids_to_execute
             .into_iter()
-            .filter_map(|id| self.get_job(id).cloned())
+            .filter_map(|id| self.get_job(id))
             .collect()
     }
 
@@ -758,15 +1111,33 @@ impl Scheduler {
     pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
         for (job_id, result) in results {
             if result.is_err() {
-                if let Some(job) = self.get_job_mut(*job_id) {
-                    job.try_transition(*job_id, JobState::Failed);
-                    // Return GPUs and memory
-                    if let Some(_gpu_ids) = job.gpu_ids.take() {
-                        let required_memory = job.memory_limit_mb.unwrap_or(0);
-                        self.available_memory_mb =
-                            self.available_memory_mb.saturating_add(required_memory);
-                        // Note: GPUs will be returned in next refresh cycle
+                let Some((group_id, old_state, transitioned, had_gpus, required_memory)) = (|| {
+                    let rt = self.get_job_runtime_mut(*job_id)?;
+                    let group_id = rt.group_id;
+                    let old_state = rt.state;
+                    let transitioned = rt.state.can_transition_to(JobState::Failed);
+                    if transitioned {
+                        rt.state = JobState::Failed;
+                        rt.finished_at = Some(std::time::SystemTime::now());
                     }
+
+                    let had_gpus = rt.gpu_ids.take().is_some();
+                    let required_memory = rt.memory_limit_mb.unwrap_or(0);
+                    Some((group_id, old_state, transitioned, had_gpus, required_memory))
+                })(
+                ) else {
+                    continue;
+                };
+
+                if transitioned {
+                    self.update_group_running_count(group_id, old_state, JobState::Failed);
+                }
+
+                // Return memory if we had allocated GPUs (i.e. we were running).
+                if had_gpus {
+                    self.available_memory_mb =
+                        self.available_memory_mb.saturating_add(required_memory);
+                    // Note: GPUs will be returned in next refresh cycle.
                 }
             }
         }
@@ -837,22 +1208,31 @@ impl Scheduler {
         self.dependency_graph.clear();
         self.group_running_count.clear();
 
-        for job in &self.jobs {
-            // Rebuild user index
-            self.user_jobs_index
-                .entry(job.submitted_by.clone())
-                .or_default()
-                .push(job.id);
+        self.check_invariant();
 
-            // Rebuild dependency graph
-            let deps: Vec<u32> = job.all_dependency_ids().into_vec();
-            if !deps.is_empty() {
-                self.dependency_graph.insert(job.id, deps);
+        for (idx, spec) in self.job_specs.iter().enumerate() {
+            let rt = &self.job_runtimes[idx];
+
+            // Rebuild user index.
+            self.user_jobs_index
+                .entry(spec.submitted_by.clone())
+                .or_default()
+                .push(rt.id);
+
+            // Rebuild dependency graph.
+            if spec.depends_on.is_some() || !spec.depends_on_ids.is_empty() {
+                let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+                if let Some(dep) = spec.depends_on {
+                    if !deps.contains(&dep) {
+                        deps.push(dep);
+                    }
+                }
+                self.dependency_graph.insert(rt.id, deps);
             }
 
-            // Rebuild group running count index
-            if job.state == JobState::Running {
-                if let Some(group_id) = job.group_id {
+            // Rebuild group running count index.
+            if rt.state == JobState::Running {
+                if let Some(group_id) = rt.group_id {
                     *self.group_running_count.entry(group_id).or_insert(0) += 1;
                 }
             }
@@ -862,20 +1242,27 @@ impl Scheduler {
     /// Get count of jobs by state for monitoring
     pub fn get_job_counts_by_state(&self) -> std::collections::HashMap<JobState, usize> {
         let mut counts = std::collections::HashMap::new();
-        for job in &self.jobs {
-            *counts.entry(job.state).or_insert(0) += 1;
+        for rt in &self.job_runtimes {
+            *counts.entry(rt.state).or_insert(0) += 1;
         }
         counts
     }
 
     /// Get all jobs submitted by a specific user using the index for O(n) performance
     /// where n is the number of jobs by that user (not total jobs)
-    pub fn get_jobs_by_user(&self, username: &str) -> Vec<&Job> {
-        if let Some(job_ids) = self.user_jobs_index.get(username) {
-            job_ids.iter().filter_map(|&id| self.get_job(id)).collect()
-        } else {
-            Vec::new()
-        }
+    pub fn get_jobs_by_user(&self, username: &str) -> Vec<Job> {
+        let Some(job_ids) = self.user_jobs_index.get(username) else {
+            return Vec::new();
+        };
+
+        job_ids.iter().filter_map(|&id| self.get_job(id)).collect()
+    }
+
+    /// Get the sorted list of job IDs submitted by a user.
+    ///
+    /// This is primarily intended for API/query paths to avoid scanning all jobs.
+    pub fn job_ids_by_user(&self, username: &str) -> Option<&[u32]> {
+        self.user_jobs_index.get(username).map(|v| v.as_slice())
     }
 
     // ===== GPU Reservation Methods =====
@@ -1227,7 +1614,8 @@ impl SchedulerBuilder {
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
-            jobs: Vec::new(),
+            job_specs: Vec::new(),
+            job_runtimes: Vec::new(),
             executor: self.executor,
             gpu_slots: self.gpu_slots,
             total_memory_mb: self.total_memory_mb,
@@ -1370,7 +1758,7 @@ mod tests {
         let (job_id, _) = scheduler.submit_job(job);
 
         // Manually set to running
-        scheduler.get_job_mut(job_id).unwrap().state = JobState::Running;
+        scheduler.get_job_runtime_mut(job_id).unwrap().state = JobState::Running;
 
         scheduler.refresh_available_memory();
         assert_eq!(scheduler.available_memory_mb, total - 1024);

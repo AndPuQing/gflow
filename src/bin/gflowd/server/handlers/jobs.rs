@@ -50,46 +50,136 @@ pub(in crate::server) async fn list_jobs(
         UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
     });
 
-    // Single-pass filter: iterate once and collect matching jobs
-    let mut jobs: Vec<_> = state
-        .jobs()
-        .iter()
-        .filter(|job| {
-            // Apply state filter
-            if let Some(ref states) = state_filter {
-                if !states.is_empty() && !states.contains(&job.state) {
-                    return false;
-                }
-            }
-
-            // Apply user filter
-            if let Some(ref users) = user_filter {
-                if !users.is_empty() && !users.iter().any(|u| u == job.submitted_by.as_str()) {
-                    return false;
-                }
-            }
-
-            // Apply time filter
-            if let Some(created_after) = time_filter {
-                if job.submitted_at.is_none_or(|ts| ts < created_after) {
-                    return false;
-                }
-            }
-
-            true
-        })
-        .cloned()
-        .collect();
-
-    // Sort by job ID
-    jobs.sort_unstable_by_key(|j| j.id);
-
-    // Apply pagination
-    let total = jobs.len();
+    // Stream over split storage in ID order and materialize only the requested page.
     let offset = params.offset.unwrap_or(0);
-    let limit = params.limit.unwrap_or(total);
+    let limit = params.limit.unwrap_or(usize::MAX);
 
-    let jobs: Vec<_> = jobs.into_iter().skip(offset).take(limit).collect();
+    let mut matched = 0usize;
+    let mut jobs = Vec::new();
+
+    // Fast path: if user filter is present, use the scheduler's user->job_ids index to avoid
+    // scanning all jobs.
+    if let Some(users) = user_filter.as_ref().filter(|u| !u.is_empty()) {
+        if users.len() == 1 {
+            let Some(job_ids) = state.job_ids_by_user(&users[0]) else {
+                return (StatusCode::OK, Json(jobs));
+            };
+
+            for &job_id in job_ids {
+                let idx = match job_id.checked_sub(1) {
+                    Some(v) => v as usize,
+                    None => continue,
+                };
+                let (Some(spec), Some(rt)) =
+                    (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                else {
+                    continue;
+                };
+
+                // Apply state filter (hot).
+                if let Some(ref states) = state_filter {
+                    if !states.is_empty() && !states.contains(&rt.state) {
+                        continue;
+                    }
+                }
+
+                // Apply time filter (warm).
+                if let Some(created_after) = time_filter {
+                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                        continue;
+                    }
+                }
+
+                if matched >= offset && jobs.len() < limit {
+                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                }
+                matched += 1;
+
+                if jobs.len() >= limit {
+                    break;
+                }
+            }
+        } else {
+            // Multi-user: merge candidate job ids (still usually much smaller than scanning all).
+            let mut job_ids = Vec::new();
+            for user in users {
+                if let Some(user_ids) = state.job_ids_by_user(user) {
+                    job_ids.extend_from_slice(user_ids);
+                }
+            }
+
+            job_ids.sort_unstable();
+            job_ids.dedup();
+
+            for job_id in job_ids {
+                let idx = match job_id.checked_sub(1) {
+                    Some(v) => v as usize,
+                    None => continue,
+                };
+                let (Some(spec), Some(rt)) =
+                    (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                else {
+                    continue;
+                };
+
+                // Apply state filter (hot).
+                if let Some(ref states) = state_filter {
+                    if !states.is_empty() && !states.contains(&rt.state) {
+                        continue;
+                    }
+                }
+
+                // Apply time filter (warm).
+                if let Some(created_after) = time_filter {
+                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                        continue;
+                    }
+                }
+
+                if matched >= offset && jobs.len() < limit {
+                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                }
+                matched += 1;
+
+                if jobs.len() >= limit {
+                    break;
+                }
+            }
+        }
+    } else {
+        for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
+            // Apply state filter (hot).
+            if let Some(ref states) = state_filter {
+                if !states.is_empty() && !states.contains(&rt.state) {
+                    continue;
+                }
+            }
+
+            // Apply user filter (cold).
+            if let Some(ref users) = user_filter {
+                if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
+                    continue;
+                }
+            }
+
+            // Apply time filter (warm).
+            if let Some(created_after) = time_filter {
+                if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                    continue;
+                }
+            }
+
+            if matched >= offset && jobs.len() < limit {
+                jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+            }
+            matched += 1;
+
+            if jobs.len() >= limit {
+                // We can stop early once the page is full, since we're iterating in ID order.
+                break;
+            }
+        }
+    }
 
     (StatusCode::OK, Json(jobs))
 }
@@ -295,11 +385,7 @@ pub(in crate::server) async fn get_job(
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
     let state = server_state.scheduler.read().await;
-    state
-        .get_job(id)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+    state.get_job(id).map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
 #[axum::debug_handler]
@@ -783,10 +869,10 @@ pub(in crate::server) async fn set_group_max_concurrency(
 
         // Find all jobs in this group and collect their IDs
         let job_ids: Vec<u32> = state
-            .jobs()
+            .job_runtimes()
             .iter()
-            .filter(|job| job.group_id.as_ref() == Some(&group_uuid))
-            .map(|job| job.id)
+            .filter(|rt| rt.group_id.as_ref() == Some(&group_uuid))
+            .map(|rt| rt.id)
             .collect();
 
         if job_ids.is_empty() {

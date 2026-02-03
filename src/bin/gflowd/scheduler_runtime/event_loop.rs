@@ -183,8 +183,9 @@ async fn trigger_scheduling(state: &SharedState) {
         let should_execute = {
             let state_guard = state.read().await;
             state_guard
-                .get_job(job.id)
-                .map(|current_job| current_job.state == JobState::Running)
+                .scheduler
+                .get_job_runtime(job.id)
+                .map(|rt| rt.state == JobState::Running)
                 .unwrap_or(false)
         };
 

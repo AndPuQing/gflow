@@ -313,6 +313,146 @@ impl JobState {
     }
 }
 
+/// JobSpec contains immutable submission-time configuration (cold data).
+/// This data is rarely accessed during scheduling, only at execution time.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(default)]
+pub struct JobSpec {
+    // Execution config (cold - accessed only at execution time)
+    pub script: Option<Box<PathBuf>>,
+    pub command: Option<CompactString>,
+    pub conda_env: Option<CompactString>,
+    pub run_dir: PathBuf,
+    #[serde(default)]
+    pub parameters: Parameters,
+
+    // Metadata (cold - rarely accessed)
+    pub submitted_by: CompactString,
+    pub submitted_at: Option<SystemTime>,
+    pub task_id: Option<u32>,
+    pub redone_from: Option<u32>,
+    pub auto_close_tmux: bool,
+    pub run_name: Option<CompactString>,
+
+    // Dependency config (cold - accessed once during submission)
+    pub depends_on: Option<u32>,
+    #[serde(default)]
+    pub depends_on_ids: DependencyIds,
+    #[serde(default)]
+    pub dependency_mode: Option<DependencyMode>,
+    #[serde(default)]
+    pub auto_cancel_on_dependency_failure: bool,
+}
+
+impl Default for JobSpec {
+    fn default() -> Self {
+        Self {
+            script: None,
+            command: None,
+            conda_env: None,
+            run_dir: PathBuf::from("."),
+            parameters: Parameters::new(),
+            submitted_by: CompactString::const_new("unknown"),
+            submitted_at: None,
+            task_id: None,
+            redone_from: None,
+            auto_close_tmux: false,
+            run_name: None,
+            depends_on: None,
+            depends_on_ids: DependencyIds::new(),
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: true,
+        }
+    }
+}
+
+/// JobRuntime contains mutable runtime state (hot data).
+/// This data is frequently accessed during scheduling and should fit in CPU cache.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct JobRuntime {
+    // Identity (hot - always accessed)
+    pub id: u32,
+
+    // Scheduling state (hot - accessed every scheduling cycle)
+    pub state: JobState,
+    pub priority: u8,
+
+    // Resource requirements (hot - checked during scheduling)
+    pub gpus: u32,
+    pub time_limit: Option<Duration>,
+    pub memory_limit_mb: Option<u64>,
+
+    // Resource allocation (hot - modified during scheduling)
+    #[serde(default)]
+    pub gpu_ids: Option<GpuIds>,
+
+    // Group concurrency (hot - checked during scheduling)
+    #[serde(
+        default,
+        serialize_with = "serialize_group_id",
+        deserialize_with = "deserialize_group_id"
+    )]
+    pub group_id: Option<Uuid>,
+    pub max_concurrent: Option<usize>,
+
+    // Timing (warm - accessed for timeout checks)
+    pub started_at: Option<SystemTime>,
+    pub finished_at: Option<SystemTime>,
+
+    // Failure reason (cold - only set on failure)
+    #[serde(default)]
+    pub reason: Option<Box<JobStateReason>>,
+}
+
+impl Default for JobRuntime {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            state: JobState::Queued,
+            priority: 10,
+            gpus: 0,
+            time_limit: None,
+            memory_limit_mb: None,
+            gpu_ids: None,
+            group_id: None,
+            max_concurrent: None,
+            started_at: None,
+            finished_at: None,
+            reason: None,
+        }
+    }
+}
+
+/// JobView combines JobSpec and JobRuntime for API compatibility.
+/// This provides a unified view of job data for external interfaces.
+#[derive(Debug, Serialize, Clone)]
+pub struct JobView {
+    #[serde(flatten)]
+    pub spec: JobSpec,
+    #[serde(flatten)]
+    pub runtime: JobRuntime,
+}
+
+impl JobView {
+    /// Create a JobView from separate spec and runtime components
+    pub fn from_parts(spec: JobSpec, runtime: JobRuntime) -> Self {
+        Self { spec, runtime }
+    }
+
+    /// Convert JobView into a legacy Job struct
+    pub fn into_job(self) -> Job {
+        Job::from_parts(self.spec, self.runtime)
+    }
+
+    /// Create a JobView by borrowing spec and runtime (requires cloning)
+    pub fn from_refs(spec: &JobSpec, runtime: &JobRuntime) -> Self {
+        Self {
+            spec: spec.clone(),
+            runtime: runtime.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct Job {
@@ -576,6 +716,77 @@ impl Default for Job {
 impl Job {
     pub fn builder() -> JobBuilder {
         JobBuilder::new()
+    }
+
+    /// Create a Job from separate JobSpec and JobRuntime components
+    pub fn from_parts(spec: JobSpec, runtime: JobRuntime) -> Self {
+        Self {
+            id: runtime.id,
+            script: spec.script,
+            command: spec.command,
+            gpus: runtime.gpus,
+            conda_env: spec.conda_env,
+            run_dir: spec.run_dir,
+            priority: runtime.priority,
+            depends_on: spec.depends_on,
+            depends_on_ids: spec.depends_on_ids,
+            dependency_mode: spec.dependency_mode,
+            auto_cancel_on_dependency_failure: spec.auto_cancel_on_dependency_failure,
+            task_id: spec.task_id,
+            time_limit: runtime.time_limit,
+            memory_limit_mb: runtime.memory_limit_mb,
+            submitted_by: spec.submitted_by,
+            redone_from: spec.redone_from,
+            auto_close_tmux: spec.auto_close_tmux,
+            parameters: spec.parameters,
+            group_id: runtime.group_id,
+            max_concurrent: runtime.max_concurrent,
+            run_name: spec.run_name,
+            state: runtime.state,
+            gpu_ids: runtime.gpu_ids,
+            submitted_at: spec.submitted_at,
+            started_at: runtime.started_at,
+            finished_at: runtime.finished_at,
+            reason: runtime.reason,
+        }
+    }
+
+    /// Split a Job into separate JobSpec and JobRuntime components
+    pub fn into_parts(self) -> (JobSpec, JobRuntime) {
+        let spec = JobSpec {
+            script: self.script,
+            command: self.command,
+            conda_env: self.conda_env,
+            run_dir: self.run_dir,
+            parameters: self.parameters,
+            submitted_by: self.submitted_by,
+            submitted_at: self.submitted_at,
+            task_id: self.task_id,
+            redone_from: self.redone_from,
+            auto_close_tmux: self.auto_close_tmux,
+            run_name: self.run_name,
+            depends_on: self.depends_on,
+            depends_on_ids: self.depends_on_ids,
+            dependency_mode: self.dependency_mode,
+            auto_cancel_on_dependency_failure: self.auto_cancel_on_dependency_failure,
+        };
+
+        let runtime = JobRuntime {
+            id: self.id,
+            state: self.state,
+            priority: self.priority,
+            gpus: self.gpus,
+            time_limit: self.time_limit,
+            memory_limit_mb: self.memory_limit_mb,
+            gpu_ids: self.gpu_ids,
+            group_id: self.group_id,
+            max_concurrent: self.max_concurrent,
+            started_at: self.started_at,
+            finished_at: self.finished_at,
+            reason: self.reason,
+        };
+
+        (spec, runtime)
     }
 
     /// Returns all dependency IDs (combining legacy single dependency and new multi-dependency)

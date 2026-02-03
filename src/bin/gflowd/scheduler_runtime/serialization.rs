@@ -6,7 +6,7 @@
 //! The binary format provides:
 //! - 50-70% smaller file size compared to JSON
 //! - 2-5x faster serialization/deserialization
-//! - Automatic migration from JSON to binary format
+//! - Support for both JSON (legacy) and MessagePack (binary) state files
 
 use anyhow::{Context, Result};
 use gflow::core::scheduler::Scheduler;
@@ -52,22 +52,26 @@ pub fn serialize(scheduler: &Scheduler, format: SerializationFormat) -> Result<V
             Ok(json.into_bytes())
         }
         SerializationFormat::MessagePack => {
-            rmp_serde::to_vec(scheduler).context("Failed to serialize scheduler to MessagePack")
+            // Use named fields (map) so `#[serde(skip_serializing)]` fields don't break the
+            // positional encoding used by the default tuple/seq representation.
+            rmp_serde::to_vec_named(scheduler)
+                .context("Failed to serialize scheduler to MessagePack")
         }
     }
 }
 
 /// Deserialize scheduler state from bytes
 pub fn deserialize(bytes: &[u8], format: SerializationFormat) -> Result<Scheduler> {
-    match format {
+    let scheduler: Scheduler = match format {
         SerializationFormat::Json => {
             let json = std::str::from_utf8(bytes).context("Invalid UTF-8 in JSON file")?;
-            serde_json::from_str(json).context("Failed to deserialize scheduler from JSON")
+            serde_json::from_str(json).context("Failed to deserialize scheduler from JSON")?
         }
-        SerializationFormat::MessagePack => {
-            rmp_serde::from_slice(bytes).context("Failed to deserialize scheduler from MessagePack")
-        }
-    }
+        SerializationFormat::MessagePack => rmp_serde::from_slice(bytes)
+            .context("Failed to deserialize scheduler from MessagePack")?,
+    };
+
+    Ok(scheduler)
 }
 
 /// Load scheduler state with automatic format detection and fallback
@@ -100,14 +104,6 @@ pub fn load_state_auto(state_dir: &Path) -> Result<Option<Scheduler>> {
             std::fs::read(&json_path).context(format!("Failed to read {}", json_path.display()))?;
         let scheduler = deserialize(&bytes, SerializationFormat::Json)
             .context(format!("Failed to deserialize {}", json_path.display()))?;
-
-        // Automatically migrate to MessagePack format
-        tracing::info!("Migrating state from JSON to MessagePack format");
-        if let Err(e) = save_state(&scheduler, state_dir, SerializationFormat::MessagePack) {
-            tracing::warn!("Failed to migrate state to MessagePack: {}", e);
-        } else {
-            tracing::info!("Successfully migrated state to MessagePack format");
-        }
 
         return Ok(Some(scheduler));
     }

@@ -8,7 +8,7 @@ use crate::state_saver::StateSaverHandle;
 use anyhow::Result;
 use compact_str::CompactString;
 use gflow::core::executor::Executor;
-use gflow::core::job::{Job, JobState};
+use gflow::core::job::{Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use gflow::tmux::disable_pipe_pane_for_job;
@@ -395,13 +395,7 @@ impl SchedulerRuntime {
     }
 
     fn apply_loaded_scheduler(&mut self, loaded: Scheduler) {
-        let next_id = loaded.next_job_id();
-        let allowed_gpus = loaded.allowed_gpu_indices().cloned();
-
-        self.scheduler.version = loaded.version;
-        self.scheduler.jobs = loaded.jobs;
-        self.scheduler.set_next_job_id(next_id);
-        self.scheduler.set_allowed_gpu_indices(allowed_gpus);
+        self.scheduler.apply_persisted_state(loaded);
         self.scheduler.rebuild_user_jobs_index();
     }
 
@@ -450,10 +444,21 @@ impl SchedulerRuntime {
         }
 
         #[derive(serde::Serialize)]
+        struct SchedulerSnapshot<'a> {
+            version: u32,
+            jobs: Vec<Job>,
+            state_path: &'a std::path::PathBuf,
+            next_job_id: u32,
+            allowed_gpu_indices: Option<&'a Vec<u32>>,
+            reservations: &'a Vec<gflow::core::reservation::GpuReservation>,
+            next_reservation_id: u32,
+        }
+
+        #[derive(serde::Serialize)]
         struct JournalEntry<'a> {
             ts: u64,
             kind: &'static str,
-            scheduler: &'a Scheduler,
+            scheduler: SchedulerSnapshot<'a>,
         }
 
         let ts = std::time::SystemTime::now()
@@ -464,7 +469,15 @@ impl SchedulerRuntime {
         let entry = JournalEntry {
             ts,
             kind: "snapshot",
-            scheduler: &self.scheduler,
+            scheduler: SchedulerSnapshot {
+                version: self.scheduler.version,
+                jobs: self.scheduler.jobs_as_vec(),
+                state_path: self.scheduler.state_path(),
+                next_job_id: self.scheduler.next_job_id(),
+                allowed_gpu_indices: self.scheduler.allowed_gpu_indices(),
+                reservations: &self.scheduler.reservations,
+                next_reservation_id: self.scheduler.next_reservation_id,
+            },
         };
 
         let line = match serde_json::to_string(&entry) {
@@ -533,10 +546,10 @@ impl SchedulerRuntime {
     fn refresh_gpu_slots(&mut self) {
         let running_gpu_indices: std::collections::HashSet<u32> = self
             .scheduler
-            .jobs
+            .job_runtimes()
             .iter()
-            .filter(|j| j.state == JobState::Running)
-            .filter_map(|j| j.gpu_ids.as_ref())
+            .filter(|rt| rt.state == JobState::Running)
+            .filter_map(|rt| rt.gpu_ids.as_ref())
             .flat_map(|ids| ids.iter().copied())
             .collect();
 
@@ -595,11 +608,9 @@ impl SchedulerRuntime {
         let (job_id, run_name) = self.scheduler.submit_job(job);
         self.mark_dirty();
 
-        // Clone job for return
         let job_clone = self
             .scheduler
             .get_job(job_id)
-            .cloned()
             .expect("Job should exist after submission");
 
         (job_id, run_name, job_clone)
@@ -619,7 +630,7 @@ impl SchedulerRuntime {
             results.push((job_id, run_name, submitted_by));
 
             if let Some(job) = self.scheduler.get_job(job_id) {
-                submitted_jobs.push(job.clone());
+                submitted_jobs.push(job);
             }
         }
 
@@ -712,14 +723,10 @@ impl SchedulerRuntime {
 
     /// Update max_concurrent for a specific job
     pub fn update_job_max_concurrent(&mut self, job_id: u32, max_concurrent: usize) -> Option<Job> {
-        if let Some(job) = self.scheduler.get_job_mut(job_id) {
-            job.max_concurrent = Some(max_concurrent);
-            let job_clone = job.clone();
-            self.mark_dirty();
-            Some(job_clone)
-        } else {
-            None
-        }
+        let (_spec, rt) = self.scheduler.get_job_parts_mut(job_id)?;
+        rt.max_concurrent = Some(max_concurrent);
+        self.mark_dirty();
+        self.scheduler.get_job(job_id)
     }
 
     /// Update job parameters
@@ -735,83 +742,98 @@ impl SchedulerRuntime {
         let new_deps = request.depends_on_ids.as_deref();
         self.scheduler.validate_job_update(job_id, new_deps)?;
 
-        // Get mutable reference to the job
-        let job = self
-            .scheduler
-            .get_job_mut(job_id)
-            .ok_or_else(|| format!("Job {} not found", job_id))?;
+        {
+            let (spec, rt) = self
+                .scheduler
+                .get_job_parts_mut(job_id)
+                .ok_or_else(|| format!("Job {} not found", job_id))?;
 
-        // Apply updates
-        if let Some(command) = request.command {
-            job.command = Some(CompactString::from(command));
-            updated_fields.push("command".to_string());
+            // Apply updates (spec)
+            if let Some(command) = request.command {
+                spec.command = Some(CompactString::from(command));
+                updated_fields.push("command".to_string());
+            }
+
+            if let Some(script) = request.script {
+                spec.script = Some(Box::new(script));
+                updated_fields.push("script".to_string());
+            }
+
+            if let Some(gpus) = request.gpus {
+                rt.gpus = gpus;
+                updated_fields.push("gpus".to_string());
+            }
+
+            if let Some(conda_env) = request.conda_env {
+                spec.conda_env = conda_env.map(compact_str::CompactString::from);
+                updated_fields.push("conda_env".to_string());
+            }
+
+            if let Some(priority) = request.priority {
+                rt.priority = priority;
+                updated_fields.push("priority".to_string());
+            }
+
+            if let Some(parameters) = request.parameters {
+                spec.parameters = parameters
+                    .into_iter()
+                    .map(|(k, v)| (CompactString::from(k), CompactString::from(v)))
+                    .collect();
+                updated_fields.push("parameters".to_string());
+            }
+
+            if let Some(time_limit) = request.time_limit {
+                rt.time_limit = time_limit;
+                updated_fields.push("time_limit".to_string());
+            }
+
+            if let Some(memory_limit_mb) = request.memory_limit_mb {
+                rt.memory_limit_mb = memory_limit_mb;
+                updated_fields.push("memory_limit_mb".to_string());
+            }
+
+            if let Some(depends_on_ids) = request.depends_on_ids {
+                spec.depends_on_ids = depends_on_ids.into();
+                updated_fields.push("depends_on_ids".to_string());
+            }
+
+            if let Some(dependency_mode) = request.dependency_mode {
+                spec.dependency_mode = dependency_mode;
+                updated_fields.push("dependency_mode".to_string());
+            }
+
+            if let Some(auto_cancel) = request.auto_cancel_on_dependency_failure {
+                spec.auto_cancel_on_dependency_failure = auto_cancel;
+                updated_fields.push("auto_cancel_on_dependency_failure".to_string());
+            }
+
+            if let Some(max_concurrent) = request.max_concurrent {
+                rt.max_concurrent = max_concurrent;
+                updated_fields.push("max_concurrent".to_string());
+            }
+        };
+
+        // Keep scheduler dependency graph in sync if dependencies changed.
+        if updated_fields.iter().any(|f| f == "depends_on_ids") {
+            if let Some((spec, _rt)) = self.scheduler.get_job_parts(job_id) {
+                let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+                if let Some(dep) = spec.depends_on {
+                    if !deps.contains(&dep) {
+                        deps.push(dep);
+                    }
+                }
+                self.scheduler.set_job_dependencies(job_id, deps);
+            }
         }
-
-        if let Some(script) = request.script {
-            job.script = Some(Box::new(script));
-            updated_fields.push("script".to_string());
-        }
-
-        if let Some(gpus) = request.gpus {
-            job.gpus = gpus;
-            updated_fields.push("gpus".to_string());
-        }
-
-        if let Some(conda_env) = request.conda_env {
-            job.conda_env = conda_env.map(compact_str::CompactString::from);
-            updated_fields.push("conda_env".to_string());
-        }
-
-        if let Some(priority) = request.priority {
-            job.priority = priority;
-            updated_fields.push("priority".to_string());
-        }
-
-        if let Some(parameters) = request.parameters {
-            job.parameters = parameters
-                .into_iter()
-                .map(|(k, v)| (CompactString::from(k), CompactString::from(v)))
-                .collect();
-            updated_fields.push("parameters".to_string());
-        }
-
-        if let Some(time_limit) = request.time_limit {
-            job.time_limit = time_limit;
-            updated_fields.push("time_limit".to_string());
-        }
-
-        if let Some(memory_limit_mb) = request.memory_limit_mb {
-            job.memory_limit_mb = memory_limit_mb;
-            updated_fields.push("memory_limit_mb".to_string());
-        }
-
-        if let Some(depends_on_ids) = request.depends_on_ids {
-            job.depends_on_ids = depends_on_ids.into();
-            updated_fields.push("depends_on_ids".to_string());
-        }
-
-        if let Some(dependency_mode) = request.dependency_mode {
-            job.dependency_mode = dependency_mode;
-            updated_fields.push("dependency_mode".to_string());
-        }
-
-        if let Some(auto_cancel) = request.auto_cancel_on_dependency_failure {
-            job.auto_cancel_on_dependency_failure = auto_cancel;
-            updated_fields.push("auto_cancel_on_dependency_failure".to_string());
-        }
-
-        if let Some(max_concurrent) = request.max_concurrent {
-            job.max_concurrent = max_concurrent;
-            updated_fields.push("max_concurrent".to_string());
-        }
-
-        // Clone the job before marking dirty
-        let updated_job = job.clone();
 
         // Mark state as dirty for persistence
         self.mark_dirty();
 
         // Return cloned job and list of updated fields
+        let updated_job = self
+            .scheduler
+            .get_job(job_id)
+            .ok_or_else(|| format!("Job {} not found", job_id))?;
         Ok((updated_job, updated_fields))
     }
 
@@ -834,14 +856,28 @@ impl SchedulerRuntime {
         self.mark_dirty();
     }
 
-    // Direct access to jobs for server handlers
-    pub fn jobs(&self) -> &Vec<Job> {
-        &self.scheduler.jobs
+    // Materialize all jobs for server handlers (allocates/clones).
+    pub fn jobs(&self) -> Vec<Job> {
+        self.scheduler.jobs_as_vec()
     }
 
-    // Get a job by ID
-    pub fn get_job(&self, job_id: u32) -> Option<&Job> {
+    // Get a job by ID (materialized).
+    pub fn get_job(&self, job_id: u32) -> Option<Job> {
         self.scheduler.get_job(job_id)
+    }
+
+    // Read-only access to hot runtimes for monitors/metrics.
+    pub fn job_runtimes(&self) -> &[gflow::core::job::JobRuntime] {
+        self.scheduler.job_runtimes()
+    }
+
+    // Read-only access to cold specs (used by list APIs to avoid full materialization).
+    pub fn job_specs(&self) -> &[JobSpec] {
+        self.scheduler.job_specs()
+    }
+
+    pub fn job_ids_by_user(&self, username: &str) -> Option<&[u32]> {
+        self.scheduler.job_ids_by_user(username)
     }
 
     // Debug/metrics accessors

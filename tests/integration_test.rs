@@ -131,7 +131,7 @@ fn test_job_submission_and_queuing() {
     assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
 
     // Verify queue state
-    assert_eq!(scheduler.jobs.len(), 2);
+    assert_eq!(scheduler.jobs_len(), 2);
 }
 
 #[test]

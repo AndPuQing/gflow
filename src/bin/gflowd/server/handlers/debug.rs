@@ -29,7 +29,7 @@ pub(in crate::server) async fn debug_state(
         .collect();
 
     let debug_state = debug::DebugState {
-        jobs: state.jobs().clone(),
+        jobs: state.jobs(),
         next_job_id: state.next_job_id(),
         total_memory_mb: state.total_memory_mb(),
         available_memory_mb: state.available_memory_mb(),
@@ -49,7 +49,6 @@ pub(in crate::server) async fn debug_job(
 
     state
         .get_job(id)
-        .cloned()
         .map(debug::DebugJobInfo::from_job)
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
@@ -60,15 +59,16 @@ pub(in crate::server) async fn debug_metrics(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
+    let jobs = state.jobs();
 
     let jobs_by_state: HashMap<JobState, usize> =
-        state.jobs().iter().fold(HashMap::new(), |mut acc, job| {
+        jobs.iter().fold(HashMap::new(), |mut acc, job| {
             *acc.entry(job.state).or_insert(0) += 1;
             acc
         });
 
     let jobs_by_user: HashMap<String, debug::UserJobStats> =
-        state.jobs().iter().fold(HashMap::new(), |mut acc, job| {
+        jobs.iter().fold(HashMap::new(), |mut acc, job| {
             let stats = acc
                 .entry(job.submitted_by.to_string())
                 .or_insert(debug::UserJobStats {

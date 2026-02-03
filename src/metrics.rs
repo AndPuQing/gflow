@@ -120,3 +120,28 @@ pub fn update_job_state_metrics(jobs: &[crate::core::job::Job]) {
 pub fn update_job_state_metrics(_jobs: &[crate::core::job::Job]) {
     // No-op when metrics feature is disabled
 }
+
+#[cfg(feature = "metrics")]
+pub fn update_job_state_metrics_runtimes(runtimes: &[crate::core::job::JobRuntime]) {
+    use crate::core::job::JobState;
+    let queued = runtimes
+        .iter()
+        .filter(|rt| rt.state == JobState::Queued)
+        .count();
+    let running = runtimes
+        .iter()
+        .filter(|rt| rt.state == JobState::Running)
+        .count();
+
+    JOBS_QUEUED
+        .with_label_values(&[] as &[&str])
+        .set(queued as f64);
+    JOBS_RUNNING
+        .with_label_values(&[] as &[&str])
+        .set(running as f64);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn update_job_state_metrics_runtimes(_runtimes: &[crate::core::job::JobRuntime]) {
+    // No-op when metrics feature is disabled
+}

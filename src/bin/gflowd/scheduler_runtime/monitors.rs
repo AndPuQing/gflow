@@ -44,10 +44,16 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
         let running_jobs = {
             let state_guard = state.read().await;
             state_guard
-                .jobs()
+                .job_runtimes()
                 .iter()
-                .filter(|j| j.state == JobState::Running)
-                .map(|j| (j.id, j.run_name.clone()))
+                .filter(|rt| rt.state == JobState::Running)
+                .filter_map(|rt| {
+                    let run_name = state_guard
+                        .scheduler
+                        .get_job_spec(rt.id)
+                        .and_then(|spec| spec.run_name.clone());
+                    Some((rt.id, run_name))
+                })
                 .collect::<Vec<_>>()
         };
 
@@ -83,8 +89,8 @@ pub(super) async fn zombie_handler_task(
                     let state_guard = state.read().await;
                     state_guard
                         .scheduler
-                        .get_job(job_id)
-                        .and_then(|j| j.run_name.clone())
+                        .get_job_spec(job_id)
+                        .and_then(|spec| spec.run_name.clone())
                 };
 
                 // Update job state (write lock)
@@ -123,13 +129,31 @@ pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<Even
         // Check for timed-out jobs (read lock)
         let timed_out_jobs = {
             let state_guard = state.read().await;
+            let now = std::time::SystemTime::now();
             state_guard
-                .jobs()
+                .job_runtimes()
                 .iter()
-                .filter(|job| job.has_exceeded_time_limit())
-                .map(|job| {
-                    tracing::warn!("Job {} has exceeded time limit, publishing event", job.id);
-                    (job.id, job.run_name.as_ref().map(|s| s.to_string()))
+                .filter(|rt| rt.state == JobState::Running)
+                .filter_map(|rt| {
+                    let (Some(time_limit), Some(started_at)) = (rt.time_limit, rt.started_at)
+                    else {
+                        return None;
+                    };
+
+                    let Ok(elapsed) = now.duration_since(started_at) else {
+                        return None;
+                    };
+
+                    if elapsed > time_limit {
+                        let run_name = state_guard
+                            .scheduler
+                            .get_job_spec(rt.id)
+                            .and_then(|spec| spec.run_name.as_ref().map(|s| s.to_string()));
+                        tracing::warn!("Job {} has exceeded time limit, publishing event", rt.id);
+                        Some((rt.id, run_name))
+                    } else {
+                        None
+                    }
                 })
                 .collect::<Vec<_>>()
         };
@@ -158,9 +182,7 @@ pub(super) async fn timeout_handler_task(
 
                 // Update job state (write lock)
                 let mut state_guard = state.write().await;
-                if let Some(job) = state_guard.scheduler.get_job_mut(job_id) {
-                    job.try_transition(job_id, JobState::Timeout);
-
+                if state_guard.scheduler.timeout_job(job_id) {
                     // Auto-cancel dependent jobs
                     let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
                     if !cancelled.is_empty() {
@@ -204,7 +226,7 @@ pub(super) async fn metrics_updater_task(state: SharedState) {
         let state_guard = state.read().await;
 
         // Update job state metrics
-        gflow::metrics::update_job_state_metrics(state_guard.jobs());
+        gflow::metrics::update_job_state_metrics_runtimes(state_guard.job_runtimes());
 
         // Update GPU metrics
         let info = state_guard.info();

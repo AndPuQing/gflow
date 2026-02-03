@@ -160,17 +160,25 @@ fn bench_memory_job_storage(c: &mut Criterion) {
 // Bottleneck Analysis Benchmarks
 // ============================================================================
 
-/// Benchmark Job creation (includes dropping the Vec<Job> at end of each iter)
+/// Benchmark job creation into scheduler storage.
+///
+/// This measures the performance of `Scheduler::submit_job` at scale (10k-100k),
+/// which is the path exercised when creating large numbers of jobs in real deployments.
 fn bench_job_creation_only(c: &mut Criterion) {
     let mut group = c.benchmark_group("bottleneck/job_creation");
     group.sample_size(10);
 
     for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
+        // Pre-create all jobs so we measure scheduler insertion / storage, not job construction.
+        let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
         group.throughput(Throughput::Elements(size as u64));
-        group.bench_with_input(BenchmarkId::new("jobs", size), &size, |b, &size| {
+        group.bench_with_input(BenchmarkId::new("jobs", size), &jobs, |b, jobs| {
             b.iter(|| {
-                let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
-                hint_black_box(jobs);
+                let mut scheduler = create_test_scheduler();
+                for job in jobs.iter() {
+                    std::hint::black_box(scheduler.submit_job(job.clone()));
+                }
+                hint_black_box(&scheduler);
             });
         });
     }
@@ -265,30 +273,6 @@ fn bench_string_allocation(c: &mut Criterion) {
                     })
                     .collect();
                 hint_black_box(strings);
-            });
-        });
-    }
-
-    group.finish();
-}
-
-/// Benchmark submit_job overhead (ID assignment, timestamp, state init)
-fn bench_submit_job_overhead(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bottleneck/submit_overhead");
-    group.sample_size(10);
-
-    for size in [10_000, 25_000, 50_000, 75_000, 100_000] {
-        // Pre-create all jobs
-        let jobs: Vec<Job> = (0..size).map(|i| create_test_job(i as u32)).collect();
-
-        group.throughput(Throughput::Elements(size as u64));
-        group.bench_with_input(BenchmarkId::new("jobs", size), &jobs, |b, jobs| {
-            b.iter(|| {
-                let mut scheduler = create_test_scheduler();
-                for job in jobs.iter() {
-                    scheduler.submit_job(job.clone());
-                }
-                hint_black_box(&scheduler);
             });
         });
     }
@@ -465,8 +449,8 @@ fn bench_query_all_jobs(c: &mut Criterion) {
             &scheduler,
             |b, scheduler| {
                 b.iter(|| {
-                    let jobs: Vec<&Job> = scheduler.jobs.iter().collect();
-                    std::hint::black_box(jobs.len())
+                    let ids: Vec<u32> = scheduler.job_runtimes().iter().map(|rt| rt.id).collect();
+                    std::hint::black_box(ids.len())
                 });
             },
         );
@@ -483,13 +467,16 @@ fn bench_query_by_state(c: &mut Criterion) {
         populate_scheduler(&mut scheduler, size);
 
         // Set some jobs to different states for realistic distribution
-        for (i, job) in scheduler.jobs.iter_mut().enumerate() {
-            match i % 5 {
-                0 => job.state = JobState::Running,
-                1 => job.state = JobState::Finished,
-                2 => job.state = JobState::Failed,
-                3 => job.state = JobState::Hold,
-                _ => {} // Keep as Queued
+        for i in 0..size {
+            let job_id = i as u32 + 1;
+            if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                match i % 5 {
+                    0 => rt.state = JobState::Running,
+                    1 => rt.state = JobState::Finished,
+                    2 => rt.state = JobState::Failed,
+                    3 => rt.state = JobState::Hold,
+                    _ => {} // Keep as Queued
+                }
             }
         }
 
@@ -498,10 +485,11 @@ fn bench_query_by_state(c: &mut Criterion) {
             &scheduler,
             |b, scheduler| {
                 b.iter(|| {
-                    let queued: Vec<&Job> = scheduler
-                        .jobs
+                    let queued: Vec<u32> = scheduler
+                        .job_runtimes()
                         .iter()
-                        .filter(|j| j.state == JobState::Queued)
+                        .filter(|rt| rt.state == JobState::Queued)
+                        .map(|rt| rt.id)
                         .collect();
                     std::hint::black_box(queued.len())
                 });
@@ -647,9 +635,12 @@ fn bench_refresh_available_memory(c: &mut Criterion) {
                     populate_scheduler(&mut scheduler, size);
 
                     // Set some jobs to Running state
-                    for (i, job) in scheduler.jobs.iter_mut().enumerate() {
+                    for i in 0..size {
                         if i % 10 == 0 {
-                            job.state = JobState::Running;
+                            let job_id = i as u32 + 1;
+                            if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                                rt.state = JobState::Running;
+                            }
                         }
                     }
                     scheduler
@@ -674,13 +665,16 @@ fn bench_job_counts_by_state(c: &mut Criterion) {
         populate_scheduler(&mut scheduler, size);
 
         // Set jobs to different states
-        for (i, job) in scheduler.jobs.iter_mut().enumerate() {
-            match i % 5 {
-                0 => job.state = JobState::Running,
-                1 => job.state = JobState::Finished,
-                2 => job.state = JobState::Failed,
-                3 => job.state = JobState::Hold,
-                _ => {}
+        for i in 0..size {
+            let job_id = i as u32 + 1;
+            if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                match i % 5 {
+                    0 => rt.state = JobState::Running,
+                    1 => rt.state = JobState::Finished,
+                    2 => rt.state = JobState::Failed,
+                    3 => rt.state = JobState::Hold,
+                    _ => {}
+                }
             }
         }
 
@@ -713,7 +707,6 @@ criterion_group!(
     bench_job_drop_only,
     bench_job_clone,
     bench_string_allocation,
-    bench_submit_job_overhead,
     bench_job_creation_with_params,
     bench_parameter_allocation,
     bench_job_clone_with_params,
@@ -791,9 +784,9 @@ fn populate_scheduler_with_groups(scheduler: &mut Scheduler, count: usize, group
         let start_idx = group_idx * jobs_per_group;
         for i in 0..5 {
             let job_id = (start_idx + i + 1) as u32;
-            if let Some(job) = scheduler.get_job_mut(job_id) {
-                job.state = JobState::Running;
-                job.started_at = Some(std::time::SystemTime::now());
+            if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                rt.state = JobState::Running;
+                rt.started_at = Some(std::time::SystemTime::now());
             }
         }
     }
@@ -852,9 +845,9 @@ fn bench_state_transitions(c: &mut Criterion) {
                     // Set some jobs to Running state so they can be finished
                     for i in 0..1000 {
                         let job_id = (i + 1) as u32;
-                        if let Some(job) = scheduler.get_job_mut(job_id) {
-                            job.state = JobState::Running;
-                            job.started_at = Some(std::time::SystemTime::now());
+                        if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                            rt.state = JobState::Running;
+                            rt.started_at = Some(std::time::SystemTime::now());
                         }
                     }
                     scheduler
@@ -886,9 +879,9 @@ fn bench_fail_job(c: &mut Criterion) {
                     // Set some jobs to Running state
                     for i in 0..1000 {
                         let job_id = (i + 1) as u32;
-                        if let Some(job) = scheduler.get_job_mut(job_id) {
-                            job.state = JobState::Running;
-                            job.started_at = Some(std::time::SystemTime::now());
+                        if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                            rt.state = JobState::Running;
+                            rt.started_at = Some(std::time::SystemTime::now());
                         }
                     }
                     scheduler
@@ -994,8 +987,8 @@ fn bench_complete_scheduling_flow(c: &mut Criterion) {
                     // Set some jobs to Finished to satisfy dependencies
                     for i in 0..100 {
                         let job_id = (i + 1) as u32;
-                        if let Some(job) = scheduler.get_job_mut(job_id) {
-                            job.state = JobState::Finished;
+                        if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                            rt.state = JobState::Finished;
                         }
                     }
 
@@ -1029,8 +1022,8 @@ fn bench_scheduling_with_dependencies(c: &mut Criterion) {
                     let root_count = size / 10;
                     for i in 0..root_count {
                         let job_id = (i + 1) as u32;
-                        if let Some(job) = scheduler.get_job_mut(job_id) {
-                            job.state = JobState::Finished;
+                        if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+                            rt.state = JobState::Finished;
                         }
                     }
 
