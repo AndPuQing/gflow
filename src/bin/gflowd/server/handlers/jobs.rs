@@ -57,126 +57,291 @@ pub(in crate::server) async fn list_jobs(
     let mut matched = 0usize;
     let mut jobs = Vec::new();
 
-    // Fast path: if user filter is present, use the scheduler's user->job_ids index to avoid
+    let users = user_filter.as_ref().filter(|u| !u.is_empty());
+    let states = state_filter.as_ref().filter(|s| !s.is_empty());
+
+    // Choose the most selective index (user or state) when both filters are present.
+    //
+    // This keeps the hot path O(k) where k is the number of candidate jobs, instead of O(n)
     // scanning all jobs.
-    if let Some(users) = user_filter.as_ref().filter(|u| !u.is_empty()) {
-        if users.len() == 1 {
-            let Some(job_ids) = state.job_ids_by_user(&users[0]) else {
+    enum CandidateSource {
+        User,
+        State,
+        ScanAll,
+    }
+
+    let source = match (users, states) {
+        (Some(users), Some(states)) => {
+            let user_count: usize = if users.len() == 1 {
+                state
+                    .job_ids_by_user(&users[0])
+                    .map(|v| v.len())
+                    .unwrap_or(0)
+            } else {
+                users
+                    .iter()
+                    .filter_map(|u| state.job_ids_by_user(u).map(|v| v.len()))
+                    .sum()
+            };
+
+            let state_count: usize = if states.len() == 1 {
+                state
+                    .job_ids_by_state(states[0])
+                    .map(|v| v.len())
+                    .unwrap_or(0)
+            } else {
+                states
+                    .iter()
+                    .filter_map(|s| state.job_ids_by_state(*s).map(|v| v.len()))
+                    .sum()
+            };
+
+            if user_count <= state_count {
+                CandidateSource::User
+            } else {
+                CandidateSource::State
+            }
+        }
+        (Some(_), None) => CandidateSource::User,
+        (None, Some(_)) => CandidateSource::State,
+        (None, None) => CandidateSource::ScanAll,
+    };
+
+    match source {
+        CandidateSource::User => {
+            let Some(users) = users else {
                 return (StatusCode::OK, Json(jobs));
             };
 
-            for &job_id in job_ids {
-                let idx = match job_id.checked_sub(1) {
-                    Some(v) => v as usize,
-                    None => continue,
-                };
-                let (Some(spec), Some(rt)) =
-                    (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                else {
-                    continue;
+            if users.len() == 1 {
+                let Some(job_ids) = state.job_ids_by_user(&users[0]) else {
+                    return (StatusCode::OK, Json(jobs));
                 };
 
-                // Apply state filter (hot).
-                if let Some(ref states) = state_filter {
-                    if !states.is_empty() && !states.contains(&rt.state) {
+                for &job_id in job_ids {
+                    let idx = match job_id.checked_sub(1) {
+                        Some(v) => v as usize,
+                        None => continue,
+                    };
+                    let (Some(spec), Some(rt)) =
+                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                    else {
                         continue;
+                    };
+
+                    // Apply state filter (hot).
+                    if let Some(ref states) = state_filter {
+                        if !states.is_empty() && !states.contains(&rt.state) {
+                            continue;
+                        }
+                    }
+
+                    // Apply time filter (warm).
+                    if let Some(created_after) = time_filter {
+                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                            continue;
+                        }
+                    }
+
+                    if matched >= offset && jobs.len() < limit {
+                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                    }
+                    matched += 1;
+
+                    if jobs.len() >= limit {
+                        break;
+                    }
+                }
+            } else {
+                // Multi-user: merge candidate job ids (still usually much smaller than scanning all).
+                let mut job_ids = Vec::new();
+                for user in users {
+                    if let Some(user_ids) = state.job_ids_by_user(user) {
+                        job_ids.extend_from_slice(user_ids);
                     }
                 }
 
-                // Apply time filter (warm).
-                if let Some(created_after) = time_filter {
-                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                job_ids.sort_unstable();
+                job_ids.dedup();
+
+                for job_id in job_ids {
+                    let idx = match job_id.checked_sub(1) {
+                        Some(v) => v as usize,
+                        None => continue,
+                    };
+                    let (Some(spec), Some(rt)) =
+                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                    else {
                         continue;
+                    };
+
+                    // Apply state filter (hot).
+                    if let Some(ref states) = state_filter {
+                        if !states.is_empty() && !states.contains(&rt.state) {
+                            continue;
+                        }
                     }
-                }
 
-                if matched >= offset && jobs.len() < limit {
-                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                }
-                matched += 1;
-
-                if jobs.len() >= limit {
-                    break;
-                }
-            }
-        } else {
-            // Multi-user: merge candidate job ids (still usually much smaller than scanning all).
-            let mut job_ids = Vec::new();
-            for user in users {
-                if let Some(user_ids) = state.job_ids_by_user(user) {
-                    job_ids.extend_from_slice(user_ids);
-                }
-            }
-
-            job_ids.sort_unstable();
-            job_ids.dedup();
-
-            for job_id in job_ids {
-                let idx = match job_id.checked_sub(1) {
-                    Some(v) => v as usize,
-                    None => continue,
-                };
-                let (Some(spec), Some(rt)) =
-                    (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                else {
-                    continue;
-                };
-
-                // Apply state filter (hot).
-                if let Some(ref states) = state_filter {
-                    if !states.is_empty() && !states.contains(&rt.state) {
-                        continue;
+                    // Apply time filter (warm).
+                    if let Some(created_after) = time_filter {
+                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                            continue;
+                        }
                     }
-                }
 
-                // Apply time filter (warm).
-                if let Some(created_after) = time_filter {
-                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                        continue;
+                    if matched >= offset && jobs.len() < limit {
+                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
                     }
-                }
+                    matched += 1;
 
-                if matched >= offset && jobs.len() < limit {
-                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                }
-                matched += 1;
-
-                if jobs.len() >= limit {
-                    break;
+                    if jobs.len() >= limit {
+                        break;
+                    }
                 }
             }
         }
-    } else {
-        for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
-            // Apply state filter (hot).
-            if let Some(ref states) = state_filter {
-                if !states.is_empty() && !states.contains(&rt.state) {
-                    continue;
+        CandidateSource::State => {
+            let Some(states) = states else {
+                return (StatusCode::OK, Json(jobs));
+            };
+
+            if states.len() == 1 {
+                let Some(job_ids) = state.job_ids_by_state(states[0]) else {
+                    return (StatusCode::OK, Json(jobs));
+                };
+
+                for &job_id in job_ids {
+                    let idx = match job_id.checked_sub(1) {
+                        Some(v) => v as usize,
+                        None => continue,
+                    };
+                    let (Some(spec), Some(rt)) =
+                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                    else {
+                        continue;
+                    };
+
+                    // Apply state filter (hot) for safety (index should already match).
+                    if let Some(ref states) = state_filter {
+                        if !states.is_empty() && !states.contains(&rt.state) {
+                            continue;
+                        }
+                    }
+
+                    // Apply user filter (cold).
+                    if let Some(ref users) = user_filter {
+                        if !users.is_empty()
+                            && !users.iter().any(|u| u == spec.submitted_by.as_str())
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Apply time filter (warm).
+                    if let Some(created_after) = time_filter {
+                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                            continue;
+                        }
+                    }
+
+                    if matched >= offset && jobs.len() < limit {
+                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                    }
+                    matched += 1;
+
+                    if jobs.len() >= limit {
+                        break;
+                    }
+                }
+            } else {
+                // Multi-state: merge candidate job ids.
+                let mut job_ids = Vec::new();
+                for state_name in states {
+                    if let Some(state_ids) = state.job_ids_by_state(*state_name) {
+                        job_ids.extend_from_slice(state_ids);
+                    }
+                }
+
+                job_ids.sort_unstable();
+                job_ids.dedup();
+
+                for job_id in job_ids {
+                    let idx = match job_id.checked_sub(1) {
+                        Some(v) => v as usize,
+                        None => continue,
+                    };
+                    let (Some(spec), Some(rt)) =
+                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
+                    else {
+                        continue;
+                    };
+
+                    // Apply state filter (hot) for safety.
+                    if let Some(ref states) = state_filter {
+                        if !states.is_empty() && !states.contains(&rt.state) {
+                            continue;
+                        }
+                    }
+
+                    // Apply user filter (cold).
+                    if let Some(ref users) = user_filter {
+                        if !users.is_empty()
+                            && !users.iter().any(|u| u == spec.submitted_by.as_str())
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Apply time filter (warm).
+                    if let Some(created_after) = time_filter {
+                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                            continue;
+                        }
+                    }
+
+                    if matched >= offset && jobs.len() < limit {
+                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                    }
+                    matched += 1;
+
+                    if jobs.len() >= limit {
+                        break;
+                    }
                 }
             }
-
-            // Apply user filter (cold).
-            if let Some(ref users) = user_filter {
-                if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
-                    continue;
+        }
+        CandidateSource::ScanAll => {
+            for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
+                // Apply state filter (hot).
+                if let Some(ref states) = state_filter {
+                    if !states.is_empty() && !states.contains(&rt.state) {
+                        continue;
+                    }
                 }
-            }
 
-            // Apply time filter (warm).
-            if let Some(created_after) = time_filter {
-                if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                    continue;
+                // Apply user filter (cold).
+                if let Some(ref users) = user_filter {
+                    if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
+                        continue;
+                    }
                 }
-            }
 
-            if matched >= offset && jobs.len() < limit {
-                jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-            }
-            matched += 1;
+                // Apply time filter (warm).
+                if let Some(created_after) = time_filter {
+                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                        continue;
+                    }
+                }
 
-            if jobs.len() >= limit {
-                // We can stop early once the page is full, since we're iterating in ID order.
-                break;
+                if matched >= offset && jobs.len() < limit {
+                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
+                }
+                matched += 1;
+
+                if jobs.len() >= limit {
+                    // We can stop early once the page is full, since we're iterating in ID order.
+                    break;
+                }
             }
         }
     }

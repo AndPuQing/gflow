@@ -480,18 +480,37 @@ fn bench_query_by_state(c: &mut Criterion) {
             }
         }
 
+        // Rebuild indices (including state index) after direct state mutation.
+        scheduler.rebuild_user_jobs_index();
+
         group.bench_with_input(
-            BenchmarkId::new("jobs", size),
+            BenchmarkId::new("scan", size),
             &scheduler,
             |b, scheduler| {
                 b.iter(|| {
-                    let queued: Vec<u32> = scheduler
+                    let mut sum = 0u32;
+                    for rt in scheduler
                         .job_runtimes()
                         .iter()
                         .filter(|rt| rt.state == JobState::Queued)
-                        .map(|rt| rt.id)
-                        .collect();
-                    std::hint::black_box(queued.len())
+                    {
+                        sum = sum.wrapping_add(rt.id);
+                    }
+                    hint_black_box(sum)
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("index", size),
+            &scheduler,
+            |b, scheduler| {
+                b.iter(|| {
+                    let mut sum = 0u32;
+                    for &job_id in scheduler.job_ids_by_state(JobState::Queued).unwrap_or(&[]) {
+                        sum = sum.wrapping_add(job_id);
+                    }
+                    hint_black_box(sum)
                 });
             },
         );

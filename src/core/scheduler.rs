@@ -109,6 +109,10 @@ pub struct Scheduler {
     /// Maps username -> sorted list of job IDs (ascending order)
     #[serde(skip)]
     pub(crate) user_jobs_index: HashMap<CompactString, Vec<u32>>,
+    /// Index of job IDs by state for faster state filtering.
+    /// Maps state -> sorted list of job IDs (ascending order)
+    #[serde(skip)]
+    pub(crate) state_jobs_index: HashMap<JobState, Vec<u32>>,
     /// Dependency graph for fast circular dependency validation
     /// Maps job_id -> list of dependency job IDs
     #[serde(skip)]
@@ -186,6 +190,7 @@ impl Default for Scheduler {
             next_job_id: 1,
             allowed_gpu_indices: None,
             user_jobs_index: HashMap::new(),
+            state_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
             group_running_count: HashMap::new(),
             reservations: Vec::new(),
@@ -265,6 +270,7 @@ impl<'de> Deserialize<'de> for Scheduler {
             next_job_id: persisted.next_job_id,
             allowed_gpu_indices: persisted.allowed_gpu_indices,
             user_jobs_index: HashMap::new(),
+            state_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
             group_running_count: HashMap::new(),
             reservations: persisted.reservations,
@@ -276,6 +282,31 @@ impl<'de> Deserialize<'de> for Scheduler {
 }
 
 impl Scheduler {
+    /// Update the cached state->job_ids index.
+    ///
+    /// This maintains sorted job IDs per state so API handlers can iterate in stable ID order
+    /// without scanning all jobs.
+    fn update_state_jobs_index(&mut self, job_id: u32, old_state: JobState, new_state: JobState) {
+        if old_state == new_state {
+            return;
+        }
+
+        if let Some(v) = self.state_jobs_index.get_mut(&old_state) {
+            if let Ok(pos) = v.binary_search(&job_id) {
+                v.remove(pos);
+                if v.is_empty() {
+                    self.state_jobs_index.remove(&old_state);
+                }
+            }
+        }
+
+        let entry = self.state_jobs_index.entry(new_state).or_default();
+        match entry.binary_search(&job_id) {
+            Ok(_) => {} // already present
+            Err(pos) => entry.insert(pos, job_id),
+        }
+    }
+
     /// Get a JobSpec by ID (job IDs start at 1, so we subtract 1 for the index)
     #[inline]
     pub fn get_job_spec(&self, job_id: u32) -> Option<&JobSpec> {
@@ -492,6 +523,12 @@ impl Scheduler {
             .or_default()
             .push(job_id);
 
+        // Update state index.
+        self.state_jobs_index
+            .entry(runtime.state)
+            .or_default()
+            .push(job_id);
+
         // Update dependency graph only if job has dependencies.
         if spec.depends_on.is_some() || !spec.depends_on_ids.is_empty() {
             let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
@@ -609,6 +646,7 @@ impl Scheduler {
 
         if transitioned {
             self.update_group_running_count(group_id, old_state, next);
+            self.update_state_jobs_index(job_id, old_state, next);
         }
 
         Some(transitioned)
@@ -1234,6 +1272,7 @@ impl Scheduler {
     /// Should be called after loading state from disk
     pub fn rebuild_user_jobs_index(&mut self) {
         self.user_jobs_index.clear();
+        self.state_jobs_index.clear();
         self.dependency_graph.clear();
         self.group_running_count.clear();
 
@@ -1245,6 +1284,12 @@ impl Scheduler {
             // Rebuild user index.
             self.user_jobs_index
                 .entry(spec.submitted_by.clone())
+                .or_default()
+                .push(rt.id);
+
+            // Rebuild state index.
+            self.state_jobs_index
+                .entry(rt.state)
                 .or_default()
                 .push(rt.id);
 
@@ -1266,6 +1311,13 @@ impl Scheduler {
                 }
             }
         }
+    }
+
+    /// Get the sorted list of job IDs for a state.
+    ///
+    /// This is primarily intended for API/query paths to avoid scanning all jobs.
+    pub fn job_ids_by_state(&self, state: JobState) -> Option<&[u32]> {
+        self.state_jobs_index.get(&state).map(|v| v.as_slice())
     }
 
     /// Get count of jobs by state for monitoring
@@ -1653,6 +1705,7 @@ impl SchedulerBuilder {
             next_job_id: 1,
             allowed_gpu_indices: self.allowed_gpu_indices,
             user_jobs_index: HashMap::new(),
+            state_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
             group_running_count: HashMap::new(),
             reservations: Vec::new(),
@@ -1815,9 +1868,17 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].id, job_id);
         assert_eq!(scheduler.group_running_count.get(&group_id), Some(&1));
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Running)
+            .is_some_and(|v| v.contains(&job_id)));
 
         scheduler.finish_job(job_id).unwrap();
         assert!(!scheduler.group_running_count.contains_key(&group_id));
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Finished)
+            .is_some_and(|v| v.contains(&job_id)));
     }
 
     #[test]
@@ -1884,11 +1945,65 @@ mod tests {
             .build();
         let (job_id, _) = scheduler.submit_job(job);
 
-        // Manually set to running
-        scheduler.get_job_runtime_mut(job_id).unwrap().state = JobState::Running;
+        // Transition to Running (so indices stay consistent).
+        assert_eq!(
+            scheduler
+                .transition_job_state(job_id, JobState::Running, None)
+                .unwrap(),
+            true
+        );
 
         scheduler.refresh_available_memory();
         assert_eq!(scheduler.available_memory_mb, total - 1024);
+    }
+
+    #[test]
+    fn test_state_jobs_index_updates_on_transitions() {
+        let mut scheduler = create_test_scheduler();
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        assert_eq!(
+            scheduler.state_jobs_index.get(&JobState::Queued).unwrap(),
+            &vec![job_id]
+        );
+
+        assert_eq!(
+            scheduler
+                .transition_job_state(job_id, JobState::Running, None)
+                .unwrap(),
+            true
+        );
+
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Queued)
+            .is_none_or(|v| !v.contains(&job_id)));
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Running)
+            .is_some_and(|v| v.contains(&job_id)));
+
+        scheduler.finish_job(job_id).unwrap();
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Running)
+            .is_none_or(|v| !v.contains(&job_id)));
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Finished)
+            .is_some_and(|v| v.contains(&job_id)));
+
+        // Rebuild indices should preserve state index contents.
+        scheduler.rebuild_user_jobs_index();
+        assert!(scheduler
+            .state_jobs_index
+            .get(&JobState::Finished)
+            .is_some_and(|v| v.contains(&job_id)));
     }
 
     #[test]

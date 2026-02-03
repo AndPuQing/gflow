@@ -880,6 +880,10 @@ impl SchedulerRuntime {
         self.scheduler.job_ids_by_user(username)
     }
 
+    pub fn job_ids_by_state(&self, state: gflow::core::job::JobState) -> Option<&[u32]> {
+        self.scheduler.job_ids_by_state(state)
+    }
+
     // Debug/metrics accessors
     pub fn next_job_id(&self) -> u32 {
         self.scheduler.next_job_id()
