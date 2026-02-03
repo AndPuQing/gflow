@@ -47,12 +47,12 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
                 .job_runtimes()
                 .iter()
                 .filter(|rt| rt.state == JobState::Running)
-                .filter_map(|rt| {
+                .map(|rt| {
                     let run_name = state_guard
                         .scheduler
                         .get_job_spec(rt.id)
                         .and_then(|spec| spec.run_name.clone());
-                    Some((rt.id, run_name))
+                    (rt.id, run_name)
                 })
                 .collect::<Vec<_>>()
         };
