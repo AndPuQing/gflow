@@ -209,6 +209,13 @@ impl<'de> Deserialize<'de> for Scheduler {
                 ..SchedulerSerde::default()
             },
         };
+        tracing::debug!(
+            "Deserialized persisted scheduler: version={}, job_specs={}, job_runtimes={}, legacy_jobs={}",
+            persisted.version,
+            persisted.job_specs.len(),
+            persisted.job_runtimes.len(),
+            persisted.jobs.len()
+        );
 
         let mut job_specs = persisted.job_specs;
         let mut job_runtimes = persisted.job_runtimes;

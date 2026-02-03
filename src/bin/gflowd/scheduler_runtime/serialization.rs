@@ -12,6 +12,43 @@ use anyhow::{Context, Result};
 use gflow::core::scheduler::Scheduler;
 use std::path::Path;
 
+fn msgpack_header_hint(bytes: &[u8]) -> Option<String> {
+    let b0 = *bytes.first()?;
+
+    // fixmap
+    if (0x80..=0x8f).contains(&b0) {
+        return Some(format!("fixmap({})", (b0 & 0x0f)));
+    }
+    // fixarray
+    if (0x90..=0x9f).contains(&b0) {
+        return Some(format!("fixarray({})", (b0 & 0x0f)));
+    }
+
+    match b0 {
+        // array 16
+        0xdc if bytes.len() >= 3 => {
+            let len = u16::from_be_bytes([bytes[1], bytes[2]]);
+            Some(format!("array16({})", len))
+        }
+        // array 32
+        0xdd if bytes.len() >= 5 => {
+            let len = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+            Some(format!("array32({})", len))
+        }
+        // map 16
+        0xde if bytes.len() >= 3 => {
+            let len = u16::from_be_bytes([bytes[1], bytes[2]]);
+            Some(format!("map16({})", len))
+        }
+        // map 32
+        0xdf if bytes.len() >= 5 => {
+            let len = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+            Some(format!("map32({})", len))
+        }
+        _ => Some(format!("0x{:02x}", b0)),
+    }
+}
+
 /// Serialization format for state persistence
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SerializationFormat {
@@ -92,8 +129,18 @@ pub fn load_state_auto(state_dir: &Path) -> Result<Option<Scheduler>> {
         tracing::debug!("Loading state from MessagePack: {}", msgpack_path.display());
         let bytes = std::fs::read(&msgpack_path)
             .context(format!("Failed to read {}", msgpack_path.display()))?;
-        let scheduler = deserialize(&bytes, SerializationFormat::MessagePack)
-            .context(format!("Failed to deserialize {}", msgpack_path.display()))?;
+        let hint = msgpack_header_hint(&bytes).unwrap_or_else(|| "empty".to_string());
+        tracing::debug!(
+            "State msgpack metadata: {} bytes, header={}",
+            bytes.len(),
+            hint
+        );
+        let scheduler = deserialize(&bytes, SerializationFormat::MessagePack).context(format!(
+            "Failed to deserialize {} ({} bytes, header={})",
+            msgpack_path.display(),
+            bytes.len(),
+            hint
+        ))?;
         return Ok(Some(scheduler));
     }
 

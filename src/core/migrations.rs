@@ -31,6 +31,16 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
         from_version,
         CURRENT_VERSION
     );
+    tracing::debug!(
+        "State pre-migration summary: version={}, jobs_len={}, job_specs={}, job_runtimes={}, next_job_id={}, reservations={}, next_reservation_id={}",
+        scheduler.version,
+        scheduler.jobs_len(),
+        scheduler.job_specs.len(),
+        scheduler.job_runtimes.len(),
+        scheduler.next_job_id(),
+        scheduler.reservations.len(),
+        scheduler.next_reservation_id
+    );
 
     // Chain migrations
     if from_version < 1 {
@@ -47,6 +57,16 @@ pub fn migrate_state(mut scheduler: Scheduler) -> Result<Scheduler> {
     }
 
     scheduler.version = CURRENT_VERSION;
+    tracing::debug!(
+        "State post-migration summary: version={}, jobs_len={}, job_specs={}, job_runtimes={}, next_job_id={}, reservations={}, next_reservation_id={}",
+        scheduler.version,
+        scheduler.jobs_len(),
+        scheduler.job_specs.len(),
+        scheduler.job_runtimes.len(),
+        scheduler.next_job_id(),
+        scheduler.reservations.len(),
+        scheduler.next_reservation_id
+    );
 
     Ok(scheduler)
 }
