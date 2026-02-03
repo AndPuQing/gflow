@@ -129,6 +129,24 @@ struct SchedulerSerde {
     pub next_reservation_id: u32,
 }
 
+#[derive(Deserialize)]
+struct SchedulerSeqV2(
+    u32,              // version
+    Vec<Job>,         // jobs
+    PathBuf,          // state_path
+    u32,              // next_job_id
+    Option<Vec<u32>>, // allowed_gpu_indices
+);
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SchedulerPersisted {
+    Current(SchedulerSerde),
+    // Very old MessagePack files used rmp-serde's default array encoding with only 5 fields:
+    // (version, jobs, state_path, next_job_id, allowed_gpu_indices)
+    SeqV2(SchedulerSeqV2),
+}
+
 impl Default for SchedulerSerde {
     fn default() -> Self {
         Self {
@@ -174,7 +192,23 @@ impl<'de> Deserialize<'de> for Scheduler {
     {
         use serde::de::Error;
 
-        let persisted = SchedulerSerde::deserialize(deserializer)?;
+        let persisted = match SchedulerPersisted::deserialize(deserializer)? {
+            SchedulerPersisted::Current(persisted) => persisted,
+            SchedulerPersisted::SeqV2(SchedulerSeqV2(
+                version,
+                jobs,
+                state_path,
+                next_job_id,
+                allowed_gpu_indices,
+            )) => SchedulerSerde {
+                version,
+                jobs,
+                state_path,
+                next_job_id,
+                allowed_gpu_indices,
+                ..SchedulerSerde::default()
+            },
+        };
 
         let mut job_specs = persisted.job_specs;
         let mut job_runtimes = persisted.job_runtimes;
@@ -1735,6 +1769,37 @@ mod tests {
         };
 
         let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+        let scheduler: Scheduler = rmp_serde::from_slice(&bytes).unwrap();
+
+        assert_eq!(scheduler.job_specs.len(), 1);
+        assert_eq!(scheduler.job_runtimes.len(), 1);
+        let cmd = scheduler
+            .get_job_spec(1)
+            .unwrap()
+            .command
+            .as_ref()
+            .map(|s| s.as_str());
+        assert_eq!(cmd, Some("echo hi"));
+    }
+
+    #[test]
+    fn test_deserialize_legacy_scheduler_seq_msgpack_v2() {
+        // Old state.msgpack layout (array of 5):
+        // (version, jobs, state_path, next_job_id, allowed_gpu_indices)
+        let mut job = JobBuilder::new().command("echo hi").gpus(1).build();
+        job.id = 1;
+        let jobs = vec![job];
+
+        let legacy = (
+            2u32,
+            jobs,
+            PathBuf::from("/home/happy/.local/share/gflow/state.json"),
+            2u32,
+            Option::<Vec<u32>>::None,
+        );
+
+        // Default rmp-serde encoding (array) matches what old gflowd wrote.
+        let bytes = rmp_serde::to_vec(&legacy).unwrap();
         let scheduler: Scheduler = rmp_serde::from_slice(&bytes).unwrap();
 
         assert_eq!(scheduler.job_specs.len(), 1);
