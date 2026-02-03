@@ -527,7 +527,6 @@ impl Scheduler {
 
     /// Update group_running_count index when a job transitions states
     /// This maintains O(1) lookup for group concurrency checks
-    #[inline]
     fn update_group_running_count(
         &mut self,
         group_id: Option<uuid::Uuid>,
@@ -1818,7 +1817,7 @@ mod tests {
         assert_eq!(scheduler.group_running_count.get(&group_id), Some(&1));
 
         scheduler.finish_job(job_id).unwrap();
-        assert!(scheduler.group_running_count.get(&group_id).is_none());
+        assert!(!scheduler.group_running_count.contains_key(&group_id));
     }
 
     #[test]
