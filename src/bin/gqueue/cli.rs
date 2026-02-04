@@ -131,6 +131,14 @@ pub struct ListArgs {
 
     #[arg(long, short = 'T', help = "Show only jobs with active tmux sessions")]
     pub tmux: bool,
+
+    #[arg(
+        long,
+        short = 'o',
+        help = "Output format (options: table, json, csv, yaml)",
+        default_value = "table"
+    )]
+    pub output: String,
 }
 
 #[cfg(test)]

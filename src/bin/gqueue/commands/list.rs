@@ -5,6 +5,7 @@ use gflow::{
     tmux::get_all_session_names,
 };
 use owo_colors::OwoColorize;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tabled::{builder::Builder, settings::style::Style};
 
@@ -17,6 +18,88 @@ const TREE_EMPTY: &str = "  ";
 // Tree rendering constants - dashed lines for redo relationships
 const TREE_BRANCH_DASHED: &str = "├┄";
 const TREE_EDGE_DASHED: &str = "╰┄";
+
+/// Output format for job listings
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputFormat {
+    Table,
+    Json,
+    Csv,
+    Yaml,
+}
+
+impl OutputFormat {
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "table" => Ok(Self::Table),
+            "json" => Ok(Self::Json),
+            "csv" => Ok(Self::Csv),
+            "yaml" => Ok(Self::Yaml),
+            _ => anyhow::bail!(
+                "Invalid output format '{}'. Valid options: table, json, csv, yaml",
+                s
+            ),
+        }
+    }
+}
+
+/// Serializable job information for machine-readable output
+#[derive(Debug, Serialize)]
+struct JobOutput {
+    id: u32,
+    name: Option<String>,
+    state: String,
+    time: String,
+    gpus: Vec<u32>,
+    user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitted_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time_limit: Option<String>,
+}
+
+/// Container for job list output with metadata
+#[derive(Debug, Serialize)]
+struct JobListOutput {
+    jobs: Vec<JobOutput>,
+    total: usize,
+    timestamp: String,
+}
+
+impl JobOutput {
+    fn from_job(job: &gflow::core::job::Job) -> Self {
+        Self {
+            id: job.id,
+            name: job.run_name.as_ref().map(|s| s.to_string()),
+            state: job.state.to_string(),
+            time: gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
+            gpus: job
+                .gpu_ids
+                .as_ref()
+                .map_or_else(Vec::new, |ids| ids.to_vec()),
+            user: job.submitted_by.to_string(),
+            submitted_at: job.submitted_at.and_then(|t| {
+                chrono::DateTime::<chrono::Utc>::from(t)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                    .into()
+            }),
+            reason: match job.state {
+                JobState::Queued | JobState::Hold | JobState::Cancelled => Some(
+                    get_job_reason_display(job)
+                        .trim_matches(|c| c == '(' || c == ')')
+                        .to_string(),
+                ),
+                _ => None,
+            },
+            memory_mb: job.memory_limit_mb,
+            time_limit: job.time_limit.map(gflow::utils::format_duration),
+        }
+    }
+}
 
 pub struct ListOptions {
     pub user: Option<String>,
@@ -32,6 +115,7 @@ pub struct ListOptions {
     pub tree: bool,
     pub format: Option<String>,
     pub tmux: bool,
+    pub output: String,
 }
 
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
@@ -115,8 +199,12 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     // Sort jobs
     sort_jobs(&mut jobs_vec, &options.sort);
 
+    // Parse output format
+    let output_format = OutputFormat::from_str(&options.output)?;
+
     // Apply limit
     let effective_limit = if options.all { 0 } else { options.limit };
+    let mut limit_message = None;
     if effective_limit != 0 {
         let total_jobs = jobs_vec.len();
 
@@ -125,11 +213,10 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
             let limit_usize = effective_limit as usize;
             if jobs_vec.len() > limit_usize {
                 jobs_vec.truncate(limit_usize);
-                println!(
+                limit_message = Some(format!(
                     "Showing first {} of {} jobs (use --all or -n 0 to show all)",
                     effective_limit, total_jobs
-                );
-                println!();
+                ));
             }
         } else {
             // Negative limit: show last N jobs
@@ -137,22 +224,43 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
             if jobs_vec.len() > limit_usize {
                 let start = jobs_vec.len() - limit_usize;
                 jobs_vec = jobs_vec.into_iter().skip(start).collect();
-                println!(
+                limit_message = Some(format!(
                     "Showing last {} of {} jobs (use --all or -n 0 to show all)",
                     limit_usize, total_jobs
-                );
-                println!();
+                ));
             }
         }
     }
 
-    // Group by state if requested
-    if options.group {
-        display_grouped_jobs(&jobs_vec, options.format.as_deref(), &tmux_sessions);
-    } else if options.tree {
-        display_jobs_tree(&jobs_vec, options.format.as_deref(), &tmux_sessions);
-    } else {
-        display_jobs_table(&jobs_vec, options.format.as_deref(), &tmux_sessions);
+    // Display limit message only for table format
+    if let Some(msg) = limit_message {
+        if output_format == OutputFormat::Table {
+            println!("{}", msg);
+            println!();
+        }
+    }
+
+    // Output based on format
+    match output_format {
+        OutputFormat::Table => {
+            // Group by state if requested
+            if options.group {
+                display_grouped_jobs(&jobs_vec, options.format.as_deref(), &tmux_sessions);
+            } else if options.tree {
+                display_jobs_tree(&jobs_vec, options.format.as_deref(), &tmux_sessions);
+            } else {
+                display_jobs_table(&jobs_vec, options.format.as_deref(), &tmux_sessions);
+            }
+        }
+        OutputFormat::Json => {
+            output_json(&jobs_vec)?;
+        }
+        OutputFormat::Csv => {
+            output_csv(&jobs_vec)?;
+        }
+        OutputFormat::Yaml => {
+            output_yaml(&jobs_vec)?;
+        }
     }
 
     Ok(())
@@ -1109,4 +1217,71 @@ mod tests {
         println!("Expected: 602 appears under 601, 603 and 604 are root jobs with redo indicators");
         display_jobs_tree(&jobs, None, &HashSet::new());
     }
+}
+
+/// Output jobs in JSON format
+fn output_json(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
+    let output = JobListOutput {
+        jobs: job_outputs,
+        total: jobs.len(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+/// Output jobs in CSV format
+fn output_csv(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+
+    // Write header
+    wtr.write_record([
+        "id",
+        "name",
+        "state",
+        "time",
+        "gpus",
+        "user",
+        "submitted_at",
+        "reason",
+    ])?;
+
+    // Write data rows
+    for job in jobs {
+        let job_output = JobOutput::from_job(job);
+        wtr.write_record(&[
+            job_output.id.to_string(),
+            job_output.name.unwrap_or_else(|| "-".to_string()),
+            job_output.state,
+            job_output.time,
+            format!(
+                "[{}]",
+                job_output
+                    .gpus
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            job_output.user,
+            job_output.submitted_at.unwrap_or_else(|| "-".to_string()),
+            job_output.reason.unwrap_or_else(|| "-".to_string()),
+        ])?;
+    }
+
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Output jobs in YAML format
+fn output_yaml(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
+    let output = JobListOutput {
+        jobs: job_outputs,
+        total: jobs.len(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    println!("{}", serde_yaml::to_string(&output)?);
+    Ok(())
 }

@@ -21,6 +21,7 @@ pub async fn handle_commands(config: &gflow::Config, args: &crate::cli::ListArgs
         tree: args.tree,
         format: args.format.clone(),
         tmux: args.tmux,
+        output: args.output.clone(),
     };
 
     list::handle_list(&client, options).await?;
