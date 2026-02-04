@@ -101,6 +101,56 @@ gctl reserve create --user alice --gpus 2 --start "2026-02-01 14:00" --duration 
 2. 配置文件（`timezone = "..."`）
 3. 默认：本地系统时区
 
+## 通知（Webhook）
+
+gflowd 支持在任务/系统事件发生时发送 HTTP POST webhook（尽力而为）。
+
+启用并配置：
+
+```toml
+[notifications]
+enabled = true
+max_concurrent_deliveries = 16
+
+[[notifications.webhooks]]
+url = "https://api.example.com/gflow/events"
+events = ["job_completed", "job_failed", "job_timeout"] # 或 ["*"]
+filter_users = ["alice", "bob"] # 可选
+headers = { Authorization = "Bearer token123" } # 可选
+timeout_secs = 10
+max_retries = 3
+```
+
+支持的事件名：
+- `job_submitted`
+- `job_started`
+- `job_completed`
+- `job_failed`
+- `job_cancelled`
+- `job_timeout`
+- `job_held`
+- `job_released`
+- `gpu_available`（仅在 GPU 变为可用时）
+- `reservation_created`
+- `reservation_cancelled`
+
+Payload 结构（不同事件可能省略部分字段）：
+
+```json
+{
+  "event": "job_completed",
+  "timestamp": "2026-02-04T12:30:45Z",
+  "job": { "id": 42, "user": "alice", "state": "Finished" },
+  "scheduler": { "host": "gpu-server-01", "version": "0.4.11" }
+}
+```
+
+备注：
+- `events = ["*"]` 表示订阅所有支持的事件。
+- `filter_users` 用于按任务提交者 / 预约创建者过滤通知。
+- `max_retries` 使用指数退避（尽力而为）；系统过载时可能丢弃通知。
+- 注意敏感信息：webhook 可能包含任务元数据与用户名。
+
 ### 日志
 
 - `gflowd`：使用 `-v/--verbose`（见 `gflowd --help`）。

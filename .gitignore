@@ -10,3 +10,5 @@ docs/bun.lockb
 
 # Claude Code configuration (project-specific, not shared)
 CLAUDE.md
+
+__pycache__/

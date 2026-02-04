@@ -25,6 +25,7 @@ English | [简体中文](README_CN.md)
 - **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
 - **Rich Job Submission**: Supports dependencies, priorities, job arrays, and time limits via the `gbatch` command.
 - **Time Limits**: Set maximum runtime for jobs (similar to Slurm's `--time`) to prevent runaway processes.
+- **Webhooks**: Send HTTP POST notifications on job state changes and other events.
 - **Service and Job Control**: Provides clear commands to inspect the scheduler state (`ginfo`), query the job queue (`gqueue`), and control job states (`gcancel`).
 - **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
 - **Output Logging**: Automatic capture of job output to log files via `tmux pipe-pane`.

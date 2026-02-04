@@ -26,6 +26,8 @@ use std::time::Duration;
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_dir = gflow::core::get_data_dir()?;
     let allowed_gpus = config.daemon.gpus.clone();
+    let notifications = config.notifications.clone();
+    let daemon_host = config.daemon.host.clone();
 
     // Inject TmuxExecutor
     let executor = Box::new(TmuxExecutor);
@@ -70,6 +72,16 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
     // Create server state with scheduler, event bus, and state saver
     let server_state = state::ServerState::new(scheduler, event_bus, state_saver_handle.clone());
+
+    // Spawn webhook notification dispatcher (best-effort)
+    if notifications.enabled && !notifications.webhooks.is_empty() {
+        crate::webhooks::spawn_webhook_notifier(
+            notifications,
+            Arc::clone(&server_state.scheduler),
+            Arc::clone(&server_state.event_bus),
+            daemon_host,
+        );
+    }
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))

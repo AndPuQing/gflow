@@ -156,7 +156,7 @@ gctl reserve cancel <reservation_id>
 
 ```text
 ~/.config/gflow/gflow.toml
-~/.local/share/gflow/state.json
+~/.local/share/gflow/state.msgpack  (或 state.json 用于旧版本)
 ~/.local/share/gflow/logs/<job_id>.log
 ```
 

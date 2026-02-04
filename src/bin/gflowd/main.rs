@@ -7,6 +7,7 @@ mod executor;
 mod scheduler_runtime;
 mod server;
 mod state_saver;
+mod webhooks;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

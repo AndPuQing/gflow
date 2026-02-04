@@ -156,7 +156,7 @@ Note: a single number is **minutes**. Use `0:30` for 30 seconds.
 
 ```text
 ~/.config/gflow/gflow.toml
-~/.local/share/gflow/state.json
+~/.local/share/gflow/state.msgpack  (or state.json for legacy)
 ~/.local/share/gflow/logs/<job_id>.log
 ```
 

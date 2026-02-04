@@ -101,6 +101,56 @@ Precedence (highest → lowest):
 2. Config file (`timezone = "..."`)
 3. Default: local system timezone
 
+## Notifications (Webhooks)
+
+gflowd can send HTTP POST webhooks for job and system events (best-effort).
+
+Enable and configure:
+
+```toml
+[notifications]
+enabled = true
+max_concurrent_deliveries = 16
+
+[[notifications.webhooks]]
+url = "https://api.example.com/gflow/events"
+events = ["job_completed", "job_failed", "job_timeout"] # or ["*"]
+filter_users = ["alice", "bob"] # optional
+headers = { Authorization = "Bearer token123" } # optional
+timeout_secs = 10
+max_retries = 3
+```
+
+Supported event names:
+- `job_submitted`
+- `job_started`
+- `job_completed`
+- `job_failed`
+- `job_cancelled`
+- `job_timeout`
+- `job_held`
+- `job_released`
+- `gpu_available` (only when a GPU becomes available)
+- `reservation_created`
+- `reservation_cancelled`
+
+Payload shape (fields may be omitted depending on event):
+
+```json
+{
+  "event": "job_completed",
+  "timestamp": "2026-02-04T12:30:45Z",
+  "job": { "id": 42, "user": "alice", "state": "Finished" },
+  "scheduler": { "host": "gpu-server-01", "version": "0.4.11" }
+}
+```
+
+Notes:
+- `events = ["*"]` subscribes to all supported events.
+- Use `filter_users` to restrict notifications by job submitter / reservation owner.
+- `max_retries` uses exponential backoff (best-effort); deliveries may be skipped if the daemon is overloaded.
+- Be careful with sensitive data: webhooks can include job metadata and usernames.
+
 ### Logging
 
 - `gflowd`: use `-v/--verbose` (see `gflowd --help`).
