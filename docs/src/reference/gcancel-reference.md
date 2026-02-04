@@ -22,6 +22,7 @@ gcancel completion <shell>
 gcancel 42
 gcancel 1,2,3
 gcancel 10-20
+gcancel --kill 42      # Slurm-style no-op flag (optional)
 ```
 
 ### Dry Run

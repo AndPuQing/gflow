@@ -16,6 +16,7 @@ gqueue                               # 最近 10 个任务
 gqueue -a                            # 所有任务
 gqueue -s Running,Queued             # 按状态筛选
 gqueue -j 12,13,14                   # 按任务 ID 筛选（逗号分隔）
+gqueue -u alice                      # 按用户筛选（默认当前用户；用 'all' 表示所有用户）
 gqueue -T                            # 仅显示有活跃 tmux 会话的任务
 gqueue -t                            # 依赖树视图
 gqueue -g                            # 按状态分组
@@ -64,7 +65,8 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `--since <when>`：显示自 `1h`、`2d`、`3w`、`today`、`yesterday` 或时间戳以来的任务
 - `-r, --sort <field>`：`id`、`state`、`time`、`name`、`gpus`、`priority`
 - `-s, --states <list>`：状态列表（如 `Queued,Running`）
-- `-j, --jobs <list>`：任务 ID 列表（如 `1,2,3`）
+- `-u, --user <list>`：用户列表（默认当前用户；用 `all` 表示所有用户；别名：`--users`）
+- `-j, --jobs <list>`：任务 ID 列表（如 `1,2,3`；别名：`--job`）
 - `-N, --names <list>`：任务名列表
 - `-f, --format <fields>`：输出字段列表
 - `-g, --group`：按状态分组

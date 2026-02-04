@@ -46,6 +46,16 @@ gbatch --max-concurrent 2 --param lr=0.001,0.01 python train.py --lr {lr}
 gbatch --dry-run --gpus 1 python train.py
 ```
 
+## Slurm-Compatible Aliases
+
+To ease migration from Slurm `sbatch`, `gbatch` accepts a few common flag aliases:
+
+- `--nice` → `--priority`
+- `--job-name` (or `-J`) → `--name`
+- `--gres` → `--gpus` (expects an integer GPU count, e.g. `--gres 2`)
+- `--dependency` → `--depends-on`
+- `--time-limit` / `--timelimit` → `--time`
+
 ## Time Format (`--time`)
 
 - `HH:MM:SS` (e.g. `2:30:00`)

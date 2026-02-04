@@ -46,6 +46,16 @@ gbatch --max-concurrent 2 --param lr=0.001,0.01 python train.py --lr {lr}
 gbatch --dry-run --gpus 1 python train.py
 ```
 
+## Slurm 兼容别名
+
+为降低从 Slurm `sbatch` 迁移成本，`gbatch` 支持部分常用参数别名：
+
+- `--nice` → `--priority`
+- `--job-name`（或 `-J`）→ `--name`
+- `--gres` → `--gpus`（需要整数 GPU 数量，例如 `--gres 2`）
+- `--dependency` → `--depends-on`
+- `--time-limit` / `--timelimit` → `--time`
+
 ## 时间格式（`--time`）
 
 - `HH:MM:SS`（例如 `2:30:00`）

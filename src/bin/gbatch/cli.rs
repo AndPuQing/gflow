@@ -45,15 +45,15 @@ pub struct AddArgs {
     pub conda_env: Option<String>,
 
     /// The GPU count to request
-    #[arg(short, long, name = "NUMS")]
+    #[arg(short, long, visible_alias = "gres", name = "NUMS")]
     pub gpus: Option<u32>,
 
     /// The priority of the job
-    #[arg(long)]
+    #[arg(short = 'p', long, visible_alias = "nice")]
     pub priority: Option<u8>,
 
     /// Job dependency; accepts a job ID or shorthand like "@" / "@~N"
-    #[arg(long, value_hint = clap::ValueHint::Other)]
+    #[arg(short = 'd', long, visible_alias = "dependency", value_hint = clap::ValueHint::Other)]
     pub depends_on: Option<String>,
 
     /// Multiple job dependencies with AND logic (all must finish successfully)
@@ -75,7 +75,12 @@ pub struct AddArgs {
     pub array: Option<String>,
 
     /// Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
-    #[arg(short = 't', long, value_hint = clap::ValueHint::Other)]
+    #[arg(
+        short = 't',
+        long,
+        visible_aliases = ["time-limit", "timelimit"],
+        value_hint = clap::ValueHint::Other
+    )]
     pub time: Option<String>,
 
     /// Memory limit for the job (formats: "100G", "1024M", or "512" for MB)
@@ -83,7 +88,13 @@ pub struct AddArgs {
     pub memory: Option<String>,
 
     /// Custom run name for the job (used as tmux session name)
-    #[arg(short = 'n', long, value_hint = clap::ValueHint::Other)]
+    #[arg(
+        short = 'n',
+        short_alias = 'J',
+        long,
+        visible_alias = "job-name",
+        value_hint = clap::ValueHint::Other
+    )]
     pub name: Option<String>,
 
     /// Automatically close tmux session on successful completion
@@ -111,4 +122,38 @@ pub struct AddArgs {
     /// Use {param_name} to substitute parameter values
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub name_template: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_slurm_compatible_aliases() {
+        let args = GBatch::try_parse_from([
+            "gbatch",
+            "--time-limit",
+            "2:00:00",
+            "--nice",
+            "10",
+            "--job-name",
+            "train",
+            "--gres",
+            "2",
+            "--dependency",
+            "@",
+            "script.sh",
+        ])
+        .expect("should parse SLURM-compatible aliases");
+
+        assert_eq!(args.add_args.time.as_deref(), Some("2:00:00"));
+        assert_eq!(args.add_args.priority, Some(10));
+        assert_eq!(args.add_args.name.as_deref(), Some("train"));
+        assert_eq!(args.add_args.gpus, Some(2));
+        assert_eq!(args.add_args.depends_on.as_deref(), Some("@"));
+        assert_eq!(
+            args.add_args.script_or_command,
+            vec!["script.sh".to_string()]
+        );
+    }
 }

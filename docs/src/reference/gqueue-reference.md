@@ -16,6 +16,7 @@ gqueue                               # last 10 jobs
 gqueue -a                            # all jobs
 gqueue -s Running,Queued             # filter by state
 gqueue -j 12,13,14                   # filter by job IDs (comma-separated)
+gqueue -u alice                      # filter by user (default: current user; use 'all' for all users)
 gqueue -T                            # only jobs with active tmux sessions
 gqueue -t                            # dependency tree view
 gqueue -g                            # group by state
@@ -64,7 +65,8 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `--since <when>`: show jobs since `1h`, `2d`, `3w`, `today`, `yesterday`, or a timestamp
 - `-r, --sort <field>`: `id`, `state`, `time`, `name`, `gpus`, `priority`
 - `-s, --states <list>`: comma-separated states (e.g. `Queued,Running`)
-- `-j, --jobs <list>`: comma-separated job IDs (e.g. `1,2,3`)
+- `-u, --user <list>`: comma-separated users (default: current user; use `all` for all users; alias: `--users`)
+- `-j, --jobs <list>`: comma-separated job IDs (e.g. `1,2,3`; alias: `--job`)
 - `-N, --names <list>`: comma-separated job names
 - `-f, --format <fields>`: comma-separated output fields
 - `-g, --group`: group by state

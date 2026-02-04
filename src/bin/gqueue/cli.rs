@@ -34,6 +34,15 @@ pub enum Commands {
 pub struct ListArgs {
     #[arg(
         long,
+        short = 'u',
+        visible_alias = "users",
+        help = "Filter by a comma-separated list of users (default: current user; use 'all' to show all users)",
+        value_hint = clap::ValueHint::Other
+    )]
+    pub user: Option<String>,
+
+    #[arg(
+        long,
         short = 'n',
         help = "Limit the number of jobs to display (positive: first N, negative: last N, 0: all)",
         value_parser = clap::value_parser!(i32),
@@ -84,6 +93,7 @@ pub struct ListArgs {
     #[arg(
         long,
         short = 'j',
+        visible_alias = "job",
         help = "Filter by a comma-separated list of job IDs",
         value_hint = clap::ValueHint::Other
     )]
@@ -121,4 +131,18 @@ pub struct ListArgs {
 
     #[arg(long, short = 'T', help = "Show only jobs with active tmux sessions")]
     pub tmux: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_slurm_style_user_and_job_aliases() {
+        let args = GQueue::try_parse_from(["gqueue", "--users", "alice,bob", "--job", "1,2,3"])
+            .expect("should parse aliases");
+
+        assert_eq!(args.list_args.user.as_deref(), Some("alice,bob"));
+        assert_eq!(args.list_args.jobs.as_deref(), Some("1,2,3"));
+    }
 }

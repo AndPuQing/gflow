@@ -8,6 +8,7 @@ pub async fn handle_commands(config: &gflow::Config, args: &crate::cli::ListArgs
     let client = Client::build(config)?;
 
     let options = ListOptions {
+        user: args.user.clone(),
         states: args.states.clone(),
         jobs: args.jobs.clone(),
         names: args.names.clone(),

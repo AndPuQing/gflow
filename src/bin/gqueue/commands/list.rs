@@ -19,6 +19,7 @@ const TREE_BRANCH_DASHED: &str = "├┄";
 const TREE_EDGE_DASHED: &str = "╰┄";
 
 pub struct ListOptions {
+    pub user: Option<String>,
     pub states: Option<String>,
     pub jobs: Option<String>,
     pub names: Option<String>,
@@ -35,6 +36,12 @@ pub struct ListOptions {
 
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     let current_user = gflow::core::get_current_username();
+    let user_filter = match options.user.as_deref().map(str::trim) {
+        None => Some(current_user.clone()),
+        Some("") => Some(current_user.clone()),
+        Some("all") | Some("*") => None,
+        Some(u) => Some(u.to_string()),
+    };
 
     // Determine states to query
     let states_filter = if options.completed {
@@ -61,13 +68,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     // Query jobs with filters
     // Note: All jobs are stored in-memory on the server, not in a database
     let mut jobs_vec = client
-        .list_jobs_with_query(
-            states_filter,
-            Some(current_user.clone()),
-            None,
-            None,
-            created_after,
-        )
+        .list_jobs_with_query(states_filter, user_filter, None, None, created_after)
         .await?;
 
     if let Some(job_ids) = options.jobs {

@@ -33,6 +33,10 @@ pub enum Commands {
 
 #[derive(Debug, Parser)]
 pub struct CancelArgs {
+    /// Alias for cancelling jobs by ID (for Slurm compatibility)
+    #[arg(long = "cancel", visible_alias = "kill", hide = true)]
+    pub cancel: bool,
+
     /// Mark job as finished (internal use)
     #[arg(long, hide = true)]
     pub finish: Option<u32>,
@@ -71,5 +75,19 @@ impl CancelArgs {
         } else {
             anyhow::bail!("No command specified. Use --finish <id>, --fail <id>, or provide job IDs to cancel")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_kill_alias_with_ids() {
+        let args = GCancel::try_parse_from(["gcancel", "--kill", "1,2,3"])
+            .expect("should parse --kill alias");
+
+        assert!(args.cancel_args.cancel);
+        assert_eq!(args.cancel_args.ids.as_deref(), Some("1,2,3"));
     }
 }
