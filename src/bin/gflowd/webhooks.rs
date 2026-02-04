@@ -608,9 +608,11 @@ mod tests {
         }
     }
 
+    type Received = Arc<Mutex<Vec<(Value, Option<String>)>>>;
+
     #[derive(Clone)]
     struct ReceiverState {
-        received: Arc<Mutex<Vec<(Value, Option<String>)>>>,
+        received: Received,
     }
 
     async fn webhook_receiver(
@@ -625,8 +627,8 @@ mod tests {
         state.received.lock().unwrap().push((body, auth));
     }
 
-    async fn start_receiver() -> (String, Arc<Mutex<Vec<(Value, Option<String>)>>>) {
-        let received = Arc::new(Mutex::new(vec![]));
+    async fn start_receiver() -> (String, Received) {
+        let received: Received = Arc::new(Mutex::new(vec![]));
         let state = ReceiverState {
             received: Arc::clone(&received),
         };

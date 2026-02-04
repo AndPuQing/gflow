@@ -810,6 +810,73 @@ fn collect_tree_rows(
     }
 }
 
+/// Output jobs in JSON format
+fn output_json(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
+    let output = JobListOutput {
+        jobs: job_outputs,
+        total: jobs.len(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+/// Output jobs in CSV format
+fn output_csv(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+
+    // Write header
+    wtr.write_record([
+        "id",
+        "name",
+        "state",
+        "time",
+        "gpus",
+        "user",
+        "submitted_at",
+        "reason",
+    ])?;
+
+    // Write data rows
+    for job in jobs {
+        let job_output = JobOutput::from_job(job);
+        wtr.write_record(&[
+            job_output.id.to_string(),
+            job_output.name.unwrap_or_else(|| "-".to_string()),
+            job_output.state,
+            job_output.time,
+            format!(
+                "[{}]",
+                job_output
+                    .gpus
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            job_output.user,
+            job_output.submitted_at.unwrap_or_else(|| "-".to_string()),
+            job_output.reason.unwrap_or_else(|| "-".to_string()),
+        ])?;
+    }
+
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Output jobs in YAML format
+fn output_yaml(jobs: &[gflow::core::job::Job]) -> Result<()> {
+    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
+    let output = JobListOutput {
+        jobs: job_outputs,
+        total: jobs.len(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    println!("{}", serde_yaml::to_string(&output)?);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1217,71 +1284,4 @@ mod tests {
         println!("Expected: 602 appears under 601, 603 and 604 are root jobs with redo indicators");
         display_jobs_tree(&jobs, None, &HashSet::new());
     }
-}
-
-/// Output jobs in JSON format
-fn output_json(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
-    let output = JobListOutput {
-        jobs: job_outputs,
-        total: jobs.len(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    println!("{}", serde_json::to_string_pretty(&output)?);
-    Ok(())
-}
-
-/// Output jobs in CSV format
-fn output_csv(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let mut wtr = csv::Writer::from_writer(std::io::stdout());
-
-    // Write header
-    wtr.write_record([
-        "id",
-        "name",
-        "state",
-        "time",
-        "gpus",
-        "user",
-        "submitted_at",
-        "reason",
-    ])?;
-
-    // Write data rows
-    for job in jobs {
-        let job_output = JobOutput::from_job(job);
-        wtr.write_record(&[
-            job_output.id.to_string(),
-            job_output.name.unwrap_or_else(|| "-".to_string()),
-            job_output.state,
-            job_output.time,
-            format!(
-                "[{}]",
-                job_output
-                    .gpus
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            job_output.user,
-            job_output.submitted_at.unwrap_or_else(|| "-".to_string()),
-            job_output.reason.unwrap_or_else(|| "-".to_string()),
-        ])?;
-    }
-
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Output jobs in YAML format
-fn output_yaml(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
-    let output = JobListOutput {
-        jobs: job_outputs,
-        total: jobs.len(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    println!("{}", serde_yaml::to_string(&output)?);
-    Ok(())
 }
