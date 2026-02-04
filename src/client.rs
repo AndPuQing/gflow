@@ -75,6 +75,7 @@ pub struct Client {
 
 impl Client {
     pub fn build(config: &crate::config::Config) -> anyhow::Result<Self> {
+        crate::tls::ensure_rustls_provider_installed();
         let host = &config.daemon.host;
         let port = config.daemon.port;
         let base_url = format!("http://{host}:{port}");

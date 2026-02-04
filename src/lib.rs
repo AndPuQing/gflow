@@ -12,6 +12,7 @@ pub mod config;
 pub mod core;
 pub mod debug;
 pub mod metrics;
+pub mod tls;
 pub mod tmux;
 pub mod utils;
 

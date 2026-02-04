@@ -19,6 +19,8 @@ pub(crate) fn spawn_webhook_notifier(
         return None;
     }
 
+    gflow::tls::ensure_rustls_provider_installed();
+
     let targets = match WebhookTargets::try_from_config(&notifications.webhooks) {
         Ok(t) => t,
         Err(e) => {

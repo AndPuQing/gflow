@@ -63,9 +63,10 @@ lazy_static = { version = "1.4.0", optional = true }
 reqwest = { version = "0.13.0", features = [
     "json",
     "query",
-    "rustls",
+    "rustls-no-provider",
     "webpki-roots"
 ], default-features = false }
+rustls = { version = "0.23.36", default-features = false, features = ["ring"] }
 axum = { version = "0.8.0", features = [
     "http1",
     "json",
