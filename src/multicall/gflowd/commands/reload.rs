@@ -184,7 +184,10 @@ async fn get_daemon_pid() -> Result<u32> {
     }
 
     let (pane_pid, pane_cmd) = tmux_pane_pid_and_current_command(super::TMUX_SESSION_NAME)?;
-    if pane_cmd == "gflowd" {
+    // `gflowd` is a thin multicall wrapper that `exec()`s the sibling `gflow` binary
+    // as `gflow __multicall gflowd ...`, so the foreground process in tmux is often
+    // reported as `gflow` (not `gflowd`).
+    if pane_cmd == "gflowd" || pane_cmd == "gflow" {
         return Ok(pane_pid);
     }
 
@@ -254,7 +257,7 @@ async fn wait_for_new_daemon_pid(
         // Fast path: if gflowd is running in the foreground in this tmux pane, pane_pid is the daemon PID.
         match tmux_pane_pid_and_current_command(session_name) {
             Ok((pane_pid, cmd)) => {
-                if cmd == "gflowd" && pane_pid != old_pid {
+                if (cmd == "gflowd" || cmd == "gflow") && pane_pid != old_pid {
                     return Ok(pane_pid);
                 }
             }
@@ -326,28 +329,77 @@ fn tmux_pane_pid_and_current_command(session_name: &str) -> Result<(u32, String)
 fn pgrep_gflowd_pids() -> Result<Vec<u32>> {
     let uid = unsafe { libc::getuid() }.to_string();
 
-    let output = Command::new("pgrep")
-        .args(["-u", &uid, "-x", "gflowd"])
-        .output()?;
+    // Historically the daemon process name was `gflowd`, but `gflowd` is now a
+    // multicall wrapper that `exec()`s the sibling `gflow` binary. That means
+    // the running daemon process often shows up as `gflow __multicall gflowd ...`.
+    //
+    // Keep backward compatibility by collecting both:
+    // 1) exact-name `gflowd` processes (legacy builds)
+    // 2) exact-name `gflow` processes whose argv indicates `__multicall gflowd`
+    let mut pids: Vec<u32> = Vec::new();
 
-    if !output.status.success() {
+    // (1) legacy: `gflowd`
+    if let Ok(output) = Command::new("pgrep")
+        .args(["-u", &uid, "-x", "gflowd"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8(output.stdout)?;
+            pids.extend(
+                stdout
+                    .trim()
+                    .lines()
+                    .filter_map(|line| line.trim().parse::<u32>().ok()),
+            );
+        }
+    }
+
+    // (2) multicall: `gflow __multicall gflowd ...`
+    if let Ok(output) = Command::new("pgrep")
+        .args(["-u", &uid, "-x", "gflow"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8(output.stdout)?;
+            for pid in stdout
+                .trim()
+                .lines()
+                .filter_map(|line| line.trim().parse::<u32>().ok())
+            {
+                if is_gflow_multicall_gflowd(pid) {
+                    pids.push(pid);
+                }
+            }
+        }
+    }
+
+    if pids.is_empty() {
         return Err(anyhow!(
-            "gflowd daemon process not found (tried pgrep). Is the daemon running?"
+            "gflowd daemon process not found (tried pgrep for `gflowd` and multicall `gflow __multicall gflowd`). Is the daemon running?"
         ));
     }
 
-    let stdout = String::from_utf8(output.stdout)?;
-    let pids: Vec<u32> = stdout
-        .trim()
-        .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
-        .collect();
-
-    if pids.is_empty() {
-        return Err(anyhow!("No gflowd daemon process found"));
-    }
-
     Ok(pids)
+}
+
+fn is_gflow_multicall_gflowd(pid: u32) -> bool {
+    let cmdline_path = format!("/proc/{}/cmdline", pid);
+    let Ok(bytes) = std::fs::read(cmdline_path) else {
+        return false;
+    };
+    cmdline_is_gflow_multicall_gflowd(&bytes)
+}
+
+fn cmdline_is_gflow_multicall_gflowd(cmdline: &[u8]) -> bool {
+    if cmdline.is_empty() {
+        return false;
+    }
+    let args: Vec<&[u8]> = cmdline
+        .split(|b| *b == 0u8)
+        .filter(|s| !s.is_empty())
+        .collect();
+    // argv: gflow __multicall gflowd ...
+    args.len() >= 3 && args[1] == b"__multicall" && args[2] == b"gflowd"
 }
 
 fn proc_start_time(pid: u32) -> Option<u64> {
@@ -391,5 +443,17 @@ mod tests {
         let (ppid, start) = parse_proc_stat_ppid_and_starttime(stat).unwrap();
         assert_eq!(ppid, 111);
         assert_eq!(start, 987654);
+    }
+
+    #[test]
+    fn cmdline_is_gflow_multicall_gflowd_detects_multicall() {
+        let cmdline = b"/home/happy/.cargo/bin/gflow\0__multicall\0gflowd\0-vvv\0";
+        assert!(cmdline_is_gflow_multicall_gflowd(cmdline));
+    }
+
+    #[test]
+    fn cmdline_is_gflow_multicall_gflowd_rejects_other_gflow_subcommands() {
+        let cmdline = b"gflow\0__multicall\0ginfo\0";
+        assert!(!cmdline_is_gflow_multicall_gflowd(cmdline));
     }
 }
