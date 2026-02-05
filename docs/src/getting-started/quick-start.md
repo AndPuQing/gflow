@@ -2,6 +2,14 @@
 
 This guide gets you running with gflow in a few minutes.
 
+## 0) (Optional) Initialize Configuration
+
+Create a config file with sensible defaults:
+
+```shell
+gflowd init
+```
+
 ## 1) Start the Scheduler
 
 Start the daemon (runs inside a tmux session):

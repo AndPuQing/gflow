@@ -121,6 +121,9 @@ tmux kill-session -t test
 如果您有 NVIDIA GPU，请验证它们是否被检测到：
 
 ```bash
+# （可选）生成带有合理默认值的配置文件
+gflowd init
+
 # 启动守护进程
 gflowd up
 

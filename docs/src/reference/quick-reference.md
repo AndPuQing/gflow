@@ -3,6 +3,7 @@
 ## Daemon
 
 ```bash
+gflowd init
 gflowd up
 gflowd status
 gflowd down

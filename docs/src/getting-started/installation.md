@@ -121,6 +121,9 @@ tmux kill-session -t test
 If you have NVIDIA GPUs, verify they're detected:
 
 ```bash
+# (Optional) Create a config file with sensible defaults
+gflowd init
+
 # Start the daemon
 gflowd up
 

@@ -3,6 +3,7 @@
 ## 守护进程
 
 ```bash
+gflowd init
 gflowd up
 gflowd status
 gflowd down

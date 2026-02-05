@@ -10,6 +10,12 @@
 ~/.config/gflow/gflow.toml
 ```
 
+也可以用向导生成一个配置文件：
+
+```bash
+gflowd init
+```
+
 最小示例：
 
 ```toml

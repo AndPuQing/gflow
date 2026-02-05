@@ -10,6 +10,12 @@ Default location:
 ~/.config/gflow/gflow.toml
 ```
 
+Generate one interactively:
+
+```bash
+gflowd init
+```
+
 Minimal example:
 
 ```toml
