@@ -104,6 +104,12 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 ## 快速开始
 
+0.  **（可选）初始化配置**：
+    ```bash
+    gflowd init
+    ```
+    这会生成 `~/.config/gflow/gflow.toml`（包含合理默认值）。
+
 1.  **启动调度器守护进程**：
     ```bash
     gflowd up

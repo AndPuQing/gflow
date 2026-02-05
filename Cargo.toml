@@ -101,6 +101,8 @@ compact_str = { version = "0.9", features = ["serde"] }
 smallvec = { version = "1.13", features = ["serde"] }
 rmp-serde = "1.3"
 serde_yaml = "0.9"
+dialoguer = "0.11"
+toml = "0.8"
 
 # Use mimalloc only on x86_64 to avoid cross-compilation issues
 [target.'cfg(target_arch = "x86_64")'.dependencies]

@@ -2,6 +2,7 @@ use super::cli::Commands;
 use clap::CommandFactory;
 
 pub mod down;
+pub mod init;
 pub mod reload;
 pub mod status;
 pub mod up;
@@ -13,6 +14,29 @@ pub async fn handle_commands(
     command: Commands,
 ) -> anyhow::Result<()> {
     match command {
+        Commands::Init {
+            yes,
+            force,
+            advanced,
+            gpus,
+            host,
+            port,
+            timezone,
+        } => {
+            init::handle_init(
+                config_path,
+                init::InitArgs {
+                    yes,
+                    force,
+                    advanced,
+                    gpus,
+                    host,
+                    port,
+                    timezone,
+                },
+            )
+            .await?;
+        }
         Commands::Up { gpus } => {
             up::handle_up(gpus).await?;
         }

@@ -29,6 +29,36 @@ pub struct GFlowd {
 
 #[derive(Debug, Parser)]
 pub enum Commands {
+    /// Create or update the configuration file via a guided wizard
+    Init {
+        /// Accept all defaults (non-interactive)
+        #[arg(long)]
+        yes: bool,
+
+        /// Overwrite existing configuration file
+        #[arg(long)]
+        force: bool,
+
+        /// Configure advanced options (notifications, etc.)
+        #[arg(long)]
+        advanced: bool,
+
+        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
+        #[arg(long, value_name = "INDICES")]
+        gpus: Option<String>,
+
+        /// Daemon host (default: localhost)
+        #[arg(long, value_name = "HOST")]
+        host: Option<String>,
+
+        /// Daemon port (default: 59000)
+        #[arg(long, value_name = "PORT")]
+        port: Option<u16>,
+
+        /// Timezone to store in config (e.g., "Asia/Shanghai", "UTC"). Use "local" to leave unset.
+        #[arg(long, value_name = "TZ")]
+        timezone: Option<String>,
+    },
     /// Start the daemon in a tmux session
     Up {
         /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")

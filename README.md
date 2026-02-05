@@ -104,6 +104,12 @@ This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gque
 
 ## Quick Start
 
+0.  **(Optional) Initialize configuration**:
+    ```bash
+    gflowd init
+    ```
+    This creates `~/.config/gflow/gflow.toml` with sensible defaults.
+
 1.  **Start the scheduler daemon**:
     ```bash
     gflowd up

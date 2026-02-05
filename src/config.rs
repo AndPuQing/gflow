@@ -1,22 +1,24 @@
 use crate::core::get_config_dir;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct Config {
     #[serde(default)]
     pub daemon: DaemonConfig,
     /// Timezone for displaying and parsing times (e.g., "Asia/Shanghai", "America/Los_Angeles", "UTC")
     /// If not set, uses local timezone
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     /// Webhook/notification settings for gflowd
     #[serde(default)]
+    #[serde(skip_serializing_if = "NotificationsConfig::is_default")]
     pub notifications: NotificationsConfig,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DaemonConfig {
     #[serde(default = "default_host")]
     pub host: String,
@@ -24,19 +26,22 @@ pub struct DaemonConfig {
     pub port: u16,
     /// Limit which GPUs the scheduler can use (None = all GPUs)
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gpus: Option<Vec<u32>>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct NotificationsConfig {
     /// Enable notification system (default: false)
     #[serde(default)]
     pub enabled: bool,
     /// List of webhook endpoints
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub webhooks: Vec<WebhookConfig>,
     /// Limit concurrent webhook deliveries across all endpoints
     #[serde(default = "default_max_concurrent_deliveries")]
+    #[serde(skip_serializing_if = "is_default_max_concurrent_deliveries")]
     pub max_concurrent_deliveries: usize,
 }
 
@@ -50,11 +55,23 @@ impl Default for NotificationsConfig {
     }
 }
 
+impl NotificationsConfig {
+    fn is_default(value: &Self) -> bool {
+        !value.enabled
+            && value.webhooks.is_empty()
+            && value.max_concurrent_deliveries == default_max_concurrent_deliveries()
+    }
+}
+
 fn default_max_concurrent_deliveries() -> usize {
     16
 }
 
-#[derive(Deserialize, Debug, Clone)]
+fn is_default_max_concurrent_deliveries(v: &usize) -> bool {
+    *v == default_max_concurrent_deliveries()
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct WebhookConfig {
     pub url: String,
     /// Events to subscribe to. Supports `"*"` (all).
@@ -64,9 +81,11 @@ pub struct WebhookConfig {
     pub events: Vec<String>,
     /// Optional: only notify for specific users (job submitter / reservation owner)
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filter_users: Option<Vec<String>>,
     /// Optional: custom HTTP headers (e.g., Authorization)
     #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
     /// Optional: per-delivery timeout in seconds (default: 10)
     #[serde(default = "default_webhook_timeout_secs")]
@@ -109,19 +128,19 @@ impl Default for DaemonConfig {
 pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::ConfigError> {
     let mut config_vec = vec![];
 
-    // User-provided config file
+    // Default config file
+    if let Ok(default_config_path) = get_config_dir().map(|d| d.join("gflow.toml")) {
+        if default_config_path.exists() {
+            config_vec.push(default_config_path);
+        }
+    }
+
+    // User-provided config file (should override defaults)
     if let Some(config_path) = config_path {
         if config_path.exists() {
             config_vec.push(config_path.clone());
         } else {
             eprintln!("Warning: Config file {config_path:?} not found.");
-        }
-    }
-
-    // Default config file
-    if let Ok(default_config_path) = get_config_dir().map(|d| d.join("gflow.toml")) {
-        if default_config_path.exists() {
-            config_vec.push(default_config_path);
         }
     }
 
