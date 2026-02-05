@@ -1,5 +1,5 @@
 use super::super::state::{reject_if_read_only, ServerState};
-use crate::gflowd::events::SchedulerEvent;
+use crate::multicall::gflowd::events::SchedulerEvent;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -10,7 +10,7 @@ use gflow::core::job::{Job, JobState};
 use std::collections::HashMap;
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn info(
+pub(in crate::multicall::gflowd::server) async fn info(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
@@ -19,7 +19,7 @@ pub(in crate::gflowd::server) async fn info(
 }
 
 #[derive(serde::Deserialize)]
-pub(in crate::gflowd::server) struct ListJobsQuery {
+pub(in crate::multicall::gflowd::server) struct ListJobsQuery {
     state: Option<String>,
     user: Option<String>,
     limit: Option<usize>,
@@ -28,7 +28,7 @@ pub(in crate::gflowd::server) struct ListJobsQuery {
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn list_jobs(
+pub(in crate::multicall::gflowd::server) async fn list_jobs(
     State(server_state): State<ServerState>,
     axum::extract::Query(params): axum::extract::Query<ListJobsQuery>,
 ) -> impl IntoResponse {
@@ -352,7 +352,7 @@ pub(in crate::gflowd::server) async fn list_jobs(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn create_job(
+pub(in crate::multicall::gflowd::server) async fn create_job(
     State(server_state): State<ServerState>,
     Json(input): Json<Job>,
 ) -> Response {
@@ -439,7 +439,7 @@ pub(in crate::gflowd::server) async fn create_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn create_jobs_batch(
+pub(in crate::multicall::gflowd::server) async fn create_jobs_batch(
     State(server_state): State<ServerState>,
     Json(input): Json<Vec<Job>>,
 ) -> Response {
@@ -547,7 +547,7 @@ pub(in crate::gflowd::server) async fn create_jobs_batch(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn get_job(
+pub(in crate::multicall::gflowd::server) async fn get_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
@@ -556,7 +556,7 @@ pub(in crate::gflowd::server) async fn get_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn finish_job(
+pub(in crate::multicall::gflowd::server) async fn finish_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Response {
@@ -615,7 +615,7 @@ pub(in crate::gflowd::server) async fn finish_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn get_job_log(
+pub(in crate::multicall::gflowd::server) async fn get_job_log(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> impl IntoResponse {
@@ -639,7 +639,7 @@ pub(in crate::gflowd::server) async fn get_job_log(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn fail_job(
+pub(in crate::multicall::gflowd::server) async fn fail_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Response {
@@ -699,7 +699,7 @@ pub(in crate::gflowd::server) async fn fail_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn cancel_job(
+pub(in crate::multicall::gflowd::server) async fn cancel_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Response {
@@ -759,7 +759,7 @@ pub(in crate::gflowd::server) async fn cancel_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn hold_job(
+pub(in crate::multicall::gflowd::server) async fn hold_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Response {
@@ -781,7 +781,7 @@ pub(in crate::gflowd::server) async fn hold_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn release_job(
+pub(in crate::multicall::gflowd::server) async fn release_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> Response {
@@ -810,7 +810,7 @@ pub(in crate::gflowd::server) async fn release_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn update_job(
+pub(in crate::multicall::gflowd::server) async fn update_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
     Json(request): Json<UpdateJobRequest>,
@@ -855,7 +855,7 @@ pub(in crate::gflowd::server) async fn update_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn resolve_dependency(
+pub(in crate::multicall::gflowd::server) async fn resolve_dependency(
     State(server_state): State<ServerState>,
     axum::extract::Query(params): axum::extract::Query<ResolveDependencyQuery>,
 ) -> impl IntoResponse {
@@ -877,13 +877,13 @@ pub(in crate::gflowd::server) async fn resolve_dependency(
 }
 
 #[derive(serde::Deserialize)]
-pub(in crate::gflowd::server) struct ResolveDependencyQuery {
+pub(in crate::multicall::gflowd::server) struct ResolveDependencyQuery {
     username: String,
     shorthand: String,
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn get_health(
+pub(in crate::multicall::gflowd::server) async fn get_health(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {
     let pid = std::process::id();
@@ -931,12 +931,12 @@ pub(in crate::gflowd::server) async fn get_health(
 }
 
 #[derive(serde::Deserialize)]
-pub(in crate::gflowd::server) struct SetGpusRequest {
+pub(in crate::multicall::gflowd::server) struct SetGpusRequest {
     allowed_indices: Option<Vec<u32>>,
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn set_allowed_gpus(
+pub(in crate::multicall::gflowd::server) async fn set_allowed_gpus(
     State(server_state): State<ServerState>,
     Json(request): Json<SetGpusRequest>,
 ) -> Response {
@@ -982,7 +982,7 @@ pub(in crate::gflowd::server) async fn set_allowed_gpus(
 }
 
 #[derive(serde::Deserialize)]
-pub(in crate::gflowd::server) struct SetGroupMaxConcurrencyRequest {
+pub(in crate::multicall::gflowd::server) struct SetGroupMaxConcurrencyRequest {
     max_concurrent: usize,
 }
 
@@ -1003,7 +1003,7 @@ pub(crate) struct UpdateJobRequest {
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn set_group_max_concurrency(
+pub(in crate::multicall::gflowd::server) async fn set_group_max_concurrency(
     State(server_state): State<ServerState>,
     Path(group_id): Path<String>,
     Json(request): Json<SetGroupMaxConcurrencyRequest>,

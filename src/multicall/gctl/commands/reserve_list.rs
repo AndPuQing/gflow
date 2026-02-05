@@ -5,7 +5,7 @@ use gflow::core::reservation::ReservationStatus;
 use gflow::utils::timezone::{format_system_time_short, parse_reservation_time_with_tz};
 use tabled::{builder::Builder, settings::style::Style};
 
-use crate::gctl::reserve_timeline::{render_timeline, TimelineConfig};
+use crate::multicall::gctl::reserve_timeline::{render_timeline, TimelineConfig};
 
 #[derive(Debug, Default)]
 pub struct TimelineRangeOpts {

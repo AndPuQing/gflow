@@ -1,4 +1,4 @@
-use crate::gbatch::cli;
+use crate::multicall::gbatch::cli;
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;

@@ -8,7 +8,7 @@ pub async fn handle_attach(
     let client = gflow::create_client(config_path)?;
 
     // Resolve job ID (handle @ shorthand)
-    let job_id = crate::gjob::utils::resolve_job_id(&client, job_id_str).await?;
+    let job_id = crate::multicall::gjob::utils::resolve_job_id(&client, job_id_str).await?;
 
     // Get the job from the daemon
     let Some(job) = gflow::client::get_job_or_warn(&client, job_id).await? else {

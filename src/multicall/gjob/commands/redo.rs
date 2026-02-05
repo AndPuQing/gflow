@@ -21,7 +21,7 @@ pub async fn handle_redo(
     let client = gflow::create_client(config_path)?;
 
     // Resolve job ID (handle @ shorthand)
-    let job_id = crate::gjob::utils::resolve_job_id(&client, job_id_str).await?;
+    let job_id = crate::multicall::gjob::utils::resolve_job_id(&client, job_id_str).await?;
 
     // Retrieve the original job
     let original_job = match client.get_job(job_id).await? {
@@ -94,7 +94,8 @@ pub async fn handle_redo(
         println!("  Dependencies=(cleared)");
         None
     } else if let Some(ref dep_str) = depends_on_override {
-        let resolved_dep = crate::gjob::utils::resolve_dependency(&client, dep_str).await?;
+        let resolved_dep =
+            crate::multicall::gjob::utils::resolve_dependency(&client, dep_str).await?;
         print_field!("DependsOn", "{}", resolved_dep);
         Some(resolved_dep)
     } else {

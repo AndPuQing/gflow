@@ -6,7 +6,7 @@ pub async fn handle_log(config_path: &Option<PathBuf>, job_id_str: &str) -> Resu
     let client = gflow::create_client(config_path)?;
 
     // Resolve job ID (handle @ shorthand)
-    let job_id = crate::gjob::utils::resolve_job_id(&client, job_id_str).await?;
+    let job_id = crate::multicall::gjob::utils::resolve_job_id(&client, job_id_str).await?;
 
     let log_path = match client.get_job_log_path(job_id).await? {
         Some(path) => PathBuf::from(path),

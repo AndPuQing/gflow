@@ -7,11 +7,15 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+// Allow referring to this crate as `gflow::...` from within the crate itself.
+extern crate self as gflow;
+
 pub mod client;
 pub mod config;
 pub mod core;
 pub mod debug;
 pub mod metrics;
+pub mod multicall;
 pub mod tls;
 pub mod tmux;
 pub mod utils;

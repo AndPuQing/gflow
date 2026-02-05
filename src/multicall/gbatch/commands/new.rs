@@ -1,4 +1,4 @@
-use crate::gbatch::cli;
+use crate::multicall::gbatch::cli;
 use anyhow::{Context, Result};
 use clap::CommandFactory;
 use gflow::core::job::Job;

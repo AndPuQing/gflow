@@ -9,7 +9,7 @@ pub async fn handle_commands(_: &gflow::config::Config, commands: Commands) -> a
         Commands::New(new_args) => new::handle_new(new_args),
         Commands::Completion { shell } => {
             let mut cmd = super::cli::GBatch::command();
-            let _ = crate::completion::generate_to_stdout(shell, &mut cmd, "gbatch");
+            let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "gbatch");
             Ok(())
         }
     }

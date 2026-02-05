@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 // Debug endpoints
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn debug_state(
+pub(in crate::multicall::gflowd::server) async fn debug_state(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;
@@ -41,7 +41,7 @@ pub(in crate::gflowd::server) async fn debug_state(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn debug_job(
+pub(in crate::multicall::gflowd::server) async fn debug_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
 ) -> impl IntoResponse {
@@ -55,7 +55,7 @@ pub(in crate::gflowd::server) async fn debug_job(
 }
 
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn debug_metrics(
+pub(in crate::multicall::gflowd::server) async fn debug_metrics(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {
     let state = server_state.scheduler.read().await;

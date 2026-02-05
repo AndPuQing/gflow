@@ -31,7 +31,7 @@ pub async fn handle_commands(
         }
         Commands::Completion { shell } => {
             let mut cmd = super::cli::GFlowd::command();
-            let _ = crate::completion::generate_to_stdout(shell, &mut cmd, "gflowd");
+            let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "gflowd");
         }
     }
 

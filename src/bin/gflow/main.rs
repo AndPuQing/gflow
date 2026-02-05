@@ -1,14 +1,7 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-mod completion;
-mod gbatch;
-mod gcancel;
-mod gctl;
-mod gflowd;
-mod ginfo;
-mod gjob;
-mod gqueue;
+use gflow::multicall::{gbatch, gcancel, gctl, gflowd, ginfo, gjob, gqueue};
 
 const MULTICALL_SENTINEL: &str = "__multicall";
 

@@ -3,7 +3,7 @@ use gflow::metrics;
 
 // Metrics endpoint
 #[axum::debug_handler]
-pub(in crate::gflowd::server) async fn get_metrics() -> impl IntoResponse {
+pub(in crate::multicall::gflowd::server) async fn get_metrics() -> impl IntoResponse {
     match metrics::export_metrics() {
         Ok(text) => (
             StatusCode::OK,

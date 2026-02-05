@@ -1,5 +1,5 @@
 use super::super::state::ServerState;
-use crate::gflowd::events::SchedulerEvent;
+use crate::multicall::gflowd::events::SchedulerEvent;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,

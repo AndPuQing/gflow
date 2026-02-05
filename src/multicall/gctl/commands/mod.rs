@@ -88,7 +88,7 @@ pub async fn handle_commands(
         },
         cli::Commands::Completion { shell } => {
             let mut cmd = cli::GCtl::command();
-            let _ = crate::completion::generate_to_stdout(shell, &mut cmd, "gctl");
+            let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "gctl");
         }
     }
 
