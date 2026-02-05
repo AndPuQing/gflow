@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use gflow::tmux::TmuxSession;
+use std::collections::HashSet;
 use std::process::Command;
 use std::time::Duration;
 use tmux_interface::{ListPanes, RenameSession, Tmux};
@@ -15,6 +16,11 @@ pub async fn handle_reload(
     // 1. Check if daemon is running
     let pid = get_daemon_pid().await?;
     tracing::info!("Found running daemon at PID {}", pid);
+    let mut old_pids: HashSet<u32> = pgrep_gflowd_pids()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    old_pids.insert(pid);
 
     // 2. Start new daemon instance in temporary tmux session
     println!("Starting new daemon instance...");
@@ -38,7 +44,7 @@ pub async fn handle_reload(
 
     // 3. Wait for new instance to initialize and bind socket
     tracing::info!("Waiting for new instance to initialize...");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     // 4. Verify new instance is running by checking the tmux session directly
     // NOTE: We cannot rely on HTTP health checks with SO_REUSEPORT because
@@ -49,21 +55,10 @@ pub async fn handle_reload(
         pid
     );
 
-    let new_pid = match get_daemon_pid_from_session(&new_session_name).await {
-        Ok(new_pid) if new_pid != pid => {
+    let new_pid = match wait_for_new_daemon_pid(&new_session_name, pid, &old_pids).await {
+        Ok(new_pid) => {
             tracing::info!("Confirmed new daemon instance at PID {}", new_pid);
             new_pid
-        }
-        Ok(same_pid) => {
-            tracing::error!(
-                "New daemon PID {} is the same as old daemon PID {}",
-                same_pid,
-                pid
-            );
-            gflow::tmux::kill_session(&new_session_name).ok();
-            return Err(anyhow!(
-                "New daemon PID matches old daemon PID. Reload failed."
-            ));
         }
         Err(e) => {
             tracing::error!("Failed to get new daemon PID: {}", e);
@@ -72,6 +67,14 @@ pub async fn handle_reload(
         }
     };
 
+    if !is_process_running(new_pid) {
+        gflow::tmux::kill_session(&new_session_name).ok();
+        return Err(anyhow!(
+            "New daemon process (PID {}) exited immediately after startup",
+            new_pid
+        ));
+    }
+
     // 5. Verify the new daemon is responsive (make a few health check attempts)
     // This is a best-effort check - we already know the daemon process exists
     println!("Verifying new daemon...");
@@ -79,6 +82,13 @@ pub async fn handle_reload(
     let mut health_check_passed = false;
     for attempt in 1..=10 {
         tokio::time::sleep(Duration::from_millis(300)).await;
+        if !is_process_running(new_pid) {
+            gflow::tmux::kill_session(&new_session_name).ok();
+            return Err(anyhow!(
+                "New daemon process (PID {}) exited during health checks",
+                new_pid
+            ));
+        }
         if let Ok(Some(health_pid)) = client.get_health_with_pid().await {
             if health_pid == new_pid {
                 tracing::info!(
@@ -173,44 +183,14 @@ async fn get_daemon_pid() -> Result<u32> {
         ));
     }
 
-    // Get the session's pane PID (this will be the shell)
-    let pane_pid_output = Tmux::with_command(
-        ListPanes::new()
-            .target(super::TMUX_SESSION_NAME)
-            .format("#{pane_pid}"),
-    )
-    .output()?;
-
-    if !pane_pid_output.success() {
-        return Err(anyhow!("Failed to get tmux pane PID"));
+    let (pane_pid, pane_cmd) = tmux_pane_pid_and_current_command(super::TMUX_SESSION_NAME)?;
+    if pane_cmd == "gflowd" {
+        return Ok(pane_pid);
     }
 
-    let shell_pid = String::from_utf8(pane_pid_output.stdout().to_vec())?
-        .trim()
-        .parse::<u32>()
-        .map_err(|e| anyhow!("Failed to parse shell PID: {}", e))?;
-
-    // Use pgrep to find gflowd processes
-    let output = Command::new("pgrep")
-        .args(["-f", "^gflowd -vvv"])
-        .output()?;
-
-    if !output.status.success() {
-        return Err(anyhow!(
-            "gflowd daemon process not found (tried pgrep). Is the daemon running?"
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
-    let pids: Vec<u32> = stdout
-        .trim()
-        .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
-        .collect();
-
-    if pids.is_empty() {
-        return Err(anyhow!("No gflowd daemon process found"));
-    }
+    // pane_pid is the shell when gflowd isn't in the foreground.
+    let shell_pid = pane_pid;
+    let pids = pgrep_gflowd_pids()?;
 
     // For each candidate PID, check if it's a child of the shell PID
     for pid in &pids {
@@ -232,38 +212,128 @@ async fn get_daemon_pid() -> Result<u32> {
     Ok(pids[0])
 }
 
-async fn get_daemon_pid_from_session(session_name: &str) -> Result<u32> {
-    // Strategy: Find gflowd process that is a descendant of the specified tmux session
-    // This allows us to find the daemon in the new temporary session
+fn is_process_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
+    let mut current_pid = pid;
 
-    // First, verify tmux session exists
+    // Walk up the process tree up to 10 levels
+    for _ in 0..10 {
+        if current_pid == ancestor_pid {
+            return true;
+        }
+
+        // Get parent PID from /proc/<pid>/stat
+        let stat_path = format!("/proc/{}/stat", current_pid);
+        if let Ok(stat) = std::fs::read_to_string(&stat_path) {
+            if let Some((ppid, _start_time)) = parse_proc_stat_ppid_and_starttime(&stat) {
+                if ppid <= 1 {
+                    break; // Reached init
+                }
+                current_pid = ppid;
+                continue;
+            }
+        }
+        break;
+    }
+
+    false
+}
+
+fn is_process_running(pid: u32) -> bool {
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+async fn wait_for_new_daemon_pid(
+    session_name: &str,
+    old_pid: u32,
+    old_pids: &HashSet<u32>,
+) -> Result<u32> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut last_tmux_err: Option<anyhow::Error> = None;
+
+    while tokio::time::Instant::now() < deadline {
+        // Fast path: if gflowd is running in the foreground in this tmux pane, pane_pid is the daemon PID.
+        match tmux_pane_pid_and_current_command(session_name) {
+            Ok((pane_pid, cmd)) => {
+                if cmd == "gflowd" && pane_pid != old_pid {
+                    return Ok(pane_pid);
+                }
+            }
+            Err(e) => last_tmux_err = Some(e),
+        }
+
+        // Fallback: detect a newly-created gflowd PID by diffing process lists.
+        if let Ok(pids) = pgrep_gflowd_pids() {
+            let mut new_candidates: Vec<u32> = pids
+                .into_iter()
+                .filter(|pid| *pid != old_pid && !old_pids.contains(pid))
+                .collect();
+
+            if !new_candidates.is_empty() {
+                if new_candidates.len() == 1 {
+                    return Ok(new_candidates[0]);
+                }
+
+                new_candidates.sort_by_key(|pid| proc_start_time(*pid).unwrap_or(0));
+                return Ok(*new_candidates.last().unwrap());
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    Err(anyhow!(
+        "Timed out waiting for new gflowd process{}",
+        last_tmux_err
+            .as_ref()
+            .map(|e| format!(" (last tmux error: {})", e))
+            .unwrap_or_default()
+    ))
+}
+
+fn tmux_pane_pid_and_current_command(session_name: &str) -> Result<(u32, String)> {
     if !gflow::tmux::is_session_exist(session_name) {
         return Err(anyhow!("tmux session '{}' not found", session_name));
     }
 
-    // Get the session's pane PID (this will be the shell)
-    let pane_pid_output =
-        Tmux::with_command(ListPanes::new().target(session_name).format("#{pane_pid}")).output()?;
+    let output = Tmux::with_command(
+        ListPanes::new()
+            .target(session_name)
+            .format("#{pane_pid}\t#{pane_current_command}"),
+    )
+    .output()?;
 
-    if !pane_pid_output.success() {
+    if !output.success() {
         return Err(anyhow!(
-            "Failed to get tmux pane PID for session '{}'",
+            "Failed to get tmux pane info for session '{}'",
             session_name
         ));
     }
 
-    let shell_pid = String::from_utf8(pane_pid_output.stdout().to_vec())?
+    let stdout = String::from_utf8(output.stdout().to_vec())?;
+    let first_line = stdout.lines().next().unwrap_or("").trim();
+    let (pid_str, cmd) = first_line
+        .split_once('\t')
+        .ok_or_else(|| anyhow!("Unexpected tmux pane output: '{}'", first_line))?;
+
+    let pid = pid_str
         .trim()
         .parse::<u32>()
-        .map_err(|e| anyhow!("Failed to parse shell PID: {}", e))?;
+        .map_err(|e| anyhow!("Failed to parse pane PID: {}", e))?;
 
-    // Use pgrep to find gflowd processes
+    Ok((pid, cmd.trim().to_string()))
+}
+
+fn pgrep_gflowd_pids() -> Result<Vec<u32>> {
+    let uid = unsafe { libc::getuid() }.to_string();
+
     let output = Command::new("pgrep")
-        .args(["-f", "^gflowd -vvv"])
+        .args(["-u", &uid, "-x", "gflowd"])
         .output()?;
 
     if !output.status.success() {
-        return Err(anyhow!("gflowd daemon process not found (tried pgrep)"));
+        return Err(anyhow!(
+            "gflowd daemon process not found (tried pgrep). Is the daemon running?"
+        ));
     }
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -277,54 +347,49 @@ async fn get_daemon_pid_from_session(session_name: &str) -> Result<u32> {
         return Err(anyhow!("No gflowd daemon process found"));
     }
 
-    // For each candidate PID, check if it's a child of the shell PID
-    for pid in &pids {
-        if is_process_descendant_of(*pid, shell_pid) {
-            tracing::debug!(
-                "Found gflowd PID {} as descendant of tmux session '{}' (shell PID {})",
-                pid,
-                session_name,
-                shell_pid
-            );
-            return Ok(*pid);
-        }
-    }
-
-    Err(anyhow!(
-        "Could not find gflowd process as descendant of tmux session '{}'",
-        session_name
-    ))
+    Ok(pids)
 }
 
-fn is_process_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
-    let mut current_pid = pid;
-
-    // Walk up the process tree up to 10 levels
-    for _ in 0..10 {
-        if current_pid == ancestor_pid {
-            return true;
-        }
-
-        // Get parent PID from /proc/<pid>/stat
-        let stat_path = format!("/proc/{}/stat", current_pid);
-        if let Ok(stat) = std::fs::read_to_string(&stat_path) {
-            // Parent PID is the 4th field in /proc/pid/stat
-            if let Some(ppid_str) = stat.split_whitespace().nth(3) {
-                if let Ok(ppid) = ppid_str.parse::<u32>() {
-                    if ppid <= 1 {
-                        break; // Reached init
-                    }
-                    current_pid = ppid;
-                    continue;
-                }
-            }
-        }
-        break;
-    }
-
-    false
+fn proc_start_time(pid: u32) -> Option<u64> {
+    let stat_path = format!("/proc/{}/stat", pid);
+    let stat = std::fs::read_to_string(&stat_path).ok()?;
+    let (_, start_time) = parse_proc_stat_ppid_and_starttime(&stat)?;
+    Some(start_time)
 }
 
-fn is_process_running(pid: u32) -> bool {
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+fn parse_proc_stat_ppid_and_starttime(stat: &str) -> Option<(u32, u64)> {
+    // /proc/<pid>/stat is: pid (comm) state ppid ... starttime ...
+    // comm can contain spaces, so split at the last ')'.
+    let end = stat.rfind(')')?;
+    let after = stat.get(end + 1..)?.trim_start();
+    let mut it = after.split_whitespace();
+
+    // state (field 3)
+    let _state = it.next()?;
+
+    // ppid (field 4)
+    let ppid: u32 = it.next()?.parse().ok()?;
+
+    // starttime is field 22 => index 19 in tokens after comm (including state).
+    // We already consumed state and ppid, so we need the 18th remaining token.
+    let tokens: Vec<&str> = it.collect();
+    if tokens.len() < 18 {
+        return None;
+    }
+    let start_time: u64 = tokens.get(17)?.parse().ok()?;
+    Some((ppid, start_time))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_proc_stat_handles_comm_and_extracts_fields() {
+        // Example based on procfs format; comm may include spaces.
+        let stat = "12345 (gflowd worker) S 111 222 333 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 987654 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0";
+        let (ppid, start) = parse_proc_stat_ppid_and_starttime(stat).unwrap();
+        assert_eq!(ppid, 111);
+        assert_eq!(start, 987654);
+    }
 }
