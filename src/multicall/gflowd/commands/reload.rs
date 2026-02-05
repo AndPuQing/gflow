@@ -25,7 +25,12 @@ pub async fn handle_reload(
     // 2. Start new daemon instance in temporary tmux session
     println!("Starting new daemon instance...");
     tracing::info!("Starting new daemon instance...");
-    let new_session_name = format!("gflow_server_new_{}", std::process::id());
+    // Use timestamp instead of process ID to avoid cleanup issues when reload process exits
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
+    let new_session_name = format!("gflow_server_new_{}", timestamp);
     let session = TmuxSession::new(new_session_name.clone());
 
     let mut command = String::from("gflowd -vvv");
@@ -135,15 +140,49 @@ pub async fn handle_reload(
     }
 
     // 8. Rename new tmux session to standard name
-    // First, ensure old session is gone
-    gflow::tmux::kill_session(super::TMUX_SESSION_NAME).ok();
-
+    // Try to rename first. If it fails because the target name exists, kill the old session and retry.
     let rename_result = Tmux::with_command(
         RenameSession::new()
             .target_session(&new_session_name)
             .new_name(super::TMUX_SESSION_NAME),
     )
     .output();
+
+    let rename_result = match rename_result {
+        Ok(output) if output.success() => Ok(output),
+        Ok(output) => {
+            // Rename failed, check if it's because the old session still exists
+            let stderr = String::from_utf8_lossy(&output.clone().stderr()).to_string();
+            if stderr.contains("duplicate session")
+                || gflow::tmux::is_session_exist(super::TMUX_SESSION_NAME)
+            {
+                tracing::warn!(
+                    "Rename failed because old session '{}' still exists, killing it...",
+                    super::TMUX_SESSION_NAME
+                );
+                // Kill the old session
+                let kill_result = Tmux::with_command(
+                    tmux_interface::KillSession::new().target_session(super::TMUX_SESSION_NAME),
+                )
+                .output();
+                if let Err(e) = kill_result {
+                    tracing::warn!("Failed to kill old session: {}", e);
+                }
+
+                // Retry the rename
+                tracing::info!("Retrying rename after killing old session...");
+                Tmux::with_command(
+                    RenameSession::new()
+                        .target_session(&new_session_name)
+                        .new_name(super::TMUX_SESSION_NAME),
+                )
+                .output()
+            } else {
+                Ok(output)
+            }
+        }
+        Err(e) => Err(e),
+    };
 
     match rename_result {
         Ok(output) if output.success() => {
@@ -157,11 +196,26 @@ pub async fn handle_reload(
             }
             Ok(())
         }
-        Ok(_) => Err(anyhow!(
-            "Failed to rename new session. \
-                 New daemon is running as session '{}', you may need to rename it manually.",
-            new_session_name
-        )),
+        Ok(output) => {
+            let exit_code = output.status().code();
+            let output_clone = output.clone();
+            let stderr = String::from_utf8_lossy(&output_clone.stderr()).to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout()).to_string();
+            tracing::error!(
+                "tmux rename-session failed. Exit status: {:?}, stdout: '{}', stderr: '{}'",
+                exit_code,
+                stdout,
+                stderr
+            );
+            Err(anyhow!(
+                "Failed to rename new session (exit code {:?}). \
+                 New daemon is running as session '{}', you may need to rename it manually. \
+                 Error: {}",
+                exit_code,
+                new_session_name,
+                stderr
+            ))
+        }
         Err(e) => Err(anyhow!(
             "Failed to execute tmux rename: {}. \
              New daemon is running as session '{}', you may need to rename it manually.",
