@@ -73,7 +73,34 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir)?;
     }
-    Ok(log_dir.join(format!("{job_id}.log")))
+    let log_path = log_dir.join(format!("{job_id}.log"));
+
+    // If log file already exists, archive it to prevent confusion when job IDs are reused
+    if log_path.exists() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let archived_name = format!("{job_id}.log.old.{timestamp}");
+        let archived_path = log_dir.join(&archived_name);
+
+        if let Err(e) = std::fs::rename(&log_path, &archived_path) {
+            tracing::warn!(
+                "Failed to archive existing log {:?} to {:?}: {}",
+                log_path,
+                archived_path,
+                e
+            );
+        } else {
+            tracing::info!(
+                "Archived existing log for job {} to {}",
+                job_id,
+                archived_name
+            );
+        }
+    }
+
+    Ok(log_path)
 }
 
 pub fn get_daemon_log_file_path() -> anyhow::Result<PathBuf> {
