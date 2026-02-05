@@ -7,6 +7,9 @@ test:
 release:
     cargo build --release
 
+minimal:
+    cargo build --profile minimal-size --bins
+
 install:
     cargo install --path .
 

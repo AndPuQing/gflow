@@ -15,6 +15,10 @@ readme = "README.md"
 path = "src/lib.rs"
 
 [[bin]]
+name = "gflow"
+path = "src/bin/gflow/main.rs"
+
+[[bin]]
 name = "gflowd"
 path = "src/bin/gflowd/main.rs"
 
@@ -157,4 +161,4 @@ codegen-units = 1
 
 # The profile that 'cargo dist' will build with.
 [profile.dist]
-inherits = "release"
+inherits = "minimal-size"
