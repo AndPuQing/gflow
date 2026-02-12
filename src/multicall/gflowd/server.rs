@@ -81,6 +81,10 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
             Arc::clone(&server_state.event_bus),
             daemon_host,
         );
+        // Notify that the daemon is online (covers both fresh start and reload).
+        server_state
+            .event_bus
+            .publish(super::events::SchedulerEvent::DaemonStarted);
     }
 
     let app = Router::new()

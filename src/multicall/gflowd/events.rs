@@ -54,6 +54,9 @@ pub enum SchedulerEvent {
 
     /// A GPU reservation was cancelled
     ReservationCancelled { reservation_id: u32 },
+
+    /// The daemon has started (or reloaded)
+    DaemonStarted,
 }
 
 /// Event bus for publishing and subscribing to scheduler events

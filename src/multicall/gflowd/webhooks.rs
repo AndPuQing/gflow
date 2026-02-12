@@ -49,16 +49,11 @@ pub(crate) fn spawn_webhook_notifier(
         concurrency
     );
 
+    // Subscribe before spawning so no events are missed (e.g. DaemonStarted).
+    let rx = event_bus.subscribe();
+
     Some(tokio::spawn(async move {
-        run_webhook_notifier(
-            targets,
-            client,
-            semaphore,
-            scheduler,
-            event_bus,
-            scheduler_host,
-        )
-        .await;
+        run_webhook_notifier(targets, client, semaphore, scheduler, rx, scheduler_host).await;
     }))
 }
 
@@ -159,11 +154,9 @@ async fn run_webhook_notifier(
     client: Arc<reqwest::Client>,
     semaphore: Arc<Semaphore>,
     scheduler: Arc<RwLock<SchedulerRuntime>>,
-    event_bus: Arc<EventBus>,
+    mut rx: tokio::sync::broadcast::Receiver<SchedulerEvent>,
     scheduler_host: String,
 ) {
-    let mut rx = event_bus.subscribe();
-
     loop {
         let event = match rx.recv().await {
             Ok(e) => e,
@@ -292,6 +285,9 @@ struct WebhookPayload {
     event: String,
     timestamp: String,
     scheduler: SchedulerInfoPayload,
+    /// Human-readable summary (used by chat integrations like Matrix hookshot).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     job: Option<JobPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -381,6 +377,7 @@ async fn build_payloads(
                 event: "job_submitted".to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: Some(job_payload(*job_id, job)),
                 reservation: None,
                 gpu: None,
@@ -400,6 +397,7 @@ async fn build_payloads(
                 event: event_name.to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: Some(job_payload(*job_id, job)),
                 reservation: None,
                 gpu: None,
@@ -418,6 +416,7 @@ async fn build_payloads(
                 event: event_name.to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: Some(job_payload(*job_id, job)),
                 reservation: None,
                 gpu: None,
@@ -429,6 +428,7 @@ async fn build_payloads(
                 event: "job_timeout".to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: Some(job_payload(*job_id, job)),
                 reservation: None,
                 gpu: None,
@@ -447,6 +447,7 @@ async fn build_payloads(
                 event: "reservation_created".to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: None,
                 reservation: Some(reservation_payload(&reservation)),
                 gpu: None,
@@ -465,6 +466,7 @@ async fn build_payloads(
                 event: "reservation_cancelled".to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: None,
                 reservation: Some(reservation_payload(&reservation)),
                 gpu: None,
@@ -481,6 +483,7 @@ async fn build_payloads(
                 event: "gpu_available".to_string(),
                 timestamp: now,
                 scheduler: scheduler_info,
+                text: None,
                 job: None,
                 reservation: None,
                 gpu: Some(GpuPayload {
@@ -492,6 +495,21 @@ async fn build_payloads(
         SchedulerEvent::MemoryAvailabilityChanged { .. }
         | SchedulerEvent::ZombieJobDetected { .. }
         | SchedulerEvent::PeriodicHealthCheck => vec![],
+
+        SchedulerEvent::DaemonStarted => {
+            vec![WebhookPayload {
+                event: "scheduler_online".to_string(),
+                timestamp: now.clone(),
+                text: Some(format!(
+                    "gflow scheduler online\nHost: {}\nVersion: {}\nTime: {}",
+                    scheduler_info.host, scheduler_info.version, now
+                )),
+                scheduler: scheduler_info,
+                job: None,
+                reservation: None,
+                gpu: None,
+            }]
+        }
     }
 }
 
