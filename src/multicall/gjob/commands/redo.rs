@@ -31,6 +31,24 @@ pub async fn handle_redo(
         }
     };
 
+    // Redo only makes sense for jobs that have already finished
+    match original_job.state {
+        JobState::Queued | JobState::Hold => {
+            return Err(anyhow!(
+                "Job {} is still in {} state. Use `gjob update` to modify its parameters.",
+                original_job.id,
+                original_job.state
+            ));
+        }
+        JobState::Running => {
+            return Err(anyhow!(
+                "Job {} is still running. Wait for it to finish or cancel it first.",
+                original_job.id
+            ));
+        }
+        _ => {}
+    }
+
     println!("Resubmitting job {} with parameters:", original_job.id);
 
     // Build new job based on original
