@@ -23,6 +23,9 @@ pub enum SchedulerEvent {
     /// A new job was submitted
     JobSubmitted { job_id: u32 },
 
+    /// A job's parameters were updated
+    JobUpdated { job_id: u32 },
+
     /// A job has completed (finished, failed, cancelled, or timed out)
     JobCompleted {
         job_id: u32,

@@ -832,6 +832,12 @@ pub(in crate::multicall::gflowd::server) async fn update_job(
                 updated_fields = ?updated_fields,
                 "Job updated successfully"
             );
+
+            // Trigger re-scheduling in case updated fields affect scheduling decisions
+            server_state
+                .event_bus
+                .publish(SchedulerEvent::JobUpdated { job_id: id });
+
             (
                 StatusCode::OK,
                 Json(serde_json::json!({

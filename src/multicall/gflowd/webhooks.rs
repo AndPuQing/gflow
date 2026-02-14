@@ -383,6 +383,18 @@ async fn build_payloads(
                 gpu: None,
             }]
         }
+        SchedulerEvent::JobUpdated { job_id } => {
+            let job = scheduler.read().await.get_job(*job_id);
+            vec![WebhookPayload {
+                event: "job_updated".to_string(),
+                timestamp: now,
+                scheduler: scheduler_info,
+                text: None,
+                job: Some(job_payload(*job_id, job)),
+                reservation: None,
+                gpu: None,
+            }]
+        }
         SchedulerEvent::JobStateChanged {
             job_id,
             old_state,

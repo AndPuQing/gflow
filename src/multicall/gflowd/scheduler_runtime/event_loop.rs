@@ -120,6 +120,7 @@ async fn scheduler_trigger_handler_with_debounce(
                     Ok(event) => {
                         match event {
                             SchedulerEvent::JobSubmitted { .. }
+                            | SchedulerEvent::JobUpdated { .. }
                             | SchedulerEvent::JobCompleted { .. }
                             | SchedulerEvent::GpuAvailabilityChanged { .. }
                             | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
