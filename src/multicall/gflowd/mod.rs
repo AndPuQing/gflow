@@ -13,9 +13,33 @@ mod webhooks;
 pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
     let gflowd = cli::GFlowd::parse_from(argv);
 
-    // Initialize tracing subscriber
-    tracing_subscriber::fmt()
-        .with_max_level(gflowd.verbosity)
+    // Initialize tracing: console (stderr) + daily rolling file appender
+    let log_dir = gflow::core::get_data_dir()?.join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("daemon")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(&log_dir)?;
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_writer(non_blocking);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::filter::LevelFilter::from(
+            gflowd.verbosity,
+        ))
+        .with(console_layer)
+        .with(file_layer)
         .init();
 
     if let Some(command) = gflowd.command {
