@@ -78,6 +78,9 @@ jobs:
                   args: --release --out dist
                   sccache: true
                   manylinux: auto
+              env:
+                  CFLAGS: "-Wno-error"
+                  CFLAGS_aarch64_unknown_linux_gnu: "-Wno-error"
 
             - name: Upload wheels
               uses: actions/upload-artifact@v6
