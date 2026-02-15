@@ -20,27 +20,13 @@ const TREE_BRANCH_DASHED: &str = "├┄";
 const TREE_EDGE_DASHED: &str = "╰┄";
 
 /// Output format for job listings
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
+#[strum(ascii_case_insensitive)]
 enum OutputFormat {
     Table,
     Json,
     Csv,
     Yaml,
-}
-
-impl OutputFormat {
-    fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().as_str() {
-            "table" => Ok(Self::Table),
-            "json" => Ok(Self::Json),
-            "csv" => Ok(Self::Csv),
-            "yaml" => Ok(Self::Yaml),
-            _ => anyhow::bail!(
-                "Invalid output format '{}'. Valid options: table, json, csv, yaml",
-                s
-            ),
-        }
-    }
 }
 
 /// Serializable job information for machine-readable output
@@ -200,7 +186,12 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     sort_jobs(&mut jobs_vec, &options.sort);
 
     // Parse output format
-    let output_format = OutputFormat::from_str(&options.output)?;
+    let output_format: OutputFormat = options.output.parse().map_err(|_| {
+        anyhow::anyhow!(
+            "Invalid output format '{}'. Valid options: table, json, csv, yaml",
+            options.output
+        )
+    })?;
 
     // Apply limit
     let effective_limit = if options.all { 0 } else { options.limit };
