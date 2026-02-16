@@ -80,7 +80,7 @@ jobs:
                   manylinux: auto
               env:
                   CFLAGS: "-Wno-error"
-                  CFLAGS_aarch64_unknown_linux_gnu: "-Wno-error"
+                  CFLAGS_aarch64_unknown_linux_gnu: "-Wno-error -D__ARM_ARCH=8"
 
             - name: Upload wheels
               uses: actions/upload-artifact@v6
