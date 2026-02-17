@@ -16,9 +16,9 @@ gflowd restart
 # GPUs (availability + allocations)
 ginfo
 
-# Jobs (default: last 10)
+# Jobs (default: active jobs)
 gqueue
-gqueue -a
+gqueue -a              # include completed
 
 # Useful formats
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)

@@ -12,8 +12,8 @@ gqueue completion <shell>
 ## Common Examples
 
 ```bash
-gqueue                               # last 10 jobs
-gqueue -a                            # all jobs
+gqueue                               # active jobs (Queued, Hold, Running)
+gqueue -a                            # all jobs including completed
 gqueue -s Running,Queued             # filter by state
 gqueue -j 12,13,14                   # filter by job IDs (comma-separated)
 gqueue -u alice                      # filter by user (default: current user; use 'all' for all users)
@@ -59,8 +59,8 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 
 ## Options
 
-- `-n, --limit <N>`: show first/last N jobs (default: `-10`; `0` = all)
-- `-a, --all`: show all jobs (`-n 0`)
+- `-n, --limit <N>`: show first/last N jobs (positive: first N, negative: last N, `0`: all; default: `0`)
+- `-a, --all`: show all jobs including completed
 - `-c, --completed`: show only completed jobs
 - `--since <when>`: show jobs since `1h`, `2d`, `3w`, `today`, `yesterday`, or a timestamp
 - `-r, --sort <field>`: `id`, `state`, `time`, `name`, `gpus`, `priority`
