@@ -301,12 +301,18 @@ impl JobState {
         Self::COMPLETED.contains(self)
     }
 
+    pub const ACTIVE: &'static [JobState] = &[JobState::Queued, JobState::Hold, JobState::Running];
+
     pub const COMPLETED: &'static [JobState] = &[
         JobState::Finished,
         JobState::Failed,
         JobState::Cancelled,
         JobState::Timeout,
     ];
+
+    pub fn active_states() -> &'static [JobState] {
+        Self::ACTIVE
+    }
 
     pub fn completed_states() -> &'static [JobState] {
         Self::COMPLETED

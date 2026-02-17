@@ -46,17 +46,12 @@ pub struct ListArgs {
         short = 'n',
         help = "Limit the number of jobs to display (positive: first N, negative: last N, 0: all)",
         value_parser = clap::value_parser!(i32),
-        default_value = "-10",
+        default_value = "0",
         allow_negative_numbers = true
     )]
     pub limit: i32,
 
-    #[arg(
-        long,
-        short = 'a',
-        help = "Show all jobs including completed ones (equivalent to -n 0)",
-        conflicts_with = "limit"
-    )]
+    #[arg(long, short = 'a', help = "Show all jobs including completed ones")]
     pub all: bool,
 
     #[arg(

@@ -123,9 +123,21 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join(","),
         )
+    } else if let Some(ref states) = options.states {
+        // Use explicit --states
+        Some(states.clone())
+    } else if options.all {
+        // Show all states (no filter)
+        None
     } else {
-        // Use explicit --states if provided
-        options.states.clone()
+        // Default: only active (non-completed) states
+        Some(
+            JobState::active_states()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     };
 
     // Parse --since time filter if provided
