@@ -68,12 +68,19 @@ pub fn get_runtime_dir() -> anyhow::Result<PathBuf> {
         .map(|p| p.join("gflow"))
 }
 
+/// Returns the log file path for a job without any side effects.
 pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
     let log_dir = get_data_dir()?.join("logs");
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir)?;
     }
-    let log_path = log_dir.join(format!("{job_id}.log"));
+    Ok(log_dir.join(format!("{job_id}.log")))
+}
+
+/// Returns the log file path for a job, archiving any existing log first.
+/// Only call this when starting a new job execution to avoid losing active logs.
+pub fn prepare_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
+    let log_path = get_log_file_path(job_id)?;
 
     // If log file already exists, archive it to prevent confusion when job IDs are reused
     if log_path.exists() {
@@ -82,7 +89,7 @@ pub fn get_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
             .unwrap()
             .as_secs();
         let archived_name = format!("{job_id}.log.old.{timestamp}");
-        let archived_path = log_dir.join(&archived_name);
+        let archived_path = log_path.parent().unwrap().join(&archived_name);
 
         if let Err(e) = std::fs::rename(&log_path, &archived_path) {
             tracing::warn!(
