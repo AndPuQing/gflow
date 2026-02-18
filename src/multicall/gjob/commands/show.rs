@@ -98,21 +98,41 @@ fn print_job_details(job: &Job) {
         print_field!("TimeLimit", "{}", gflow::utils::format_duration(time_limit));
     }
     if let Some(submitted_at) = job.submitted_at {
-        print_field!("SubmittedAt", "{}", format_time(submitted_at));
-    }
-    if let Some(started_at) = job.started_at {
-        print_field!("StartedAt", "{}", format_time(started_at));
-        if let Some(finished_at) = job.finished_at {
-            print_field!("FinishedAt", "{}", format_time(finished_at));
+        if let Some(wait_time) = job.wait_time() {
+            print_field!(
+                "Submitted",
+                "{} (waited {})",
+                format_time(submitted_at),
+                gflow::utils::format_duration(wait_time)
+            );
+        } else {
+            print_field!("Submitted", "{}", format_time(submitted_at));
         }
     }
-
-    // Display wait time and runtime using the new methods
-    if let Some(wait_time) = job.wait_time() {
-        print_field!("WaitTime", "{}", gflow::utils::format_duration(wait_time));
-    }
-    if let Some(runtime) = job.runtime() {
-        print_field!("Runtime", "{}", gflow::utils::format_duration(runtime));
+    if let Some(started_at) = job.started_at {
+        if let Some(finished_at) = job.finished_at {
+            let runtime = finished_at.duration_since(started_at).ok();
+            print_field!("Started", "{}", format_time(started_at));
+            if let Some(rt) = runtime {
+                print_field!(
+                    "Finished",
+                    "{} (runtime {})",
+                    format_time(finished_at),
+                    gflow::utils::format_duration(rt)
+                );
+            } else {
+                print_field!("Finished", "{}", format_time(finished_at));
+            }
+        } else if let Ok(elapsed) = SystemTime::now().duration_since(started_at) {
+            print_field!(
+                "Started",
+                "{} (running {} so far)",
+                format_time(started_at),
+                gflow::utils::format_duration(elapsed)
+            );
+        } else {
+            print_field!("Started", "{}", format_time(started_at));
+        }
     }
 }
 
