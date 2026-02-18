@@ -22,6 +22,8 @@ pub async fn handle_commands(config: &gflow::Config, args: &super::cli::ListArgs
         format: args.format.clone(),
         tmux: args.tmux,
         output: args.output.clone(),
+        watch: args.watch,
+        interval: args.interval,
     };
 
     list::handle_list(&client, options).await?;

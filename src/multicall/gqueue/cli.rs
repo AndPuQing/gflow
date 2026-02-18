@@ -134,6 +134,17 @@ pub struct ListArgs {
         default_value = "table"
     )]
     pub output: String,
+
+    #[arg(long, short = 'w', help = "Auto-refresh job list (default: every 2s)")]
+    pub watch: bool,
+
+    #[arg(
+        long,
+        help = "Refresh interval in seconds for --watch mode",
+        default_value = "2",
+        requires = "watch"
+    )]
+    pub interval: u64,
 }
 
 #[cfg(test)]

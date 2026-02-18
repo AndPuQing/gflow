@@ -102,9 +102,32 @@ pub struct ListOptions {
     pub format: Option<String>,
     pub tmux: bool,
     pub output: String,
+    pub watch: bool,
+    pub interval: u64,
 }
 
 pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
+    if options.watch {
+        let interval = std::time::Duration::from_secs(options.interval);
+        loop {
+            // Clear screen
+            print!("\x1B[2J\x1B[H");
+            // Print timestamp header
+            let now = chrono::Local::now();
+            println!(
+                "Last updated: {}  [Refreshing every {}s. Press Ctrl+C to exit]\n",
+                now.format("%Y-%m-%d %H:%M:%S"),
+                options.interval
+            );
+            display_once(client, &options).await?;
+            tokio::time::sleep(interval).await;
+        }
+    } else {
+        display_once(client, &options).await
+    }
+}
+
+async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
     let current_user = gflow::core::get_current_username();
     let user_filter = match options.user.as_deref().map(str::trim) {
         None => Some(current_user.clone()),
@@ -153,7 +176,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
         .list_jobs_with_query(states_filter, user_filter, None, None, created_after)
         .await?;
 
-    if let Some(job_ids) = options.jobs {
+    if let Some(job_ids) = options.jobs.as_deref() {
         let job_ids_vec: Vec<u32> = job_ids
             .split(',')
             .filter_map(|s| s.trim().parse().ok())
@@ -163,7 +186,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
         }
     }
 
-    if let Some(names_filter) = options.names {
+    if let Some(names_filter) = options.names.as_deref() {
         let names_vec: Vec<String> = names_filter
             .split(',')
             .map(|s| s.trim().to_string())
