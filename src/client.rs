@@ -67,6 +67,35 @@ pub struct UpdateJobResponse {
     pub updated_fields: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopJob {
+    pub id: u32,
+    pub name: Option<String>,
+    pub runtime_secs: f64,
+    pub gpus: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageStats {
+    pub user: Option<String>,
+    pub since: Option<u64>,
+    pub total_jobs: usize,
+    pub completed_jobs: usize,
+    pub failed_jobs: usize,
+    pub cancelled_jobs: usize,
+    pub timeout_jobs: usize,
+    pub running_jobs: usize,
+    pub queued_jobs: usize,
+    pub avg_wait_secs: Option<f64>,
+    pub avg_runtime_secs: Option<f64>,
+    pub total_gpu_hours: f64,
+    pub jobs_with_gpus: usize,
+    pub avg_gpus_per_job: f64,
+    pub peak_gpu_usage: u32,
+    pub success_rate: f64,
+    pub top_jobs: Vec<TopJob>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     client: ReqwestClient,
@@ -350,6 +379,32 @@ impl Client {
                 body
             ))
         }
+    }
+
+    pub async fn get_stats(
+        &self,
+        user: Option<&str>,
+        since: Option<i64>,
+    ) -> anyhow::Result<UsageStats> {
+        let mut params = vec![];
+        if let Some(u) = user {
+            params.push(("user", u.to_string()));
+        }
+        if let Some(s) = since {
+            params.push(("since", s.to_string()));
+        }
+        let mut request = self.client.get(format!("{}/stats", self.base_url));
+        if !params.is_empty() {
+            request = request.query(&params);
+        }
+        let stats = request
+            .send()
+            .await
+            .map_err(connection_error_context)?
+            .json::<UsageStats>()
+            .await
+            .context("Failed to parse stats from response")?;
+        Ok(stats)
     }
 
     pub async fn get_info(&self) -> anyhow::Result<SchedulerInfo> {

@@ -10,8 +10,10 @@ pub(super) use metrics::get_metrics;
 pub(super) use reservations::{
     cancel_reservation, create_reservation, get_reservation, list_reservations,
 };
+pub(super) use stats::get_stats;
 
 mod debug;
 mod jobs;
 mod metrics;
 mod reservations;
+mod stats;

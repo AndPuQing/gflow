@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use gflow::multicall::{gbatch, gcancel, gctl, gflowd, ginfo, gjob, gqueue};
+use gflow::multicall::{gbatch, gcancel, gctl, gflowd, ginfo, gjob, gqueue, gstats};
 
 const MULTICALL_SENTINEL: &str = "__multicall";
 
@@ -59,10 +59,11 @@ async fn dispatch(argv: Vec<OsString>) -> anyhow::Result<()> {
         "ginfo" => ginfo::run(argv).await,
         "gjob" => gjob::run(argv).await,
         "gqueue" => gqueue::run(argv).await,
+        "gstats" => gstats::run(argv).await,
         _ => {
             print_top_level_help();
             anyhow::bail!(
-                "Unknown command '{}'. Expected one of: gbatch, gcancel, gctl, gflowd, ginfo, gjob, gqueue",
+                "Unknown command '{}'. Expected one of: gbatch, gcancel, gctl, gflowd, ginfo, gjob, gqueue, gstats",
                 program.to_string_lossy()
             );
         }
@@ -71,6 +72,6 @@ async fn dispatch(argv: Vec<OsString>) -> anyhow::Result<()> {
 
 fn print_top_level_help() {
     eprintln!(
-        "gflow (multi-call)\n\nUsage:\n  gflow {MULTICALL_SENTINEL} <command> [args...]\n  gflow <command> [args...]\n\nCommands:\n  gbatch\n  gcancel\n  gctl\n  gflowd\n  ginfo\n  gjob\n  gqueue\n"
+        "gflow (multi-call)\n\nUsage:\n  gflow {MULTICALL_SENTINEL} <command> [args...]\n  gflow <command> [args...]\n\nCommands:\n  gbatch\n  gcancel\n  gctl\n  gflowd\n  ginfo\n  gjob\n  gqueue\n  gstats\n"
     );
 }

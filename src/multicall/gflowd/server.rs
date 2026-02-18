@@ -120,6 +120,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
             "/reservations/{id}",
             get(handlers::get_reservation).delete(handlers::cancel_reservation),
         )
+        .route("/stats", get(handlers::get_stats))
         .route("/metrics", get(handlers::get_metrics))
         .route("/debug/state", get(handlers::debug_state))
         .route("/debug/jobs/{id}", get(handlers::debug_job))

@@ -7,3 +7,4 @@ pub mod gflowd;
 pub mod ginfo;
 pub mod gjob;
 pub mod gqueue;
+pub mod gstats;

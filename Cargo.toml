@@ -47,6 +47,10 @@ path = "src/bin/gjob/main.rs"
 name = "gctl"
 path = "src/bin/gctl/main.rs"
 
+[[bin]]
+name = "gstats"
+path = "src/bin/gstats/main.rs"
+
 
 [dependencies]
 tmux_interface = { version = "0.3.2" }
