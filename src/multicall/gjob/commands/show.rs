@@ -97,18 +97,22 @@ fn print_job_details(job: &Job) {
     if let Some(time_limit) = job.time_limit {
         print_field!("TimeLimit", "{}", gflow::utils::format_duration(time_limit));
     }
+    if let Some(submitted_at) = job.submitted_at {
+        print_field!("SubmittedAt", "{}", format_time(submitted_at));
+    }
     if let Some(started_at) = job.started_at {
-        print_field!("StartTime", "{}", format_time(started_at));
+        print_field!("StartedAt", "{}", format_time(started_at));
         if let Some(finished_at) = job.finished_at {
-            print_field!("EndTime", "{}", format_time(finished_at));
-            if let Ok(duration) = finished_at.duration_since(started_at) {
-                print_field!("Runtime", "{}", gflow::utils::format_duration(duration));
-            }
-        } else if job.state.to_string() == "Running" {
-            if let Ok(elapsed) = SystemTime::now().duration_since(started_at) {
-                print_field!("Elapsed", "{}", gflow::utils::format_duration(elapsed));
-            }
+            print_field!("FinishedAt", "{}", format_time(finished_at));
         }
+    }
+
+    // Display wait time and runtime using the new methods
+    if let Some(wait_time) = job.wait_time() {
+        print_field!("WaitTime", "{}", gflow::utils::format_duration(wait_time));
+    }
+    if let Some(runtime) = job.runtime() {
+        print_field!("Runtime", "{}", gflow::utils::format_duration(runtime));
     }
 }
 

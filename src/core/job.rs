@@ -889,6 +889,25 @@ impl Job {
         false
     }
 
+    /// Calculate wait time (time from submission to start)
+    pub fn wait_time(&self) -> Option<Duration> {
+        match (self.submitted_at, self.started_at) {
+            (Some(submitted), Some(started)) => started.duration_since(submitted).ok(),
+            _ => None,
+        }
+    }
+
+    /// Calculate runtime (time from start to finish, or current elapsed time if still running)
+    pub fn runtime(&self) -> Option<Duration> {
+        match (self.started_at, self.finished_at) {
+            (Some(started), Some(finished)) => finished.duration_since(started).ok(),
+            (Some(started), None) if self.state == JobState::Running => {
+                SystemTime::now().duration_since(started).ok()
+            }
+            _ => None,
+        }
+    }
+
     #[cfg(test)]
     pub fn with_id(mut self, id: u32) -> Self {
         self.id = id;
