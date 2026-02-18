@@ -20,6 +20,8 @@ gqueue -u alice                      # 按用户筛选（默认当前用户；�
 gqueue -T                            # 仅显示有活跃 tmux 会话的任务
 gqueue -t                            # 依赖树视图
 gqueue -g                            # 按状态分组
+gqueue -w                            # 每 2 秒自动刷新
+gqueue -w --interval 5               # 每 5 秒自动刷新
 ```
 
 ## 输出格式
@@ -72,3 +74,5 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `-g, --group`：按状态分组
 - `-t, --tree`：树视图（依赖 + redo 关系）
 - `-T, --tmux`：仅显示有活跃 tmux 会话的任务
+- `-w, --watch`：自动刷新任务列表（默认每 2 秒）
+- `--interval <N>`：`--watch` 模式的刷新间隔（秒，默认：`2`）

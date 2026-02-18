@@ -20,6 +20,8 @@ gqueue -u alice                      # filter by user (default: current user; us
 gqueue -T                            # only jobs with active tmux sessions
 gqueue -t                            # dependency tree view
 gqueue -g                            # group by state
+gqueue -w                            # auto-refresh every 2s
+gqueue -w --interval 5               # auto-refresh every 5s
 ```
 
 ## Output Format
@@ -72,3 +74,5 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `-g, --group`: group by state
 - `-t, --tree`: tree view (dependencies + redo links)
 - `-T, --tmux`: only jobs with active tmux sessions
+- `-w, --watch`: auto-refresh job list (default: every 2s)
+- `--interval <N>`: refresh interval in seconds for `--watch` (default: `2`)
