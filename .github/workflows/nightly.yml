@@ -83,7 +83,7 @@ jobs:
                   CFLAGS_aarch64_unknown_linux_gnu: "-Wno-error -D__ARM_ARCH=8"
 
             - name: Upload wheels
-              uses: actions/upload-artifact@v6
+              uses: actions/upload-artifact@v7
               with:
                   name: wheels-linux-${{ matrix.platform.target }}
                   path: dist
@@ -111,7 +111,7 @@ jobs:
                   args: --out dist
 
             - name: Upload sdist
-              uses: actions/upload-artifact@v6
+              uses: actions/upload-artifact@v7
               with:
                   name: wheels-sdist
                   path: dist
