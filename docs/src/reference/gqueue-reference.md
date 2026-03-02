@@ -17,6 +17,7 @@ gqueue -a                            # all jobs including completed
 gqueue -s Running,Queued             # filter by state
 gqueue -j 12,13,14                   # filter by job IDs (comma-separated)
 gqueue -u alice                      # filter by user (default: current user; use 'all' for all users)
+gqueue -P ml-research                # filter by project code
 gqueue -T                            # only jobs with active tmux sessions
 gqueue -t                            # dependency tree view
 gqueue -g                            # group by state
@@ -35,7 +36,7 @@ JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 Custom format:
 
 ```bash
-gqueue -f JOBID,NAME,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
+gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 ```
 
 Supported fields for `-f/--format`:
@@ -49,6 +50,7 @@ Supported fields for `-f/--format`:
 - `NODES` (GPUs requested)
 - `NODELIST(REASON)` (running: GPU indices; queued/hold/cancelled: reason)
 - `USER`
+- `PROJECT`
 
 Example `gqueue -t` output:
 
@@ -70,6 +72,7 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `-u, --user <list>`: comma-separated users (default: current user; use `all` for all users; alias: `--users`)
 - `-j, --jobs <list>`: comma-separated job IDs (e.g. `1,2,3`; alias: `--job`)
 - `-N, --names <list>`: comma-separated job names
+- `-P, --project <code>`: filter by project code
 - `-f, --format <fields>`: comma-separated output fields
 - `-g, --group`: group by state
 - `-t, --tree`: tree view (dependencies + redo links)

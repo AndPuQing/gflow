@@ -17,6 +17,7 @@ gqueue -a                            # 所有任务
 gqueue -s Running,Queued             # 按状态筛选
 gqueue -j 12,13,14                   # 按任务 ID 筛选（逗号分隔）
 gqueue -u alice                      # 按用户筛选（默认当前用户；用 'all' 表示所有用户）
+gqueue -P ml-research                # 按项目编码筛选
 gqueue -T                            # 仅显示有活跃 tmux 会话的任务
 gqueue -t                            # 依赖树视图
 gqueue -g                            # 按状态分组
@@ -35,7 +36,7 @@ JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 自定义格式：
 
 ```bash
-gqueue -f JOBID,NAME,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
+gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 ```
 
 `-f/--format` 支持的字段：
@@ -49,6 +50,7 @@ gqueue -f JOBID,NAME,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `NODES`（请求的 GPU 数量）
 - `NODELIST(REASON)`（运行中：GPU 索引；排队/暂停/已取消：原因）
 - `USER`
+- `PROJECT`
 
 `gqueue -t` 示例输出：
 
@@ -70,6 +72,7 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 - `-u, --user <list>`：用户列表（默认当前用户；用 `all` 表示所有用户；别名：`--users`）
 - `-j, --jobs <list>`：任务 ID 列表（如 `1,2,3`；别名：`--job`）
 - `-N, --names <list>`：任务名列表
+- `-P, --project <code>`：按项目编码筛选
 - `-f, --format <fields>`：输出字段列表
 - `-g, --group`：按状态分组
 - `-t, --tree`：树视图（依赖 + redo 关系）

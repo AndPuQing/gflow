@@ -19,9 +19,11 @@ ginfo
 # 任务（默认：最近 10 个）
 gqueue
 gqueue -a
+gqueue -P ml-research  # 按项目筛选
 
 # 常用格式
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
+gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 
 # 依赖树
@@ -49,6 +51,7 @@ gbatch train.sh
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --priority 50 python urgent.py
 gbatch --conda-env myenv python script.py
+gbatch --project ml-research python train.py
 gbatch --dry-run --gpus 1 python train.py
 ```
 
@@ -64,6 +67,7 @@ gbatch --dry-run --gpus 1 python train.py
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
+# GFLOW --project=ml-research
 ```
 
 命令行参数优先于脚本指令。

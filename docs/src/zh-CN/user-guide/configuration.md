@@ -107,6 +107,30 @@ gctl reserve create --user alice --gpus 2 --start "2026-02-01 14:00" --duration 
 2. 配置文件（`timezone = "..."`）
 3. 默认：本地系统时区
 
+## 项目追踪
+
+使用项目配置可以为多团队统一任务归属元数据。
+
+```toml
+[projects]
+known_projects = ["ml-research", "cv-team"]
+require_project = false
+```
+
+- `known_projects`：允许的项目编码列表。为空时表示允许任意非空编码。
+- `require_project`：为 `true` 时，所有任务提交都必须包含非空项目。
+- 项目值会做标准化（去除首尾空白）。仅空白的值会被视为未设置。
+- 项目编码长度上限：64 个字符。
+- 同时启用两项配置时，项目必须提供且必须在 `known_projects` 中。
+
+相关命令示例：
+
+```bash
+gbatch --project ml-research python train.py
+gqueue --project ml-research
+gqueue --format JOBID,NAME,PROJECT,ST,TIME
+```
+
 ## 通知（Webhook）
 
 gflowd 支持在任务/系统事件发生时发送 HTTP POST webhook（尽力而为）。

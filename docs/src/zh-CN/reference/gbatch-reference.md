@@ -22,6 +22,7 @@ gbatch --memory 8G python train.py
 # 调度
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
+gbatch --project ml-research python train.py
 
 # 环境
 gbatch --conda-env myenv python script.py
@@ -82,9 +83,18 @@ gbatch --dry-run --gpus 1 python train.py
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
+# GFLOW --project=ml-research
 ```
 
 说明：
 
 - 命令行参数优先于脚本指令。
 - 脚本指令只支持 `--depends-on`（单依赖）。
+
+## 项目标记（`--project`）
+
+- 使用 `-P/--project <code>` 为任务附加可选项目编码。
+- 项目值会自动去除首尾空白；空白字符串会被视为未设置。
+- 最大长度为 64 个字符。
+- 项目值在提交后不可修改。
+- 命令行 `--project` 会覆盖脚本中的 `# GFLOW --project=...`。

@@ -19,9 +19,11 @@ ginfo
 # Jobs (default: active jobs)
 gqueue
 gqueue -a              # include completed
+gqueue -P ml-research  # filter by project
 
 # Useful formats
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
+gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 
 # Dependency tree
@@ -49,6 +51,7 @@ gbatch train.sh
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --priority 50 python urgent.py
 gbatch --conda-env myenv python script.py
+gbatch --project ml-research python train.py
 gbatch --dry-run --gpus 1 python train.py
 ```
 
@@ -64,6 +67,7 @@ Only these are parsed from scripts:
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
+# GFLOW --project=ml-research
 ```
 
 CLI flags override script directives.

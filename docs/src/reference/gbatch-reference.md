@@ -22,6 +22,7 @@ gbatch --memory 8G python train.py
 # Scheduling
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
+gbatch --project ml-research python train.py
 
 # Environment
 gbatch --conda-env myenv python script.py
@@ -82,9 +83,18 @@ When submitting a script, `gbatch` can parse a small subset of options from line
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
+# GFLOW --project=ml-research
 ```
 
 Notes:
 
 - CLI flags override script directives.
 - Script directives support only `--depends-on` (single dependency).
+
+## Project Tracking (`--project`)
+
+- Use `-P/--project <code>` to attach an optional project code to submitted jobs.
+- Project values are normalized by trimming surrounding whitespace; blank values are treated as unset.
+- Maximum length is 64 characters.
+- Project value is immutable after submission.
+- CLI `--project` overrides `# GFLOW --project=...` in scripts.

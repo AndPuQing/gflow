@@ -107,6 +107,30 @@ Precedence (highest → lowest):
 2. Config file (`timezone = "..."`)
 3. Default: local system timezone
 
+## Project Tracking
+
+Use project settings to standardize job ownership metadata across teams.
+
+```toml
+[projects]
+known_projects = ["ml-research", "cv-team"]
+require_project = false
+```
+
+- `known_projects`: allowed project codes. Empty means any non-empty code is allowed.
+- `require_project`: when `true`, every submitted job must include a non-empty project.
+- Project values are normalized (trimmed). Whitespace-only values are treated as unset.
+- Project code length limit: 64 characters.
+- If both settings are used, project must be present and in `known_projects`.
+
+Related CLI usage:
+
+```bash
+gbatch --project ml-research python train.py
+gqueue --project ml-research
+gqueue --format JOBID,NAME,PROJECT,ST,TIME
+```
+
 ## Notifications (Webhooks)
 
 gflowd can send HTTP POST webhooks for job and system events (best-effort).

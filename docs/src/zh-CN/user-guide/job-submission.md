@@ -7,6 +7,7 @@
 ```bash
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
+gbatch --project ml-research python train.py
 ```
 
 ## 提交命令
@@ -42,6 +43,7 @@ gbatch train.sh
 - `# GFLOW --priority=<N>`
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>`（仅单依赖）
+- `# GFLOW --project=<CODE>`
 
 命令行参数优先于脚本指令。
 
@@ -60,6 +62,9 @@ gbatch --priority 50 python urgent.py
 # Conda 环境
 gbatch --conda-env myenv python script.py
 
+# 项目编码
+gbatch --project ml-research python train.py
+
 # 依赖
 gbatch --depends-on <job_id|@|@~N> python next.py
 gbatch --depends-on-all 1,2,3 python merge.py
@@ -75,6 +80,8 @@ gbatch --depends-on <job_id> --no-auto-cancel python next.py
 # 预览但不提交
 gbatch --dry-run --gpus 1 python train.py
 ```
+
+项目值在提交后不可修改。
 
 ## 任务数组
 

@@ -7,6 +7,7 @@ Submit jobs with `gbatch` (similar to Slurm `sbatch`). You can submit a command 
 ```bash
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
+gbatch --project ml-research python train.py
 ```
 
 ## Submit a Command
@@ -42,6 +43,7 @@ Only a small subset of options are parsed from scripts:
 - `# GFLOW --priority=<N>`
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>` (single dependency only)
+- `# GFLOW --project=<CODE>`
 
 CLI flags override script directives.
 
@@ -60,6 +62,9 @@ gbatch --priority 50 python urgent.py
 # Conda env
 gbatch --conda-env myenv python script.py
 
+# Project code
+gbatch --project ml-research python train.py
+
 # Dependencies
 gbatch --depends-on <job_id|@|@~N> python next.py
 gbatch --depends-on-all 1,2,3 python merge.py
@@ -75,6 +80,8 @@ gbatch --depends-on <job_id> --no-auto-cancel python next.py
 # Preview without submitting
 gbatch --dry-run --gpus 1 python train.py
 ```
+
+Project values are immutable after submission.
 
 ## Job Arrays
 
