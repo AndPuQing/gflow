@@ -715,6 +715,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::config::ProjectsConfig::default(),
         )
         .unwrap();
 
@@ -722,7 +723,7 @@ mod tests {
             .command("echo test")
             .submitted_by("alice")
             .build();
-        let (job_id, _run_name, _job_clone) = runtime.submit_job(job).await;
+        let (job_id, _run_name, _job_clone) = runtime.submit_job(job).await.unwrap();
         let scheduler = Arc::new(RwLock::new(runtime));
 
         let event_bus = Arc::new(EventBus::new(16));

@@ -409,7 +409,19 @@ pub(in crate::multicall::gflowd::server) async fn create_job(
                 .into_response();
         }
 
-        let (job_id, run_name, _job_clone) = state.submit_job(input).await;
+        let (job_id, run_name, _job_clone) = match state.submit_job(input).await {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!(%error, "Job submission failed: project policy validation");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": error.to_string()
+                    })),
+                )
+                    .into_response();
+            }
+        };
         (job_id, run_name)
     }; // Lock released here
 
@@ -509,7 +521,19 @@ pub(in crate::multicall::gflowd::server) async fn create_jobs_batch(
             }
         }
 
-        state.submit_jobs(input).await
+        match state.submit_jobs(input).await {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!(%error, "Batch job submission failed: project policy validation");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": error.to_string()
+                    })),
+                )
+                    .into_response();
+            }
+        }
     }; // Lock released here
 
     // Publish JobSubmitted events for all submitted jobs

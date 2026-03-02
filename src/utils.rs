@@ -156,6 +156,53 @@ pub fn format_memory(memory_mb: u64) -> String {
     }
 }
 
+/// Normalize a project value by trimming surrounding whitespace and treating blank values as None.
+pub fn normalize_project(project: Option<&str>) -> Option<String> {
+    project
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// Validate project value against configured project policy.
+///
+/// This normalizes the project (trims whitespace, treats empty as None) and validates against policy.
+/// Returns the normalized project value if valid.
+pub fn validate_project_policy(
+    project: Option<&str>,
+    projects: &crate::config::ProjectsConfig,
+) -> Result<Option<String>> {
+    let normalized = normalize_project(project);
+
+    if projects.require_project && normalized.is_none() {
+        return Err(anyhow!(
+            "Project is required by configuration. Provide --project (CLI) or a non-empty `project` field."
+        ));
+    }
+
+    if let Some(ref proj) = normalized {
+        // Add length validation (max 64 characters)
+        if proj.len() > 64 {
+            return Err(anyhow!(
+                "Project name too long (max 64 characters): '{}'",
+                proj
+            ));
+        }
+
+        if !projects.known_projects.is_empty()
+            && !projects.known_projects.iter().any(|known| known == proj)
+        {
+            return Err(anyhow!(
+                "Unknown project '{}'. Known projects: {}",
+                proj,
+                projects.known_projects.join(", ")
+            ));
+        }
+    }
+
+    Ok(normalized)
+}
+
 pub const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))

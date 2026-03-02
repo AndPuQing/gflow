@@ -340,6 +340,11 @@ pub struct JobSpec {
     pub auto_close_tmux: bool,
     pub run_name: Option<CompactString>,
 
+    // Project tracking (optional, immutable after submission)
+    // Normalized and validated at submission time (whitespace trimmed, length checked)
+    #[serde(default)]
+    pub project: Option<CompactString>,
+
     // Dependency config (cold - accessed once during submission)
     pub depends_on: Option<u32>,
     #[serde(default)]
@@ -364,6 +369,7 @@ impl Default for JobSpec {
             redone_from: None,
             auto_close_tmux: false,
             run_name: None,
+            project: None,
             depends_on: None,
             depends_on_ids: DependencyIds::new(),
             dependency_mode: None,
@@ -495,6 +501,8 @@ pub struct Job {
 
     /// Optional fields that get populated by gflowd
     pub run_name: Option<CompactString>, // tmux session name
+    #[serde(default)]
+    pub project: Option<CompactString>, // Project code for tracking (normalized, immutable)
     pub state: JobState,
     pub gpu_ids: Option<GpuIds>,          // GPU IDs assigned to this job
     pub submitted_at: Option<SystemTime>, // When the job was submitted
@@ -526,6 +534,7 @@ pub struct JobBuilder {
     parameters: Option<Parameters>,
     group_id: Option<Uuid>,
     max_concurrent: Option<usize>,
+    project: Option<CompactString>,
 }
 
 impl JobBuilder {
@@ -648,6 +657,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn project(mut self, project: Option<String>) -> Self {
+        self.project = project.map(CompactString::from);
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -668,12 +682,13 @@ impl JobBuilder {
             submitted_by: self
                 .submitted_by
                 .unwrap_or_else(|| CompactString::const_new("unknown")),
-            run_name: self.run_name,
             redone_from: self.redone_from,
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
             parameters: self.parameters.unwrap_or_default(),
             group_id: self.group_id,
             max_concurrent: self.max_concurrent,
+            run_name: self.run_name,
+            project: self.project,
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
@@ -709,6 +724,7 @@ impl Default for Job {
             group_id: None,
             max_concurrent: None,
             run_name: None,
+            project: None,
             state: JobState::Queued,
             gpu_ids: None,
             submitted_at: None,
@@ -748,6 +764,7 @@ impl Job {
             group_id: runtime.group_id,
             max_concurrent: runtime.max_concurrent,
             run_name: spec.run_name,
+            project: spec.project,
             state: runtime.state,
             gpu_ids: runtime.gpu_ids,
             submitted_at: spec.submitted_at,
@@ -771,6 +788,7 @@ impl Job {
             redone_from: self.redone_from,
             auto_close_tmux: self.auto_close_tmux,
             run_name: self.run_name,
+            project: self.project,
             depends_on: self.depends_on,
             depends_on_ids: self.depends_on_ids,
             dependency_mode: self.dependency_mode,

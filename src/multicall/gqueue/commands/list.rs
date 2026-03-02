@@ -39,6 +39,8 @@ struct JobOutput {
     gpus: Vec<u32>,
     user: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     submitted_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
@@ -68,6 +70,7 @@ impl JobOutput {
                 .as_ref()
                 .map_or_else(Vec::new, |ids| ids.to_vec()),
             user: job.submitted_by.to_string(),
+            project: job.project.as_ref().map(|s| s.to_string()),
             submitted_at: job.submitted_at.and_then(|t| {
                 chrono::DateTime::<chrono::Utc>::from(t)
                     .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
@@ -92,6 +95,7 @@ pub struct ListOptions {
     pub states: Option<String>,
     pub jobs: Option<String>,
     pub names: Option<String>,
+    pub project: Option<String>,
     pub sort: String,
     pub limit: i32,
     pub all: bool,
@@ -197,6 +201,14 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
                     .as_ref()
                     .is_some_and(|run_name| names_vec.iter().any(|n| n == run_name.as_str()))
             });
+        }
+    }
+
+    // Filter by project if specified
+    if let Some(project_filter) = options.project.as_deref() {
+        let project = project_filter.trim();
+        if !project.is_empty() {
+            jobs_vec.retain(|job| job.project.as_ref().is_some_and(|p| p.as_str() == project));
         }
     }
 
@@ -512,6 +524,10 @@ fn format_job_cell(
             .time_limit
             .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
         "USER" => job.submitted_by.to_string(),
+        "PROJECT" => job
+            .project
+            .as_ref()
+            .map_or_else(|| "-".to_string(), |p| p.to_string()),
         _ => String::new(),
     }
 }
@@ -924,6 +940,7 @@ mod tests {
             auto_cancel_on_dependency_failure: true,
             task_id: None,
             run_name: Some(name.into()),
+            project: None,
             state: JobState::Finished,
             gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,
@@ -956,6 +973,7 @@ mod tests {
             auto_cancel_on_dependency_failure: true,
             task_id: None,
             run_name: Some(name.into()),
+            project: None,
             state,
             gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,
@@ -988,6 +1006,7 @@ mod tests {
             auto_cancel_on_dependency_failure: true,
             task_id: None,
             run_name: Some(name.into()),
+            project: None,
             state: JobState::Finished,
             gpu_ids: Some(smallvec::smallvec![0]),
             submitted_at: None,

@@ -12,6 +12,7 @@ pub async fn handle_commands(config: &gflow::Config, args: &super::cli::ListArgs
         states: args.states.clone(),
         jobs: args.jobs.clone(),
         names: args.names.clone(),
+        project: args.project.clone(),
         sort: args.sort.clone(),
         limit: args.limit,
         all: args.all,

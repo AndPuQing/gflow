@@ -104,6 +104,14 @@ pub struct ListArgs {
 
     #[arg(
         long,
+        short = 'P',
+        help = "Filter by project code",
+        value_hint = clap::ValueHint::Other
+    )]
+    pub project: Option<String>,
+
+    #[arg(
+        long,
         short = 'f',
         help = "Specify a comma-separated list of fields to display",
         value_hint = clap::ValueHint::Other

@@ -30,6 +30,7 @@ impl Executor for ArcExecutorWrapper {
 /// Runtime adapter for Scheduler with system integration
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
+    projects_config: gflow::config::ProjectsConfig,
     nvml: Option<Nvml>,
     executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
     dirty: bool,                 // Tracks if state has changed since last save
@@ -49,6 +50,7 @@ impl SchedulerRuntime {
         executor: Box<dyn Executor>,
         state_dir: PathBuf,
         allowed_gpu_indices: Option<Vec<u32>>,
+        projects_config: gflow::config::ProjectsConfig,
     ) -> anyhow::Result<Self> {
         // Try to initialize NVML, but continue without it if it fails
         let (nvml, gpu_slots) = match Nvml::init() {
@@ -115,6 +117,7 @@ impl SchedulerRuntime {
 
         let mut runtime = Self {
             scheduler,
+            projects_config,
             nvml,
             executor: executor_arc,
             dirty: false,
@@ -604,7 +607,15 @@ impl SchedulerRuntime {
 
     // Job mutation methods
 
-    pub async fn submit_job(&mut self, job: Job) -> (u32, String, Job) {
+    fn normalize_and_validate_project(&self, job: &mut Job) -> Result<()> {
+        let normalized =
+            gflow::utils::validate_project_policy(job.project.as_deref(), &self.projects_config)?;
+        job.project = normalized.map(CompactString::from);
+        Ok(())
+    }
+
+    pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
+        self.normalize_and_validate_project(&mut job)?;
         let (job_id, run_name) = self.scheduler.submit_job(job);
         self.mark_dirty();
 
@@ -613,18 +624,24 @@ impl SchedulerRuntime {
             .get_job(job_id)
             .expect("Job should exist after submission");
 
-        (job_id, run_name, job_clone)
+        Ok((job_id, run_name, job_clone))
     }
 
     /// Submit multiple jobs in a batch
     pub async fn submit_jobs(
         &mut self,
         jobs: Vec<Job>,
-    ) -> (Vec<(u32, String, String)>, Vec<Job>, u32) {
-        let mut results = Vec::with_capacity(jobs.len());
-        let mut submitted_jobs = Vec::with_capacity(jobs.len());
+    ) -> Result<(Vec<(u32, String, String)>, Vec<Job>, u32)> {
+        let mut normalized_jobs = Vec::with_capacity(jobs.len());
+        for mut job in jobs {
+            self.normalize_and_validate_project(&mut job)?;
+            normalized_jobs.push(job);
+        }
 
-        for job in jobs {
+        let mut results = Vec::with_capacity(normalized_jobs.len());
+        let mut submitted_jobs = Vec::with_capacity(normalized_jobs.len());
+
+        for job in normalized_jobs {
             let submitted_by = job.submitted_by.to_string();
             let (job_id, run_name) = self.scheduler.submit_job(job);
             results.push((job_id, run_name, submitted_by));
@@ -636,7 +653,7 @@ impl SchedulerRuntime {
 
         self.mark_dirty();
         let next_id = self.scheduler.next_job_id();
-        (results, submitted_jobs, next_id)
+        Ok((results, submitted_jobs, next_id))
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
@@ -1046,6 +1063,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_whitespace_project_when_project_is_required() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::config::ProjectsConfig {
+                known_projects: vec![],
+                require_project: true,
+            },
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("echo test")
+            .submitted_by("alice")
+            .project(Some("   ".to_string()))
+            .build();
+
+        let result = runtime.submit_job(job).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Project is required"));
+        assert_eq!(runtime.next_job_id(), 1);
+        assert!(runtime.get_job(1).is_none());
+    }
+
+    #[tokio::test]
+    async fn batch_project_validation_is_all_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::config::ProjectsConfig {
+                known_projects: vec!["alpha".to_string()],
+                require_project: true,
+            },
+        )
+        .unwrap();
+
+        let valid_job = Job::builder()
+            .command("echo valid")
+            .submitted_by("alice")
+            .project(Some("alpha".to_string()))
+            .build();
+        let invalid_job = Job::builder()
+            .command("echo invalid")
+            .submitted_by("alice")
+            .project(Some("unknown".to_string()))
+            .build();
+
+        let result = runtime.submit_jobs(vec![valid_job, invalid_job]).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown project"));
+        assert_eq!(runtime.next_job_id(), 1);
+        assert!(runtime.get_job(1).is_none());
+    }
+
+    #[tokio::test]
     async fn enters_journal_mode_and_does_not_overwrite_state_on_migration_failure() {
         let dir = tempfile::tempdir().unwrap();
         let state_path = dir.path().join("state.json");
@@ -1096,6 +1175,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::config::ProjectsConfig::default(),
         )
         .unwrap();
 
@@ -1190,6 +1270,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::config::ProjectsConfig::default(),
         )
         .unwrap();
 

@@ -37,8 +37,12 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_saver_handle = StateSaverHandle::new(state_tx);
 
     // Create SchedulerRuntime and set state saver
-    let mut scheduler_runtime =
-        scheduler_runtime::SchedulerRuntime::with_state_path(executor, state_dir, allowed_gpus)?;
+    let mut scheduler_runtime = scheduler_runtime::SchedulerRuntime::with_state_path(
+        executor,
+        state_dir,
+        allowed_gpus,
+        config.projects.clone(),
+    )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
 
     let scheduler = Arc::new(tokio::sync::RwLock::new(scheduler_runtime));

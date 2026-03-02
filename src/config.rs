@@ -16,6 +16,10 @@ pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "NotificationsConfig::is_default")]
     pub notifications: NotificationsConfig,
+    /// Project tracking settings
+    #[serde(default)]
+    #[serde(skip_serializing_if = "ProjectsConfig::is_default")]
+    pub projects: ProjectsConfig,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -69,6 +73,23 @@ fn default_max_concurrent_deliveries() -> usize {
 
 fn is_default_max_concurrent_deliveries(v: &usize) -> bool {
     *v == default_max_concurrent_deliveries()
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct ProjectsConfig {
+    /// List of known/allowed project codes
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub known_projects: Vec<String>,
+    /// Require project to be specified for all jobs
+    #[serde(default)]
+    pub require_project: bool,
+}
+
+impl ProjectsConfig {
+    fn is_default(value: &Self) -> bool {
+        value.known_projects.is_empty() && !value.require_project
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

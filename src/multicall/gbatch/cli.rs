@@ -122,6 +122,10 @@ pub struct AddArgs {
     /// Use {param_name} to substitute parameter values
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub name_template: Option<String>,
+
+    /// Project code for tracking and organization
+    #[arg(short = 'P', long, value_hint = clap::ValueHint::Other)]
+    pub project: Option<String>,
 }
 
 #[cfg(test)]

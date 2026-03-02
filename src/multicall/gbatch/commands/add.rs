@@ -6,6 +6,21 @@ use gflow::core::job::Job;
 use gflow::utils::parsers::{parse_array_spec, parse_range_spec};
 use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
 
+/// Validate project against configuration requirements
+fn validate_project(job: &mut Job, config: &gflow::config::Config) -> Result<()> {
+    let normalized =
+        gflow::utils::validate_project_policy(job.project.as_deref(), &config.projects)?;
+    job.project = normalized.map(|s| s.into());
+    Ok(())
+}
+
+/// Resolve project from CLI args and script args (CLI takes precedence)
+fn resolve_project(args: &cli::AddArgs, script_args: &Option<cli::AddArgs>) -> Option<String> {
+    args.project
+        .clone()
+        .or_else(|| script_args.as_ref().and_then(|s| s.project.clone()))
+}
+
 /// Substitute {param_name} patterns in command with actual values (for preview only)
 fn preview_substitute(command: &str, parameters: &HashMap<String, String>) -> String {
     let mut result = command.to_string();
@@ -224,6 +239,8 @@ pub(crate) async fn handle_add(
         for params in param_combinations {
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
+            // Validate project
+            validate_project(&mut job, config)?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
@@ -309,6 +326,8 @@ pub(crate) async fn handle_add(
         for params in param_combinations {
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
+            // Validate project
+            validate_project(&mut job, config)?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
@@ -385,6 +404,8 @@ pub(crate) async fn handle_add(
         for task_id in task_ids {
             let mut job =
                 build_job(&add_args, Some(task_id), &client, stdin_content.as_ref()).await?;
+            // Validate project
+            validate_project(&mut job, config)?;
             // Assign group_id and max_concurrent if needed
             job.group_id = group_id;
             job.max_concurrent = add_args.max_concurrent;
@@ -435,7 +456,8 @@ pub(crate) async fn handle_add(
     }
 
     // Single job submission (existing logic)
-    let job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
+    let mut job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
+    validate_project(&mut job, config)?;
     let response = client.add_job(job).await.context("Failed to add job")?;
     println!(
         "Submitted batch job {} ({})",
@@ -520,6 +542,7 @@ async fn build_job(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
+        builder = builder.project(resolve_project(args, &Some(script_args.clone())));
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
@@ -556,6 +579,10 @@ async fn build_job(
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
+            // CLI project takes precedence over script project
+            let final_project = args.project.clone().or(script_args.project);
+            builder = builder.project(final_project);
+
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
                 time_limit
@@ -590,6 +617,7 @@ async fn build_job(
             // Auto-detect conda environment if not specified
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
+            builder = builder.project(resolve_project(args, &None));
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
@@ -678,6 +706,7 @@ async fn build_job_with_params(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
+        builder = builder.project(resolve_project(args, &Some(script_args.clone())));
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
@@ -714,6 +743,10 @@ async fn build_job_with_params(
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
+            // CLI project takes precedence over script project
+            let final_project = args.project.clone().or(script_args.project);
+            builder = builder.project(final_project);
+
             // CLI time limit takes precedence over script time limit
             let final_time_limit = if time_limit.is_some() {
                 time_limit
@@ -748,6 +781,7 @@ async fn build_job_with_params(
             // Auto-detect conda environment if not specified
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
+            builder = builder.project(resolve_project(args, &None));
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
@@ -792,6 +826,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             max_concurrent: None,
             param_file: None,
             name_template: None,
+            project: None,
         });
     }
 
