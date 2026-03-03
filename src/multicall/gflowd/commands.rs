@@ -1,4 +1,5 @@
 use super::cli::Commands;
+use anyhow::{Context, Result};
 use clap::CommandFactory;
 
 pub mod down;
@@ -9,10 +10,25 @@ pub mod up;
 
 pub static TMUX_SESSION_NAME: &str = "gflow_server";
 
+/// Build a shell command that always starts daemon from the currently running `gflow` binary.
+/// This avoids accidentally picking a stale `gflow`/`gflowd` from PATH.
+pub fn daemon_start_command(gpus: Option<&str>) -> Result<String> {
+    let gflow_path = std::env::current_exe().context("failed to resolve current gflow binary")?;
+    let exe = shell_escape::escape(gflow_path.to_string_lossy());
+
+    let mut command = format!("{exe} __multicall gflowd -v");
+    if let Some(gpu_spec) = gpus {
+        let escaped = shell_escape::escape(gpu_spec.into());
+        command.push_str(&format!(" --gpus-internal {escaped}"));
+    }
+
+    Ok(command)
+}
+
 pub async fn handle_commands(
     config_path: &Option<std::path::PathBuf>,
     command: Commands,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     match command {
         Commands::Init {
             yes,

@@ -33,10 +33,7 @@ pub async fn handle_reload(
     let new_session_name = format!("gflow_server_new_{}", timestamp);
     let session = TmuxSession::new(new_session_name.clone());
 
-    let mut command = String::from("gflowd -v");
-    if let Some(gpu_spec) = gpus {
-        command.push_str(&format!(" --gpus-internal '{}'", gpu_spec));
-    }
+    let command = super::daemon_start_command(gpus.as_deref())?;
 
     session.send_command(&command);
 

@@ -3,11 +3,7 @@ use gflow::tmux::TmuxSession;
 
 pub async fn handle_up(gpus: Option<String>) -> Result<()> {
     let session = TmuxSession::new(super::TMUX_SESSION_NAME.to_string());
-
-    let mut command = String::from("gflowd -v");
-    if let Some(gpu_spec) = gpus {
-        command.push_str(&format!(" --gpus-internal '{}'", gpu_spec));
-    }
+    let command = super::daemon_start_command(gpus.as_deref())?;
 
     session.send_command(&command);
 
