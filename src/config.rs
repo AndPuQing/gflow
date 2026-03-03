@@ -1,4 +1,5 @@
 use crate::core::get_config_dir;
+use crate::core::gpu_allocation::GpuAllocationStrategy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -32,6 +33,9 @@ pub struct DaemonConfig {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpus: Option<Vec<u32>>,
+    /// GPU assignment strategy when selecting from available GPUs.
+    #[serde(default)]
+    pub gpu_allocation_strategy: GpuAllocationStrategy,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -142,6 +146,7 @@ impl Default for DaemonConfig {
             host: default_host(),
             port: default_port(),
             gpus: None,
+            gpu_allocation_strategy: GpuAllocationStrategy::default(),
         }
     }
 }

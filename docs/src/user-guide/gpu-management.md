@@ -99,6 +99,25 @@ gflowd restart --gpus 0-3
 
 See also: [Configuration -> GPU Selection](./configuration#gpu-selection).
 
+## Choose GPU Allocation Strategy
+
+When multiple GPUs are available for a job, you can choose how gflow selects them:
+
+- `sequential` (default): picks lower indices first.
+- `random`: randomizes GPU selection order.
+
+```toml
+[daemon]
+gpu_allocation_strategy = "sequential"
+# gpu_allocation_strategy = "random"
+```
+
+Or override on daemon startup:
+
+```bash
+gflowd up --gpu-allocation-strategy random
+```
+
 ## Troubleshooting
 
 ### Job not getting GPU

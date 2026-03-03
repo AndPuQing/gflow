@@ -99,6 +99,25 @@ gflowd restart --gpus 0-3
 
 另见：[配置 -> GPU 选择](./configuration#gpu-selection)。
 
+## 选择 GPU 分配策略
+
+当任务可用 GPU 不止一张时，可以选择 gflow 的分配方式：
+
+- `sequential`（默认）：优先分配低索引 GPU。
+- `random`：随机化可用 GPU 的选择顺序。
+
+```toml
+[daemon]
+gpu_allocation_strategy = "sequential"
+# gpu_allocation_strategy = "random"
+```
+
+也可在启动守护进程时覆盖：
+
+```bash
+gflowd up --gpu-allocation-strategy random
+```
+
 ## 故障排除
 
 ### 任务拿不到 GPU

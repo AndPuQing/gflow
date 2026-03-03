@@ -26,6 +26,7 @@ use std::time::Duration;
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_dir = gflow::core::get_data_dir()?;
     let allowed_gpus = config.daemon.gpus.clone();
+    let gpu_allocation_strategy = config.daemon.gpu_allocation_strategy;
     let notifications = config.notifications.clone();
     let daemon_host = config.daemon.host.clone();
 
@@ -41,6 +42,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         executor,
         state_dir,
         allowed_gpus,
+        gpu_allocation_strategy,
         config.projects.clone(),
     )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());

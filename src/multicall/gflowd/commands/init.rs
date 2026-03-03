@@ -15,6 +15,7 @@ pub struct InitArgs {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub timezone: Option<String>,
+    pub gpu_allocation_strategy: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,11 @@ pub async fn handle_init(config_path: &Option<PathBuf>, args: InitArgs) -> anyho
     }
     if let Some(port) = args.port {
         cfg.daemon.port = port;
+    }
+    if let Some(strategy) = args.gpu_allocation_strategy.as_deref() {
+        cfg.daemon.gpu_allocation_strategy = strategy.parse().with_context(|| {
+            format!("Invalid GPU allocation strategy '{strategy}'. Use 'sequential' or 'random'.")
+        })?;
     }
 
     // Non-interactive mode: use flags + defaults.
@@ -391,6 +397,10 @@ fn print_success(path: &Path, cfg: &gflow::config::Config, detected_gpus: &[Dete
 
     println!("  Host: {}", cfg.daemon.host);
     println!("  Port: {}", cfg.daemon.port);
+    println!(
+        "  GPU allocation strategy: {}",
+        cfg.daemon.gpu_allocation_strategy
+    );
     println!("  Timezone: {}", cfg.timezone.as_deref().unwrap_or("local"));
     if cfg.notifications.enabled && !cfg.notifications.webhooks.is_empty() {
         println!(

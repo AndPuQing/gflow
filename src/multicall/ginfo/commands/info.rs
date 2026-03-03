@@ -151,6 +151,7 @@ mod tests {
                 },
             ],
             allowed_gpu_indices: None,
+            gpu_allocation_strategy: gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         };
         let jobs = vec![JobBuilder::new().build(), JobBuilder::new().build()];
 

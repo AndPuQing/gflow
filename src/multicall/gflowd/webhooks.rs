@@ -715,6 +715,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig::default(),
         )
         .unwrap();

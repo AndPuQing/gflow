@@ -23,6 +23,10 @@ pub struct GFlowd {
     #[arg(long, hide = true)]
     pub gpus_internal: Option<String>,
 
+    /// GPU allocation strategy override (internal use, set by 'gflowd up --gpu-allocation-strategy')
+    #[arg(long, hide = true)]
+    pub gpu_allocation_strategy_internal: Option<String>,
+
     #[command(flatten)]
     pub verbosity: Verbosity,
 }
@@ -58,12 +62,20 @@ pub enum Commands {
         /// Timezone to store in config (e.g., "Asia/Shanghai", "UTC"). Use "local" to leave unset.
         #[arg(long, value_name = "TZ")]
         timezone: Option<String>,
+
+        /// GPU allocation strategy: sequential or random
+        #[arg(long, value_name = "STRATEGY")]
+        gpu_allocation_strategy: Option<String>,
     },
     /// Start the daemon in a tmux session
     Up {
         /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
         #[arg(long, value_name = "INDICES")]
         gpus: Option<String>,
+
+        /// GPU allocation strategy: sequential or random
+        #[arg(long, value_name = "STRATEGY")]
+        gpu_allocation_strategy: Option<String>,
     },
     /// Stop the daemon
     Down,
@@ -72,12 +84,20 @@ pub enum Commands {
         /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
         #[arg(long, value_name = "INDICES")]
         gpus: Option<String>,
+
+        /// GPU allocation strategy: sequential or random
+        #[arg(long, value_name = "STRATEGY")]
+        gpu_allocation_strategy: Option<String>,
     },
     /// Reload the daemon with zero downtime
     Reload {
         /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
         #[arg(long, value_name = "INDICES")]
         gpus: Option<String>,
+
+        /// GPU allocation strategy: sequential or random
+        #[arg(long, value_name = "STRATEGY")]
+        gpu_allocation_strategy: Option<String>,
     },
     /// Show the daemon status
     Status,

@@ -50,6 +50,7 @@ impl SchedulerRuntime {
         executor: Box<dyn Executor>,
         state_dir: PathBuf,
         allowed_gpu_indices: Option<Vec<u32>>,
+        gpu_allocation_strategy: gflow::core::gpu_allocation::GpuAllocationStrategy,
         projects_config: gflow::config::ProjectsConfig,
     ) -> anyhow::Result<Self> {
         // Try to initialize NVML, but continue without it if it fails
@@ -113,6 +114,7 @@ impl SchedulerRuntime {
             .with_state_path(state_file)
             .with_total_memory_mb(total_memory_mb)
             .with_allowed_gpu_indices(validated_gpu_indices)
+            .with_gpu_allocation_strategy(gpu_allocation_strategy)
             .build();
 
         let mut runtime = Self {
@@ -1069,6 +1071,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig {
                 known_projects: vec![],
                 require_project: true,
@@ -1099,6 +1102,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig {
                 known_projects: vec!["alpha".to_string()],
                 require_project: true,
@@ -1175,6 +1179,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig::default(),
         )
         .unwrap();
@@ -1270,6 +1275,7 @@ mod tests {
             Box::new(NoopExecutor),
             dir.path().to_path_buf(),
             None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig::default(),
         )
         .unwrap();

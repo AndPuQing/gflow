@@ -23,6 +23,7 @@ gflowd init
 host = "localhost"
 port = 59000
 # gpus = [0, 2]
+# gpu_allocation_strategy = "sequential" # 或 "random"
 ```
 
 所有命令都支持 `--config <path>` 指定配置文件：
@@ -59,6 +60,28 @@ port = 59000
 gpus = [0, 2]
 ```
 
+#### GPU 分配策略
+
+控制当有多张可用 GPU 时，gflow 如何选择具体索引。
+
+配置文件：
+
+```toml
+[daemon]
+gpu_allocation_strategy = "sequential" # 默认
+# gpu_allocation_strategy = "random"
+```
+
+- `sequential`：按索引顺序分配（优先低编号 GPU）。
+- `random`：每次调度随机化可用 GPU 的选择顺序。
+
+守护进程 CLI 参数（覆盖配置文件）：
+
+```bash
+gflowd up --gpu-allocation-strategy random
+gflowd restart --gpu-allocation-strategy sequential
+```
+
 守护进程 CLI 参数（覆盖配置文件）：
 
 ```bash
@@ -81,6 +104,12 @@ gctl show-gpus
 2. 环境变量（`GFLOW_DAEMON_GPUS=...`）
 3. 配置文件（`daemon.gpus = [...]`）
 4. 默认：所有检测到的 GPU
+
+分配策略优先级（从高到低）：
+1. CLI 参数（`gflowd up --gpu-allocation-strategy ...`）
+2. 环境变量（`GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=...`）
+3. 配置文件（`daemon.gpu_allocation_strategy = "..."`）
+4. 默认：`sequential`
 
 ## 时区
 
@@ -192,6 +221,7 @@ Payload 结构（不同事件可能省略部分字段）：
 export GFLOW_DAEMON_HOST=localhost
 export GFLOW_DAEMON_PORT=59000
 export GFLOW_DAEMON_GPUS=0,2
+export GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=random
 ```
 
 ## 文件与状态

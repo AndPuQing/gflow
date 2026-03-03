@@ -1,5 +1,6 @@
 pub mod conflict;
 pub mod executor;
+pub mod gpu_allocation;
 pub mod info;
 pub mod job;
 pub mod macros;

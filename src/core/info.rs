@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::gpu_allocation::GpuAllocationStrategy;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuInfo {
     pub uuid: String,
@@ -15,4 +17,6 @@ pub struct SchedulerInfo {
     pub gpus: Vec<GpuInfo>,
     /// GPU indices that scheduler is configured to use (None = all GPUs)
     pub allowed_gpu_indices: Option<Vec<u32>>,
+    /// Strategy used when allocating GPUs for new jobs.
+    pub gpu_allocation_strategy: GpuAllocationStrategy,
 }

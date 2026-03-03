@@ -23,6 +23,7 @@ Minimal example:
 host = "localhost"
 port = 59000
 # gpus = [0, 2]
+# gpu_allocation_strategy = "sequential" # or "random"
 ```
 
 All CLIs accept `--config <path>` to use a different file:
@@ -59,6 +60,28 @@ Config file:
 gpus = [0, 2]
 ```
 
+#### GPU Allocation Strategy
+
+Control how gflow picks GPU indices when multiple GPUs are available.
+
+Config file:
+
+```toml
+[daemon]
+gpu_allocation_strategy = "sequential" # default
+# gpu_allocation_strategy = "random"
+```
+
+- `sequential`: deterministic, prefer lower GPU indices first.
+- `random`: randomize GPU selection order each scheduling cycle.
+
+Daemon CLI flag (overrides config):
+
+```bash
+gflowd up --gpu-allocation-strategy random
+gflowd restart --gpu-allocation-strategy sequential
+```
+
 Daemon CLI flag (overrides config):
 
 ```bash
@@ -81,6 +104,12 @@ Precedence (highest → lowest):
 2. Env var (`GFLOW_DAEMON_GPUS=...`)
 3. Config file (`daemon.gpus = [...]`)
 4. Default: all detected GPUs
+
+For allocation strategy:
+1. CLI flag (`gflowd up --gpu-allocation-strategy ...`)
+2. Env var (`GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=...`)
+3. Config file (`daemon.gpu_allocation_strategy = "..."`)
+4. Default: `sequential`
 
 ## Timezone
 
@@ -192,6 +221,7 @@ Notes:
 export GFLOW_DAEMON_HOST=localhost
 export GFLOW_DAEMON_PORT=59000
 export GFLOW_DAEMON_GPUS=0,2
+export GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=random
 ```
 
 ## Files and State

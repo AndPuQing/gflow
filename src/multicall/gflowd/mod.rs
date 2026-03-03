@@ -53,6 +53,14 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
         let indices = gflow::utils::parse_gpu_indices(gpu_spec)?;
         config.daemon.gpus = Some(indices);
     }
+    if let Some(ref strategy) = gflowd.gpu_allocation_strategy_internal {
+        config.daemon.gpu_allocation_strategy = strategy.parse().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid GPU allocation strategy '{}'. Use 'sequential' or 'random'.",
+                strategy
+            )
+        })?;
+    }
 
     server::run(config).await
 }

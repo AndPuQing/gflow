@@ -1,4 +1,5 @@
 use crate::core::executor::Executor;
+use crate::core::gpu_allocation::GpuAllocationStrategy;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{
     DependencyMode, GpuIds, Job, JobRuntime, JobSpec, JobState, JobStateReason, JobView,
@@ -105,6 +106,9 @@ pub struct Scheduler {
     pub(crate) next_job_id: u32,
     /// GPU indices that scheduler is allowed to use (None = all GPUs)
     pub(crate) allowed_gpu_indices: Option<Vec<u32>>,
+    /// Strategy for selecting which available GPU indices to assign to a job.
+    #[serde(skip)]
+    pub(crate) gpu_allocation_strategy: GpuAllocationStrategy,
     /// Index of job IDs by username for fast dependency resolution
     /// Maps username -> sorted list of job IDs (ascending order)
     #[serde(skip)]
@@ -193,6 +197,7 @@ impl Default for Scheduler {
             state_path: PathBuf::from("state.json"),
             next_job_id: 1,
             allowed_gpu_indices: None,
+            gpu_allocation_strategy: GpuAllocationStrategy::default(),
             user_jobs_index: HashMap::new(),
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),
@@ -274,6 +279,7 @@ impl<'de> Deserialize<'de> for Scheduler {
             state_path: persisted.state_path,
             next_job_id: persisted.next_job_id,
             allowed_gpu_indices: persisted.allowed_gpu_indices,
+            gpu_allocation_strategy: GpuAllocationStrategy::default(),
             user_jobs_index: HashMap::new(),
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),
@@ -524,6 +530,7 @@ impl Scheduler {
         SchedulerInfo {
             gpus,
             allowed_gpu_indices: self.allowed_gpu_indices.clone(),
+            gpu_allocation_strategy: self.gpu_allocation_strategy,
         }
     }
 
@@ -540,6 +547,16 @@ impl Scheduler {
     /// Get GPU restrictions
     pub fn allowed_gpu_indices(&self) -> Option<&Vec<u32>> {
         self.allowed_gpu_indices.as_ref()
+    }
+
+    /// Set GPU allocation strategy.
+    pub fn set_gpu_allocation_strategy(&mut self, strategy: GpuAllocationStrategy) {
+        self.gpu_allocation_strategy = strategy;
+    }
+
+    /// Get current GPU allocation strategy.
+    pub fn gpu_allocation_strategy(&self) -> GpuAllocationStrategy {
+        self.gpu_allocation_strategy
     }
 
     /// Submit a job and return (job_id, run_name)
@@ -1146,7 +1163,8 @@ impl Scheduler {
             // Now allocate resources if all checks pass
             if has_enough_gpus && has_enough_memory && within_group_limit && respects_reservations {
                 // Filter out GPUs that are reserved by other users
-                let usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
+                let mut usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
+                self.reorder_usable_gpus(job_id, &mut usable_gpus);
 
                 let mut allocated_gpus: Option<GpuIds> = None;
                 if let Some(rt) = self.job_runtimes.get_mut(idx) {
@@ -1710,6 +1728,34 @@ impl Scheduler {
             .copied()
             .collect()
     }
+
+    /// Reorder candidate GPU indices according to configured allocation strategy.
+    fn reorder_usable_gpus(&self, job_id: u32, usable_gpus: &mut [u32]) {
+        match self.gpu_allocation_strategy {
+            GpuAllocationStrategy::Sequential => {
+                usable_gpus.sort_unstable();
+            }
+            GpuAllocationStrategy::Random => {
+                let time_seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() ^ ((d.subsec_nanos() as u64) << 32))
+                    .unwrap_or(0);
+                let seed = time_seed ^ ((job_id as u64) << 32) ^ (self.next_job_id as u64);
+
+                usable_gpus.sort_unstable_by_key(|gpu| {
+                    splitmix64(seed ^ ((*gpu as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)))
+                });
+            }
+        }
+    }
+}
+
+#[inline]
+fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
 }
 
 /// Builder for creating Scheduler instances with dependency injection
@@ -1719,6 +1765,7 @@ pub struct SchedulerBuilder {
     state_path: PathBuf,
     total_memory_mb: u64,
     allowed_gpu_indices: Option<Vec<u32>>,
+    gpu_allocation_strategy: GpuAllocationStrategy,
 }
 
 impl SchedulerBuilder {
@@ -1729,6 +1776,7 @@ impl SchedulerBuilder {
             state_path: PathBuf::from("state.json"),
             total_memory_mb: 16 * 1024, // Default 16GB
             allowed_gpu_indices: None,
+            gpu_allocation_strategy: GpuAllocationStrategy::default(),
         }
     }
 
@@ -1757,6 +1805,11 @@ impl SchedulerBuilder {
         self
     }
 
+    pub fn with_gpu_allocation_strategy(mut self, strategy: GpuAllocationStrategy) -> Self {
+        self.gpu_allocation_strategy = strategy;
+        self
+    }
+
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
@@ -1769,6 +1822,7 @@ impl SchedulerBuilder {
             state_path: self.state_path,
             next_job_id: 1,
             allowed_gpu_indices: self.allowed_gpu_indices,
+            gpu_allocation_strategy: self.gpu_allocation_strategy,
             user_jobs_index: HashMap::new(),
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),
@@ -1915,6 +1969,47 @@ mod tests {
         assert_eq!(run_name, "gflow-job-1");
         assert!(scheduler.job_exists(1));
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_gpu_allocation_strategy_sequential_uses_lowest_indices_first() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.set_gpu_allocation_strategy(GpuAllocationStrategy::Sequential);
+
+        for i in 0..4 {
+            scheduler.gpu_slots.insert(
+                format!("GPU-{}", i),
+                GPUSlot {
+                    index: i,
+                    available: true,
+                    reason: None,
+                },
+            );
+        }
+
+        let job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(2)
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_id);
+        assert_eq!(
+            scheduler.get_job(job_id).and_then(|j| j.gpu_ids),
+            Some(GpuIds::from_iter([0, 1]))
+        );
+    }
+
+    #[test]
+    fn test_scheduler_info_includes_gpu_allocation_strategy() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.set_gpu_allocation_strategy(GpuAllocationStrategy::Random);
+
+        let info = scheduler.info();
+        assert_eq!(info.gpu_allocation_strategy, GpuAllocationStrategy::Random);
     }
 
     #[test]
