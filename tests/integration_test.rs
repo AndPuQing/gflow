@@ -75,6 +75,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
         GPUSlot {
             index: 0,
             available: true,
+            total_memory_mb: None,
             reason: None,
         },
     );
@@ -83,6 +84,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
         GPUSlot {
             index: 1,
             available: true,
+            total_memory_mb: None,
             reason: None,
         },
     );

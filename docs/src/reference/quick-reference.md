@@ -49,11 +49,17 @@ gbatch train.sh
 
 # Common options
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
+gbatch --gpus 1 --shared --gpu-memory 20G python train.py
 gbatch --priority 50 python urgent.py
 gbatch --conda-env myenv python script.py
 gbatch --project ml-research python train.py
 gbatch --dry-run --gpus 1 python train.py
 ```
+
+Notes:
+- `--memory` (`--max-mem`) limits host RAM.
+- `--gpu-memory` (`--max-gpu-mem`) limits per-GPU VRAM.
+- `--shared` requires `--gpu-memory`.
 
 ### Script Directives
 
@@ -62,8 +68,10 @@ Only these are parsed from scripts:
 ```bash
 #!/bin/bash
 # GFLOW --gpus=1
+# GFLOW --shared
 # GFLOW --time=2:00:00
 # GFLOW --memory=4G
+# GFLOW --gpu-memory=20G
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123

@@ -16,6 +16,8 @@ pub struct UpdateJobParams {
     pub clear_time_limit: bool,
     pub memory_limit: Option<String>,
     pub clear_memory_limit: bool,
+    pub gpu_memory_limit: Option<String>,
+    pub clear_gpu_memory_limit: bool,
     pub depends_on: Option<Vec<u32>>,
     pub depends_on_all: Option<Vec<u32>>,
     pub depends_on_any: Option<Vec<u32>>,
@@ -45,6 +47,8 @@ pub async fn handle_update(
         || params.clear_time_limit
         || params.memory_limit.is_some()
         || params.clear_memory_limit
+        || params.gpu_memory_limit.is_some()
+        || params.clear_gpu_memory_limit
         || params.depends_on.is_some()
         || params.depends_on_all.is_some()
         || params.depends_on_any.is_some()
@@ -91,6 +95,15 @@ pub async fn handle_update(
     let parsed_memory_limit = if let Some(mem_str) = &params.memory_limit {
         Some(Some(gflow::utils::parse_memory_limit(mem_str)?))
     } else if params.clear_memory_limit {
+        Some(None)
+    } else {
+        None
+    };
+
+    // Parse GPU memory limit (per GPU)
+    let parsed_gpu_memory_limit = if let Some(mem_str) = &params.gpu_memory_limit {
+        Some(Some(gflow::utils::parse_memory_limit(mem_str)?))
+    } else if params.clear_gpu_memory_limit {
         Some(None)
     } else {
         None
@@ -156,6 +169,7 @@ pub async fn handle_update(
             parameters: parameters.clone(),
             time_limit: parsed_time_limit,
             memory_limit_mb: parsed_memory_limit,
+            gpu_memory_limit_mb: parsed_gpu_memory_limit,
             depends_on_ids: parsed_depends_on_ids.clone(),
             dependency_mode: parsed_dependency_mode,
             auto_cancel_on_dependency_failure: parsed_auto_cancel,

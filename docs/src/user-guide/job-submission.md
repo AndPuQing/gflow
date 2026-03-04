@@ -38,14 +38,22 @@ gbatch train.sh
 Only a small subset of options are parsed from scripts:
 
 - `# GFLOW --gpus=<N>`
+- `# GFLOW --shared`
 - `# GFLOW --time=<TIME>`
 - `# GFLOW --memory=<LIMIT>`
+- `# GFLOW --gpu-memory=<LIMIT>`
 - `# GFLOW --priority=<N>`
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>` (single dependency only)
 - `# GFLOW --project=<CODE>`
 
 CLI flags override script directives.
+
+### Memory Semantics
+
+- `--memory` (`--max-mem` / `--max-memory`) limits host RAM.
+- `--gpu-memory` (`--max-gpu-mem` / `--max-gpu-memory`) limits per-GPU VRAM.
+- Shared jobs must set both `--shared` and `--gpu-memory`.
 
 ## Common Options
 
@@ -55,6 +63,9 @@ gbatch --gpus 1 python train.py
 
 # Time limit
 gbatch --time 30 python quick.py
+
+# Shared GPU mode (must set --gpu-memory)
+gbatch --gpus 1 --shared --gpu-memory 20G python train.py
 
 # Priority
 gbatch --priority 50 python urgent.py

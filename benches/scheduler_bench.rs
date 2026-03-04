@@ -97,6 +97,7 @@ fn create_test_scheduler() -> Scheduler {
             GPUSlot {
                 index: i,
                 available: true,
+                total_memory_mb: None,
                 reason: None,
             },
         );

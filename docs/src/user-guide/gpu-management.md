@@ -75,6 +75,18 @@ gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 gjob show <job_id>
 ```
 
+### Shared GPU Mode
+
+Use shared mode when you want multiple jobs to co-locate on one physical GPU.
+
+```bash
+gbatch --gpus 1 --shared --gpu-memory 20G python train.py
+```
+
+- `--shared` jobs only share with other `--shared` jobs.
+- `--shared` requires a per-GPU VRAM limit via `--gpu-memory` (alias: `--max-gpu-mem`).
+- `--memory` (`--max-mem`) is still host RAM, not GPU VRAM.
+
 ### GPU Visibility
 
 ```bash
@@ -140,6 +152,8 @@ gqueue -f JOBID,NODELIST(REASON)
 ```bash
 nvidia-smi --query-gpu=memory.free,memory.used --format=csv
 ```
+
+If shared jobs fail with OOM, verify `--gpu-memory` is set and sized appropriately for each job.
 
 ## See Also
 

@@ -8,12 +8,17 @@ use super::state_saver::StateSaverHandle;
 use anyhow::Result;
 use compact_str::CompactString;
 use gflow::core::executor::Executor;
-use gflow::core::job::{Job, JobSpec, JobState};
+use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::{GPUSlot, GPU, UUID};
 use gflow::tmux::disable_pipe_pane_for_job;
 use nvml_wrapper::Nvml;
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
@@ -549,14 +554,32 @@ impl SchedulerRuntime {
 
     /// Refresh GPU slot availability using NVML
     fn refresh_gpu_slots(&mut self) {
-        let running_gpu_indices: std::collections::HashSet<u32> = self
+        let mut running_shared_gpu_indices = HashSet::new();
+        let mut running_exclusive_gpu_indices = HashSet::new();
+
+        for rt in self
             .scheduler
             .job_runtimes()
             .iter()
             .filter(|rt| rt.state == JobState::Running)
-            .filter_map(|rt| rt.gpu_ids.as_ref())
-            .flat_map(|ids| ids.iter().copied())
-            .collect();
+        {
+            let Some(gpu_ids) = rt.gpu_ids.as_ref() else {
+                continue;
+            };
+
+            match rt.gpu_sharing_mode {
+                GpuSharingMode::Shared => {
+                    for &gpu in gpu_ids {
+                        running_shared_gpu_indices.insert(gpu);
+                    }
+                }
+                GpuSharingMode::Exclusive => {
+                    for &gpu in gpu_ids {
+                        running_exclusive_gpu_indices.insert(gpu);
+                    }
+                }
+            }
+        }
 
         if let Some(nvml) = &self.nvml {
             if let Ok(device_count) = nvml.device_count() {
@@ -564,15 +587,24 @@ impl SchedulerRuntime {
                     if let Ok(device) = nvml.device_by_index(i) {
                         if let Ok(uuid) = device.uuid() {
                             if let Some(slot) = self.scheduler.gpu_slots_mut().get_mut(&uuid) {
-                                let is_free_in_scheduler =
-                                    !running_gpu_indices.contains(&slot.index);
+                                let occupied_by_exclusive =
+                                    running_exclusive_gpu_indices.contains(&slot.index);
+                                let occupied_by_shared =
+                                    running_shared_gpu_indices.contains(&slot.index);
                                 let is_free_in_nvml = device
                                     .running_compute_processes()
                                     .is_ok_and(|procs| procs.is_empty());
-                                slot.available = is_free_in_scheduler && is_free_in_nvml;
+                                slot.available = if occupied_by_exclusive {
+                                    false
+                                } else if occupied_by_shared {
+                                    true
+                                } else {
+                                    is_free_in_nvml
+                                };
 
                                 // Set reason if GPU is occupied by non-gflow process
-                                if is_free_in_scheduler && !is_free_in_nvml {
+                                if !occupied_by_exclusive && !occupied_by_shared && !is_free_in_nvml
+                                {
                                     slot.reason = Some("Unmanaged".to_string());
                                 } else {
                                     slot.reason = None;
@@ -616,8 +648,18 @@ impl SchedulerRuntime {
         Ok(())
     }
 
+    fn validate_shared_job_requirements(job: &Job) -> Result<()> {
+        if job.gpu_sharing_mode == GpuSharingMode::Shared && job.gpu_memory_limit_mb.is_none() {
+            anyhow::bail!(
+                "Shared jobs must include a GPU memory limit (--gpu-memory / --max-gpu-mem)."
+            );
+        }
+        Ok(())
+    }
+
     pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
         self.normalize_and_validate_project(&mut job)?;
+        Self::validate_shared_job_requirements(&job)?;
         let (job_id, run_name) = self.scheduler.submit_job(job);
         self.mark_dirty();
 
@@ -637,6 +679,7 @@ impl SchedulerRuntime {
         let mut normalized_jobs = Vec::with_capacity(jobs.len());
         for mut job in jobs {
             self.normalize_and_validate_project(&mut job)?;
+            Self::validate_shared_job_requirements(&job)?;
             normalized_jobs.push(job);
         }
 
@@ -761,6 +804,18 @@ impl SchedulerRuntime {
         let new_deps = request.depends_on_ids.as_deref();
         self.scheduler.validate_job_update(job_id, new_deps)?;
 
+        // Enforce shared-job invariant before mutating state.
+        if let Some((_spec, rt)) = self.scheduler.get_job_parts(job_id) {
+            if rt.gpu_sharing_mode == GpuSharingMode::Shared
+                && matches!(request.gpu_memory_limit_mb, Some(None))
+            {
+                return Err(
+                    "Shared jobs must keep a GPU memory limit (--gpu-memory / --max-gpu-mem)."
+                        .to_string(),
+                );
+            }
+        }
+
         {
             let (spec, rt) = self
                 .scheduler
@@ -809,6 +864,11 @@ impl SchedulerRuntime {
             if let Some(memory_limit_mb) = request.memory_limit_mb {
                 rt.memory_limit_mb = memory_limit_mb;
                 updated_fields.push("memory_limit_mb".to_string());
+            }
+
+            if let Some(gpu_memory_limit_mb) = request.gpu_memory_limit_mb {
+                rt.gpu_memory_limit_mb = gpu_memory_limit_mb;
+                updated_fields.push("gpu_memory_limit_mb".to_string());
             }
 
             if let Some(depends_on_ids) = request.depends_on_ids {
@@ -1035,11 +1095,16 @@ impl GPU for SchedulerRuntime {
         for i in 0..device_count {
             if let Ok(device) = nvml.device_by_index(i) {
                 if let Ok(uuid) = device.uuid() {
+                    let total_memory_mb = device
+                        .memory_info()
+                        .ok()
+                        .map(|mi| mi.total / (1024_u64 * 1024_u64));
                     gpu_slots.insert(
                         uuid,
                         GPUSlot {
                             available: true,
                             index: i,
+                            total_memory_mb,
                             reason: None,
                         },
                     );
@@ -1054,7 +1119,7 @@ impl GPU for SchedulerRuntime {
 mod tests {
     use super::*;
     use gflow::core::executor::Executor;
-    use gflow::core::job::{Job, JobState};
+    use gflow::core::job::{GpuSharingMode, Job, JobState};
 
     struct NoopExecutor;
 
@@ -1126,6 +1191,81 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("Unknown project"));
         assert_eq!(runtime.next_job_id(), 1);
         assert!(runtime.get_job(1).is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_shared_job_without_gpu_memory_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("echo test")
+            .submitted_by("alice")
+            .shared(true)
+            .build();
+
+        let result = runtime.submit_job(job).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Shared jobs must include a GPU memory limit"));
+        assert_eq!(runtime.next_job_id(), 1);
+        assert!(runtime.get_job(1).is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_updating_shared_job_to_clear_gpu_memory_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("echo test")
+            .submitted_by("alice")
+            .shared(true)
+            .gpu_memory_limit_mb(Some(1024))
+            .build();
+        let (job_id, _run_name, _job) = runtime.submit_job(job).await.unwrap();
+
+        let req = crate::multicall::gflowd::server::UpdateJobRequest {
+            command: None,
+            script: None,
+            gpus: None,
+            conda_env: None,
+            priority: None,
+            parameters: None,
+            time_limit: None,
+            memory_limit_mb: None,
+            gpu_memory_limit_mb: Some(None),
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            max_concurrent: None,
+        };
+
+        let result = runtime.update_job(job_id, req).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Shared jobs must keep a GPU memory limit"));
+
+        let current = runtime.get_job(job_id).unwrap();
+        assert_eq!(current.gpu_sharing_mode, GpuSharingMode::Shared);
+        assert_eq!(current.gpu_memory_limit_mb, Some(1024));
     }
 
     #[tokio::test]

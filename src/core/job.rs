@@ -230,6 +230,15 @@ pub enum DependencyMode {
     Any,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GpuSharingMode {
+    /// Job exclusively occupies each allocated GPU.
+    #[default]
+    Exclusive,
+    /// Job can share allocated GPUs with other shared jobs.
+    Shared,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum JobStateReason {
     /// Job is on hold by user request
@@ -391,6 +400,10 @@ pub struct JobRuntime {
 
     // Resource requirements (hot - checked during scheduling)
     pub gpus: u32,
+    #[serde(default)]
+    pub gpu_sharing_mode: GpuSharingMode,
+    #[serde(default)]
+    pub gpu_memory_limit_mb: Option<u64>,
     pub time_limit: Option<Duration>,
     pub memory_limit_mb: Option<u64>,
 
@@ -423,6 +436,8 @@ impl Default for JobRuntime {
             state: JobState::Queued,
             priority: 10,
             gpus: 0,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
+            gpu_memory_limit_mb: None,
             time_limit: None,
             memory_limit_mb: None,
             gpu_ids: None,
@@ -484,6 +499,10 @@ pub struct Job {
     #[serde(default)]
     pub auto_cancel_on_dependency_failure: bool, // Auto-cancel when dependency fails
     pub task_id: Option<u32>,
+    #[serde(default)]
+    pub gpu_sharing_mode: GpuSharingMode,
+    #[serde(default)]
+    pub gpu_memory_limit_mb: Option<u64>, // Per-GPU memory limit in MB (None = no limit)
     pub time_limit: Option<Duration>, // Maximum runtime in seconds (None = no limit)
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: CompactString,
@@ -526,6 +545,7 @@ pub struct JobBuilder {
     auto_cancel_on_dependency_failure: Option<bool>,
     task_id: Option<u32>,
     time_limit: Option<Duration>,
+    gpu_memory_limit_mb: Option<u64>,
     memory_limit_mb: Option<u64>,
     submitted_by: Option<CompactString>,
     run_name: Option<CompactString>,
@@ -535,6 +555,7 @@ pub struct JobBuilder {
     group_id: Option<Uuid>,
     max_concurrent: Option<usize>,
     project: Option<CompactString>,
+    gpu_sharing_mode: Option<GpuSharingMode>,
 }
 
 impl JobBuilder {
@@ -597,8 +618,27 @@ impl JobBuilder {
         self
     }
 
+    pub fn gpu_sharing_mode(mut self, gpu_sharing_mode: GpuSharingMode) -> Self {
+        self.gpu_sharing_mode = Some(gpu_sharing_mode);
+        self
+    }
+
+    pub fn shared(mut self, shared: bool) -> Self {
+        self.gpu_sharing_mode = Some(if shared {
+            GpuSharingMode::Shared
+        } else {
+            GpuSharingMode::Exclusive
+        });
+        self
+    }
+
     pub fn time_limit(mut self, time_limit: impl Into<Option<Duration>>) -> Self {
         self.time_limit = time_limit.into();
+        self
+    }
+
+    pub fn gpu_memory_limit_mb(mut self, gpu_memory_limit_mb: impl Into<Option<u64>>) -> Self {
+        self.gpu_memory_limit_mb = gpu_memory_limit_mb.into();
         self
     }
 
@@ -677,6 +717,8 @@ impl JobBuilder {
                 .auto_cancel_on_dependency_failure
                 .unwrap_or(true),
             task_id: self.task_id,
+            gpu_sharing_mode: self.gpu_sharing_mode.unwrap_or_default(),
+            gpu_memory_limit_mb: self.gpu_memory_limit_mb,
             time_limit: self.time_limit,
             memory_limit_mb: self.memory_limit_mb,
             submitted_by: self
@@ -715,6 +757,8 @@ impl Default for Job {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
+            gpu_memory_limit_mb: None,
             time_limit: None,
             memory_limit_mb: None,
             submitted_by: CompactString::const_new("unknown"),
@@ -755,6 +799,8 @@ impl Job {
             dependency_mode: spec.dependency_mode,
             auto_cancel_on_dependency_failure: spec.auto_cancel_on_dependency_failure,
             task_id: spec.task_id,
+            gpu_sharing_mode: runtime.gpu_sharing_mode,
+            gpu_memory_limit_mb: runtime.gpu_memory_limit_mb,
             time_limit: runtime.time_limit,
             memory_limit_mb: runtime.memory_limit_mb,
             submitted_by: spec.submitted_by,
@@ -800,6 +846,8 @@ impl Job {
             state: self.state,
             priority: self.priority,
             gpus: self.gpus,
+            gpu_sharing_mode: self.gpu_sharing_mode,
+            gpu_memory_limit_mb: self.gpu_memory_limit_mb,
             time_limit: self.time_limit,
             memory_limit_mb: self.memory_limit_mb,
             gpu_ids: self.gpu_ids,

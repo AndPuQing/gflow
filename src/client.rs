@@ -52,6 +52,8 @@ pub struct UpdateJobRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_limit_mb: Option<Option<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_limit_mb: Option<Option<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub depends_on_ids: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_mode: Option<Option<DependencyMode>>,

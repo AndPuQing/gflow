@@ -38,14 +38,22 @@ gbatch train.sh
 脚本里只会解析少量选项：
 
 - `# GFLOW --gpus=<N>`
+- `# GFLOW --shared`
 - `# GFLOW --time=<TIME>`
 - `# GFLOW --memory=<LIMIT>`
+- `# GFLOW --gpu-memory=<LIMIT>`
 - `# GFLOW --priority=<N>`
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>`（仅单依赖）
 - `# GFLOW --project=<CODE>`
 
 命令行参数优先于脚本指令。
+
+### 内存语义
+
+- `--memory`（`--max-mem` / `--max-memory`）限制主机内存（RAM）。
+- `--gpu-memory`（`--max-gpu-mem` / `--max-gpu-memory`）限制每张 GPU 的显存（VRAM）。
+- 共享模式任务必须同时设置 `--shared` 和 `--gpu-memory`。
 
 ## 常用选项
 
@@ -55,6 +63,9 @@ gbatch --gpus 1 python train.py
 
 # 时间限制
 gbatch --time 30 python quick.py
+
+# GPU 共享模式（必须配合 --gpu-memory）
+gbatch --gpus 1 --shared --gpu-memory 20G python train.py
 
 # 优先级
 gbatch --priority 50 python urgent.py

@@ -75,6 +75,18 @@ gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 gjob show <job_id>
 ```
 
+### GPU 共享模式
+
+当你希望多个任务共用同一张物理 GPU 时，可使用共享模式。
+
+```bash
+gbatch --gpus 1 --shared --gpu-memory 20G python train.py
+```
+
+- `--shared` 任务只会和其他 `--shared` 任务共享。
+- `--shared` 必须配合每卡显存上限 `--gpu-memory`（别名：`--max-gpu-mem`）。
+- `--memory`（`--max-mem`）仍然表示主机内存，不是 GPU 显存。
+
 ### GPU 可见性
 
 ```bash
@@ -97,7 +109,7 @@ gctl show-gpus
 gflowd restart --gpus 0-3
 ```
 
-另见：[配置 -> GPU 选择](./configuration#gpu-selection)。
+另见：[配置 -> GPU 选择](./configuration#gpu-选择)。
 
 ## 选择 GPU 分配策略
 
@@ -140,6 +152,8 @@ gqueue -f JOBID,NODELIST(REASON)
 ```bash
 nvidia-smi --query-gpu=memory.free,memory.used --format=csv
 ```
+
+若共享任务出现显存 OOM，请优先检查 `--gpu-memory` 是否已设置且数值是否合理。
 
 ## 另见
 

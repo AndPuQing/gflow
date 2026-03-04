@@ -63,6 +63,18 @@ fn print_job_details(job: &Job) {
     // Resources
     println!("\nResources:");
     print_field!("GPUs", "{}", job.gpus);
+    print_field!(
+        "GPUSharing",
+        "{}",
+        format_gpu_sharing_mode(job.gpu_sharing_mode)
+    );
+    if let Some(gpu_memory_mb) = job.gpu_memory_limit_mb {
+        print_field!(
+            "GPUMemoryLimit",
+            "{}",
+            gflow::utils::format_memory(gpu_memory_mb)
+        );
+    }
     print_optional_field!("GPUIDs", job.gpu_ids, |ids| format_ids(ids));
     if let Some(memory_mb) = job.memory_limit_mb {
         print_field!("MemoryLimit", "{}", gflow::utils::format_memory(memory_mb));
@@ -142,6 +154,13 @@ fn format_ids(ids: &[u32]) -> String {
         .map(|id| id.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn format_gpu_sharing_mode(mode: gflow::core::job::GpuSharingMode) -> &'static str {
+    match mode {
+        gflow::core::job::GpuSharingMode::Exclusive => "exclusive",
+        gflow::core::job::GpuSharingMode::Shared => "shared",
+    }
 }
 
 fn format_time(time: SystemTime) -> String {

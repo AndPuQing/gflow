@@ -922,7 +922,7 @@ fn output_yaml(jobs: &[gflow::core::job::Job]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gflow::core::job::{Job, JobState};
+    use gflow::core::job::{GpuSharingMode, Job, JobState};
     use std::path::PathBuf;
 
     fn create_test_job(id: u32, name: &str, depends_on: Option<u32>) -> Job {
@@ -939,6 +939,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
             run_name: Some(name.into()),
             project: None,
             state: JobState::Finished,
@@ -948,6 +949,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
+            gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
@@ -972,6 +974,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
             run_name: Some(name.into()),
             project: None,
             state,
@@ -981,6 +984,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
+            gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from: None,
             auto_close_tmux: false,
@@ -1005,6 +1009,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             task_id: None,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
             run_name: Some(name.into()),
             project: None,
             state: JobState::Finished,
@@ -1014,6 +1019,7 @@ mod tests {
             finished_at: None,
             time_limit: None,
             memory_limit_mb: None,
+            gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from,
             auto_close_tmux: false,

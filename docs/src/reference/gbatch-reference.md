@@ -18,6 +18,7 @@ gbatch completion <shell>
 gbatch --gpus 1 python train.py
 gbatch --time 2:00:00 python train.py
 gbatch --memory 8G python train.py
+gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 
 # Scheduling
 gbatch --priority 50 python urgent.py
@@ -71,6 +72,26 @@ Note: a single number is **minutes**. Use `0:30` for 30 seconds.
 - `1024M`
 - `2G`
 
+Aliases: `--max-mem`, `--max-memory`.
+
+`--memory` controls host RAM, not GPU VRAM.
+
+## GPU Memory Format (`--gpu-memory`)
+
+- `8192` (MB)
+- `16384M`
+- `24G`
+
+Aliases: `--max-gpu-mem`, `--max-gpu-memory`.
+
+`--gpu-memory` controls per-GPU VRAM.
+
+## Shared GPU Mode (`--shared`)
+
+- Use `--shared` to allow jobs to share the same GPU with other shared jobs.
+- Shared jobs must specify `--gpu-memory`.
+- `--shared` never mixes with exclusive jobs on the same GPU.
+
 ## Script Directives
 
 When submitting a script, `gbatch` can parse a small subset of options from lines like:
@@ -78,8 +99,10 @@ When submitting a script, `gbatch` can parse a small subset of options from line
 ```bash
 #!/bin/bash
 # GFLOW --gpus=1
+# GFLOW --shared
 # GFLOW --time=2:00:00
 # GFLOW --memory=4G
+# GFLOW --gpu-memory=20G
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123

@@ -48,6 +48,10 @@ pub struct AddArgs {
     #[arg(short, long, visible_alias = "gres", name = "NUMS")]
     pub gpus: Option<u32>,
 
+    /// Allow this job to share allocated GPU(s) with other shared jobs
+    #[arg(long)]
+    pub shared: bool,
+
     /// The priority of the job
     #[arg(short = 'p', long, visible_alias = "nice")]
     pub priority: Option<u8>,
@@ -84,8 +88,21 @@ pub struct AddArgs {
     pub time: Option<String>,
 
     /// Memory limit for the job (formats: "100G", "1024M", or "512" for MB)
-    #[arg(short = 'm', long, value_hint = clap::ValueHint::Other)]
+    #[arg(
+        short = 'm',
+        long,
+        visible_aliases = ["max-mem", "max-memory"],
+        value_hint = clap::ValueHint::Other
+    )]
     pub memory: Option<String>,
+
+    /// Per-GPU memory limit for shared scheduling (formats: "24G", "16384M", or "8192" for MB)
+    #[arg(
+        long = "gpu-memory",
+        visible_aliases = ["max-gpu-mem", "max-gpu-memory"],
+        value_hint = clap::ValueHint::Other
+    )]
+    pub gpu_memory: Option<String>,
 
     /// Custom run name for the job (used as tmux session name)
     #[arg(
@@ -154,10 +171,32 @@ mod tests {
         assert_eq!(args.add_args.priority, Some(10));
         assert_eq!(args.add_args.name.as_deref(), Some("train"));
         assert_eq!(args.add_args.gpus, Some(2));
+        assert!(!args.add_args.shared);
         assert_eq!(args.add_args.depends_on.as_deref(), Some("@"));
         assert_eq!(
             args.add_args.script_or_command,
             vec!["script.sh".to_string()]
         );
+    }
+
+    #[test]
+    fn parses_shared_flag() {
+        let args = GBatch::try_parse_from(["gbatch", "--shared", "script.sh"])
+            .expect("should parse --shared flag");
+        assert!(args.add_args.shared);
+    }
+
+    #[test]
+    fn parses_max_mem_alias() {
+        let args = GBatch::try_parse_from(["gbatch", "--max-mem", "8G", "script.sh"])
+            .expect("should parse --max-mem alias");
+        assert_eq!(args.add_args.memory.as_deref(), Some("8G"));
+    }
+
+    #[test]
+    fn parses_max_gpu_mem_alias() {
+        let args = GBatch::try_parse_from(["gbatch", "--max-gpu-mem", "24G", "script.sh"])
+            .expect("should parse --max-gpu-mem alias");
+        assert_eq!(args.add_args.gpu_memory.as_deref(), Some("24G"));
     }
 }

@@ -1026,6 +1026,7 @@ pub(crate) struct UpdateJobRequest {
     pub parameters: Option<HashMap<String, String>>,
     pub time_limit: Option<Option<std::time::Duration>>,
     pub memory_limit_mb: Option<Option<u64>>,
+    pub gpu_memory_limit_mb: Option<Option<u64>>,
     pub depends_on_ids: Option<Vec<u32>>,
     pub dependency_mode: Option<Option<gflow::core::job::DependencyMode>>,
     pub auto_cancel_on_dependency_failure: Option<bool>,

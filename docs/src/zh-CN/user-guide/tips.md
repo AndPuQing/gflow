@@ -119,7 +119,7 @@ gctl show-gpus
 gctl set-gpus all
 ```
 
-另见：[配置 -> GPU 选择](./configuration#gpu-selection)。
+另见：[配置 -> GPU 选择](./configuration#gpu-选择)。
 
 ## GPU 预留（`gctl reserve`）
 

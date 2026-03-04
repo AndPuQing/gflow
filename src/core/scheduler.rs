@@ -2,13 +2,14 @@ use crate::core::executor::Executor;
 use crate::core::gpu_allocation::GpuAllocationStrategy;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{
-    DependencyMode, GpuIds, Job, JobRuntime, JobSpec, JobState, JobStateReason, JobView,
+    DependencyMode, GpuIds, GpuSharingMode, Job, JobRuntime, JobSpec, JobState, JobStateReason,
+    JobView,
 };
 use crate::core::reservation::{GpuReservation, ReservationStatus};
 use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -1030,6 +1031,44 @@ impl Scheduler {
         self.available_memory_mb = self.total_memory_mb.saturating_sub(memory_used);
     }
 
+    fn current_gpu_occupancy(&self) -> (HashMap<u32, usize>, HashSet<u32>, HashMap<u32, u64>) {
+        let mut shared_gpu_occupancy = HashMap::new();
+        let mut exclusive_gpu_occupancy = HashSet::new();
+        let mut shared_gpu_memory_usage_mb = HashMap::new();
+
+        for rt in self
+            .job_runtimes
+            .iter()
+            .filter(|rt| rt.state == JobState::Running)
+        {
+            let Some(gpu_ids) = rt.gpu_ids.as_ref() else {
+                continue;
+            };
+
+            match rt.gpu_sharing_mode {
+                GpuSharingMode::Shared => {
+                    for &gpu in gpu_ids {
+                        *shared_gpu_occupancy.entry(gpu).or_insert(0) += 1;
+                        if let Some(limit_mb) = rt.gpu_memory_limit_mb {
+                            *shared_gpu_memory_usage_mb.entry(gpu).or_insert(0) += limit_mb;
+                        }
+                    }
+                }
+                GpuSharingMode::Exclusive => {
+                    for &gpu in gpu_ids {
+                        exclusive_gpu_occupancy.insert(gpu);
+                    }
+                }
+            }
+        }
+
+        (
+            shared_gpu_occupancy,
+            exclusive_gpu_occupancy,
+            shared_gpu_memory_usage_mb,
+        )
+    }
+
     /// Prepare jobs for execution by allocating resources and marking them as Running
     ///
     /// # Warning
@@ -1058,7 +1097,14 @@ impl Scheduler {
         self.update_reservation_statuses();
 
         let mut job_ids_to_execute = Vec::new();
-        let mut available_gpus = self.get_available_gpu_slots();
+        let available_gpus = self.get_available_gpu_slots();
+        let (mut shared_gpu_occupancy, mut exclusive_gpu_occupancy, mut shared_gpu_memory_usage_mb) =
+            self.current_gpu_occupancy();
+        let gpu_total_memory_mb: HashMap<u32, u64> = self
+            .gpu_slots
+            .values()
+            .filter_map(|slot| slot.total_memory_mb.map(|total_mb| (slot.index, total_mb)))
+            .collect();
 
         // Build finished jobs set by iterating only runtimes (hot data)
         let finished_jobs: std::collections::HashSet<u32> = self
@@ -1100,14 +1146,15 @@ impl Scheduler {
 
             // First, do immutable checks using only runtime (hot data)
             let (
-                has_enough_gpus,
                 has_enough_memory,
                 within_group_limit,
                 respects_reservations,
                 required_memory,
                 job_user,
+                requested_gpu_count,
+                gpu_sharing_mode,
+                requested_gpu_memory_mb,
             ) = if let Some(rt) = self.job_runtimes.get(idx) {
-                let has_enough_gpus = rt.gpus as usize <= available_gpus.len();
                 let required_memory = rt.memory_limit_mb.unwrap_or(0);
                 let has_enough_memory = required_memory <= available_memory;
 
@@ -1149,33 +1196,87 @@ impl Scheduler {
                 };
 
                 (
-                    has_enough_gpus,
                     has_enough_memory,
                     within_group_limit,
                     respects_reservations,
                     required_memory,
                     job_user,
+                    rt.gpus,
+                    rt.gpu_sharing_mode,
+                    rt.gpu_memory_limit_mb,
                 )
             } else {
                 continue;
             };
 
             // Now allocate resources if all checks pass
-            if has_enough_gpus && has_enough_memory && within_group_limit && respects_reservations {
+            if has_enough_memory && within_group_limit && respects_reservations {
                 // Filter out GPUs that are reserved by other users
                 let mut usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
                 self.reorder_usable_gpus(job_id, &mut usable_gpus);
 
-                let mut allocated_gpus: Option<GpuIds> = None;
+                // Enforce sharing compatibility:
+                // - Shared jobs can use idle or shared-occupied GPUs, but never exclusive-occupied GPUs.
+                // - Exclusive jobs can only use fully idle GPUs.
+                let compatible_gpus: Vec<u32> = usable_gpus
+                    .into_iter()
+                    .filter(|gpu| match gpu_sharing_mode {
+                        GpuSharingMode::Shared => {
+                            if exclusive_gpu_occupancy.contains(gpu) {
+                                false
+                            } else if let Some(requested_gpu_memory_mb) = requested_gpu_memory_mb {
+                                if let Some(total_gpu_memory_mb) = gpu_total_memory_mb.get(gpu) {
+                                    let used_memory_mb =
+                                        shared_gpu_memory_usage_mb.get(gpu).copied().unwrap_or(0);
+                                    used_memory_mb.saturating_add(requested_gpu_memory_mb)
+                                        <= *total_gpu_memory_mb
+                                } else {
+                                    // If total GPU memory is unknown, skip this check.
+                                    true
+                                }
+                            } else {
+                                true
+                            }
+                        }
+                        GpuSharingMode::Exclusive => {
+                            !exclusive_gpu_occupancy.contains(gpu)
+                                && shared_gpu_occupancy.get(gpu).copied().unwrap_or(0) == 0
+                        }
+                    })
+                    .collect();
+                let has_enough_gpus = requested_gpu_count as usize <= compatible_gpus.len();
+
+                if !has_enough_gpus {
+                    continue;
+                }
+
+                let gpus_for_job: GpuIds = compatible_gpus
+                    .into_iter()
+                    .take(requested_gpu_count as usize)
+                    .collect();
+                let mut allocated_gpus = None;
                 if let Some(rt) = self.job_runtimes.get_mut(idx) {
-                    let gpus_for_job: GpuIds =
-                        usable_gpus.into_iter().take(rt.gpus as usize).collect();
+                    rt.gpu_ids = Some(gpus_for_job.clone());
+                    allocated_gpus = Some(gpus_for_job);
+                }
 
-                    // Remove allocated GPUs from available pool
-                    available_gpus.retain(|gpu| !gpus_for_job.contains(gpu));
-
-                    rt.gpu_ids = Some(gpus_for_job);
-                    allocated_gpus = rt.gpu_ids.clone();
+                if let Some(ref allocated) = allocated_gpus {
+                    match gpu_sharing_mode {
+                        GpuSharingMode::Shared => {
+                            for &gpu in allocated {
+                                *shared_gpu_occupancy.entry(gpu).or_insert(0) += 1;
+                                if let Some(requested_gpu_memory_mb) = requested_gpu_memory_mb {
+                                    *shared_gpu_memory_usage_mb.entry(gpu).or_insert(0) +=
+                                        requested_gpu_memory_mb;
+                                }
+                            }
+                        }
+                        GpuSharingMode::Exclusive => {
+                            for &gpu in allocated {
+                                exclusive_gpu_occupancy.insert(gpu);
+                            }
+                        }
+                    }
                 }
 
                 let transitioned = self
@@ -1191,10 +1292,36 @@ impl Scheduler {
                     self.available_memory_mb =
                         self.available_memory_mb.saturating_sub(required_memory);
                 } else {
-                    // Roll back GPU allocation if we couldn't transition to Running.
+                    // Roll back provisional GPU allocation if we couldn't transition to Running.
                     if let Some(allocated) = allocated_gpus {
-                        available_gpus.extend_from_slice(&allocated);
-                        available_gpus.sort_unstable();
+                        match gpu_sharing_mode {
+                            GpuSharingMode::Shared => {
+                                for gpu in allocated {
+                                    if let Some(count) = shared_gpu_occupancy.get_mut(&gpu) {
+                                        *count = count.saturating_sub(1);
+                                        if *count == 0 {
+                                            shared_gpu_occupancy.remove(&gpu);
+                                        }
+                                    }
+                                    if let Some(requested_gpu_memory_mb) = requested_gpu_memory_mb {
+                                        if let Some(used_memory_mb) =
+                                            shared_gpu_memory_usage_mb.get_mut(&gpu)
+                                        {
+                                            *used_memory_mb = used_memory_mb
+                                                .saturating_sub(requested_gpu_memory_mb);
+                                            if *used_memory_mb == 0 {
+                                                shared_gpu_memory_usage_mb.remove(&gpu);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            GpuSharingMode::Exclusive => {
+                                for gpu in allocated {
+                                    exclusive_gpu_occupancy.remove(&gpu);
+                                }
+                            }
+                        }
                     }
                     if let Some(rt) = self.job_runtimes.get_mut(idx) {
                         rt.gpu_ids = None;
@@ -1982,6 +2109,7 @@ mod tests {
                 GPUSlot {
                     index: i,
                     available: true,
+                    total_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2000,6 +2128,191 @@ mod tests {
         assert_eq!(
             scheduler.get_job(job_id).and_then(|j| j.gpu_ids),
             Some(GpuIds::from_iter([0, 1]))
+        );
+    }
+
+    #[test]
+    fn test_shared_jobs_can_share_same_gpu() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        let job_a = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        let prepared_a = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared_a.len(), 1);
+        assert_eq!(prepared_a[0].id, job_a_id);
+        assert_eq!(
+            scheduler.get_job(job_a_id).and_then(|j| j.gpu_ids),
+            Some(GpuIds::from_iter([0]))
+        );
+
+        let job_b = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let prepared_b = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared_b.len(), 1);
+        assert_eq!(prepared_b[0].id, job_b_id);
+        assert_eq!(
+            scheduler.get_job(job_b_id).and_then(|j| j.gpu_ids),
+            Some(GpuIds::from_iter([0]))
+        );
+    }
+
+    #[test]
+    fn test_exclusive_job_waits_when_shared_job_is_running() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        let shared_job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (shared_job_id, _) = scheduler.submit_job(shared_job);
+        scheduler.prepare_jobs_for_execution();
+
+        let exclusive_job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .build();
+        let (exclusive_job_id, _) = scheduler.submit_job(exclusive_job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert!(prepared.is_empty());
+        assert_eq!(
+            scheduler.get_job(exclusive_job_id).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+
+        scheduler.finish_job(shared_job_id);
+        let prepared_after_finish = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared_after_finish.len(), 1);
+        assert_eq!(prepared_after_finish[0].id, exclusive_job_id);
+    }
+
+    #[test]
+    fn test_shared_job_can_still_schedule_after_one_shared_job_finishes() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        let job_a = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(
+            scheduler.get_job(job_b_id).map(|j| j.state),
+            Some(JobState::Running)
+        );
+
+        scheduler.finish_job(job_a_id);
+
+        let job_c = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        let prepared_c = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared_c.len(), 1);
+        assert_eq!(prepared_c[0].id, job_c_id);
+        assert_eq!(
+            scheduler.get_job(job_c_id).and_then(|j| j.gpu_ids),
+            Some(GpuIds::from_iter([0]))
+        );
+    }
+
+    #[test]
+    fn test_shared_jobs_respect_per_gpu_memory_limits() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: Some(10_000),
+                reason: None,
+            },
+        );
+
+        let job_a = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .gpu_memory_limit_mb(Some(8_000))
+            .build();
+        scheduler.submit_job(job_a);
+        let first = scheduler.prepare_jobs_for_execution();
+        assert_eq!(first.len(), 1);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .gpu_memory_limit_mb(Some(3_000))
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        // 8GB + 3GB > 10GB, so second shared job must wait.
+        let second = scheduler.prepare_jobs_for_execution();
+        assert!(second.is_empty());
+        assert_eq!(
+            scheduler.get_job(job_b_id).map(|j| j.state),
+            Some(JobState::Queued)
         );
     }
 
@@ -2469,6 +2782,7 @@ mod tests {
                 GPUSlot {
                     index: i,
                     available: true,
+                    total_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2507,6 +2821,7 @@ mod tests {
                 GPUSlot {
                     index: i,
                     available: true,
+                    total_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2562,6 +2877,7 @@ mod tests {
                 GPUSlot {
                     index: i,
                     available: true,
+                    total_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2606,6 +2922,7 @@ mod tests {
                 GPUSlot {
                     index: i,
                     available: true,
+                    total_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2644,6 +2961,7 @@ mod tests {
                     GPUSlot {
                         index: i,
                         available: true,
+                        total_memory_mb: None,
                         reason: None,
                     },
                 );

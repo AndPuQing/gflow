@@ -18,6 +18,7 @@ gbatch completion <shell>
 gbatch --gpus 1 python train.py
 gbatch --time 2:00:00 python train.py
 gbatch --memory 8G python train.py
+gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 
 # 调度
 gbatch --priority 50 python urgent.py
@@ -71,6 +72,26 @@ gbatch --dry-run --gpus 1 python train.py
 - `1024M`
 - `2G`
 
+别名：`--max-mem`、`--max-memory`。
+
+`--memory` 控制主机内存（RAM），不是 GPU 显存。
+
+## GPU 显存格式（`--gpu-memory`）
+
+- `8192`（MB）
+- `16384M`
+- `24G`
+
+别名：`--max-gpu-mem`、`--max-gpu-memory`。
+
+`--gpu-memory` 控制每张 GPU 的显存（VRAM）。
+
+## GPU 共享模式（`--shared`）
+
+- `--shared` 允许任务与其他共享任务共用同一张 GPU。
+- 共享任务必须同时指定 `--gpu-memory`。
+- `--shared` 不会与独占任务在同一张 GPU 上混跑。
+
 ## 脚本指令
 
 提交脚本时，`gbatch` 可以从如下行解析少量选项：
@@ -78,8 +99,10 @@ gbatch --dry-run --gpus 1 python train.py
 ```bash
 #!/bin/bash
 # GFLOW --gpus=1
+# GFLOW --shared
 # GFLOW --time=2:00:00
 # GFLOW --memory=4G
+# GFLOW --gpu-memory=20G
 # GFLOW --priority=20
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123

@@ -2,7 +2,7 @@ use crate::multicall::gbatch::cli;
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
-use gflow::core::job::Job;
+use gflow::core::job::{GpuSharingMode, Job};
 use gflow::utils::parsers::{parse_array_spec, parse_range_spec};
 use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
 
@@ -19,6 +19,15 @@ fn resolve_project(args: &cli::AddArgs, script_args: &Option<cli::AddArgs>) -> O
     args.project
         .clone()
         .or_else(|| script_args.as_ref().and_then(|s| s.project.clone()))
+}
+
+fn validate_shared_requires_gpu_memory(job: &Job) -> Result<()> {
+    if job.gpu_sharing_mode == GpuSharingMode::Shared && job.gpu_memory_limit_mb.is_none() {
+        anyhow::bail!(
+            "Shared jobs must set a GPU memory limit. Use --gpu-memory (alias: --max-gpu-mem) with --shared."
+        );
+    }
+    Ok(())
 }
 
 /// Substitute {param_name} patterns in command with actual values (for preview only)
@@ -506,6 +515,12 @@ async fn build_job(
         None
     };
 
+    let gpu_memory_limit_mb = if let Some(memory_str) = &args.gpu_memory {
+        Some(gflow::utils::parse_memory_limit(memory_str)?)
+    } else {
+        None
+    };
+
     // Handle dependencies (mutually exclusive via clap)
     let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
         let ids = parse_dependency_list(deps_all, client).await?;
@@ -541,6 +556,7 @@ async fn build_job(
 
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
+        builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, &Some(script_args.clone())));
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
@@ -564,6 +580,15 @@ async fn build_job(
             None
         };
         builder = builder.memory_limit_mb(final_memory_limit);
+
+        let final_gpu_memory_limit = if gpu_memory_limit_mb.is_some() {
+            gpu_memory_limit_mb
+        } else if let Some(script_gpu_memory_str) = &script_args.gpu_memory {
+            Some(gflow::utils::parse_memory_limit(script_gpu_memory_str)?)
+        } else {
+            None
+        };
+        builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
     } else {
         // Determine if it's a script or command
         let is_script =
@@ -576,6 +601,7 @@ async fn build_job(
 
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
+            builder = builder.shared(args.shared || script_args.shared);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
@@ -602,6 +628,15 @@ async fn build_job(
                 None
             };
             builder = builder.memory_limit_mb(final_memory_limit);
+
+            let final_gpu_memory_limit = if gpu_memory_limit_mb.is_some() {
+                gpu_memory_limit_mb
+            } else if let Some(script_gpu_memory_str) = &script_args.gpu_memory {
+                Some(gflow::utils::parse_memory_limit(script_gpu_memory_str)?)
+            } else {
+                None
+            };
+            builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
         } else {
             // Command mode
             let command = args
@@ -612,6 +647,7 @@ async fn build_job(
                 .join(" ");
             builder = builder.command(command);
             builder = builder.gpus(args.gpus.unwrap_or(0));
+            builder = builder.shared(args.shared);
             builder = builder.priority(args.priority.unwrap_or(10));
 
             // Auto-detect conda environment if not specified
@@ -621,13 +657,16 @@ async fn build_job(
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
+            builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
         }
     }
 
     // Set auto-close tmux flag
     builder = builder.auto_close_tmux(args.auto_close);
 
-    Ok(builder.build())
+    let job = builder.build();
+    validate_shared_requires_gpu_memory(&job)?;
+    Ok(job)
 }
 
 async fn build_job_with_params(
@@ -670,6 +709,12 @@ async fn build_job_with_params(
         None
     };
 
+    let gpu_memory_limit_mb = if let Some(memory_str) = &args.gpu_memory {
+        Some(gflow::utils::parse_memory_limit(memory_str)?)
+    } else {
+        None
+    };
+
     // Handle dependencies (mutually exclusive via clap)
     let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
         let ids = parse_dependency_list(deps_all, client).await?;
@@ -705,6 +750,7 @@ async fn build_job_with_params(
 
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
+        builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, &Some(script_args.clone())));
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
@@ -728,6 +774,15 @@ async fn build_job_with_params(
             None
         };
         builder = builder.memory_limit_mb(final_memory_limit);
+
+        let final_gpu_memory_limit = if gpu_memory_limit_mb.is_some() {
+            gpu_memory_limit_mb
+        } else if let Some(script_gpu_memory_str) = &script_args.gpu_memory {
+            Some(gflow::utils::parse_memory_limit(script_gpu_memory_str)?)
+        } else {
+            None
+        };
+        builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
     } else {
         // Determine if it's a script or command
         let is_script =
@@ -740,6 +795,7 @@ async fn build_job_with_params(
 
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
+            builder = builder.shared(args.shared || script_args.shared);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
@@ -766,6 +822,15 @@ async fn build_job_with_params(
                 None
             };
             builder = builder.memory_limit_mb(final_memory_limit);
+
+            let final_gpu_memory_limit = if gpu_memory_limit_mb.is_some() {
+                gpu_memory_limit_mb
+            } else if let Some(script_gpu_memory_str) = &script_args.gpu_memory {
+                Some(gflow::utils::parse_memory_limit(script_gpu_memory_str)?)
+            } else {
+                None
+            };
+            builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
         } else {
             // Command mode
             let command = args
@@ -776,6 +841,7 @@ async fn build_job_with_params(
                 .join(" ");
             builder = builder.command(command);
             builder = builder.gpus(args.gpus.unwrap_or(0));
+            builder = builder.shared(args.shared);
             builder = builder.priority(args.priority.unwrap_or(10));
 
             // Auto-detect conda environment if not specified
@@ -785,13 +851,16 @@ async fn build_job_with_params(
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
+            builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
         }
     }
 
     // Set auto-close tmux flag
     builder = builder.auto_close_tmux(args.auto_close);
 
-    Ok(builder.build())
+    let job = builder.build();
+    validate_shared_requires_gpu_memory(&job)?;
+    Ok(job)
 }
 
 fn parse_script_for_args(script_path: &PathBuf) -> Result<cli::AddArgs> {
@@ -811,6 +880,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             script_or_command: vec![],
             conda_env: None,
             gpus: None,
+            shared: false,
             priority: None,
             depends_on: None,
             depends_on_all: None,
@@ -819,6 +889,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             array: None,
             time: None,
             memory: None,
+            gpu_memory: None,
             name: None,
             auto_close: false,
             param: vec![],

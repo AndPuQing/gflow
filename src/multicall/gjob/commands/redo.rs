@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use gflow::client::Client;
-use gflow::core::job::{Job, JobState, JobStateReason};
+use gflow::core::job::{GpuSharingMode, Job, JobState, JobStateReason};
 use gflow::print_field;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -14,6 +14,7 @@ pub async fn handle_redo(
     depends_on_override: Option<String>,
     time_override: Option<String>,
     memory_override: Option<String>,
+    gpu_memory_override: Option<String>,
     conda_env_override: Option<String>,
     clear_deps: bool,
     cascade: bool,
@@ -68,6 +69,10 @@ pub async fn handle_redo(
     let gpus = gpus_override.unwrap_or(original_job.gpus);
     builder = builder.gpus(gpus);
     print_field!("GPUs", "{}", gpus);
+    builder = builder.gpu_sharing_mode(original_job.gpu_sharing_mode);
+    if original_job.gpu_sharing_mode == GpuSharingMode::Shared {
+        print_field!("GPUSharing", "shared");
+    }
 
     // Apply priority (override or original)
     let priority = priority_override.unwrap_or(original_job.priority);
@@ -105,6 +110,21 @@ pub async fn handle_redo(
     builder = builder.memory_limit_mb(memory_limit_mb);
     if let Some(memory_mb) = memory_limit_mb {
         print_field!("MemoryLimit", "{}", gflow::utils::format_memory(memory_mb));
+    }
+
+    // Apply per-GPU memory limit (override or original)
+    let gpu_memory_limit_mb = if let Some(ref memory_str) = gpu_memory_override {
+        Some(gflow::utils::parse_memory_limit(memory_str)?)
+    } else {
+        original_job.gpu_memory_limit_mb
+    };
+    builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
+    if let Some(memory_mb) = gpu_memory_limit_mb {
+        print_field!(
+            "GPUMemoryLimit",
+            "{}",
+            gflow::utils::format_memory(memory_mb)
+        );
     }
 
     // Handle dependency
@@ -239,6 +259,8 @@ async fn redo_with_cascade(
 
         // Use original job parameters (no overrides for cascade jobs)
         builder = builder.gpus(cascade_job.gpus);
+        builder = builder.gpu_sharing_mode(cascade_job.gpu_sharing_mode);
+        builder = builder.gpu_memory_limit_mb(cascade_job.gpu_memory_limit_mb);
         builder = builder.priority(cascade_job.priority);
         builder = builder.conda_env(cascade_job.conda_env.as_ref().map(|s| s.to_string()));
         builder = builder.time_limit(cascade_job.time_limit);

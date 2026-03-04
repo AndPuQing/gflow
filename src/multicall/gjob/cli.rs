@@ -95,6 +95,17 @@ pub enum Commands {
         clear_memory_limit: bool,
 
         #[arg(
+            long = "gpu-memory",
+            visible_alias = "max-gpu-mem",
+            help = "Update per-GPU memory limit (formats: 24G, 16384M, or 8192 for MB)",
+            value_hint = clap::ValueHint::Other
+        )]
+        gpu_memory_limit: Option<String>,
+
+        #[arg(long, help = "Clear per-GPU memory limit")]
+        clear_gpu_memory_limit: bool,
+
+        #[arg(
             short = 'd',
             long,
             help = "Update dependencies (comma-separated job IDs)",
@@ -169,6 +180,14 @@ pub enum Commands {
             value_hint = clap::ValueHint::Other
         )]
         memory: Option<String>,
+
+        #[arg(
+            long = "gpu-memory",
+            visible_alias = "max-gpu-mem",
+            help = "Override per-GPU memory limit (formats: 24G, 16384M, or 8192 for MB)",
+            value_hint = clap::ValueHint::Other
+        )]
+        gpu_memory: Option<String>,
 
         #[arg(short = 'e', long, help = "Override conda environment", value_hint = clap::ValueHint::Other)]
         conda_env: Option<String>,
