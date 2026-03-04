@@ -583,9 +583,12 @@ fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNode> {
     for job in jobs {
         children_map.entry(job.depends_on).or_default().push(job.id);
 
-        // Track all jobs that have a dependency parent
-        if job.depends_on.is_some() {
-            all_dependency_children.insert(job.id);
+        // Track jobs whose dependency parent is present in the current list.
+        // If the dependency parent is filtered out, this job should still be rendered normally.
+        if let Some(parent_id) = job.depends_on {
+            if job_map.contains_key(&parent_id) {
+                all_dependency_children.insert(job.id);
+            }
         }
 
         if let Some(redone_from) = job.redone_from {
@@ -670,8 +673,21 @@ fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNode> {
         Some(JobNode { job, children })
     }
 
-    // Find root jobs (jobs with no dependencies or dependencies not in the list)
-    let mut root_ids = children_map.get(&None).cloned().unwrap_or_default();
+    // Find root jobs:
+    // - jobs with no dependency
+    // - jobs whose dependency parent is outside the current filtered job list
+    let mut root_ids: Vec<u32> = jobs
+        .iter()
+        .filter_map(|job| match job.depends_on {
+            None => Some(job.id),
+            Some(parent_id) if !job_map.contains_key(&parent_id) => Some(job.id),
+            _ => None,
+        })
+        .collect();
+
+    // Keep root ordering deterministic by job id.
+    root_ids.sort_unstable();
+    root_ids.dedup();
 
     // Exclude jobs that have redone_from relationships where the original job exists in the list
     // These jobs will be displayed as children of their original jobs with dashed lines
@@ -1105,6 +1121,51 @@ mod tests {
         ];
         println!();
         display_jobs_tree(&jobs, None, &HashSet::new());
+    }
+
+    #[test]
+    fn test_build_tree_treats_missing_dependency_parent_as_root() {
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job(2, "missing-parent", Some(99)),
+            create_test_job(3, "child-of-1", Some(1)),
+        ];
+
+        let tree = build_dependency_tree(&jobs);
+        let root_ids: Vec<u32> = tree.iter().map(|node| node.job.id).collect();
+        assert_eq!(root_ids, vec![1, 2]);
+
+        let first_children: Vec<u32> = tree[0]
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                JobNodeChild::Node(node, _) => Some(node.job.id),
+                JobNodeChild::Reference(_) => None,
+            })
+            .collect();
+        assert_eq!(first_children, vec![3]);
+    }
+
+    #[test]
+    fn test_build_tree_keeps_node_when_dependency_parent_missing_but_redo_parent_exists() {
+        let mut redo_with_missing_dep = create_test_job(2, "redo-with-missing-dep", Some(99));
+        redo_with_missing_dep.redone_from = Some(1);
+
+        let jobs = vec![create_test_job(1, "root", None), redo_with_missing_dep];
+
+        let tree = build_dependency_tree(&jobs);
+        let root_ids: Vec<u32> = tree.iter().map(|node| node.job.id).collect();
+        assert_eq!(root_ids, vec![1]);
+
+        let first_children: Vec<u32> = tree[0]
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                JobNodeChild::Node(node, _) => Some(node.job.id),
+                JobNodeChild::Reference(_) => None,
+            })
+            .collect();
+        assert_eq!(first_children, vec![2]);
     }
 
     #[test]
