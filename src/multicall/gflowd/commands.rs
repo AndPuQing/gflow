@@ -1,6 +1,7 @@
 use super::cli::Commands;
 use anyhow::{anyhow, Context, Result};
 use clap::CommandFactory;
+use clap_verbosity_flag::{Verbosity, VerbosityFilter};
 
 pub mod down;
 pub mod init;
@@ -15,11 +16,21 @@ pub static TMUX_SESSION_NAME: &str = "gflow_server";
 pub fn daemon_start_command(
     gpus: Option<&str>,
     gpu_allocation_strategy: Option<&str>,
+    verbosity: Verbosity,
 ) -> Result<String> {
     let gflow_path = std::env::current_exe().context("failed to resolve current gflow binary")?;
     let exe = shell_escape::escape(gflow_path.to_string_lossy());
 
-    let mut command = format!("{exe} __multicall gflowd -v");
+    let mut command = format!("{exe} __multicall gflowd");
+    if verbosity.is_present() {
+        if let Some(flag) = daemon_verbosity_flag(verbosity) {
+            command.push(' ');
+            command.push_str(flag);
+        }
+    } else {
+        // Keep existing behavior for plain `gflowd up`: start daemon with debug logs.
+        command.push_str(" -vvv");
+    }
     if let Some(gpu_spec) = gpus {
         let escaped = shell_escape::escape(gpu_spec.into());
         command.push_str(&format!(" --gpus-internal {escaped}"));
@@ -40,8 +51,20 @@ pub fn daemon_start_command(
     Ok(command)
 }
 
+fn daemon_verbosity_flag(verbosity: Verbosity) -> Option<&'static str> {
+    match verbosity.filter() {
+        VerbosityFilter::Off => Some("-q"),
+        VerbosityFilter::Error => None,
+        VerbosityFilter::Warn => Some("-v"),
+        VerbosityFilter::Info => Some("-vv"),
+        VerbosityFilter::Debug => Some("-vvv"),
+        VerbosityFilter::Trace => Some("-vvvv"),
+    }
+}
+
 pub async fn handle_commands(
     config_path: &Option<std::path::PathBuf>,
+    verbosity: Verbosity,
     command: Commands,
 ) -> Result<()> {
     match command {
@@ -74,7 +97,7 @@ pub async fn handle_commands(
             gpus,
             gpu_allocation_strategy,
         } => {
-            up::handle_up(gpus, gpu_allocation_strategy).await?;
+            up::handle_up(gpus, gpu_allocation_strategy, verbosity).await?;
         }
         Commands::Down => {
             down::handle_down().await?;
@@ -84,13 +107,13 @@ pub async fn handle_commands(
             gpu_allocation_strategy,
         } => {
             down::handle_down().await?;
-            up::handle_up(gpus, gpu_allocation_strategy).await?;
+            up::handle_up(gpus, gpu_allocation_strategy, verbosity).await?;
         }
         Commands::Reload {
             gpus,
             gpu_allocation_strategy,
         } => {
-            reload::handle_reload(config_path, gpus, gpu_allocation_strategy).await?;
+            reload::handle_reload(config_path, gpus, gpu_allocation_strategy, verbosity).await?;
         }
         Commands::Status => {
             status::handle_status(config_path).await?;
@@ -102,4 +125,28 @@ pub async fn handle_commands(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_start_command_keeps_existing_default_verbosity() {
+        let command = daemon_start_command(None, None, Verbosity::new(0, 0)).unwrap();
+        assert!(command.contains("__multicall gflowd -vvv"));
+    }
+
+    #[test]
+    fn daemon_start_command_passes_explicit_verbosity_to_daemon() {
+        let warn_command = daemon_start_command(None, None, Verbosity::new(1, 0)).unwrap();
+        assert!(warn_command.contains("__multicall gflowd -v"));
+        assert!(!warn_command.contains("__multicall gflowd -vvv"));
+
+        let silent_command = daemon_start_command(None, None, Verbosity::new(0, 1)).unwrap();
+        assert!(silent_command.contains("__multicall gflowd -q"));
+
+        let trace_command = daemon_start_command(None, None, Verbosity::new(9, 0)).unwrap();
+        assert!(trace_command.contains("__multicall gflowd -vvvv"));
+    }
 }

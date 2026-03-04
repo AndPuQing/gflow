@@ -43,7 +43,7 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
         .init();
 
     if let Some(command) = gflowd.command {
-        return commands::handle_commands(&gflowd.config, command).await;
+        return commands::handle_commands(&gflowd.config, gflowd.verbosity, command).await;
     }
 
     let mut config = gflow::config::load_config(gflowd.config.as_ref())?;

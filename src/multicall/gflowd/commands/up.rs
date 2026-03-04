@@ -1,12 +1,18 @@
 use anyhow::Result;
+use clap_verbosity_flag::Verbosity;
 use gflow::tmux::TmuxSession;
 
 pub async fn handle_up(
     gpus: Option<String>,
     gpu_allocation_strategy: Option<String>,
+    verbosity: Verbosity,
 ) -> Result<()> {
     let session = TmuxSession::new(super::TMUX_SESSION_NAME.to_string());
-    let command = super::daemon_start_command(gpus.as_deref(), gpu_allocation_strategy.as_deref())?;
+    let command = super::daemon_start_command(
+        gpus.as_deref(),
+        gpu_allocation_strategy.as_deref(),
+        verbosity,
+    )?;
 
     session.send_command(&command);
 
