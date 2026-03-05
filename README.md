@@ -143,13 +143,13 @@ This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gque
 
 ## Documentation
 
-- Website: https://andpuqing.github.io/gflow/
-- Installation: `docs/src/getting-started/installation.md`
-- Quick start: `docs/src/getting-started/quick-start.md`
-- Job submission: `docs/src/user-guide/job-submission.md`
-- Time limits: `docs/src/user-guide/time-limits.md`
-- Configuration: `docs/src/user-guide/configuration.md`
-- Command quick reference: `docs/src/reference/quick-reference.md`
+- Website: https://runqd.com
+- Installation: [docs/src/getting-started/installation.md](https://www.runqd.com/getting-started/installation.html)
+- Quick start: [docs/src/getting-started/quick-start.md](https://www.runqd.com/getting-started/quick-start.html)
+- Job submission: [docs/src/user-guide/job-submission.md](https://www.runqd.com/user-guide/job-submission.html)
+- Time limits: [docs/src/user-guide/time-limits.md](https://www.runqd.com/user-guide/time-limits.html)
+- Configuration: [docs/src/user-guide/configuration.md](https://www.runqd.com/user-guide/configuration.html)
+- Command quick reference: [docs/src/reference/quick-reference.md](https://www.runqd.com/reference/quick-reference.html)
 
 ## Star History
 
