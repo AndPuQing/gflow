@@ -1,9 +1,9 @@
 use anyhow::Result;
+use chrono::TimeZone;
 use gflow::client::{Client, UsageStats};
 use gflow::utils::parse_since_time;
 use owo_colors::OwoColorize;
 use std::time::Duration;
-use tabled::{builder::Builder, settings::style::Style};
 
 pub async fn handle_stats(
     config_path: &Option<std::path::PathBuf>,
@@ -75,14 +75,13 @@ fn print_csv(stats: &UsageStats) {
 fn print_table(stats: &UsageStats) {
     let terminal_jobs =
         stats.completed_jobs + stats.failed_jobs + stats.cancelled_jobs + stats.timeout_jobs;
+    let active_jobs = stats.running_jobs + stats.queued_jobs;
 
-    let user_label = stats.user.as_deref().unwrap_or("all users");
-    println!("{}", format!("Usage Statistics · {}", user_label).bold());
-    println!("{}", "─".repeat(68).dimmed());
+    print_header(stats, active_jobs);
     println!();
 
-    print_section("Job Summary");
-    print_kv("Total Jobs", stats.total_jobs);
+    print_section("Job Status");
+    print_kv("Total Jobs", stats.total_jobs.to_string().bold());
     if terminal_jobs > 0 {
         print_job_stat(
             "Completed",
@@ -101,17 +100,33 @@ fn print_table(stats: &UsageStats) {
             print_job_stat("Timeout", stats.timeout_jobs, terminal_jobs, BarTone::Bad);
         }
     } else {
-        print_kv("Completed", stats.completed_jobs);
-        print_kv("Failed", stats.failed_jobs);
-        print_kv("Cancelled", stats.cancelled_jobs);
+        print_kv(
+            "Completed",
+            style_value(stats.completed_jobs, BarTone::Good),
+        );
+        print_kv("Failed", style_value(stats.failed_jobs, BarTone::Bad));
+        print_kv(
+            "Cancelled",
+            style_value(stats.cancelled_jobs, BarTone::Warn),
+        );
     }
-    if stats.running_jobs > 0 || stats.queued_jobs > 0 {
-        print_kv("Running", stats.running_jobs);
-        print_kv("Queued", stats.queued_jobs);
+    if active_jobs > 0 {
+        print_job_stat(
+            "Running",
+            stats.running_jobs,
+            stats.total_jobs.max(1),
+            BarTone::Info,
+        );
+        print_job_stat(
+            "Queued",
+            stats.queued_jobs,
+            stats.total_jobs.max(1),
+            BarTone::Warn,
+        );
     }
 
     println!();
-    print_section("Timing");
+    print_section("Efficiency");
     print_kv(
         "Avg Wait Time",
         stats.avg_wait_secs.map_or("-".to_string(), format_secs),
@@ -121,6 +136,11 @@ fn print_table(stats: &UsageStats) {
         stats.avg_runtime_secs.map_or("-".to_string(), format_secs),
     );
     print_kv("Total GPU-Hours", format!("{:.1}h", stats.total_gpu_hours));
+    let success_tone = tone_for_success_rate(stats.success_rate);
+    print_kv(
+        "Success Rate",
+        style_value(format!("{:.1}%", stats.success_rate), success_tone),
+    );
 
     println!();
     print_section("GPU Usage");
@@ -132,54 +152,27 @@ fn print_table(stats: &UsageStats) {
     print_kv(
         "Jobs with GPUs",
         format!(
-            "{} ({:.0}%) {}",
-            stats.jobs_with_gpus,
-            gpu_pct,
-            progress_bar(gpu_pct, 20, BarTone::Info)
+            "{} ({:.0}%)",
+            style_value(stats.jobs_with_gpus, BarTone::Info),
+            gpu_pct
         ),
     );
     print_kv("Avg GPUs/Job", format!("{:.1}", stats.avg_gpus_per_job));
     print_kv("Peak GPU Usage", stats.peak_gpu_usage);
 
-    println!();
-    let success_tone = tone_for_success_rate(stats.success_rate);
-    print_kv(
-        "Success Rate",
-        format!(
-            "{:.1}% {}",
-            stats.success_rate,
-            progress_bar(stats.success_rate, 30, success_tone)
-        ),
-    );
-
     if !stats.top_jobs.is_empty() {
         println!();
         print_section("Top Jobs by Runtime");
-        let mut builder = Builder::default();
-        builder.push_record(["#", "JOBID", "NAME", "RUNTIME", "GPUS"]);
-        for (i, job) in stats.top_jobs.iter().enumerate() {
-            let name = job.name.as_deref().unwrap_or("<unnamed>");
-            let short_name = truncate_for_cell(name, 32);
-            builder.push_record([
-                (i + 1).to_string(),
-                job.id.to_string(),
-                short_name,
-                format_secs(job.runtime_secs),
-                job.gpus.to_string(),
-            ]);
-        }
-        let mut table = builder.build();
-        table.with(Style::blank());
-        println!("{table}");
+        print_top_jobs(stats);
     }
 }
 
 fn print_section(title: &str) {
-    println!("{}", title.bold().cyan());
+    println!("{}", title.bold());
 }
 
 fn print_kv(label: &str, value: impl std::fmt::Display) {
-    println!("  {:<16} {}", format!("{label}:"), value);
+    println!("  {:<16} {}", format!("{label}:").dimmed(), value);
 }
 
 fn print_job_stat(label: &str, count: usize, total: usize, tone: BarTone) {
@@ -188,10 +181,7 @@ fn print_job_stat(label: &str, count: usize, total: usize, tone: BarTone) {
     } else {
         count as f64 / total as f64 * 100.0
     };
-    print_kv(
-        label,
-        format!("{} ({:.0}%) {}", count, pct, progress_bar(pct, 20, tone)),
-    );
+    print_kv(label, format!("{} ({:.0}%)", style_value(count, tone), pct));
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -212,23 +202,75 @@ fn tone_for_success_rate(rate: f64) -> BarTone {
     }
 }
 
-fn progress_bar(percentage: f64, width: usize, tone: BarTone) -> String {
-    let pct = percentage.clamp(0.0, 100.0);
-    let filled = ((pct / 100.0) * width as f64).round() as usize;
-    let filled = filled.min(width);
-    let empty = width - filled;
+fn print_header(stats: &UsageStats, active_jobs: usize) {
+    let user_label = stats.user.as_deref().unwrap_or("all users");
 
-    let filled_block = "█".repeat(filled);
-    let empty_block = "░".repeat(empty).dimmed().to_string();
+    let window = stats
+        .since
+        .map(format_since)
+        .unwrap_or_else(|| "all time".to_string());
 
-    let styled_filled = match tone {
-        BarTone::Good => filled_block.green().bold().to_string(),
-        BarTone::Warn => filled_block.yellow().bold().to_string(),
-        BarTone::Bad => filled_block.red().bold().to_string(),
-        BarTone::Info => filled_block.cyan().bold().to_string(),
-    };
+    println!(
+        "{}  {}  {}  {}",
+        "Usage Statistics".bold(),
+        format!("user: {user_label}").dimmed(),
+        format!("since: {window}").dimmed(),
+        format!("active: {active_jobs}").dimmed(),
+    );
+    println!("{}", "─".repeat(72).dimmed());
+}
 
-    format!("[{}{}]", styled_filled, empty_block)
+fn style_value(value: impl std::fmt::Display, tone: BarTone) -> String {
+    match tone {
+        BarTone::Good | BarTone::Warn | BarTone::Bad | BarTone::Info => {
+            value.to_string().bold().to_string()
+        }
+    }
+}
+
+fn print_top_jobs(stats: &UsageStats) {
+    let runtime_width = stats
+        .top_jobs
+        .iter()
+        .map(|job| format_secs(job.runtime_secs).chars().count())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    let gpu_width = stats
+        .top_jobs
+        .iter()
+        .map(|job| job.gpus.to_string().chars().count())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let table_width = 50 + runtime_width + gpu_width;
+
+    println!(
+        "  {} {}  {}  {}  {}",
+        format!("{:<3}", "#").bold(),
+        format!("{:>6}", "JOBID").bold(),
+        format!("{:<34}", "NAME").bold(),
+        format!("{:>runtime_width$}", "RUNTIME").bold(),
+        format!("{:>gpu_width$}", "GPUS").bold(),
+    );
+    println!("  {}", "─".repeat(table_width).dimmed());
+
+    for (index, job) in stats.top_jobs.iter().enumerate() {
+        let rank = format!("{:<3}", format!("{}.", index + 1))
+            .bold()
+            .to_string();
+        let job_id = format!("{:>6}", job.id).bold().to_string();
+        let name = format!(
+            "{:<34}",
+            truncate_for_cell(job.name.as_deref().unwrap_or("<unnamed>"), 34)
+        );
+        let runtime = format!("{:>runtime_width$}", format_secs(job.runtime_secs))
+            .bold()
+            .to_string();
+        let gpus = format!("{:>gpu_width$}", job.gpus).bold().to_string();
+
+        println!("  {} {}  {}  {}  {}", rank, job_id, name, runtime, gpus);
+    }
 }
 
 fn truncate_for_cell(input: &str, max_chars: usize) -> String {
@@ -248,4 +290,16 @@ fn truncate_for_cell(input: &str, max_chars: usize) -> String {
 fn format_secs(secs: f64) -> String {
     let d = Duration::from_secs_f64(secs);
     gflow::utils::format_duration(d)
+}
+
+fn format_since(ts: u64) -> String {
+    chrono::Utc
+        .timestamp_opt(ts as i64, 0)
+        .single()
+        .map(|dt| {
+            dt.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| ts.to_string())
 }
