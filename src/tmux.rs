@@ -9,24 +9,68 @@ pub struct TmuxSession {
 impl TmuxSession {
     /// Create a new tmux session with the given name
     pub fn new(name: String) -> Self {
-        Tmux::new()
+        Self::create(name.clone()).unwrap_or(Self { name })
+    }
+
+    /// Create a new tmux session with the given name and surface tmux errors.
+    pub fn create(name: String) -> anyhow::Result<Self> {
+        let output = Tmux::new()
             .add_command(NewSession::new().detached().session_name(&name))
             .output()
-            .ok();
+            .map_err(|e| anyhow::anyhow!("Failed to create tmux session '{}': {}", name, e))?;
+
+        if !output.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr()).trim().to_string();
+            anyhow::bail!(
+                "Failed to create tmux session '{}': {}",
+                name,
+                if stderr.is_empty() {
+                    "tmux returned a non-zero exit status"
+                } else {
+                    &stderr
+                }
+            );
+        }
 
         // Allow tmux session to initialize
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        Self { name }
+        Ok(Self { name })
     }
 
     /// Send a command to the tmux session
     pub fn send_command(&self, command: &str) {
-        Tmux::new()
+        self.try_send_command(command).ok();
+    }
+
+    /// Send a command to the tmux session and surface tmux errors.
+    pub fn try_send_command(&self, command: &str) -> anyhow::Result<()> {
+        let output = Tmux::new()
             .add_command(SendKeys::new().target_pane(&self.name).key(command))
             .add_command(SendKeys::new().target_pane(&self.name).key("Enter"))
             .output()
-            .ok();
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to send command to tmux session '{}': {}",
+                    self.name,
+                    e
+                )
+            })?;
+
+        if !output.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr()).trim().to_string();
+            anyhow::bail!(
+                "Failed to send command to tmux session '{}': {}",
+                self.name,
+                if stderr.is_empty() {
+                    "tmux returned a non-zero exit status"
+                } else {
+                    &stderr
+                }
+            );
+        }
+
+        Ok(())
     }
 
     /// Enable pipe-pane to capture output to a log file
@@ -259,6 +303,40 @@ mod tests {
             .unwrap();
 
         assert!(has_session.success());
+
+        Tmux::with_command(KillSession::new().target_session(&session_name))
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_tmux_session_create_reports_duplicate_session() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!(
+                "Skipping test_tmux_session_create_reports_duplicate_session: tmux not usable"
+            );
+            return;
+        }
+
+        let session_name = format!(
+            "gflow-test-dup-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+
+        let _session = TmuxSession::create(session_name.clone()).unwrap();
+        let error = TmuxSession::create(session_name.clone()).err().unwrap();
+
+        assert!(error.to_string().contains("Failed to create tmux session"));
 
         Tmux::with_command(KillSession::new().target_session(&session_name))
             .output()

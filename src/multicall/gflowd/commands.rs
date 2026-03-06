@@ -97,7 +97,7 @@ pub async fn handle_commands(
             gpus,
             gpu_allocation_strategy,
         } => {
-            up::handle_up(gpus, gpu_allocation_strategy, verbosity).await?;
+            up::handle_up(config_path, gpus, gpu_allocation_strategy, verbosity).await?;
         }
         Commands::Down => {
             down::handle_down().await?;
@@ -107,7 +107,7 @@ pub async fn handle_commands(
             gpu_allocation_strategy,
         } => {
             down::handle_down().await?;
-            up::handle_up(gpus, gpu_allocation_strategy, verbosity).await?;
+            up::handle_up(config_path, gpus, gpu_allocation_strategy, verbosity).await?;
         }
         Commands::Reload {
             gpus,

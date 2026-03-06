@@ -34,7 +34,7 @@ pub async fn handle_reload(
         .unwrap()
         .as_micros();
     let new_session_name = format!("gflow_server_new_{}", timestamp);
-    let session = TmuxSession::new(new_session_name.clone());
+    let session = TmuxSession::create(new_session_name.clone())?;
 
     let command = super::daemon_start_command(
         gpus.as_deref(),
@@ -42,7 +42,7 @@ pub async fn handle_reload(
         verbosity,
     )?;
 
-    session.send_command(&command);
+    session.try_send_command(&command)?;
 
     // 3. Wait for new instance to initialize and bind socket
     tracing::info!("Waiting for new instance to initialize...");
