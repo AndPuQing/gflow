@@ -18,12 +18,32 @@ fn daemon_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+fn unique_tmux_session_name(prefix: &str) -> String {
+    format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    )
+}
+
 fn tmux_usable() -> bool {
-    Command::new("tmux")
-        .arg("start-server")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    let session_name = unique_tmux_session_name("gflow-e2e-probe");
+    let created = Command::new("tmux")
+        .args(["new-session", "-d", "-s", &session_name, "sleep", "5"])
+        .output();
+
+    match created {
+        Ok(output) if output.status.success() => {
+            let _ = Command::new("tmux")
+                .args(["kill-session", "-t", &session_name])
+                .output();
+            true
+        }
+        _ => false,
+    }
 }
 
 fn stale_gflowd_session_present() -> bool {
@@ -108,12 +128,15 @@ struct TestSandbox {
     work_dir: PathBuf,
     port: u16,
     tmux_env_keys: Vec<&'static str>,
+    bootstrap_session: String,
     daemon_started: bool,
 }
 
 impl TestSandbox {
     fn new() -> Option<Self> {
-        let guard = daemon_lock().lock().unwrap();
+        let guard = daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if !tmux_usable() {
             eprintln!("Skipping daemon E2E test: tmux not usable");
@@ -162,6 +185,7 @@ impl TestSandbox {
                 "XDG_RUNTIME_DIR",
                 "GFLOW_DISABLE_DEV_AUTO",
             ],
+            bootstrap_session: unique_tmux_session_name("gflow-e2e-bootstrap"),
             daemon_started: false,
         };
 
@@ -206,7 +230,24 @@ impl TestSandbox {
     }
 
     fn seed_tmux_environment(&self) {
-        let _ = Command::new("tmux").arg("start-server").output();
+        let bootstrap = Command::new("tmux")
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                &self.bootstrap_session,
+                "sleep",
+                "300",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            bootstrap.status.success(),
+            "failed to create tmux bootstrap session {}: {}",
+            self.bootstrap_session,
+            String::from_utf8_lossy(&bootstrap.stderr)
+        );
+
         for key in &self.tmux_env_keys {
             let Some(value) = self.env_value(key) else {
                 continue;
@@ -263,7 +304,10 @@ impl Drop for TestSandbox {
 
         let sessions = get_all_session_names();
         for session in sessions {
-            if session == DAEMON_SESSION || session.starts_with("gflow_server_new_") {
+            if session == DAEMON_SESSION
+                || session == self.bootstrap_session
+                || session.starts_with("gflow_server_new_")
+            {
                 let _ = Command::new("tmux")
                     .args(["kill-session", "-t", &session])
                     .output();
@@ -279,6 +323,7 @@ impl Drop for TestSandbox {
 }
 
 async fn get_health(base_url: &str) -> Result<(StatusCode, Value), reqwest::Error> {
+    gflow::tls::ensure_rustls_provider_installed();
     let response = reqwest::get(format!("{base_url}/health")).await?;
     let status = response.status();
     let body = response.json::<Value>().await?;
