@@ -1,94 +1,17 @@
 use anyhow::Result;
-use gflow::{
-    client::Client,
-    core::job::{GpuIds, JobState},
-    tmux::get_all_session_names,
-};
-use owo_colors::OwoColorize;
-use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use tabled::{builder::Builder, settings::style::Style};
+use gflow::{client::Client, core::job::JobState, tmux::get_all_session_names};
 
-// Tree rendering constants - solid lines for dependencies
-const TREE_BRANCH: &str = "├─";
-const TREE_EDGE: &str = "╰─";
-const TREE_PIPE: &str = "│ ";
-const TREE_EMPTY: &str = "  ";
+mod display;
+mod output;
+mod tree;
 
-// Tree rendering constants - dashed lines for redo relationships
-const TREE_BRANCH_DASHED: &str = "├┄";
-const TREE_EDGE_DASHED: &str = "╰┄";
-
-/// Output format for job listings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
-#[strum(ascii_case_insensitive)]
-enum OutputFormat {
-    Table,
-    Json,
-    Csv,
-    Yaml,
-}
-
-/// Serializable job information for machine-readable output
-#[derive(Debug, Serialize)]
-struct JobOutput {
-    id: u32,
-    name: Option<String>,
-    state: String,
-    time: String,
-    gpus: Vec<u32>,
-    user: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    project: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    submitted_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    memory_mb: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    time_limit: Option<String>,
-}
-
-/// Container for job list output with metadata
-#[derive(Debug, Serialize)]
-struct JobListOutput {
-    jobs: Vec<JobOutput>,
-    total: usize,
-    timestamp: String,
-}
-
-impl JobOutput {
-    fn from_job(job: &gflow::core::job::Job) -> Self {
-        Self {
-            id: job.id,
-            name: job.run_name.as_ref().map(|s| s.to_string()),
-            state: job.state.to_string(),
-            time: gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
-            gpus: job
-                .gpu_ids
-                .as_ref()
-                .map_or_else(Vec::new, |ids| ids.to_vec()),
-            user: job.submitted_by.to_string(),
-            project: job.project.as_ref().map(|s| s.to_string()),
-            submitted_at: job.submitted_at.and_then(|t| {
-                chrono::DateTime::<chrono::Utc>::from(t)
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-                    .into()
-            }),
-            reason: match job.state {
-                JobState::Queued | JobState::Hold | JobState::Cancelled => Some(
-                    get_job_reason_display(job)
-                        .trim_matches(|c| c == '(' || c == ')')
-                        .to_string(),
-                ),
-                _ => None,
-            },
-            memory_mb: job.memory_limit_mb,
-            time_limit: job.time_limit.map(gflow::utils::format_duration),
-        }
-    }
-}
+use display::{display_grouped_jobs, display_jobs_table};
+use output::{output_csv, output_json, output_yaml, OutputFormat};
+#[cfg(test)]
+use std::collections::HashSet;
+use tree::display_jobs_tree;
+#[cfg(test)]
+use tree::{build_dependency_tree, JobNodeChild};
 
 pub struct ListOptions {
     pub user: Option<String>,
@@ -114,9 +37,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
     if options.watch {
         let interval = std::time::Duration::from_secs(options.interval);
         loop {
-            // Clear screen
             print!("\x1B[2J\x1B[H");
-            // Print timestamp header
             let now = chrono::Local::now();
             println!(
                 "Last updated: {}  [Refreshing every {}s. Press Ctrl+C to exit]\n",
@@ -140,9 +61,7 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         Some(u) => Some(u.to_string()),
     };
 
-    // Determine states to query
     let states_filter = if options.completed {
-        // Only completed states
         Some(
             JobState::completed_states()
                 .iter()
@@ -151,13 +70,10 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
                 .join(","),
         )
     } else if let Some(ref states) = options.states {
-        // Use explicit --states
         Some(states.clone())
     } else if options.all {
-        // Show all states (no filter)
         None
     } else {
-        // Default: only active (non-completed) states
         Some(
             JobState::active_states()
                 .iter()
@@ -167,15 +83,12 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         )
     };
 
-    // Parse --since time filter if provided
     let created_after = if let Some(ref since_str) = options.since {
         Some(gflow::utils::parse_since_time(since_str)?)
     } else {
         None
     };
 
-    // Query jobs with filters
-    // Note: All jobs are stored in-memory on the server, not in a database
     let mut jobs_vec = client
         .list_jobs_with_query(states_filter, user_filter, None, None, created_after)
         .await?;
@@ -204,7 +117,6 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         }
     }
 
-    // Filter by project if specified
     if let Some(project_filter) = options.project.as_deref() {
         let project = project_filter.trim();
         if !project.is_empty() {
@@ -212,10 +124,8 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         }
     }
 
-    // Get all tmux sessions once upfront for efficiency
     let tmux_sessions = get_all_session_names();
 
-    // Filter by tmux sessions if requested
     if options.tmux {
         jobs_vec.retain(|job| {
             job.run_name
@@ -229,10 +139,8 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         return Ok(());
     }
 
-    // Sort jobs
     sort_jobs(&mut jobs_vec, &options.sort);
 
-    // Parse output format
     let output_format: OutputFormat = options.output.parse().map_err(|_| {
         anyhow::anyhow!(
             "Invalid output format '{}'. Valid options: table, json, csv, yaml",
@@ -240,14 +148,12 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         )
     })?;
 
-    // Apply limit
     let effective_limit = if options.all { 0 } else { options.limit };
     let mut limit_message = None;
     if effective_limit != 0 {
         let total_jobs = jobs_vec.len();
 
         if effective_limit > 0 {
-            // Positive limit: show first N jobs
             let limit_usize = effective_limit as usize;
             if jobs_vec.len() > limit_usize {
                 jobs_vec.truncate(limit_usize);
@@ -257,7 +163,6 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
                 ));
             }
         } else {
-            // Negative limit: show last N jobs
             let limit_usize = (-effective_limit) as usize;
             if jobs_vec.len() > limit_usize {
                 let start = jobs_vec.len() - limit_usize;
@@ -270,7 +175,6 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         }
     }
 
-    // Display limit message only for table format
     if let Some(msg) = limit_message {
         if output_format == OutputFormat::Table {
             println!("{}", msg);
@@ -278,10 +182,8 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         }
     }
 
-    // Output based on format
     match output_format {
         OutputFormat::Table => {
-            // Group by state if requested
             if options.group {
                 display_grouped_jobs(&jobs_vec, options.format.as_deref(), &tmux_sessions);
             } else if options.tree {
@@ -290,21 +192,14 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
                 display_jobs_table(&jobs_vec, options.format.as_deref(), &tmux_sessions);
             }
         }
-        OutputFormat::Json => {
-            output_json(&jobs_vec)?;
-        }
-        OutputFormat::Csv => {
-            output_csv(&jobs_vec)?;
-        }
-        OutputFormat::Yaml => {
-            output_yaml(&jobs_vec)?;
-        }
+        OutputFormat::Json => output_json(&jobs_vec)?,
+        OutputFormat::Csv => output_csv(&jobs_vec)?,
+        OutputFormat::Yaml => output_yaml(&jobs_vec)?,
     }
 
     Ok(())
 }
 
-/// Sorts jobs by the specified field
 fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
     match sort_field.to_lowercase().as_str() {
         "id" => jobs.sort_by_key(|j| j.id),
@@ -326,613 +221,6 @@ fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {
             jobs.sort_by_key(|j| j.id);
         }
     }
-}
-
-/// Displays jobs in a standard table format
-fn display_jobs_table(
-    jobs: &[gflow::core::job::Job],
-    format: Option<&str>,
-    tmux_sessions: &HashSet<String>,
-) {
-    if jobs.is_empty() {
-        println!("No jobs to display.");
-        return;
-    }
-
-    let format = format
-        .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
-        .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
-
-    // Build table using tabled Builder
-    let mut builder = Builder::default();
-
-    // Add header row
-    builder.push_record(headers.clone());
-
-    // Add data rows
-    for job in jobs {
-        let row: Vec<String> = headers
-            .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions))
-            .collect();
-        builder.push_record(row);
-    }
-
-    let mut table = builder.build();
-    table.with(Style::blank());
-
-    println!("{}", table);
-}
-
-/// Displays jobs in a standard table format (for references)
-fn display_jobs_table_refs(
-    jobs: &[&gflow::core::job::Job],
-    format: Option<&str>,
-    tmux_sessions: &HashSet<String>,
-) {
-    if jobs.is_empty() {
-        println!("No jobs to display.");
-        return;
-    }
-
-    let format = format
-        .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
-        .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
-
-    // Build table using tabled Builder
-    let mut builder = Builder::default();
-
-    // Add header row
-    builder.push_record(headers.clone());
-
-    // Add data rows
-    for job in jobs {
-        let row: Vec<String> = headers
-            .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions))
-            .collect();
-        builder.push_record(row);
-    }
-
-    let mut table = builder.build();
-    table.with(Style::blank());
-
-    println!("{}", table);
-}
-
-fn display_grouped_jobs(
-    jobs: &[gflow::core::job::Job],
-    format: Option<&str>,
-    tmux_sessions: &HashSet<String>,
-) {
-    use gflow::core::job::JobState;
-
-    let mut grouped: std::collections::HashMap<JobState, Vec<&gflow::core::job::Job>> =
-        std::collections::HashMap::new();
-    for job in jobs {
-        grouped.entry(job.state).or_default().push(job);
-    }
-
-    let states_order = [
-        JobState::Running,
-        JobState::Queued,
-        JobState::Finished,
-        JobState::Failed,
-        JobState::Cancelled,
-        JobState::Timeout,
-    ];
-
-    let mut first = true;
-    for state in states_order {
-        if let Some(state_jobs) = grouped.get(&state) {
-            if !first {
-                println!();
-            }
-            first = false;
-
-            println!("{} ({})", state, state_jobs.len());
-            println!("{}", "─".repeat(60));
-            display_jobs_table_refs(state_jobs, format, tmux_sessions);
-        }
-    }
-}
-
-/// Colorizes a job state string based on its state
-fn colorize_state(state: &JobState) -> String {
-    let short = state.short_form();
-    match state {
-        JobState::Running => short.green().bold().to_string(),
-        JobState::Finished => short.dimmed().to_string(),
-        JobState::Queued => short.italic().to_string(),
-        JobState::Hold => short.bold().to_string(),
-        JobState::Failed => short.red().bold().to_string(),
-        JobState::Timeout => short.underline().to_string(),
-        JobState::Cancelled => short.strikethrough().to_string(),
-    }
-}
-
-/// Computes the reason why a job is in its current state for display
-fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
-    use gflow::core::job::JobStateReason;
-
-    // If job already has a reason set, use it (except for CancelledByUser)
-    if let Some(reason) = job.reason.as_deref() {
-        if matches!(reason, JobStateReason::CancelledByUser) {
-            return "-".to_string();
-        }
-        return format!("({})", reason);
-    }
-
-    // Compute the reason based on state
-    match job.state {
-        JobState::Hold => format!("({})", JobStateReason::JobHeldUser),
-        JobState::Queued => {
-            let has_dependencies = job.depends_on.is_some() || !job.depends_on_ids.is_empty();
-            if has_dependencies {
-                format!("({})", JobStateReason::WaitingForDependency)
-            } else {
-                format!("({})", JobStateReason::WaitingForResources)
-            }
-        }
-        JobState::Cancelled => "-".to_string(),
-        _ => "-".to_string(),
-    }
-}
-
-/// Formats GPU IDs as a comma-separated string
-fn format_gpu_ids(gpu_ids: Option<&GpuIds>) -> String {
-    gpu_ids.map_or_else(
-        || "-".to_string(),
-        |ids| {
-            ids.iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        },
-    )
-}
-
-/// Formats a job field value for display
-fn format_job_cell(
-    job: &gflow::core::job::Job,
-    header: &str,
-    tmux_sessions: &HashSet<String>,
-) -> String {
-    match header {
-        "JOBID" => job.id.to_string(),
-        "NAME" => format_job_name_with_session_status(job, tmux_sessions),
-        "ST" => colorize_state(&job.state),
-        "NODES" => job.gpus.to_string(),
-        "MEMORY" => job
-            .memory_limit_mb
-            .map_or_else(|| "-".to_string(), gflow::utils::format_memory),
-        "NODELIST(REASON)" => {
-            // For running jobs, show GPU IDs
-            // For queued/held/cancelled jobs, show pending reason
-            match job.state {
-                JobState::Running => format_gpu_ids(job.gpu_ids.as_ref()),
-                JobState::Queued | JobState::Hold | JobState::Cancelled => {
-                    get_job_reason_display(job)
-                }
-                _ => "-".to_string(),
-            }
-        }
-        "TIME" => gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
-        "TIMELIMIT" => job
-            .time_limit
-            .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
-        "USER" => job.submitted_by.to_string(),
-        "PROJECT" => job
-            .project
-            .as_ref()
-            .map_or_else(|| "-".to_string(), |p| p.to_string()),
-        _ => String::new(),
-    }
-}
-
-/// Formats the job name with a visual indicator for tmux session status
-fn format_job_name_with_session_status(
-    job: &gflow::core::job::Job,
-    tmux_sessions: &HashSet<String>,
-) -> String {
-    let Some(name) = &job.run_name else {
-        return "-".to_string();
-    };
-
-    if tmux_sessions.contains(name.as_str()) {
-        format!("{} {}", name, "○".green())
-    } else {
-        name.to_string()
-    }
-}
-
-/// Tree structure for dependency visualization
-struct JobNode {
-    job: gflow::core::job::Job,
-    children: Vec<JobNodeChild>,
-}
-
-/// Represents a child in the tree - either a real job node or a reference
-enum JobNodeChild {
-    Node(Box<JobNode>, bool), // (node, is_redo_relationship)
-    Reference(u32),           // Reference to a job ID that appears elsewhere
-}
-
-/// Context for rendering jobs with formatting and session information
-struct RenderContext<'a> {
-    headers: &'a [&'a str],
-    tmux_sessions: &'a HashSet<String>,
-}
-
-/// Builds a dependency tree from a list of jobs, with cycle detection
-fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNode> {
-    // Create a map of job_id -> job for quick lookup
-    let job_map: HashMap<u32, &gflow::core::job::Job> = jobs.iter().map(|j| (j.id, j)).collect();
-
-    // Create a map of parent_id -> child jobs (for dependency relationships)
-    let mut children_map: HashMap<Option<u32>, Vec<u32>> = HashMap::new();
-
-    // Create a map of original_job_id -> redo jobs (for redo relationships)
-    let mut redo_map: HashMap<u32, Vec<u32>> = HashMap::new();
-
-    // Track all jobs that appear as dependency children (globally)
-    let mut all_dependency_children: HashSet<u32> = HashSet::new();
-
-    for job in jobs {
-        children_map.entry(job.depends_on).or_default().push(job.id);
-
-        // Track jobs whose dependency parent is present in the current list.
-        // If the dependency parent is filtered out, this job should still be rendered normally.
-        if let Some(parent_id) = job.depends_on {
-            if job_map.contains_key(&parent_id) {
-                all_dependency_children.insert(job.id);
-            }
-        }
-
-        if let Some(redone_from) = job.redone_from {
-            redo_map.entry(redone_from).or_default().push(job.id);
-        }
-    }
-
-    // Build tree nodes recursively with cycle detection
-    fn build_node(
-        job_id: u32,
-        job_map: &HashMap<u32, &gflow::core::job::Job>,
-        children_map: &HashMap<Option<u32>, Vec<u32>>,
-        redo_map: &HashMap<u32, Vec<u32>>,
-        all_dependency_children: &HashSet<u32>,
-        visited: &mut HashSet<u32>,
-        recursion_stack: &mut HashSet<u32>,
-    ) -> Option<JobNode> {
-        // Check for circular dependency
-        if recursion_stack.contains(&job_id) {
-            tracing::warn!(
-                "Circular dependency detected for job {}, skipping subtree",
-                job_id
-            );
-            return None;
-        }
-
-        // Check if job exists in the map
-        let job = (*job_map.get(&job_id)?).clone();
-
-        // Mark as visited and in recursion stack
-        visited.insert(job_id);
-        recursion_stack.insert(job_id);
-
-        // Collect dependency children IDs first
-        let dep_child_ids: HashSet<u32> = children_map
-            .get(&Some(job_id))
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect();
-
-        let dep_iter = dep_child_ids.iter().map(|&id| (id, false));
-
-        // For redo children that are dependency children elsewhere, create references
-        let redo_iter = redo_map
-            .get(&job_id)
-            .into_iter()
-            .flatten()
-            .map(|&id| (id, true));
-
-        let mut children: Vec<JobNodeChild> = dep_iter
-            .chain(redo_iter)
-            .filter_map(|(child_id, is_redo)| {
-                // If this is a redo child that appears as a dependency child elsewhere,
-                // create a reference instead of a full node
-                if is_redo && all_dependency_children.contains(&child_id) {
-                    Some(JobNodeChild::Reference(child_id))
-                } else {
-                    build_node(
-                        child_id,
-                        job_map,
-                        children_map,
-                        redo_map,
-                        all_dependency_children,
-                        visited,
-                        recursion_stack,
-                    )
-                    .map(|child_node| JobNodeChild::Node(Box::new(child_node), is_redo))
-                }
-            })
-            .collect();
-
-        // Sort children by job ID to maintain proper ordering
-        children.sort_by_key(|child| match child {
-            JobNodeChild::Node(node, _) => node.job.id,
-            JobNodeChild::Reference(id) => *id,
-        });
-
-        // Remove from recursion stack (backtrack)
-        recursion_stack.remove(&job_id);
-
-        Some(JobNode { job, children })
-    }
-
-    // Find root jobs:
-    // - jobs with no dependency
-    // - jobs whose dependency parent is outside the current filtered job list
-    let mut root_ids: Vec<u32> = jobs
-        .iter()
-        .filter_map(|job| match job.depends_on {
-            None => Some(job.id),
-            Some(parent_id) if !job_map.contains_key(&parent_id) => Some(job.id),
-            _ => None,
-        })
-        .collect();
-
-    // Keep root ordering deterministic by job id.
-    root_ids.sort_unstable();
-    root_ids.dedup();
-
-    // Exclude jobs that have redone_from relationships where the original job exists in the list
-    // These jobs will be displayed as children of their original jobs with dashed lines
-    root_ids.retain(|job_id| {
-        let parent_exists = job_map
-            .get(job_id)
-            .and_then(|job| job.redone_from)
-            .is_some_and(|parent_id| job_map.contains_key(&parent_id));
-
-        !parent_exists
-    });
-
-    let mut visited = HashSet::new();
-    let mut recursion_stack = HashSet::new();
-
-    root_ids
-        .into_iter()
-        .filter_map(|job_id| {
-            build_node(
-                job_id,
-                &job_map,
-                &children_map,
-                &redo_map,
-                &all_dependency_children,
-                &mut visited,
-                &mut recursion_stack,
-            )
-        })
-        .collect()
-}
-
-/// Displays jobs in a tree format showing dependency relationships
-fn display_jobs_tree(
-    jobs: &[gflow::core::job::Job],
-    format: Option<&str>,
-    tmux_sessions: &HashSet<String>,
-) {
-    if jobs.is_empty() {
-        println!("No jobs to display.");
-        return;
-    }
-
-    let format = format
-        .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
-        .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
-
-    // Build dependency tree
-    let tree = build_dependency_tree(jobs);
-
-    // Build table using tabled Builder
-    let mut builder = Builder::default();
-
-    // Add header row
-    builder.push_record(headers.clone());
-
-    // Create render context
-    let ctx = RenderContext {
-        headers: &headers,
-        tmux_sessions,
-    };
-
-    // Collect all tree rows
-    for node in &tree {
-        collect_tree_rows(&mut builder, node, &ctx, "", true, true, false);
-    }
-
-    let mut table = builder.build();
-    table.with(Style::blank());
-
-    println!("{}", table);
-}
-
-/// Collects job node and its children as table rows
-fn collect_tree_rows(
-    builder: &mut Builder,
-    node: &JobNode,
-    ctx: &RenderContext,
-    prefix: &str,
-    is_last: bool,
-    is_root: bool,
-    is_redo: bool,
-) {
-    let job = &node.job;
-    let tree_prefix = if is_root {
-        String::new()
-    } else if is_redo {
-        // Use dashed lines for redo relationships
-        if is_last {
-            TREE_EDGE_DASHED.to_string()
-        } else {
-            TREE_BRANCH_DASHED.to_string()
-        }
-    } else {
-        // Use solid lines for dependency relationships
-        if is_last {
-            TREE_EDGE.to_string()
-        } else {
-            TREE_BRANCH.to_string()
-        }
-    };
-
-    // Build the row
-    let row: Vec<String> = ctx
-        .headers
-        .iter()
-        .enumerate()
-        .map(|(idx, header)| {
-            if *header == "JOBID" && idx == 0 {
-                // Add tree prefix to JOBID column
-                format!("{}{}{}", prefix, tree_prefix, job.id)
-            } else {
-                format_job_cell(job, header, ctx.tmux_sessions)
-            }
-        })
-        .collect();
-
-    builder.push_record(row);
-
-    // Collect children with updated prefix
-    let child_count = node.children.len();
-    for (idx, child) in node.children.iter().enumerate() {
-        let is_last_child = idx == child_count - 1;
-
-        // Root nodes should not add any prefix to their children
-        // Non-root nodes add TREE_PIPE if not last, TREE_EMPTY if last (to maintain tree structure)
-        let child_prefix = if is_root {
-            String::new()
-        } else {
-            // Use solid pipe for dependency relationships
-            if is_last {
-                format!("{}{}", prefix, TREE_EMPTY)
-            } else {
-                format!("{}{}", prefix, TREE_PIPE)
-            }
-        };
-
-        match child {
-            JobNodeChild::Node(child_node, child_is_redo) => {
-                collect_tree_rows(
-                    builder,
-                    child_node,
-                    ctx,
-                    &child_prefix,
-                    is_last_child,
-                    false,
-                    *child_is_redo,
-                );
-            }
-            JobNodeChild::Reference(job_id) => {
-                // Add a reference row - make it compact by using minimal spacing
-                let tree_prefix = if is_last_child {
-                    TREE_EDGE_DASHED
-                } else {
-                    TREE_BRANCH_DASHED
-                };
-
-                // Create a compact reference that doesn't cause large gaps
-                let reference_text = format!("{}{}→ see job {}", child_prefix, tree_prefix, job_id);
-
-                let row: Vec<String> = ctx
-                    .headers
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, header)| {
-                        if *header == "JOBID" && idx == 0 {
-                            reference_text.clone()
-                        } else {
-                            // Use "-" for other columns to maintain table structure
-                            "-".to_string()
-                        }
-                    })
-                    .collect();
-
-                builder.push_record(row);
-            }
-        }
-    }
-}
-
-/// Output jobs in JSON format
-fn output_json(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
-    let output = JobListOutput {
-        jobs: job_outputs,
-        total: jobs.len(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    println!("{}", serde_json::to_string_pretty(&output)?);
-    Ok(())
-}
-
-/// Output jobs in CSV format
-fn output_csv(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let mut wtr = csv::Writer::from_writer(std::io::stdout());
-
-    // Write header
-    wtr.write_record([
-        "id",
-        "name",
-        "state",
-        "time",
-        "gpus",
-        "user",
-        "submitted_at",
-        "reason",
-    ])?;
-
-    // Write data rows
-    for job in jobs {
-        let job_output = JobOutput::from_job(job);
-        wtr.write_record(&[
-            job_output.id.to_string(),
-            job_output.name.unwrap_or_else(|| "-".to_string()),
-            job_output.state,
-            job_output.time,
-            format!(
-                "[{}]",
-                job_output
-                    .gpus
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            job_output.user,
-            job_output.submitted_at.unwrap_or_else(|| "-".to_string()),
-            job_output.reason.unwrap_or_else(|| "-".to_string()),
-        ])?;
-    }
-
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Output jobs in YAML format
-fn output_yaml(jobs: &[gflow::core::job::Job]) -> Result<()> {
-    let job_outputs: Vec<JobOutput> = jobs.iter().map(JobOutput::from_job).collect();
-    let output = JobListOutput {
-        jobs: job_outputs,
-        total: jobs.len(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    println!("{}", serde_yaml::to_string(&output)?);
-    Ok(())
 }
 
 #[cfg(test)]
