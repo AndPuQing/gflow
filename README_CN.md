@@ -1,6 +1,6 @@
 # gflow - 轻量级单节点任务调度器
 
-[![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://andpuqing.github.io/gflow/)
+[![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://runqd.com)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)](https://github.com/AndPuQing/gflow/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/AndPuQing/gflow/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/AndPuQing/gflow)
 [![PyPI - Version](https://img.shields.io/pypi/v/runqd?style=flat-square&logo=pypi)](https://pypi.org/project/runqd/)
@@ -14,49 +14,59 @@
 
 [English](README.md) | 简体中文
 
-`gflow` 是一个使用 Rust 编写的轻量级单节点任务调度器，灵感来源于 Slurm。它专为高效管理和调度任务而设计，特别适用于配备 GPU 资源的机器。
+`gflow` 是一个面向单台 Linux 机器的轻量级任务调度器。它提供类似 Slurm 的工作流：提交、排队、查看、取消和组织任务，但不需要部署完整集群。它特别适合共享 GPU 工作站、实验室服务器和小型研究环境。
 
 ## 演示
 
 [![asciicast](https://asciinema.org/a/ps79jhhtbo5cgJwO.svg)](https://asciinema.org/a/ps79jhhtbo5cgJwO)
 
+## 适用场景
+
+- 只有一台 Linux 机器，而不是完整集群。
+- 多个用户或实验需要安全地共享 GPU。
+- 需要任务队列、依赖、数组任务和时间限制。
+- 希望获得比 Slurm 更轻量的本地/实验室调度方案。
+
 ## 核心特性
 
-- **守护进程调度**：持久化守护进程（`gflowd`）负责管理任务队列和资源分配。
-- **丰富的任务提交选项**：通过 `gbatch` 命令支持依赖关系、优先级、任务数组和时间限制。
-- **时间限制**：为任务设置最大运行时间（类似 Slurm 的 `--time`），防止失控进程。
-- **Webhook 通知**：在任务状态变化等事件发生时发送 HTTP POST 通知。
-- **服务与任务控制**：提供清晰的命令来检查调度器状态（`ginfo`）、查询任务队列（`gqueue`）和控制任务状态（`gcancel`）。
-- **`tmux` 集成**：使用 `tmux` 实现稳健的后台任务执行和会话管理。
-- **输出日志记录**：通过 `tmux pipe-pane` 自动捕获任务输出到日志文件。
-- **简洁的命令行界面**：提供用户友好且功能强大的命令行工具集。
+- **守护进程调度**：`gflowd` 统一维护任务队列、状态和资源分配。
+- **GPU 感知调度**：支持独占 GPU，也支持基于显存限制的共享 GPU 调度。
+- **丰富的提交模型**：可提交命令或脚本，并支持优先级、依赖、任务数组和 Conda 环境。
+- **时间限制与生命周期控制**：防止失控任务，并支持 hold、release、redo 和 cancel。
+- **基于 tmux 的执行与日志**：每个任务在独立会话中运行，并将输出持续写入日志。
+- **自动化集成**：在任务启动、完成、失败或状态变更时发送 Webhook 通知。
 
-## 组件概览
+## CLI 概览
 
-`gflow` 套件包含多个命令行工具：
-
-- `gflowd`：在后台运行的调度器守护进程，负责管理任务和资源。
-- `ginfo`：显示调度器和 GPU 信息。
-- `gbatch`：向调度器提交任务，类似 Slurm 的 `sbatch`。
-- `gqueue`：列出和过滤队列中的任务，类似 Slurm 的 `squeue`。
-- `gjob`：任务查看与控制（日志、attach、update、redo 等）。
-- `gctl`：守护进程/运行时控制工具（例如 GPU 限制）。
-- `gcancel`：取消任务。
+- `gflowd`：初始化配置并管理调度器守护进程。
+- `gbatch`：提交命令或脚本。
+- `gqueue`：查看并筛选任务。
+- `gjob`：查看详情、attach、hold/release、redo 和 update。
+- `gcancel`：取消一个或多个任务。
+- `gctl`：管理 GPU 可见性、并发限制和预留。
+- `ginfo`：查看调度器和 GPU 状态。
+- `gstats`：查看调度统计信息。
 
 ## 安装
 
+### 前置要求
+
+- Linux
+- `tmux`
+- 仅在需要 GPU 调度时安装 NVIDIA 驱动
+
 ### 通过 PyPI 安装（推荐）
 
-使用 `pipx` 安装 gflow（推荐用于 CLI 工具）：
-
-```bash
-pipx install runqd
-```
-
-或使用 `uv`：
+使用 `uv`：
 
 ```bash
 uv tool install runqd
+```
+
+或使用 `pipx`：
+
+```bash
+pipx install runqd
 ```
 
 或使用 `pip`：
@@ -65,91 +75,95 @@ uv tool install runqd
 pip install runqd
 ```
 
-这将为 Linux（x86_64、ARM64）安装预构建的二进制文件。
+Linux `x86_64` 和 `arm64` 提供预构建二进制文件。
 
 ### 安装 Nightly 版本
-
-如需体验最新开发版本，可从 TestPyPI 安装：
 
 ```bash
 pip install --index-url https://test.pypi.org/simple/ runqd
 ```
 
-### 通过 `cargo` 安装
+### 通过 Cargo 安装
 
 ```bash
 cargo install gflow
 ```
 
-#### `cargo install`（main 分支）
+直接安装 `main` 分支：
+
 ```bash
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
 
-这将安装所有必需的二进制文件（`gflowd`、`ginfo`、`gbatch`、`gqueue`、`gcancel`、`gjob`、`gctl`）。
+### 从源码构建
 
-### 手动构建
+```bash
+git clone https://github.com/AndPuQing/gflow.git
+cd gflow
+cargo build --release
+```
 
-1.  克隆仓库：
-    ```bash
-    git clone https://github.com/AndPuQing/gflow.git
-    cd gflow
-    ```
-
-2.  构建项目：
-    ```bash
-    cargo build --release
-    ```
-    可执行文件将位于 `target/release/` 目录中。
+编译后的二进制文件位于 `target/release/`。
 
 ## 快速开始
 
-0.  **（可选）初始化配置**：
-    ```bash
-    gflowd init
-    ```
-    这会生成 `~/.config/gflow/gflow.toml`（包含合理默认值）。
+1. **初始化配置**（可选但推荐）：
 
-1.  **启动调度器守护进程**：
-    ```bash
-    gflowd up
-    ```
-    在专用终端或 `tmux` 会话中运行此命令并保持运行。您可以随时使用 `gflowd status` 检查其健康状态，并使用 `ginfo` 查看资源信息。
+   ```bash
+   gflowd init
+   ```
 
-2.  **提交任务**：
-    创建脚本 `my_job.sh`：
-    ```sh
-    #!/bin/bash
-    echo "任务在 GPU 上启动：$CUDA_VISIBLE_DEVICES"
-    sleep 30
-    echo "任务完成。"
-    ```
-    使用 `gbatch` 提交：
-    ```bash
-    gbatch --gpus 1 ./my_job.sh
-    ```
+2. **启动调度器守护进程**：
 
-3.  **查看任务队列**：
-    ```bash
-    gqueue
-    ```
-    您也可以实时监控队列更新：`watch --color gqueue`。
+   ```bash
+   gflowd up
+   ```
 
-4.  **停止调度器**：
-    ```bash
-    gflowd down
-    ```
-    这将关闭守护进程并清理 tmux 会话。
+3. **提交任务**：
 
-## 文档
+   ```bash
+   cat > my_job.sh <<'EOF'
+   #!/bin/bash
+   echo "任务在 GPU 上启动：$CUDA_VISIBLE_DEVICES"
+   sleep 30
+   echo "任务完成。"
+   EOF
+   chmod +x my_job.sh
+   gbatch --gpus 1 ./my_job.sh
+   ```
 
-- 网站：https://andpuqing.github.io/gflow/
-- 安装：`docs/src/getting-started/installation.md`
-- 快速入门：`docs/src/getting-started/quick-start.md`
-- 任务提交：`docs/src/user-guide/job-submission.md`
-- 时间限制：`docs/src/user-guide/time-limits.md`
-- 配置：`docs/src/user-guide/configuration.md`
-- 命令速查：`docs/src/reference/quick-reference.md`
+4. **查看队列**：
+
+   ```bash
+   gqueue
+   ```
+
+5. **查看资源或在结束后停止守护进程**：
+
+   ```bash
+   ginfo
+   gflowd down
+   ```
+
+## 常见工作流
+
+```bash
+gflowd up
+ginfo
+gbatch --gpus 1 --time 2:00:00 --name train python train.py
+gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
+gjob show <job_id>
+gcancel <job_id>
+```
+
+## 文档导航
+
+- 文档站点：[runqd.com](https://runqd.com/zh-CN/)
+- 安装：[runqd.com/zh-CN/getting-started/installation.html](https://runqd.com/zh-CN/getting-started/installation.html)
+- 快速入门：[runqd.com/zh-CN/getting-started/quick-start.html](https://runqd.com/zh-CN/getting-started/quick-start.html)
+- 任务提交：[runqd.com/zh-CN/user-guide/job-submission.html](https://runqd.com/zh-CN/user-guide/job-submission.html)
+- 配置：[runqd.com/zh-CN/user-guide/configuration.html](https://runqd.com/zh-CN/user-guide/configuration.html)
+- 命令速查：[runqd.com/zh-CN/reference/quick-reference.html](https://runqd.com/zh-CN/reference/quick-reference.html)
 
 ## Star 历史
 
@@ -163,8 +177,8 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 
 ## 贡献
 
-如果您发现任何错误或有功能请求，欢迎创建 [Issue](https://github.com/AndPuQing/gflow/issues) 并通过提交 [Pull Request](https://github.com/AndPuQing/gflow/pulls) 来贡献代码。
+如果你发现 Bug，或想提出改进建议，欢迎提交 [Issue](https://github.com/AndPuQing/gflow/issues) 或 [Pull Request](https://github.com/AndPuQing/gflow/pulls)。
 
 ## 许可证
 
-`gflow` 采用 MIT 许可证。详情请参阅 [LICENSE](./LICENSE)。
+`gflow` 采用 MIT 许可证。详见 [LICENSE](./LICENSE)。

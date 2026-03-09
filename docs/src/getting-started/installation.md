@@ -144,7 +144,7 @@ gflow uses the following directories:
 | Location | Purpose |
 |----------|---------|
 | `~/.config/gflow/gflow.toml` | Configuration file (optional) |
-| `~/.local/share/gflow/state.json` | Persistent job state |
+| `~/.local/share/gflow/state.msgpack` | Persistent job state (`state.json` is still read for legacy installs) |
 | `~/.local/share/gflow/logs/` | Job output logs |
 
 ## Troubleshooting

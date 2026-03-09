@@ -144,7 +144,7 @@ gflow 使用以下目录：
 | 位置 | 用途 |
 |----------|---------|
 | `~/.config/gflow/gflow.toml` | 配置文件（可选） |
-| `~/.local/share/gflow/state.json` | 持久化任务状态 |
+| `~/.local/share/gflow/state.msgpack` | 持久化任务状态（旧版本的 `state.json` 仍可读取） |
 | `~/.local/share/gflow/logs/` | 任务输出日志 |
 
 ## 故障排除

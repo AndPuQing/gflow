@@ -16,7 +16,7 @@ gflowd restart
 # GPU（可用性 + 分配情况）
 ginfo
 
-# 任务（默认：最近 10 个）
+# 任务（默认：当前用户的活跃任务）
 gqueue
 gqueue -a
 gqueue -P ml-research  # 按项目筛选

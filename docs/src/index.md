@@ -3,36 +3,39 @@ layout: home
 
 hero:
   name: "gflow"
-  text: "Lightweight Job Scheduler"
-  tagline: "A single-node job scheduler inspired by Slurm, designed for efficiently managing jobs on machines with GPU resources"
+  text: "Single-Node Job Scheduler"
+  tagline: "Run, queue, inspect, and control GPU or CPU jobs on one Linux machine without deploying a cluster"
   actions:
     - theme: brand
-      text: Get Started
+      text: Quick Start
+      link: /getting-started/quick-start
+    - theme: alt
+      text: Installation
       link: /getting-started/installation
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/AndPuQing/gflow
+      text: Command Reference
+      link: /reference/quick-reference
   image:
     src: /logo.svg
     alt: gflow
 
 features:
   - icon: 🚀
-    title: Daemon-based Scheduling
-    details: A persistent daemon (gflowd) runs in the background, managing the job queue and automatically allocating resources.
+    title: Lightweight by Design
+    details: Bring queueing and scheduling to a single machine without deploying a full cluster stack.
   - icon: 📋
-    title: Rich Job Submission
-    details: Submit jobs with GPU resource requests, dependencies, priority levels, time limits, Conda environment activation, and job arrays.
-  - icon: ⏱️
-    title: Time Limits
-    details: Set maximum runtime for jobs to prevent runaway processes, similar to Slurm's --time option.
+    title: Flexible Submission
+    details: Submit scripts or commands with GPU requests, priorities, time limits, Conda environments, and arrays.
   - icon: 🔗
-    title: Job Dependencies
-    details: Create complex workflows where jobs depend on others, enabling sophisticated task orchestration.
+    title: Dependencies and Arrays
+    details: Chain jobs together, fan out workloads, and build small research pipelines with familiar CLI commands.
   - icon: 📊
-    title: Powerful Monitoring
-    details: Query and filter jobs with flexible options to track your workload in real-time.
+    title: Queue Visibility
+    details: Inspect active or completed jobs, filter by user or project, and switch between table, tree, JSON, CSV, or YAML output.
   - icon: 🖥️
-    title: tmux Integration
-    details: Every job runs in its own tmux session, allowing you to attach, view output in real-time, and resume interrupted sessions.
+    title: tmux-backed Execution
+    details: Every job runs in its own tmux session so you can attach, follow logs, and recover long-running work.
+  - icon: 🎛️
+    title: GPU-aware Control
+    details: Restrict visible GPUs, manage shared scheduling with VRAM limits, and apply runtime controls without editing scripts.
 ---

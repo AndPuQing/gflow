@@ -12,8 +12,8 @@ gqueue completion <shell>
 ## 常用示例
 
 ```bash
-gqueue                               # 最近 10 个任务
-gqueue -a                            # 所有任务
+gqueue                               # 当前用户的活跃任务（Queued、Hold、Running）
+gqueue -a                            # 所有任务（包含已完成任务）
 gqueue -s Running,Queued             # 按状态筛选
 gqueue -j 12,13,14                   # 按任务 ID 筛选（逗号分隔）
 gqueue -u alice                      # 按用户筛选（默认当前用户；用 'all' 表示所有用户）
@@ -63,8 +63,8 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 
 ## 选项
 
-- `-n, --limit <N>`：显示前/后 N 个任务（默认：`-10`；`0`=全部）
-- `-a, --all`：显示全部（等同 `-n 0`）
+- `-n, --limit <N>`：显示前/后 N 个任务（正数：前 N 个；负数：后 N 个；`0`：全部；默认：`0`）
+- `-a, --all`：显示所有任务，包括已完成任务
 - `-c, --completed`：仅显示已完成任务
 - `--since <when>`：显示自 `1h`、`2d`、`3w`、`today`、`yesterday` 或时间戳以来的任务
 - `-r, --sort <field>`：`id`、`state`、`time`、`name`、`gpus`、`priority`

@@ -1,6 +1,6 @@
 # gflow - A lightweight, single-node job scheduler
 
-[![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://andpuqing.github.io/gflow/)
+[![Documentation Status](https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat)](https://runqd.com)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/AndPuQing/gflow/ci.yml?style=flat-square&logo=github)](https://github.com/AndPuQing/gflow/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/AndPuQing/gflow/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/AndPuQing/gflow)
 [![PyPI - Version](https://img.shields.io/pypi/v/runqd?style=flat-square&logo=pypi)](https://pypi.org/project/runqd/)
@@ -14,142 +14,156 @@
 
 English | [简体中文](README_CN.md)
 
-`gflow` is a lightweight, single-node job scheduler written in Rust, inspired by Slurm. It is designed for efficiently managing and scheduling tasks, especially on machines with GPU resources.
+`gflow` is a lightweight job scheduler for a single Linux machine. It gives you a Slurm-like workflow—submit, queue, inspect, cancel, and organize jobs—without deploying a cluster. It is especially useful on shared GPU workstations, lab servers, and small research boxes.
 
 ## Demo
 
 [![asciicast](https://asciinema.org/a/ps79jhhtbo5cgJwO.svg)](https://asciinema.org/a/ps79jhhtbo5cgJwO)
 
+## When gflow fits well
+
+- You have one Linux machine instead of a full cluster.
+- Multiple users or experiments need to share GPUs safely.
+- You want job queues, dependencies, arrays, and time limits.
+- You want a lighter alternative to Slurm for local or lab infrastructure.
+
 ## Core Features
 
-- **Daemon-based Scheduling**: A persistent daemon (`gflowd`) manages the job queue and resource allocation.
-- **Rich Job Submission**: Supports dependencies, priorities, job arrays, and time limits via the `gbatch` command.
-- **Time Limits**: Set maximum runtime for jobs (similar to Slurm's `--time`) to prevent runaway processes.
-- **Webhooks**: Send HTTP POST notifications on job state changes and other events.
-- **Service and Job Control**: Provides clear commands to inspect the scheduler state (`ginfo`), query the job queue (`gqueue`), and control job states (`gcancel`).
-- **`tmux` Integration**: Uses `tmux` for robust, background task execution and session management.
-- **Output Logging**: Automatic capture of job output to log files via `tmux pipe-pane`.
-- **Simple Command-Line Interface**: Offers a user-friendly and powerful set of command-line tools.
+- **Daemon-based scheduling**: `gflowd` keeps the queue, state, and resource allocation in one place.
+- **GPU-aware execution**: schedule dedicated GPUs or shared GPUs with per-job VRAM limits.
+- **Rich submission model**: submit commands or scripts with priorities, dependencies, arrays, and conda environments.
+- **Time limits and lifecycle control**: prevent runaway jobs and manage hold, release, redo, and cancel actions.
+- **tmux-backed execution and logs**: every job runs in its own session and streams output into persistent logs.
+- **Automation hooks**: send webhook notifications when jobs start, finish, fail, or change state.
 
-## Component Overview
+## CLI Overview
 
-The `gflow` suite consists of several command-line tools:
-
-- `gflowd`: The scheduler daemon that runs in the background, managing jobs and resources.
-- `ginfo`: Displays scheduler and GPU information.
-- `gbatch`: Submits jobs to the scheduler, similar to Slurm's `sbatch`.
-- `gqueue`: Lists and filters jobs in the queue, similar to Slurm's `squeue`.
-- `gjob`: Job inspection and control (logs, attach, update, redo, ...).
-- `gctl`: Daemon/runtime control utilities (e.g. GPU restriction).
-- `gcancel`: Cancels jobs.
+- `gflowd`: initialize config and manage the scheduler daemon.
+- `gbatch`: submit commands or scripts.
+- `gqueue`: inspect and filter jobs.
+- `gjob`: show details, attach, hold/release, redo, and update jobs.
+- `gcancel`: cancel one or more jobs.
+- `gctl`: manage GPU visibility, concurrency limits, and reservations.
+- `ginfo`: inspect scheduler and GPU status.
+- `gstats`: view scheduler statistics.
 
 ## Installation
 
+### Prerequisites
+
+- Linux
+- `tmux`
+- NVIDIA drivers only if you want GPU scheduling features
+
 ### Install via PyPI (Recommended)
 
-Install gflow using `pipx` (recommended for CLI tools):
-
-```bash
-pipx install runqd
-```
-
-Or using `uv`:
+Use `uv`:
 
 ```bash
 uv tool install runqd
 ```
 
-Or using `pip`:
+Or `pipx`:
+
+```bash
+pipx install runqd
+```
+
+Or `pip`:
 
 ```bash
 pip install runqd
 ```
 
-This will install pre-built binaries for Linux (x86_64, ARM64).
+Prebuilt binaries are available for Linux (`x86_64`, `arm64`).
 
 ### Install Nightly Build
-
-To try the latest development version, install from TestPyPI:
 
 ```bash
 pip install --index-url https://test.pypi.org/simple/ runqd
 ```
 
-### Install via `cargo`
+### Install via Cargo
 
 ```bash
 cargo install gflow
 ```
 
-#### `cargo install`(main branch)
+Install directly from `main`:
+
 ```bash
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
 
-This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gqueue`, `gcancel`, `gjob`, `gctl`).
+### Build from Source
 
-### Build Manually
+```bash
+git clone https://github.com/AndPuQing/gflow.git
+cd gflow
+cargo build --release
+```
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/AndPuQing/gflow.git
-    cd gflow
-    ```
-
-2.  Build the project:
-    ```bash
-    cargo build --release
-    ```
-    The executables will be available in the `target/release/` directory.
+Compiled binaries are placed in `target/release/`.
 
 ## Quick Start
 
-0.  **(Optional) Initialize configuration**:
-    ```bash
-    gflowd init
-    ```
-    This creates `~/.config/gflow/gflow.toml` with sensible defaults.
+1. **Initialize config** (optional but recommended):
 
-1.  **Start the scheduler daemon**:
-    ```bash
-    gflowd up
-    ```
-    Run this in a dedicated terminal or `tmux` session and leave it running. You can check its health at any time with `gflowd status` and inspect resources with `ginfo`.
+   ```bash
+   gflowd init
+   ```
 
-2.  **Submit a job**:
-    Create a script `my_job.sh`:
-    ```sh
-    #!/bin/bash
-    echo "Starting job on GPU: $CUDA_VISIBLE_DEVICES"
-    sleep 30
-    echo "Job finished."
-    ```
-    Submit it using `gbatch`:
-    ```bash
-    gbatch --gpus 1 ./my_job.sh
-    ```
+2. **Start the scheduler daemon**:
 
-3.  **Check the job queue**:
-    ```bash
-    gqueue
-    ```
-    You can also watch the queue update live: `watch --color gqueue`.
+   ```bash
+   gflowd up
+   ```
 
-4.  **Stop the scheduler**:
-    ```bash
-    gflowd down
-    ```
-    This shuts down the daemon and cleans up the tmux session.
+3. **Submit a job**:
+
+   ```bash
+   cat > my_job.sh <<'EOF'
+   #!/bin/bash
+   echo "Starting job on GPU: $CUDA_VISIBLE_DEVICES"
+   sleep 30
+   echo "Job finished."
+   EOF
+   chmod +x my_job.sh
+   gbatch --gpus 1 ./my_job.sh
+   ```
+
+4. **Inspect the queue**:
+
+   ```bash
+   gqueue
+   ```
+
+5. **Check details or stop the daemon when done**:
+
+   ```bash
+   ginfo
+   gflowd down
+   ```
+
+## Common Workflow
+
+```bash
+gflowd up
+ginfo
+gbatch --gpus 1 --time 2:00:00 --name train python train.py
+gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
+gjob show <job_id>
+gcancel <job_id>
+```
 
 ## Documentation
 
-- Website: https://runqd.com
-- Installation: [docs/src/getting-started/installation.md](https://www.runqd.com/getting-started/installation.html)
-- Quick start: [docs/src/getting-started/quick-start.md](https://www.runqd.com/getting-started/quick-start.html)
-- Job submission: [docs/src/user-guide/job-submission.md](https://www.runqd.com/user-guide/job-submission.html)
-- Time limits: [docs/src/user-guide/time-limits.md](https://www.runqd.com/user-guide/time-limits.html)
-- Configuration: [docs/src/user-guide/configuration.md](https://www.runqd.com/user-guide/configuration.html)
-- Command quick reference: [docs/src/reference/quick-reference.md](https://www.runqd.com/reference/quick-reference.html)
+- Website: [runqd.com](https://runqd.com)
+- Installation: [runqd.com/getting-started/installation.html](https://runqd.com/getting-started/installation.html)
+- Quick start: [runqd.com/getting-started/quick-start.html](https://runqd.com/getting-started/quick-start.html)
+- Job submission: [runqd.com/user-guide/job-submission.html](https://runqd.com/user-guide/job-submission.html)
+- Configuration: [runqd.com/user-guide/configuration.html](https://runqd.com/user-guide/configuration.html)
+- Quick reference: [runqd.com/reference/quick-reference.html](https://runqd.com/reference/quick-reference.html)
 
 ## Star History
 
@@ -163,8 +177,8 @@ This will install all the necessary binaries (`gflowd`, `ginfo`, `gbatch`, `gque
 
 ## Contributing
 
-If you find any bugs or have feature requests, feel free to create an [Issue](https://github.com/AndPuQing/gflow/issues) and contribute by submitting [Pull Requests](https://github.com/AndPuQing/gflow/pulls).
+If you find a bug or want to propose an improvement, please open an [Issue](https://github.com/AndPuQing/gflow/issues) or submit a [Pull Request](https://github.com/AndPuQing/gflow/pulls).
 
 ## License
 
-`gflow` is licensed under the MIT License. See [LICENSE](./LICENSE) for more details.
+`gflow` is licensed under the MIT License. See [LICENSE](./LICENSE) for details.

@@ -3,36 +3,39 @@ layout: home
 
 hero:
   name: "gflow"
-  text: "轻量级任务调度器"
-  tagline: "受 Slurm 启发的单节点任务调度器，专为高效管理配备 GPU 资源的机器上的任务而设计"
+  text: "单节点任务调度器"
+  tagline: "在一台 Linux 机器上完成任务提交、排队、查看与控制，无需部署完整集群"
   actions:
     - theme: brand
       text: 快速开始
+      link: /zh-CN/getting-started/quick-start
+    - theme: alt
+      text: 安装指南
       link: /zh-CN/getting-started/installation
     - theme: alt
-      text: 在 GitHub 上查看
-      link: https://github.com/AndPuQing/gflow
+      text: 命令速查
+      link: /zh-CN/reference/quick-reference
   image:
     src: /logo.svg
     alt: gflow
 
 features:
   - icon: 🚀
-    title: 守护进程调度
-    details: 持久化守护进程（gflowd）在后台运行，管理任务队列并自动分配资源。
+    title: 轻量易部署
+    details: 为单台机器补上排队与调度能力，不需要引入完整集群系统。
   - icon: 📋
-    title: 丰富的任务提交选项
-    details: 提交任务时可指定 GPU 资源请求、依赖关系、优先级、时间限制、Conda 环境激活和任务数组。
-  - icon: ⏱️
-    title: 时间限制
-    details: 为任务设置最大运行时间以防止失控进程，类似 Slurm 的 --time 选项。
+    title: 灵活的任务提交
+    details: 支持命令或脚本提交，并可设置 GPU 请求、优先级、时间限制、Conda 环境和数组任务。
   - icon: 🔗
-    title: 任务依赖
-    details: 创建复杂的工作流，其中任务依赖于其他任务，实现复杂的任务编排。
+    title: 依赖与数组任务
+    details: 轻松编排前后置任务、批量展开实验，适合小型研究流水线与日常自动化。
   - icon: 📊
-    title: 强大的监控功能
-    details: 使用灵活的选项查询和过滤任务，实时跟踪您的工作负载。
+    title: 队列可观测性
+    details: 支持查看活跃或已完成任务，并按用户、项目或状态筛选，支持表格、树状和结构化输出。
   - icon: 🖥️
-    title: tmux 集成
-    details: 每个任务都在自己的 tmux 会话中运行，允许您附加、实时查看输出并恢复中断的会话。
+    title: 基于 tmux 的执行
+    details: 每个任务独占一个 tmux 会话，方便 attach、追踪日志和恢复长时间运行的任务。
+  - icon: 🎛️
+    title: GPU 感知控制
+    details: 可限制可分配 GPU、基于显存做共享调度，并在运行期调整控制策略。
 ---
