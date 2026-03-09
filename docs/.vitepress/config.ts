@@ -78,12 +78,20 @@ export default defineConfig({
                                 link: "/reference/quick-reference",
                             },
                             {
+                                text: "gflowd Reference",
+                                link: "/reference/gflowd-reference",
+                            },
+                            {
                                 text: "gbatch Reference",
                                 link: "/reference/gbatch-reference",
                             },
                             {
                                 text: "gqueue Reference",
                                 link: "/reference/gqueue-reference",
+                            },
+                            {
+                                text: "gjob Reference",
+                                link: "/reference/gjob-reference",
                             },
                             {
                                 text: "gcancel Reference",
@@ -96,6 +104,10 @@ export default defineConfig({
                             {
                                 text: "ginfo Reference",
                                 link: "/reference/ginfo-reference",
+                            },
+                            {
+                                text: "gstats Reference",
+                                link: "/reference/gstats-reference",
                             },
                         ],
                     },
@@ -183,12 +195,20 @@ export default defineConfig({
                                 link: "/zh-CN/reference/quick-reference",
                             },
                             {
+                                text: "gflowd 参考",
+                                link: "/zh-CN/reference/gflowd-reference",
+                            },
+                            {
                                 text: "gbatch 参考",
                                 link: "/zh-CN/reference/gbatch-reference",
                             },
                             {
                                 text: "gqueue 参考",
                                 link: "/zh-CN/reference/gqueue-reference",
+                            },
+                            {
+                                text: "gjob 参考",
+                                link: "/zh-CN/reference/gjob-reference",
                             },
                             {
                                 text: "gcancel 参考",
@@ -201,6 +221,10 @@ export default defineConfig({
                             {
                                 text: "ginfo 参考",
                                 link: "/zh-CN/reference/ginfo-reference",
+                            },
+                            {
+                                text: "gstats 参考",
+                                link: "/zh-CN/reference/gstats-reference",
                             },
                         ],
                     },
