@@ -19,7 +19,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v6
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@stable
             - uses: Swatinem/rust-cache@v2
             - name: Run tests
               run: cargo test --locked --all-features --workspace
@@ -32,7 +32,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v6
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@stable
               with:
                   components: rustfmt
             - uses: Swatinem/rust-cache@v2
@@ -47,7 +47,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v6
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@stable
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -62,7 +62,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v6
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@stable
             - uses: Swatinem/rust-cache@v2
             - name: Check documentation
               env:
@@ -77,7 +77,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v6
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@stable
               with:
                   components: llvm-tools-preview
             - uses: Swatinem/rust-cache@v2
@@ -91,3 +91,24 @@ jobs:
                   files: lcov.info
                   fail_ci_if_error: false
                   token: ${{ secrets.CODECOV_TOKEN }}
+
+    nightly-smoke:
+        name: Nightly Smoke (informational)
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        continue-on-error: true
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  components: clippy
+            - uses: Swatinem/rust-cache@v2
+            - name: Run nightly smoke checks
+              env:
+                  RUSTDOCFLAGS: -D warnings
+              run: |
+                  cargo test --locked --all-features --workspace
+                  cargo clippy --all-targets --all-features --workspace -- -D warnings
+                  cargo doc --no-deps --document-private-items --all-features --workspace --examples
