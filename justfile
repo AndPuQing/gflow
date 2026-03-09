@@ -15,3 +15,12 @@ install:
 
 test-tree:
     cargo test --bin gqueue -- --nocapture --test-threads 1
+
+bench-regression-list:
+    python3 scripts/benchmark_regression.py list
+
+bench-regression-baseline name="local":
+    python3 scripts/benchmark_regression.py save-baseline --name {{name}}
+
+bench-regression-compare name="local":
+    python3 scripts/benchmark_regression.py compare --name {{name}}
