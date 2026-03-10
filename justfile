@@ -14,7 +14,7 @@ install:
     cargo install --path .
 
 test-tree:
-    cargo test --bin gqueue -- --nocapture --test-threads 1
+    cargo test --lib multicall::gqueue::commands::list::tests:: -- --nocapture --test-threads 1
 
 bench-regression-list:
     python3 scripts/benchmark_regression.py list
