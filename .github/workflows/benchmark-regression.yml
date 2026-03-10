@@ -1,0 +1,110 @@
+name: Benchmark Regression
+
+on:
+    workflow_dispatch:
+        inputs:
+            mode:
+                description: Run mode
+                required: true
+                type: choice
+                default: compare
+                options:
+                    - baseline
+                    - compare
+            baseline_name:
+                description: Criterion baseline name and artifact suffix
+                required: true
+                default: ubuntu-22.04-stable
+                type: string
+    schedule:
+        - cron: "0 6 * * 1"
+
+concurrency:
+    group: benchmark-regression
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    actions: read
+
+jobs:
+    benchmark:
+        name: Benchmark Regression
+        runs-on: ubuntu-22.04
+        timeout-minutes: 120
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Resolve benchmark settings
+              id: settings
+              run: |
+                  if [ "${{ github.event_name }}" = "schedule" ]; then
+                      mode="compare"
+                  else
+                      mode="${{ inputs.mode }}"
+                  fi
+
+                  baseline_name="${{ inputs.baseline_name }}"
+                  if [ -z "${baseline_name}" ]; then
+                      baseline_name="ubuntu-22.04-stable"
+                  fi
+
+                  echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+                  echo "baseline_name=${baseline_name}" >> "${GITHUB_OUTPUT}"
+                  echo "baseline_artifact=benchmark-baseline-${baseline_name}" >> "${GITHUB_OUTPUT}"
+                  echo "report_artifact=benchmark-report-${mode}-${baseline_name}-${GITHUB_RUN_ID}" >> "${GITHUB_OUTPUT}"
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Download latest baseline artifact
+              if: steps.settings.outputs.mode == 'compare'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ARTIFACT_NAME: ${{ steps.settings.outputs.baseline_artifact }}
+              run: |
+                  artifact_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100")"
+                  artifact_id="$(printf '%s' "${artifact_json}" | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts | map(select(.name == $name and (.expired | not))) | sort_by(.created_at) | reverse | .[0].id // empty')"
+
+                  if [ -z "${artifact_id}" ]; then
+                      echo "No non-expired baseline artifact named ${ARTIFACT_NAME} was found." >&2
+                      exit 1
+                  fi
+
+                  gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > benchmark-baseline.zip
+                  rm -rf .benchmark-baseline target/criterion
+                  mkdir -p .benchmark-baseline target
+                  unzip -q benchmark-baseline.zip -d .benchmark-baseline
+                  cp -R .benchmark-baseline/criterion target/criterion
+
+            - name: Run benchmark regression suite
+              run: |
+                  if [ "${{ steps.settings.outputs.mode }}" = "baseline" ]; then
+                      python3 scripts/benchmark_regression.py save-baseline \
+                          --name "${{ steps.settings.outputs.baseline_name }}" \
+                          --clean
+                  else
+                      python3 scripts/benchmark_regression.py compare \
+                          --name "${{ steps.settings.outputs.baseline_name }}"
+                  fi
+
+            - name: Publish workflow summary
+              run: cat target/benchmark-regression-summary.md >> "${GITHUB_STEP_SUMMARY}"
+
+            - name: Prepare benchmark artifact bundle
+              run: |
+                  rm -rf benchmark-artifact
+                  mkdir -p benchmark-artifact
+                  cp -R target/criterion benchmark-artifact/criterion
+                  cp target/benchmark-regression-summary.json benchmark-artifact/
+                  cp target/benchmark-regression-summary.md benchmark-artifact/
+
+            - name: Upload benchmark artifact
+              uses: actions/upload-artifact@v7
+              with:
+                  name: ${{ steps.settings.outputs.mode == 'baseline' && steps.settings.outputs.baseline_artifact || steps.settings.outputs.report_artifact }}
+                  path: benchmark-artifact
+                  retention-days: 30
