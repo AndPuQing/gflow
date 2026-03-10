@@ -16,12 +16,17 @@ use super::executor::TmuxExecutor;
 use super::scheduler_runtime;
 use super::state_saver::StateSaverHandle;
 use axum::{
+    extract::Request,
+    http::HeaderValue,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Router,
 };
 use socket2::{Domain, Protocol, Socket, Type};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_dir = gflow::core::get_data_dir()?;
@@ -56,23 +61,30 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
     // Spawn state saver task (30 second interval)
     let scheduler_for_saver = Arc::clone(&scheduler);
-    let state_saver_task = tokio::spawn(async move {
-        tracing::info!("Starting state saver task with 30s interval...");
-        super::state_saver::run(scheduler_for_saver, state_rx, Duration::from_secs(30)).await;
-    });
+    let state_saver_task = tokio::spawn(
+        async move {
+            tracing::info!(interval_secs = 30u64, "Starting state saver task");
+            super::state_saver::run(scheduler_for_saver, state_rx, Duration::from_secs(30)).await;
+        }
+        .instrument(tracing::info_span!("state_saver_task")),
+    );
     state_saver_handle.set_task_handle(state_saver_task);
 
     // Spawn event-driven scheduler task only when we can persist (state.json or journal).
     // Otherwise the daemon is read-only and should not mutate jobs.
     let can_schedule = scheduler.read().await.can_mutate();
     if can_schedule {
-        tokio::spawn(async move {
-            tracing::info!("Starting event-driven scheduler...");
-            scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
-        });
+        tokio::spawn(
+            async move {
+                tracing::info!("Starting event-driven scheduler");
+                scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
+            }
+            .instrument(tracing::info_span!("event_driven_scheduler")),
+        );
     } else {
         tracing::error!(
-            "No persistence available; gflowd started in read-only mode (no scheduling, no mutations)"
+            persistence_mode = "read_only",
+            "No persistence available; gflowd started without scheduling or mutation support"
         );
     }
 
@@ -131,6 +143,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/debug/state", get(handlers::debug_state))
         .route("/debug/jobs/{id}", get(handlers::debug_job))
         .route("/debug/metrics", get(handlers::debug_metrics))
+        .layer(middleware::from_fn(request_tracing_middleware))
         .with_state(server_state);
 
     // Create socket with SO_REUSEPORT for hot reload support
@@ -170,7 +183,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     std_listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
 
-    tracing::info!("Listening on: {addr} (SO_REUSEPORT enabled)");
+    tracing::info!(%addr, reuse_port = true, "Listening for HTTP requests");
 
     // Create shutdown signal handler with state saver for graceful shutdown
     let shutdown_signal = create_shutdown_signal(state_saver_handle);
@@ -184,6 +197,37 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn request_tracing_middleware(req: Request, next: Next) -> Response {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let route = uri.path().to_string();
+    let span = tracing::info_span!(
+        "http_request",
+        request_id = %request_id,
+        method = %method,
+        route = %route,
+        uri = %uri
+    );
+
+    async move {
+        let started_at = std::time::Instant::now();
+        tracing::info!("Request received");
+        let mut response = next.run(req).await;
+        if let Ok(header_value) = HeaderValue::from_str(&request_id) {
+            response.headers_mut().insert("x-request-id", header_value);
+        }
+        tracing::info!(
+            status = response.status().as_u16(),
+            latency_ms = started_at.elapsed().as_millis() as u64,
+            "Request completed"
+        );
+        response
+    }
+    .instrument(span)
+    .await
+}
+
 async fn create_shutdown_signal(state_saver: StateSaverHandle) {
     use tokio::signal::unix::{signal, SignalKind};
 
@@ -194,20 +238,20 @@ async fn create_shutdown_signal(state_saver: StateSaverHandle) {
 
     tokio::select! {
         _ = sigterm.recv() => {
-            tracing::info!("Received SIGTERM, initiating graceful shutdown");
+            tracing::info!(signal = "SIGTERM", "Initiating graceful shutdown");
         }
         _ = sigint.recv() => {
-            tracing::info!("Received SIGINT, initiating graceful shutdown");
+            tracing::info!(signal = "SIGINT", "Initiating graceful shutdown");
         }
         _ = sigusr2.recv() => {
-            tracing::info!("Received SIGUSR2 (reload signal), initiating graceful shutdown");
+            tracing::info!(signal = "SIGUSR2", reload = true, "Initiating graceful shutdown");
         }
     }
 
     // Save state before exiting
-    tracing::info!("Saving state before shutdown...");
+    tracing::info!("Saving state before shutdown");
     if let Err(e) = state_saver.shutdown_and_wait().await {
-        tracing::error!("Failed to save state during shutdown: {}", e);
+        tracing::error!(error = %e, "Failed to save state during shutdown");
     } else {
         tracing::info!("State saved successfully");
     }

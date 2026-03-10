@@ -7,6 +7,7 @@
 use gflow::core::job::{GpuIds, JobState, JobStateReason};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tracing::Span;
 
 /// Events that can occur in the scheduler
 #[derive(Debug, Clone)]
@@ -62,10 +63,46 @@ pub enum SchedulerEvent {
     DaemonStarted,
 }
 
+impl SchedulerEvent {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::JobStateChanged { .. } => "job_state_changed",
+            Self::JobSubmitted { .. } => "job_submitted",
+            Self::JobUpdated { .. } => "job_updated",
+            Self::JobCompleted { .. } => "job_completed",
+            Self::GpuAvailabilityChanged { .. } => "gpu_availability_changed",
+            Self::MemoryAvailabilityChanged { .. } => "memory_availability_changed",
+            Self::JobTimedOut { .. } => "job_timed_out",
+            Self::ZombieJobDetected { .. } => "zombie_job_detected",
+            Self::PeriodicHealthCheck => "periodic_health_check",
+            Self::ReservationCreated { .. } => "reservation_created",
+            Self::ReservationCancelled { .. } => "reservation_cancelled",
+            Self::DaemonStarted => "daemon_started",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EventEnvelope {
+    pub event: SchedulerEvent,
+    pub span: Span,
+}
+
+impl EventEnvelope {
+    pub fn handling_span(&self, handler: &'static str) -> Span {
+        tracing::info_span!(
+            parent: &self.span,
+            "scheduler_event",
+            handler = handler,
+            event_type = self.event.name()
+        )
+    }
+}
+
 /// Event bus for publishing and subscribing to scheduler events
 #[derive(Clone)]
 pub struct EventBus {
-    sender: Arc<broadcast::Sender<SchedulerEvent>>,
+    sender: Arc<broadcast::Sender<EventEnvelope>>,
 }
 
 impl EventBus {
@@ -79,12 +116,23 @@ impl EventBus {
 
     /// Publish an event to all subscribers
     pub fn publish(&self, event: SchedulerEvent) {
+        let event_name = event.name();
+        let subscriber_count = self.subscriber_count();
+        let envelope = EventEnvelope {
+            event,
+            span: Span::current(),
+        };
+        tracing::debug!(
+            event_type = event_name,
+            subscriber_count,
+            "Publishing scheduler event"
+        );
         // Ignore send errors (no subscribers is fine)
-        let _ = self.sender.send(event);
+        let _ = self.sender.send(envelope);
     }
 
     /// Subscribe to events
-    pub fn subscribe(&self) -> broadcast::Receiver<SchedulerEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<EventEnvelope> {
         self.sender.subscribe()
     }
 
@@ -109,7 +157,7 @@ mod tests {
 
         // Receive the event
         let event = rx.recv().await.unwrap();
-        match event {
+        match event.event {
             SchedulerEvent::JobSubmitted { job_id } => assert_eq!(job_id, 1),
             _ => panic!("Unexpected event type"),
         }
@@ -128,7 +176,7 @@ mod tests {
         let event1 = rx1.recv().await.unwrap();
         let event2 = rx2.recv().await.unwrap();
 
-        match (event1, event2) {
+        match (event1.event, event2.event) {
             (
                 SchedulerEvent::JobSubmitted { job_id: id1 },
                 SchedulerEvent::JobSubmitted { job_id: id2 },

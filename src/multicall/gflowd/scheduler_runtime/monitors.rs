@@ -1,4 +1,4 @@
-use super::super::events::{EventBus, SchedulerEvent};
+use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
 use gflow::tmux::disable_pipe_pane_for_job;
 use std::sync::Arc;
@@ -68,7 +68,7 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
         for (job_id, run_name) in running_jobs {
             if let Some(rn) = run_name {
                 if !existing_sessions.contains(rn.as_str()) {
-                    tracing::warn!("Found zombie job (id: {}), publishing event", job_id);
+                    tracing::warn!(job_id, run_name = %rn, "Found zombie job");
                     event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
                 }
             }
@@ -78,12 +78,17 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
 
 /// Zombie handler task - reacts to zombie events and marks jobs as failed
 pub(super) async fn zombie_handler_task(
-    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
 ) {
     loop {
         match events.recv().await {
-            Ok(SchedulerEvent::ZombieJobDetected { job_id }) => {
+            Ok(event) => {
+                let handling_span = event.handling_span("zombie_handler");
+                let _entered = handling_span.enter();
+                let SchedulerEvent::ZombieJobDetected { job_id } = event.event else {
+                    continue;
+                };
                 // Get run_name before acquiring write lock
                 let run_name = {
                     let state_guard = state.read().await;
@@ -98,7 +103,7 @@ pub(super) async fn zombie_handler_task(
                 // Use fail_job to properly update group_running_count index
                 state_guard.scheduler.fail_job(job_id);
                 state_guard.mark_dirty();
-                tracing::info!("Marked zombie job {} as Failed", job_id);
+                tracing::info!(job_id, "Marked zombie job as failed");
                 drop(state_guard); // Release lock before disabling PipePane
 
                 // Disable PipePane if session still exists (no lock held)
@@ -108,13 +113,12 @@ pub(super) async fn zombie_handler_task(
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!("Zombie handler lagged, skipped {} events", skipped);
+                tracing::warn!(skipped, "Zombie handler lagged");
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                 tracing::info!("Event bus closed, zombie handler exiting");
                 break;
             }
-            _ => {}
         }
     }
 }
@@ -149,7 +153,7 @@ pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<Even
                             .scheduler
                             .get_job_spec(rt.id)
                             .and_then(|spec| spec.run_name.as_ref().map(|s| s.to_string()));
-                        tracing::warn!("Job {} has exceeded time limit, publishing event", rt.id);
+                        tracing::warn!(job_id = rt.id, "Job exceeded time limit");
                         Some((rt.id, run_name))
                     } else {
                         None
@@ -167,16 +171,21 @@ pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<Even
 
 /// Timeout handler task - reacts to timeout events and terminates jobs
 pub(super) async fn timeout_handler_task(
-    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
 ) {
     loop {
         match events.recv().await {
-            Ok(SchedulerEvent::JobTimedOut { job_id, run_name }) => {
+            Ok(event) => {
+                let handling_span = event.handling_span("timeout_handler");
+                let _entered = handling_span.enter();
+                let SchedulerEvent::JobTimedOut { job_id, run_name } = event.event else {
+                    continue;
+                };
                 // Send Ctrl-C to terminate the job (no lock held)
                 if let Some(rn) = &run_name {
                     if let Err(e) = gflow::tmux::send_ctrl_c(rn) {
-                        tracing::error!("Failed to send C-c to timed-out job {}: {}", job_id, e);
+                        tracing::error!(job_id, error = %e, "Failed to send Ctrl-C to timed-out job");
                     }
                 }
 
@@ -187,10 +196,10 @@ pub(super) async fn timeout_handler_task(
                     let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
                     if !cancelled.is_empty() {
                         tracing::info!(
-                            "Auto-cancelled {} dependent jobs due to timeout of job {}: {:?}",
-                            cancelled.len(),
                             job_id,
-                            cancelled
+                            cancelled_count = cancelled.len(),
+                            cancelled_jobs = ?cancelled,
+                            "Auto-cancelled dependent jobs due to timeout"
                         );
                     }
 
@@ -204,13 +213,12 @@ pub(super) async fn timeout_handler_task(
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!("Timeout handler lagged, skipped {} events", skipped);
+                tracing::warn!(skipped, "Timeout handler lagged");
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                 tracing::info!("Event bus closed, timeout handler exiting");
                 break;
             }
-            _ => {}
         }
     }
 }
@@ -232,20 +240,12 @@ pub(super) async fn metrics_updater_task(state: SharedState) {
         let info = state_guard.info();
         let available_gpus = info.gpus.iter().filter(|g| g.available).count();
         let total_gpus = info.gpus.len();
-        gflow::metrics::GPU_AVAILABLE
-            .with_label_values(&[] as &[&str])
-            .set(available_gpus as f64);
-        gflow::metrics::GPU_TOTAL
-            .with_label_values(&[] as &[&str])
-            .set(total_gpus as f64);
-
-        // Update memory metrics
-        gflow::metrics::MEMORY_AVAILABLE_MB
-            .with_label_values(&[] as &[&str])
-            .set(state_guard.available_memory_mb() as f64);
-        gflow::metrics::MEMORY_TOTAL_MB
-            .with_label_values(&[] as &[&str])
-            .set(state_guard.total_memory_mb() as f64);
+        gflow::metrics::update_resource_metrics(
+            available_gpus,
+            total_gpus,
+            state_guard.available_memory_mb(),
+            state_guard.total_memory_mb(),
+        );
     }
 }
 
@@ -253,7 +253,7 @@ pub(super) async fn metrics_updater_task(state: SharedState) {
 pub(super) async fn reservation_monitor_task(
     state: SharedState,
     event_bus: Arc<EventBus>,
-    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
 ) {
     // CRITICAL: On startup/reload, immediately update reservation statuses
     // to handle any transitions that occurred while gflowd was down
@@ -303,9 +303,16 @@ pub(super) async fn reservation_monitor_task(
                     }
                     result = events.recv() => {
                         match result {
-                            Ok(SchedulerEvent::ReservationCreated { .. } | SchedulerEvent::ReservationCancelled { .. }) => {
-                                // Reservation list changed, recalculate next transition
-                                continue;
+                            Ok(event) => {
+                                let handling_span = event.handling_span("reservation_monitor");
+                                let _entered = handling_span.enter();
+                                match event.event {
+                                    SchedulerEvent::ReservationCreated { .. } | SchedulerEvent::ReservationCancelled { .. } => {
+                                        // Reservation list changed, recalculate next transition
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                                 tracing::info!("Event bus closed, reservation monitor exiting");
@@ -319,9 +326,13 @@ pub(super) async fn reservation_monitor_task(
             None => {
                 // No reservations, wait for a new one to be created
                 match events.recv().await {
-                    Ok(SchedulerEvent::ReservationCreated { .. }) => {
-                        // New reservation added, recalculate
-                        continue;
+                    Ok(event) => {
+                        let handling_span = event.handling_span("reservation_monitor");
+                        let _entered = handling_span.enter();
+                        if matches!(event.event, SchedulerEvent::ReservationCreated { .. }) {
+                            // New reservation added, recalculate
+                            continue;
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         tracing::info!("Event bus closed, reservation monitor exiting");

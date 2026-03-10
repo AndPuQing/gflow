@@ -28,10 +28,16 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let console_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(true);
 
     let file_layer = tracing_subscriber::fmt::layer()
+        .json()
         .with_ansi(false)
+        .flatten_event(true)
+        .with_current_span(true)
+        .with_span_list(true)
         .with_writer(non_blocking);
 
     tracing_subscriber::registry()

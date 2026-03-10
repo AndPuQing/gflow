@@ -1,113 +1,128 @@
-use super::super::events::{EventBus, SchedulerEvent};
+use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
 use std::sync::Arc;
+use tracing::Instrument;
 
 /// Event-driven scheduling loop
 pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus>) {
     // Spawn all event handlers and monitors
     let handles = vec![
         // Cascade handler - reacts to job failures/cancellations
-        tokio::spawn(cascade_handler(
-            event_bus.subscribe(),
-            Arc::clone(&shared_state),
-        )),
+        tokio::spawn(
+            cascade_handler(event_bus.subscribe(), Arc::clone(&shared_state))
+                .instrument(tracing::info_span!("cascade_handler_task")),
+        ),
         // Scheduler trigger handler with debouncing
-        tokio::spawn(scheduler_trigger_handler_with_debounce(
-            event_bus.subscribe(),
-            Arc::clone(&shared_state),
-        )),
+        tokio::spawn(
+            scheduler_trigger_handler_with_debounce(
+                event_bus.subscribe(),
+                Arc::clone(&shared_state),
+            )
+            .instrument(tracing::info_span!("scheduler_trigger_task")),
+        ),
         // GPU monitor - polls NVML every 10s
-        tokio::spawn(super::monitors::gpu_monitor_task(
-            Arc::clone(&shared_state),
-            Arc::clone(&event_bus),
-        )),
+        tokio::spawn(
+            super::monitors::gpu_monitor_task(Arc::clone(&shared_state), Arc::clone(&event_bus))
+                .instrument(tracing::info_span!("gpu_monitor_task")),
+        ),
         // Zombie monitor - checks tmux every 30s
-        tokio::spawn(super::monitors::zombie_monitor_task(
-            Arc::clone(&shared_state),
-            Arc::clone(&event_bus),
-        )),
+        tokio::spawn(
+            super::monitors::zombie_monitor_task(Arc::clone(&shared_state), Arc::clone(&event_bus))
+                .instrument(tracing::info_span!("zombie_monitor_task")),
+        ),
         // Zombie handler - reacts to zombie events
-        tokio::spawn(super::monitors::zombie_handler_task(
-            event_bus.subscribe(),
-            Arc::clone(&shared_state),
-        )),
+        tokio::spawn(
+            super::monitors::zombie_handler_task(event_bus.subscribe(), Arc::clone(&shared_state))
+                .instrument(tracing::info_span!("zombie_handler_task")),
+        ),
         // Timeout monitor - checks time limits every 10s
-        tokio::spawn(super::monitors::timeout_monitor_task(
-            Arc::clone(&shared_state),
-            Arc::clone(&event_bus),
-        )),
+        tokio::spawn(
+            super::monitors::timeout_monitor_task(
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+            )
+            .instrument(tracing::info_span!("timeout_monitor_task")),
+        ),
         // Timeout handler - reacts to timeout events
-        tokio::spawn(super::monitors::timeout_handler_task(
-            event_bus.subscribe(),
-            Arc::clone(&shared_state),
-        )),
+        tokio::spawn(
+            super::monitors::timeout_handler_task(event_bus.subscribe(), Arc::clone(&shared_state))
+                .instrument(tracing::info_span!("timeout_handler_task")),
+        ),
         // Reservation monitor - uses precise timers for status transitions
-        tokio::spawn(super::monitors::reservation_monitor_task(
-            Arc::clone(&shared_state),
-            Arc::clone(&event_bus),
-            event_bus.subscribe(),
-        )),
+        tokio::spawn(
+            super::monitors::reservation_monitor_task(
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+                event_bus.subscribe(),
+            )
+            .instrument(tracing::info_span!("reservation_monitor_task")),
+        ),
         // Metrics updater - updates metrics every 5s
         #[cfg(feature = "metrics")]
-        tokio::spawn(super::monitors::metrics_updater_task(Arc::clone(
-            &shared_state,
-        ))),
+        tokio::spawn(
+            super::monitors::metrics_updater_task(Arc::clone(&shared_state))
+                .instrument(tracing::info_span!("metrics_updater_task")),
+        ),
     ];
 
     // Wait for all handlers (they run forever)
     for handle in handles {
         if let Err(e) = handle.await {
-            tracing::error!("Event handler task panicked: {:?}", e);
+            tracing::error!(error = ?e, "Event handler task panicked");
         }
     }
 }
 
 /// Cascade handler - reacts to job failures/cancellations and triggers cascade cancellation
 async fn cascade_handler(
-    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
 ) {
     loop {
         match events.recv().await {
-            Ok(SchedulerEvent::JobCompleted {
-                job_id,
-                final_state,
-                ..
-            }) => {
-                // Only trigger cascade for failed, cancelled, or timed out jobs
-                if matches!(
+            Ok(event) => {
+                let handling_span = event.handling_span("cascade_handler");
+                let _entered = handling_span.enter();
+                if let SchedulerEvent::JobCompleted {
+                    job_id,
                     final_state,
-                    JobState::Failed | JobState::Cancelled | JobState::Timeout
-                ) {
-                    let mut state_guard = state.write().await;
-                    let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
-                    if !cancelled.is_empty() {
-                        tracing::info!(
-                            "Auto-cancelled {} dependent jobs due to job {} (state: {:?}): {:?}",
-                            cancelled.len(),
-                            job_id,
-                            final_state,
-                            cancelled
-                        );
-                        state_guard.mark_dirty();
+                    ..
+                } = event.event
+                {
+                    // Only trigger cascade for failed, cancelled, or timed out jobs
+                    if matches!(
+                        final_state,
+                        JobState::Failed | JobState::Cancelled | JobState::Timeout
+                    ) {
+                        let mut state_guard = state.write().await;
+                        let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
+                        if !cancelled.is_empty() {
+                            tracing::info!(
+                                job_id,
+                                final_state = ?final_state,
+                                cancelled_count = cancelled.len(),
+                                cancelled_jobs = ?cancelled,
+                                "Auto-cancelled dependent jobs"
+                            );
+                            state_guard.mark_dirty();
+                        }
                     }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!("Cascade handler lagged, skipped {} events", skipped);
+                tracing::warn!(skipped, "Cascade handler lagged");
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                 tracing::info!("Event bus closed, cascade handler exiting");
                 break;
             }
-            _ => {}
         }
     }
 }
 
 /// Scheduler trigger handler with debouncing
 async fn scheduler_trigger_handler_with_debounce(
-    mut events: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
 ) {
     let mut debounce = tokio::time::interval(Duration::from_millis(100));
@@ -118,7 +133,9 @@ async fn scheduler_trigger_handler_with_debounce(
             result = events.recv() => {
                 match result {
                     Ok(event) => {
-                        match event {
+                        let handling_span = event.handling_span("scheduler_trigger_handler");
+                        let _entered = handling_span.enter();
+                        match event.event {
                             SchedulerEvent::JobSubmitted { .. }
                             | SchedulerEvent::JobUpdated { .. }
                             | SchedulerEvent::JobCompleted { .. }
@@ -130,7 +147,7 @@ async fn scheduler_trigger_handler_with_debounce(
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        tracing::warn!("Scheduler trigger handler lagged, skipped {} events", skipped);
+                        tracing::warn!(skipped, "Scheduler trigger handler lagged");
                         pending_schedule = true; // Trigger scheduling to be safe
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
@@ -151,6 +168,11 @@ async fn scheduler_trigger_handler_with_debounce(
 
 /// Trigger job scheduling
 async fn trigger_scheduling(state: &SharedState) {
+    let scheduling_span = tracing::info_span!("trigger_scheduling");
+    let _entered = scheduling_span.enter();
+    #[cfg(feature = "metrics")]
+    let started_at = std::time::Instant::now();
+
     // Step 1: Prepare jobs for execution (write lock - fast, no I/O)
     let jobs_to_execute = {
         let mut state_guard = state.write().await;
@@ -169,8 +191,15 @@ async fn trigger_scheduling(state: &SharedState) {
     }; // Lock released here
 
     if jobs_to_execute.is_empty() {
+        #[cfg(feature = "metrics")]
+        gflow::metrics::observe_scheduler_latency("trigger_scheduling", started_at.elapsed());
         return;
     }
+
+    tracing::info!(
+        job_count = jobs_to_execute.len(),
+        "Prepared jobs for execution"
+    );
 
     // Step 2: Execute jobs (NO LOCK - can take seconds due to tmux I/O)
     let executor = {
@@ -192,8 +221,8 @@ async fn trigger_scheduling(state: &SharedState) {
 
         if !should_execute {
             tracing::info!(
-                "Skipping execution of job {} (state changed before execution)",
-                job.id
+                job_id = job.id,
+                "Skipping execution because state changed before execution"
             );
             execution_results.push((
                 job.id,
@@ -204,11 +233,11 @@ async fn trigger_scheduling(state: &SharedState) {
 
         match executor.execute(job) {
             Ok(_) => {
-                tracing::info!("Executed job {}", job.id);
+                tracing::info!(job_id = job.id, "Executed job");
                 execution_results.push((job.id, Ok(())));
             }
             Err(e) => {
-                tracing::error!("Failed to execute job {}: {:?}", job.id, e);
+                tracing::error!(job_id = job.id, error = ?e, "Failed to execute job");
                 execution_results.push((job.id, Err(e.to_string())));
             }
         }
@@ -222,4 +251,7 @@ async fn trigger_scheduling(state: &SharedState) {
             .handle_execution_failures(&execution_results);
         state_guard.mark_dirty();
     }
+
+    #[cfg(feature = "metrics")]
+    gflow::metrics::observe_scheduler_latency("trigger_scheduling", started_at.elapsed());
 }

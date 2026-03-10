@@ -15,6 +15,8 @@ use prometheus::{
     register_counter_vec, register_gauge_vec, register_histogram_vec, CounterVec, Encoder,
     GaugeVec, HistogramVec, TextEncoder,
 };
+#[cfg(feature = "metrics")]
+use std::time::Duration;
 
 #[cfg(feature = "metrics")]
 lazy_static! {
@@ -65,6 +67,12 @@ lazy_static! {
     .unwrap();
     pub static ref GPU_TOTAL: GaugeVec = register_gauge_vec!("gflow_gpus_total", "Total GPUs", &[])
         .unwrap();
+    pub static ref GPU_UTILIZATION_RATIO: GaugeVec = register_gauge_vec!(
+        "gflow_gpu_utilization_ratio",
+        "Allocated GPU ratio (0.0-1.0)",
+        &[]
+    )
+    .unwrap();
     // Memory metrics
     pub static ref MEMORY_AVAILABLE_MB: GaugeVec = register_gauge_vec!(
         "gflow_memory_available_mb",
@@ -75,6 +83,12 @@ lazy_static! {
     pub static ref MEMORY_TOTAL_MB: GaugeVec = register_gauge_vec!(
         "gflow_memory_total_mb",
         "Total memory in MB",
+        &[]
+    )
+    .unwrap();
+    pub static ref MEMORY_UTILIZATION_RATIO: GaugeVec = register_gauge_vec!(
+        "gflow_memory_utilization_ratio",
+        "Allocated memory ratio (0.0-1.0)",
         &[]
     )
     .unwrap();
@@ -143,5 +157,65 @@ pub fn update_job_state_metrics_runtimes(runtimes: &[crate::core::job::JobRuntim
 
 #[cfg(not(feature = "metrics"))]
 pub fn update_job_state_metrics_runtimes(_runtimes: &[crate::core::job::JobRuntime]) {
+    // No-op when metrics feature is disabled
+}
+
+#[cfg(feature = "metrics")]
+pub fn update_resource_metrics(
+    available_gpus: usize,
+    total_gpus: usize,
+    available_memory_mb: u64,
+    total_memory_mb: u64,
+) {
+    let gpu_utilization = if total_gpus == 0 {
+        0.0
+    } else {
+        1.0 - (available_gpus as f64 / total_gpus as f64)
+    };
+    let memory_utilization = if total_memory_mb == 0 {
+        0.0
+    } else {
+        1.0 - (available_memory_mb as f64 / total_memory_mb as f64)
+    };
+
+    GPU_AVAILABLE
+        .with_label_values(&[] as &[&str])
+        .set(available_gpus as f64);
+    GPU_TOTAL
+        .with_label_values(&[] as &[&str])
+        .set(total_gpus as f64);
+    GPU_UTILIZATION_RATIO
+        .with_label_values(&[] as &[&str])
+        .set(gpu_utilization);
+    MEMORY_AVAILABLE_MB
+        .with_label_values(&[] as &[&str])
+        .set(available_memory_mb as f64);
+    MEMORY_TOTAL_MB
+        .with_label_values(&[] as &[&str])
+        .set(total_memory_mb as f64);
+    MEMORY_UTILIZATION_RATIO
+        .with_label_values(&[] as &[&str])
+        .set(memory_utilization);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn update_resource_metrics(
+    _available_gpus: usize,
+    _total_gpus: usize,
+    _available_memory_mb: u64,
+    _total_memory_mb: u64,
+) {
+    // No-op when metrics feature is disabled
+}
+
+#[cfg(feature = "metrics")]
+pub fn observe_scheduler_latency(operation: &str, duration: Duration) {
+    SCHEDULER_LATENCY
+        .with_label_values(&[operation])
+        .observe(duration.as_secs_f64());
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn observe_scheduler_latency(_operation: &str, _duration: std::time::Duration) {
     // No-op when metrics feature is disabled
 }

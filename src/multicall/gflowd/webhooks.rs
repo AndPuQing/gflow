@@ -1,4 +1,4 @@
-use super::events::{EventBus, SchedulerEvent};
+use super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::scheduler_runtime::SchedulerRuntime;
 use gflow::config::{NotificationsConfig, WebhookConfig};
 use gflow::core::job::{Job, JobState};
@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{RwLock, Semaphore};
+use tracing::Instrument;
 
 pub(crate) fn spawn_webhook_notifier(
     notifications: NotificationsConfig,
@@ -154,14 +155,14 @@ async fn run_webhook_notifier(
     client: Arc<reqwest::Client>,
     semaphore: Arc<Semaphore>,
     scheduler: Arc<RwLock<SchedulerRuntime>>,
-    mut rx: tokio::sync::broadcast::Receiver<SchedulerEvent>,
+    mut rx: tokio::sync::broadcast::Receiver<EventEnvelope>,
     scheduler_host: String,
 ) {
     loop {
         let event = match rx.recv().await {
             Ok(e) => e,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!("Webhook notifier lagged behind; skipped {skipped} event(s)");
+                tracing::warn!(skipped, "Webhook notifier lagged behind");
                 continue;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
@@ -170,7 +171,9 @@ async fn run_webhook_notifier(
             }
         };
 
-        let payloads = build_payloads(&scheduler, &scheduler_host, &event).await;
+        let handling_span = event.handling_span("webhook_notifier");
+        let _entered = handling_span.enter();
+        let payloads = build_payloads(&scheduler, &scheduler_host, &event.event).await;
         if payloads.is_empty() {
             continue;
         }
@@ -198,16 +201,25 @@ async fn run_webhook_notifier(
                 let client = Arc::clone(&client);
                 let target = target.clone();
                 let payload = payload.clone();
-                tokio::spawn(async move {
-                    let _permit = permit;
-                    if let Err(e) = deliver_with_retries(client, &target, &payload).await {
-                        tracing::warn!(
-                            "Webhook delivery failed (event={}, url={}): {e}",
-                            payload.event,
-                            target.url
-                        );
+                let delivery_span = tracing::info_span!(
+                    "webhook_delivery",
+                    event = %payload.event,
+                    target_url = %target.url
+                );
+                tokio::spawn(
+                    async move {
+                        let _permit = permit;
+                        if let Err(e) = deliver_with_retries(client, &target, &payload).await {
+                            tracing::warn!(
+                                event = %payload.event,
+                                target_url = %target.url,
+                                error = %e,
+                                "Webhook delivery failed"
+                            );
+                        }
                     }
-                });
+                    .instrument(delivery_span),
+                );
             }
         }
     }
@@ -228,11 +240,11 @@ async fn deliver_with_retries(
             Err(e) if attempt < max_attempts => {
                 let delay = backoff_delay(attempt);
                 tracing::debug!(
-                    "Webhook delivery attempt {}/{} failed: {} (retrying in {:?})",
                     attempt,
                     max_attempts,
-                    e,
-                    delay
+                    error = %e,
+                    retry_delay_secs = delay.as_secs(),
+                    "Webhook delivery attempt failed; retrying"
                 );
                 tokio::time::sleep(delay).await;
             }
