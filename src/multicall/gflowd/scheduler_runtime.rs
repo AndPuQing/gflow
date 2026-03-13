@@ -9,9 +9,9 @@ use super::state_saver::StateSaverHandle;
 use anyhow::Result;
 use compact_str::CompactString;
 use gflow::core::executor::Executor;
+use gflow::core::gpu::{GPUSlot, GpuUuid};
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
-use gflow::core::{GPUSlot, GPU, UUID};
 use gflow::tmux::disable_pipe_pane_for_job;
 use nvml_wrapper::Nvml;
 use std::{
@@ -647,10 +647,8 @@ impl SchedulerRuntime {
         self.scheduler
             .list_reservations(user_filter, status_filter, active_only)
     }
-}
 
-impl GPU for SchedulerRuntime {
-    fn get_gpus(nvml: &Nvml) -> HashMap<UUID, GPUSlot> {
+    fn get_gpus(nvml: &Nvml) -> HashMap<GpuUuid, GPUSlot> {
         let mut gpu_slots = HashMap::new();
         let device_count = nvml.device_count().unwrap_or(0);
         for i in 0..device_count {

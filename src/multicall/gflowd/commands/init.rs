@@ -256,7 +256,7 @@ fn get_target_config_path(config_path: &Option<PathBuf>) -> anyhow::Result<PathB
     if let Some(p) = config_path {
         return Ok(p.clone());
     }
-    Ok(gflow::core::get_config_dir()?.join("gflow.toml"))
+    Ok(gflow::paths::get_config_dir()?.join("gflow.toml"))
 }
 
 fn normalize_timezone_arg(

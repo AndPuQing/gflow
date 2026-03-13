@@ -1,6 +1,6 @@
 use clap::Parser;
 use clap_complete::Shell;
-use gflow::core::version;
+use gflow::build_info::version;
 
 #[derive(Debug, Parser)]
 #[command(

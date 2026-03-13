@@ -24,7 +24,7 @@ pub async fn handle_stats(
     } else if let Some(u) = user {
         Some(u)
     } else {
-        current_user = gflow::core::get_current_username();
+        current_user = gflow::platform::get_current_username();
         Some(current_user.as_str())
     };
 

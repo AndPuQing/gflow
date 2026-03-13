@@ -7,7 +7,7 @@ use gflow::utils::STYLES;
 #[command(
     name = "gjob",
     author,
-    version=gflow::core::version(),
+    version=gflow::build_info::version(),
     about = "Controls and manages jobs in the gflow scheduler.",
 )]
 #[command(styles=STYLES)]

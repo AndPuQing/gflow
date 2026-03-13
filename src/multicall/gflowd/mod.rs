@@ -14,7 +14,7 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
     let gflowd = cli::GFlowd::parse_from(argv);
 
     // Initialize tracing: console (stderr) + daily rolling file appender
-    let log_dir = gflow::core::get_data_dir()?.join("logs");
+    let log_dir = gflow::paths::get_data_dir()?.join("logs");
     std::fs::create_dir_all(&log_dir)?;
 
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()

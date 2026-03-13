@@ -6,7 +6,7 @@ use clap_verbosity_flag::Verbosity;
 #[command(
     name = "ginfo",
     author,
-    version=gflow::core::version(),
+    version=gflow::build_info::version(),
     about = "Displays gflow scheduler and GPU information."
 )]
 #[command(styles=gflow::utils::STYLES)]

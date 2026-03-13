@@ -14,7 +14,7 @@ pub async fn resolve_job_id(client: &Client, job_id_str: &str) -> Result<u32> {
 
     if trimmed.starts_with('@') {
         // Use dependency resolution to handle @ shorthand
-        let username = gflow::core::get_current_username();
+        let username = gflow::platform::get_current_username();
         client
             .resolve_dependency(&username, trimmed)
             .await

@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "gqueue",
     author,
-    version=gflow::core::version(),
+    version=gflow::build_info::version(),
     about = "Lists jobs in the gflow scheduler."
 )]
 #[command(styles=gflow::utils::STYLES)]

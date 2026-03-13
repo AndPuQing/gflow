@@ -29,7 +29,7 @@ use std::time::Duration;
 use tracing::Instrument;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
-    let state_dir = gflow::core::get_data_dir()?;
+    let state_dir = gflow::paths::get_data_dir()?;
     let allowed_gpus = config.daemon.gpus.clone();
     let gpu_allocation_strategy = config.daemon.gpu_allocation_strategy;
     let notifications = config.notifications.clone();

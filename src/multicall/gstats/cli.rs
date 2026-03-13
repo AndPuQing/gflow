@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "gstats",
     author,
-    version=gflow::core::version(),
+    version=gflow::build_info::version(),
     about = "Shows usage statistics for the gflow scheduler."
 )]
 #[command(styles=gflow::utils::STYLES)]

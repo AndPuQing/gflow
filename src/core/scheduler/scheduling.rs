@@ -428,7 +428,7 @@ impl Scheduler {
     }
 
     /// Update GPU slot availability
-    pub fn update_gpu_slots(&mut self, new_slots: HashMap<UUID, GPUSlot>) {
+    pub fn update_gpu_slots(&mut self, new_slots: HashMap<GpuUuid, GPUSlot>) {
         self.gpu_slots = new_slots;
     }
 
@@ -439,7 +439,7 @@ impl Scheduler {
     }
 
     /// Get a reference to gpu_slots for external access
-    pub fn gpu_slots_mut(&mut self) -> &mut HashMap<UUID, GPUSlot> {
+    pub fn gpu_slots_mut(&mut self) -> &mut HashMap<GpuUuid, GPUSlot> {
         &mut self.gpu_slots
     }
 

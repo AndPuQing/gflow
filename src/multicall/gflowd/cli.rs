@@ -5,7 +5,7 @@ use clap_complete::Shell;
 use clap_verbosity_flag::Verbosity;
 
 #[derive(Debug, Parser)]
-#[command(name = "gflowd", author, version = gflow::core::version(), about = "GFlow Daemon")]
+#[command(name = "gflowd", author, version = gflow::build_info::version(), about = "GFlow Daemon")]
 #[command(styles=gflow::utils::STYLES)]
 pub struct GFlowd {
     #[command(subcommand)]

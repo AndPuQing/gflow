@@ -647,7 +647,7 @@ pub(in crate::multicall::gflowd::server) async fn get_job_log(
 
     // Check if job exists in memory
     if state.get_job(id).is_some() {
-        match gflow::core::get_log_file_path(id) {
+        match gflow::paths::get_log_file_path(id) {
             Ok(path) => {
                 if path.exists() {
                     (StatusCode::OK, Json(Some(path)))

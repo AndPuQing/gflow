@@ -1,8 +1,9 @@
 use super::*;
+use crate::core::gpu::{GPUSlot, GpuUuid};
 
 pub struct SchedulerBuilder {
     executor: Option<Box<dyn Executor>>,
-    gpu_slots: HashMap<UUID, GPUSlot>,
+    gpu_slots: HashMap<GpuUuid, GPUSlot>,
     state_path: PathBuf,
     total_memory_mb: u64,
     allowed_gpu_indices: Option<Vec<u32>>,
@@ -26,7 +27,7 @@ impl SchedulerBuilder {
         self
     }
 
-    pub fn with_gpu_slots(mut self, slots: HashMap<UUID, GPUSlot>) -> Self {
+    pub fn with_gpu_slots(mut self, slots: HashMap<GpuUuid, GPUSlot>) -> Self {
         self.gpu_slots = slots;
         self
     }

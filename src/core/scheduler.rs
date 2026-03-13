@@ -1,4 +1,5 @@
 use crate::core::executor::Executor;
+use crate::core::gpu::{GPUSlot, GpuUuid};
 use crate::core::gpu_allocation::GpuAllocationStrategy;
 use crate::core::info::{GpuInfo, SchedulerInfo};
 use crate::core::job::{
@@ -6,7 +7,6 @@ use crate::core::job::{
     JobView,
 };
 use crate::core::reservation::{GpuReservation, ReservationStatus};
-use crate::core::{GPUSlot, UUID};
 use compact_str::{format_compact, CompactString};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -44,7 +44,7 @@ pub struct Scheduler {
     #[serde(skip)]
     pub(crate) executor: Option<Box<dyn Executor>>,
     #[serde(skip)]
-    pub(crate) gpu_slots: HashMap<UUID, GPUSlot>,
+    pub(crate) gpu_slots: HashMap<GpuUuid, GPUSlot>,
     #[serde(skip)]
     pub(crate) total_memory_mb: u64,
     #[serde(skip)]

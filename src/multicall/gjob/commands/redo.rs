@@ -162,7 +162,7 @@ pub async fn handle_redo(
     builder = builder.redone_from(Some(original_job.id));
 
     // Set the submitter to current user
-    let username = gflow::core::get_current_username();
+    let username = gflow::platform::get_current_username();
     builder = builder.submitted_by(username);
 
     // Build and submit the job
@@ -290,7 +290,7 @@ async fn redo_with_cascade(
         builder = builder.redone_from(Some(cascade_job.id));
 
         // Set the submitter to current user
-        let username = gflow::core::get_current_username();
+        let username = gflow::platform::get_current_username();
         builder = builder.submitted_by(username);
 
         // Build and submit the job

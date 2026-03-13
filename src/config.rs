@@ -1,5 +1,5 @@
-use crate::core::get_config_dir;
 use crate::core::gpu_allocation::GpuAllocationStrategy;
+use crate::paths::get_config_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

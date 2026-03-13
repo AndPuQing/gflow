@@ -495,7 +495,7 @@ async fn build_job(
     builder = builder.task_id(task_id);
 
     // Get the username of the submitter
-    let username = gflow::core::get_current_username();
+    let username = gflow::platform::get_current_username();
     builder = builder.submitted_by(username);
 
     // Set custom run name if provided
@@ -683,7 +683,7 @@ async fn build_job_with_params(
     builder = builder.parameters(parameters.clone());
 
     // Get the username of the submitter
-    let username = gflow::core::get_current_username();
+    let username = gflow::platform::get_current_username();
     builder = builder.submitted_by(username);
 
     // Apply name template if provided, otherwise use custom name if provided
@@ -957,7 +957,7 @@ async fn resolve_dependency(depends_on: Option<String>, client: &Client) -> Resu
 
             // Check if it's a shorthand expression
             if trimmed.starts_with('@') {
-                let username = gflow::core::get_current_username();
+                let username = gflow::platform::get_current_username();
                 let resolved_id = client
                     .resolve_dependency(&username, trimmed)
                     .await
@@ -978,7 +978,7 @@ async fn resolve_dependency(depends_on: Option<String>, client: &Client) -> Resu
 /// Examples: "123,456,@", "@,@~1,789"
 async fn parse_dependency_list(deps_str: &str, client: &Client) -> Result<Vec<u32>> {
     let mut resolved_deps = Vec::new();
-    let username = gflow::core::get_current_username();
+    let username = gflow::platform::get_current_username();
 
     for dep in deps_str.split(',') {
         let trimmed = dep.trim();

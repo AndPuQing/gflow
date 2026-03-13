@@ -53,7 +53,7 @@ pub async fn handle_list(client: &Client, options: ListOptions) -> Result<()> {
 }
 
 async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
-    let current_user = gflow::core::get_current_username();
+    let current_user = gflow::platform::get_current_username();
     let user_filter = match options.user.as_deref().map(str::trim) {
         None => Some(current_user.clone()),
         Some("") => Some(current_user.clone()),

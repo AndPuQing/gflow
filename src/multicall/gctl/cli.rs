@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[command(
     name = "gctl",
     author,
-    version = gflow::core::version(),
+    version = gflow::build_info::version(),
     about = "Control gflow scheduler at runtime"
 )]
 #[command(styles = gflow::utils::STYLES)]
