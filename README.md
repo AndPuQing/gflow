@@ -156,6 +156,18 @@ gjob show <job_id>
 gcancel <job_id>
 ```
 
+## MCP
+
+`gflow` can also run as a local MCP server for AI tools such as Claude Desktop or Cursor.
+
+Start it with:
+
+```bash
+gflow mcp serve
+```
+
+A ready-to-use Claude Desktop example is available at [examples/mcp/claude-desktop.json](./examples/mcp/claude-desktop.json). For local-first usage, keep `gflowd` running on the same machine and let the MCP server talk to the local daemon over the existing config.
+
 ## Documentation
 
 - Website: [runqd.com](https://runqd.com)

@@ -156,6 +156,18 @@ gjob show <job_id>
 gcancel <job_id>
 ```
 
+## MCP
+
+`gflow` 也可以作为本地 MCP 服务器运行，供 Claude Desktop、Cursor 等 AI 工具调用。
+
+启动命令：
+
+```bash
+gflow mcp serve
+```
+
+Claude Desktop 的示例配置见 [examples/mcp/claude-desktop.json](./examples/mcp/claude-desktop.json)。这个模式默认面向本地使用：保持同一台机器上的 `gflowd` 处于运行状态，再由 MCP 服务器通过现有配置连接本地守护进程。
+
 ## 文档导航
 
 - 文档站点：[runqd.com](https://runqd.com/zh-CN/)

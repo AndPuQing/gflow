@@ -1,0 +1,4 @@
+interface:
+  display_name: "gflow Ops"
+  short_description: "Operate local gflow jobs safely via MCP or CLI"
+  default_prompt: "Use this skill when inspecting, submitting, updating, or cancelling local gflow jobs."

@@ -67,6 +67,7 @@ clap_complete = "4.5.44"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "ansi", "json"] }
 tracing-appender = "0.2"
+rmcp = { version = "1.2.0", features = ["server", "macros", "transport-io", "schemars"] }
 prometheus = { version = "0.14.0", optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 reqwest = { version = "0.13.0", features = [
@@ -108,6 +109,7 @@ rmp-serde = "1.3"
 serde_yaml = "0.9"
 dialoguer = "0.12"
 toml = "1.0"
+schemars = "1.0"
 
 # Use mimalloc only on x86_64 to avoid cross-compilation issues
 [target.'cfg(target_arch = "x86_64")'.dependencies]
