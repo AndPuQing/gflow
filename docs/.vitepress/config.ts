@@ -38,6 +38,15 @@ export default defineConfig({
                         ],
                     },
                     {
+                        text: "AI Integration",
+                        items: [
+                            {
+                                text: "Agents, MCP, and Skills",
+                                link: "/ai-integration/mcp-and-skills",
+                            },
+                        ],
+                    },
+                    {
                         text: "User Guide",
                         items: [
                             {
@@ -139,6 +148,10 @@ export default defineConfig({
                         link: "/zh-CN/user-guide/job-submission",
                     },
                     {
+                        text: "AI 集成",
+                        link: "/zh-CN/ai-integration/mcp-and-skills",
+                    },
+                    {
                         text: "参考文档",
                         link: "/zh-CN/reference/quick-reference",
                     },
@@ -155,6 +168,15 @@ export default defineConfig({
                             {
                                 text: "快速入门",
                                 link: "/zh-CN/getting-started/quick-start",
+                            },
+                        ],
+                    },
+                    {
+                        text: "AI 集成",
+                        items: [
+                            {
+                                text: "Agent、MCP 与 Skill",
+                                link: "/zh-CN/ai-integration/mcp-and-skills",
                             },
                         ],
                     },
