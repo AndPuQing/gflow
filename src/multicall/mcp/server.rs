@@ -92,7 +92,7 @@ pub struct SubmitJobRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct SubmitJobsBatchRequest {
+pub struct SubmitJobsRequest {
     pub jobs: Vec<SubmitJobRequest>,
 }
 
@@ -209,15 +209,19 @@ pub struct JobActionOutput {
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
-pub struct JobSubmitOutput {
-    pub id: u32,
-    pub run_name: String,
+pub struct SubmitJobResultOutput {
+    pub index: usize,
+    pub ok: bool,
+    pub job_id: Option<u32>,
+    pub run_name: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
-pub struct BatchJobSubmitOutput {
-    pub jobs: Vec<JobSubmitOutput>,
-    pub count: usize,
+pub struct SubmitJobsOutput {
+    pub results: Vec<SubmitJobResultOutput>,
+    pub submitted: usize,
+    pub failed: usize,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -436,35 +440,64 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Submit a job to the local gflow daemon using a simplified schema.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<JobSubmitOutput>()
+        description = "Submit one or more jobs to the local gflow daemon using a simplified schema. Jobs are attempted sequentially and each result reports success or failure without aborting the whole request.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<SubmitJobsOutput>()
     )]
-    async fn submit_job(
+    async fn submit_jobs(
         &self,
-        Parameters(params): Parameters<SubmitJobRequest>,
+        Parameters(params): Parameters<SubmitJobsRequest>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
-        let job = build_submit_job(params).map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
-        let response = client.add_job(job).await.map_err(stringify_error)?;
-        structured_response(response)
-    }
+        if params.jobs.len() > 1000 {
+            return Err(stringify_error(anyhow::anyhow!(
+                "submit_jobs accepts at most 1000 jobs"
+            )));
+        }
 
-    #[tool(
-        description = "Submit multiple jobs to the local gflow daemon using the same simplified schema as submit_job.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<BatchJobSubmitOutput>()
-    )]
-    async fn submit_jobs_batch(
-        &self,
-        Parameters(params): Parameters<SubmitJobsBatchRequest>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let client = self.client().map_err(stringify_error)?;
-        let jobs =
-            build_submit_jobs_batch(params).map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
-        let responses = client.add_jobs(jobs).await.map_err(stringify_error)?;
-        structured_response(json!({
-            "jobs": responses,
-            "count": responses.len(),
-        }))
+        let mut results = Vec::with_capacity(params.jobs.len());
+        let mut submitted = 0usize;
+
+        for (index, params) in params.jobs.into_iter().enumerate() {
+            match build_submit_job(params) {
+                Ok(job) => match client.add_job(job).await {
+                    Ok(response) => {
+                        submitted += 1;
+                        results.push(SubmitJobResultOutput {
+                            index,
+                            ok: true,
+                            job_id: Some(response.id),
+                            run_name: Some(response.run_name),
+                            error: None,
+                        });
+                    }
+                    Err(err) => {
+                        results.push(SubmitJobResultOutput {
+                            index,
+                            ok: false,
+                            job_id: None,
+                            run_name: None,
+                            error: Some(err.to_string()),
+                        });
+                    }
+                },
+                Err(err) => {
+                    results.push(SubmitJobResultOutput {
+                        index,
+                        ok: false,
+                        job_id: None,
+                        run_name: None,
+                        error: Some(err),
+                    });
+                }
+            }
+        }
+
+        let failed = results.len().saturating_sub(submitted);
+        structured_response(SubmitJobsOutput {
+            results,
+            submitted,
+            failed,
+        })
     }
 
     #[tool(
@@ -627,17 +660,6 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
     }
 
     Ok(builder.build())
-}
-
-fn build_submit_jobs_batch(params: SubmitJobsBatchRequest) -> Result<Vec<Job>, String> {
-    if params.jobs.is_empty() {
-        return Err("submit_jobs_batch requires at least one job".to_string());
-    }
-    if params.jobs.len() > 1000 {
-        return Err("submit_jobs_batch accepts at most 1000 jobs".to_string());
-    }
-
-    params.jobs.into_iter().map(build_submit_job).collect()
 }
 
 fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest, String> {
@@ -879,9 +901,7 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_submit_jobs_batch, GflowMcpServer, SubmitJobRequest, SubmitJobsBatchRequest,
-    };
+    use super::{build_submit_job, GflowMcpServer, SubmitJobRequest};
 
     #[test]
     fn tool_schemas_are_exposed_for_object_outputs() {
@@ -897,8 +917,7 @@ mod tests {
             "cancel_job",
             "hold_job",
             "release_job",
-            "submit_job",
-            "submit_jobs_batch",
+            "submit_jobs",
             "update_job",
             "redo_job",
         ] {
@@ -914,36 +933,28 @@ mod tests {
     }
 
     #[test]
-    fn submit_jobs_batch_rejects_empty_batches() {
-        let err = build_submit_jobs_batch(SubmitJobsBatchRequest { jobs: vec![] }).unwrap_err();
-        assert_eq!(err, "submit_jobs_batch requires at least one job");
-    }
-
-    #[test]
-    fn submit_jobs_batch_reuses_single_job_validation() {
-        let err = build_submit_jobs_batch(SubmitJobsBatchRequest {
-            jobs: vec![SubmitJobRequest {
-                command: Some("echo hello".to_string()),
-                script: None,
-                gpus: Some(1),
-                conda_env: None,
-                run_dir: None,
-                priority: None,
-                depends_on: None,
-                depends_on_ids: None,
-                dependency_mode: None,
-                auto_cancel_on_dependency_failure: None,
-                shared: Some(true),
-                gpu_memory_limit_mb: None,
-                time_limit_secs: None,
-                memory_limit_mb: None,
-                submitted_by: None,
-                parameters: None,
-                run_name: None,
-                project: None,
-                max_concurrent: None,
-                auto_close_tmux: None,
-            }],
+    fn submit_job_validation_rejects_shared_jobs_without_gpu_memory_limit() {
+        let err = build_submit_job(SubmitJobRequest {
+            command: Some("echo hello".to_string()),
+            script: None,
+            gpus: Some(1),
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: Some(true),
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            parameters: None,
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            auto_close_tmux: None,
         })
         .unwrap_err();
 

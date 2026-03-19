@@ -37,8 +37,7 @@ Prefer these tools when the local MCP server is configured:
 - `get_job_log`
 - `get_stats`
 - `list_reservations`
-- `submit_job`
-- `submit_jobs_batch`
+- `submit_jobs`
 - `update_job`
 - `hold_job`
 - `release_job`
@@ -46,7 +45,7 @@ Prefer these tools when the local MCP server is configured:
 
 `get_job_log.text` is the agent-friendly program output view.
 Use `full_text` only when the filtered output is missing important context.
-Use `submit_job` for one-off test jobs and `submit_jobs_batch` when creating multiple related jobs in one mutation.
+Use `submit_jobs` for both one-off test jobs and small parameter sweeps. It attempts jobs sequentially and reports per-job success or failure.
 
 ## CLI Fallbacks
 
@@ -105,6 +104,6 @@ User request:
 Preferred flow:
 1. `get_health`
 2. Build the full set of test jobs with `gpus: 0` unless GPU behavior is part of the test
-3. `submit_jobs_batch`
+3. `submit_jobs`
 4. `list_jobs` or `get_job` to confirm the submitted IDs and states
 5. `cancel_job` the test jobs after validation if they are no longer needed
