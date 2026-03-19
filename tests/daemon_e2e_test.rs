@@ -559,6 +559,56 @@ async fn tmux_job_execution_writes_logs_and_auto_closes_session() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn custom_run_name_is_normalized_and_job_still_executes() {
+    let Some(mut sandbox) = TestSandbox::new() else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let requested_run_name = format!("train:{}.{:x}", std::process::id(), sandbox.port);
+    let job = JobBuilder::new()
+        .submitted_by("daemon-e2e")
+        .run_dir(&sandbox.work_dir)
+        .run_name(Some(requested_run_name))
+        .command("echo normalized-run-name")
+        .auto_close_tmux(true)
+        .build();
+
+    let response = client.add_job(job).await.unwrap();
+    assert!(!response.run_name.contains(':'));
+    assert!(!response.run_name.contains('.'));
+    assert!(response
+        .run_name
+        .starts_with(&format!("gjob-{}-", response.id)));
+
+    wait_for_tmux_session(&response.run_name, true, Duration::from_secs(10)).await;
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "normalized-run-name",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    let finished_job = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(
+        finished_job.run_name.as_deref(),
+        Some(response.run_name.as_str())
+    );
+    wait_for_tmux_session(&response.run_name, false, Duration::from_secs(10)).await;
+
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_reports_recovery_mode_for_corrupt_state() {
     let Some(mut sandbox) = TestSandbox::new() else {
         return;

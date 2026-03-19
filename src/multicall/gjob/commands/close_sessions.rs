@@ -22,7 +22,7 @@ pub async fn handle_close_sessions(
     if all {
         let mut gflow_sessions: HashSet<_> = tmux::get_all_session_names()
             .into_iter()
-            .filter(|s| s.starts_with("gflow-job-"))
+            .filter(|s| s.starts_with("gjob-"))
             .collect();
 
         if gflow_sessions.is_empty() {

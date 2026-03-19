@@ -120,7 +120,7 @@ fn test_job_submission_and_queuing() {
     let job1 = create_test_job("alice");
     let (job_id1, run_name1) = scheduler.submit_job(job1);
     assert_eq!(job_id1, 1);
-    assert_eq!(run_name1, "gflow-job-1");
+    assert_eq!(run_name1, "gjob-1");
     assert!(scheduler.job_exists(1));
     assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
 
@@ -128,7 +128,7 @@ fn test_job_submission_and_queuing() {
     let job2 = create_test_job("bob");
     let (job_id2, run_name2) = scheduler.submit_job(job2);
     assert_eq!(job_id2, 2);
-    assert_eq!(run_name2, "gflow-job-2");
+    assert_eq!(run_name2, "gjob-2");
     assert!(scheduler.job_exists(2));
     assert_eq!(scheduler.get_job(2).unwrap().state, JobState::Queued);
 

@@ -545,13 +545,13 @@ mod tests {
         // This test case matches the user's scenario:
         // Job 165 has both depends_on=163 and redone_from=164
         // It should only appear once (as a dependency child) with a reference indicator
-        let mut job_165 = create_test_job(165, "gflow-job-165", Some(163));
+        let mut job_165 = create_test_job(165, "gjob-165", Some(163));
         job_165.redone_from = Some(164);
 
         let jobs = vec![
-            create_test_job(162, "gflow-job-162", None),
-            create_test_job(163, "gflow-job-163", Some(162)),
-            create_test_job(164, "gflow-job-164", Some(163)),
+            create_test_job(162, "gjob-162", None),
+            create_test_job(163, "gjob-163", Some(162)),
+            create_test_job(164, "gjob-164", Some(163)),
             job_165,
         ];
         println!();

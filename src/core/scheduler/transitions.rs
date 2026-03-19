@@ -13,7 +13,7 @@ impl Scheduler {
         let run_name = spec
             .run_name
             .take()
-            .unwrap_or_else(|| format_compact!("gflow-job-{}", job_id));
+            .unwrap_or_else(|| format_compact!("gjob-{}", job_id));
 
         // Persisted/spec fields
         spec.run_name = Some(run_name.clone());

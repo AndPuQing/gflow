@@ -285,9 +285,72 @@ impl SchedulerRuntime {
         Ok(())
     }
 
+    fn allocate_run_name(&self, requested: Option<&str>) -> String {
+        let next_job_id = self.scheduler.next_job_id();
+        let default_name = format!("gjob-{next_job_id}");
+
+        let normalized_requested = requested
+            .map(gflow::tmux::normalize_session_name)
+            .filter(|name| !name.is_empty());
+        let base_name = normalized_requested
+            .clone()
+            .map(|name| format!("gjob-{next_job_id}-{name}"))
+            .unwrap_or_else(|| default_name.clone());
+
+        let mut reserved_names: HashSet<String> = self
+            .scheduler
+            .job_specs()
+            .iter()
+            .zip(self.scheduler.job_runtimes().iter())
+            .filter(|(_, rt)| JobState::ACTIVE.contains(&rt.state))
+            .filter_map(|(spec, _)| spec.run_name.as_ref().map(|name| name.to_string()))
+            .collect();
+        reserved_names.extend(gflow::tmux::get_all_session_names());
+
+        if !reserved_names.contains(&base_name) {
+            return base_name;
+        }
+
+        let suffix_seed = normalized_requested
+            .as_ref()
+            .map(|_| next_job_id.to_string())
+            .unwrap_or_else(|| "1".to_string());
+        let mut counter = 0usize;
+
+        loop {
+            let candidate = if counter == 0 {
+                format!("{base_name}-{suffix_seed}")
+            } else {
+                format!("{base_name}-{suffix_seed}-{counter}")
+            };
+            if !reserved_names.contains(&candidate) {
+                return candidate;
+            }
+            counter += 1;
+        }
+    }
+
+    fn prepare_run_name(&self, job: &mut Job) {
+        let requested = job.run_name.as_ref().map(|name| name.as_str());
+        let allocated = self.allocate_run_name(requested);
+
+        if let Some(requested_name) = requested {
+            if requested_name != allocated {
+                tracing::info!(
+                    requested_run_name = %requested_name,
+                    effective_run_name = %allocated,
+                    "Adjusted run_name for tmux compatibility"
+                );
+            }
+        }
+
+        job.run_name = Some(CompactString::from(allocated));
+    }
+
     pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
         self.normalize_and_validate_project(&mut job)?;
         Self::validate_shared_job_requirements(&job)?;
+        self.prepare_run_name(&mut job);
         let (job_id, run_name) = self.scheduler.submit_job(job);
         self.mark_dirty();
 
@@ -308,6 +371,7 @@ impl SchedulerRuntime {
         for mut job in jobs {
             self.normalize_and_validate_project(&mut job)?;
             Self::validate_shared_job_requirements(&job)?;
+            self.prepare_run_name(&mut job);
             normalized_jobs.push(job);
         }
 
@@ -778,6 +842,61 @@ mod tests {
             .contains("Shared jobs must include a GPU memory limit"));
         assert_eq!(runtime.next_job_id(), 1);
         assert!(runtime.get_job(1).is_none());
+    }
+
+    #[tokio::test]
+    async fn normalizes_custom_run_name_for_tmux_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("echo test")
+            .submitted_by("alice")
+            .run_name(Some("train:v1.2".to_string()))
+            .build();
+
+        let (job_id, run_name, stored_job) = runtime.submit_job(job).await.unwrap();
+
+        assert_eq!(job_id, 1);
+        assert_eq!(run_name, "gjob-1-train_v1_2");
+        assert_eq!(stored_job.run_name.as_deref(), Some("gjob-1-train_v1_2"));
+    }
+
+    #[tokio::test]
+    async fn prefixes_custom_run_names_with_job_id_to_avoid_collisions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job1 = Job::builder()
+            .command("echo first")
+            .submitted_by("alice")
+            .run_name(Some("demo".to_string()))
+            .build();
+        let job2 = Job::builder()
+            .command("echo second")
+            .submitted_by("alice")
+            .run_name(Some("demo".to_string()))
+            .build();
+
+        let (_, run_name1, _) = runtime.submit_job(job1).await.unwrap();
+        let (_, run_name2, _) = runtime.submit_job(job2).await.unwrap();
+
+        assert_eq!(run_name1, "gjob-1-demo");
+        assert_eq!(run_name2, "gjob-2-demo");
     }
 
     #[tokio::test]

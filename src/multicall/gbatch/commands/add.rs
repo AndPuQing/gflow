@@ -45,8 +45,7 @@ fn substitute_template(template: &str, parameters: &HashMap<String, String>) -> 
     let mut result = template.to_string();
     for (param_name, value) in parameters {
         let pattern = format!("{{{}}}", param_name);
-        // Sanitize value for use in tmux session names (replace spaces with underscores)
-        let sanitized_value = value.replace([' ', '/'], "_");
+        let sanitized_value = gflow::tmux::normalize_session_name(value);
         result = result.replace(&pattern, &sanitized_value);
     }
     result

@@ -112,6 +112,27 @@ impl TmuxSession {
     }
 }
 
+/// Normalize a user-provided session name into a tmux-safe identifier.
+///
+/// We keep letters, numbers, `-`, and `_`, and collapse all other separators
+/// into `_` so the resulting name remains safe to pass back into tmux targets.
+pub fn normalize_session_name(name: &str) -> String {
+    let mut normalized = String::with_capacity(name.len());
+    let mut last_was_separator = false;
+
+    for ch in name.trim().chars() {
+        if ch.is_alphanumeric() || matches!(ch, '-' | '_') {
+            normalized.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            normalized.push('_');
+            last_was_separator = true;
+        }
+    }
+
+    normalized.trim_matches('_').to_string()
+}
+
 pub fn is_session_exist(name: &str) -> bool {
     Tmux::with_command(tmux_interface::HasSession::new().target_session(name))
         .output()
@@ -341,5 +362,15 @@ mod tests {
         Tmux::with_command(KillSession::new().target_session(&session_name))
             .output()
             .unwrap();
+    }
+
+    #[test]
+    fn normalize_session_name_replaces_tmux_target_delimiters() {
+        assert_eq!(
+            normalize_session_name(" train:v1.2 / gpu#0 "),
+            "train_v1_2_gpu_0"
+        );
+        assert_eq!(normalize_session_name("中文:实验.1"), "中文_实验_1");
+        assert_eq!(normalize_session_name("___"), "");
     }
 }

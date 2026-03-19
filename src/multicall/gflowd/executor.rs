@@ -40,7 +40,7 @@ impl TmuxExecutor {
 impl Executor for TmuxExecutor {
     fn execute(&self, job: &Job) -> Result<()> {
         if let Some(session_name) = job.run_name.as_ref() {
-            let session = TmuxSession::new(session_name.to_string());
+            let session = TmuxSession::create(session_name.to_string())?;
 
             // Enable pipe-pane to capture output to log file
             let log_path = gflow::paths::prepare_log_file_path(job.id)?;
@@ -49,28 +49,28 @@ impl Executor for TmuxExecutor {
             }
             session.enable_pipe_pane(&log_path)?;
 
-            session.send_command(&format!("cd {}", job.run_dir.display()));
-            session.send_command(&format!(
+            session.try_send_command(&format!("cd {}", job.run_dir.display()))?;
+            session.try_send_command(&format!(
                 "export GFLOW_ARRAY_TASK_ID={}",
                 job.task_id.unwrap_or(0)
-            ));
+            ))?;
             if let Some(gpu_ids) = &job.gpu_ids {
-                session.send_command(&format!(
+                session.try_send_command(&format!(
                     "export CUDA_VISIBLE_DEVICES={}",
                     gpu_ids
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(",")
-                ));
+                ))?;
             }
 
             if let Some(conda_env) = &job.conda_env {
-                session.send_command(&format!("conda activate {conda_env}"));
+                session.try_send_command(&format!("conda activate {conda_env}"))?;
             }
 
             let wrapped_command = self.generate_wrapped_command(job)?;
-            session.send_command(&wrapped_command);
+            session.try_send_command(&wrapped_command)?;
         }
         Ok(())
     }

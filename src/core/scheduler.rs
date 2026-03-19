@@ -208,7 +208,7 @@ mod tests {
 
         let (job_id, run_name) = scheduler.submit_job(job);
         assert_eq!(job_id, 1);
-        assert_eq!(run_name, "gflow-job-1");
+        assert_eq!(run_name, "gjob-1");
         assert!(scheduler.job_exists(1));
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
     }
