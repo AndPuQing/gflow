@@ -1,16 +1,12 @@
 # AI Agents, MCP, and Skills
 
-`gflow` can run as a local `stdio` MCP server so agent CLIs such as `Claude Code`, `Codex`, and `OpenCode` can treat scheduler operations as tools instead of relying on ad hoc shell wrappers.
+`gflow` can run as a local `stdio` MCP server, allowing agent CLIs such as `Claude Code`, `Codex`, and `OpenCode` to treat scheduler operations as tool calls instead of rewriting shell commands every time.
 
 ```bash
 gflow mcp serve
 ```
 
-This works best in a local-first setup: keep `gflowd` running on the same Linux machine, then let the agent connect through local config.
-
-## Prerequisites
-
-Before configuring any agent CLI, make sure these all work:
+Before connecting any agent CLI, first make sure these three commands all work:
 
 ```bash
 gflowd up
@@ -18,44 +14,18 @@ ginfo
 gflow mcp serve
 ```
 
-- `gflowd` must already be running.
-- `gflow mcp serve` is a `stdio` server, not an HTTP service.
-- If `gflow` is not on `PATH`, use an absolute binary path.
-- It is better to confirm `ginfo` works first, then wire the agent to MCP.
-
-## Where each piece belongs
-
-| Client | MCP entry point | Persistent instructions / skill |
-| --- | --- | --- |
-| Claude Code | `claude mcp add ...` | Project rules usually belong in `CLAUDE.md` |
-| Codex | `codex mcp add ...` or `~/.codex/config.toml` | Project rules usually belong in `AGENTS.md` |
-| OpenCode | `mcp` in `opencode.json` / `opencode.jsonc` | Reusable workflows are a good fit for `SKILL.md` |
-
-These solve different problems:
-
-- `MCP`: executable tools such as queue inspection, log reads, submit, update, hold, release, and cancel.
-- `AGENTS.md` / `CLAUDE.md`: repo-level standing instructions such as "read before write" or "confirm before destructive job actions".
-- `SKILL.md`: reusable workflows that the agent can load on demand.
-
-## Start with the examples already in this repo
-
-This repository already ships with concrete files you can reference:
-
-- `skills/gflow-ops/SKILL.md`: the main gflow operations skill
-- `skills/gflow-ops/agents/openai.yaml`: display metadata for OpenAI / Codex-style agents
-- `CLAUDE.md`: standing repo-level guidance and engineering rules
-
-If you are writing a gflow-related skill, start from these files instead of inventing a generic template from scratch.
+- `gflowd` must be started first.
+- If `gflow` is not on `PATH`, use an absolute path instead.
 
 ## Claude Code
 
-Recommended user-scope setup:
+User-scope configuration is recommended:
 
 ```bash
 claude mcp add --scope user gflow -- gflow mcp serve
 ```
 
-Useful checks:
+Common check commands:
 
 ```bash
 claude mcp list
@@ -64,9 +34,8 @@ claude mcp get gflow
 
 Notes:
 
-- Use `--scope project` if you want the MCP entry to apply only inside the current project.
-- If `gflow` is not on `PATH`, switch to an absolute path such as `-- /home/you/.local/bin/gflow mcp serve`.
-- For repo-level guidance, Claude Code is usually better served by a root-level `CLAUDE.md` than by repeating the same instructions in every prompt.
+- If you want the configuration to apply only to the current project, change `--scope user` to `--scope project`.
+- If `gflow` is not on `PATH`, switch to an absolute path, for example `-- /home/you/.local/bin/gflow mcp serve`.
 
 Example `CLAUDE.md`:
 
@@ -81,20 +50,20 @@ Example `CLAUDE.md`:
 
 ## Codex
 
-Minimal setup:
+Minimal configuration:
 
 ```bash
 codex mcp add gflow -- gflow mcp serve
 ```
 
-Inspect the config:
+View the current configuration:
 
 ```bash
 codex mcp list
 codex mcp get gflow
 ```
 
-You can also configure it directly in `~/.codex/config.toml`:
+You can also write it directly to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.gflow]
@@ -104,9 +73,7 @@ args = ["mcp", "serve"]
 
 Notes:
 
-- If `gflow` is not on `PATH`, replace `command` with an absolute path.
-- For Codex, repo guidance is usually more stable in `AGENTS.md` than in long one-off prompts.
-- If your repo already carries an `AGENTS.md`, keep gflow workflow rules there instead of duplicating them per session.
+- If `gflow` is not on `PATH`, change `command` to an absolute path.
 
 Example `AGENTS.md`:
 
@@ -121,7 +88,7 @@ Example `AGENTS.md`:
 
 ## OpenCode
 
-OpenCode usually declares MCP servers in config. The default global config lives at `~/.config/opencode/opencode.json`, and a project config can live at `opencode.json` in the repo root. Both JSON and JSONC are supported.
+OpenCode usually declares MCP directly in its config file. The global config is typically at `~/.config/opencode/opencode.json`, and a project-level config can be placed at `opencode.json` in the repository root. Both also support `JSONC`.
 
 Minimal example:
 
@@ -138,7 +105,7 @@ Minimal example:
 }
 ```
 
-Check status with:
+Check connection status:
 
 ```bash
 opencode mcp list
@@ -146,52 +113,12 @@ opencode mcp list
 
 Notes:
 
-- Local MCP servers use `type: "local"` plus a command array.
-- If `gflow` is not on `PATH`, switch `command` to an absolute-path array.
-- OpenCode is a good fit for packaging gflow workflows as reusable `SKILL.md` definitions.
-- OpenCode can also discover Claude-compatible and agent-compatible skill directories.
+- OpenCode local MCP uses `type: "local"` and a command array.
+- If `gflow` is not on `PATH`, change `command` to an absolute-path array.
 
-## How to use the existing skill
+## FAQ
 
-Use the built-in repo example:
-
-```text
-skills/gflow-ops/
-├── SKILL.md
-└── agents/openai.yaml
-```
-
-Recommended:
-
-- reuse `skills/gflow-ops/SKILL.md`
-- copy it only if you need customization
-- do not start from a generic blank template
-
-### Recommended locations
-
-If your agent supports `SKILL.md` discovery, place it in one of these locations:
-
-- Project: `.opencode/skills/gflow-operator/SKILL.md`
-- Global: `~/.config/opencode/skills/gflow-operator/SKILL.md`
-- Claude-compatible project: `.claude/skills/gflow-operator/SKILL.md`
-- Claude-compatible global: `~/.claude/skills/gflow-operator/SKILL.md`
-- Agent-compatible project: `.agents/skills/gflow-operator/SKILL.md`
-- Agent-compatible global: `~/.agents/skills/gflow-operator/SKILL.md`
-
-Additional constraints:
-
-- The directory name should match the `name` in frontmatter.
-- Use lowercase letters, digits, and hyphens for `name`, for example `gflow-operator`.
-
-Use:
-
-- `CLAUDE.md` for Claude Code
-- `AGENTS.md` for Codex
-- `SKILL.md` for on-demand workflows
-
-## Troubleshooting
-
-### The MCP entry exists, but the agent cannot see gflow tools
+### MCP is already added, but the agent cannot see the gflow tools
 
 Check these first:
 
@@ -204,12 +131,8 @@ gflow mcp serve
 Common causes:
 
 - `gflowd` is not running.
-- The agent process cannot resolve `gflow` from `PATH`.
-- Your local config points to the wrong daemon host or port.
-
-### Should this go in a skill or in repo instructions?
-
-In practice: frequent rules go in `AGENTS.md` / `CLAUDE.md`; specialized workflows go in `SKILL.md`.
+- `gflow` is not on the `PATH` seen by the agent process.
+- The local config points to the wrong daemon address or port.
 
 ## See Also
 
