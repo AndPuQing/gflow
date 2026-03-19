@@ -22,10 +22,11 @@ fn do_exec(command_name: &str) -> Result<ExitCode, String> {
     // If the current working directory is inside the gflow source tree,
     // run via `cargo run --bin gflow` so code changes are picked up without
     // reinstalling binaries. When this wrapper itself is already the repo's
-    // Cargo-built artifact, dispatch in-process to avoid spawning a nested
-    // `cargo run`.
+    // Cargo-built artifact, debug builds can dispatch in-process to avoid
+    // spawning a nested `cargo run` while keeping release/package wrappers thin.
     if !dev_auto_disabled() {
         if let Some(repo_root) = find_gflow_repo_root() {
+            #[cfg(debug_assertions)]
             if is_repo_target_binary(&repo_root, &exe) {
                 return dispatch_in_process(command_name, forwarded_args);
             }
@@ -51,6 +52,7 @@ fn multicall_args(command_name: &str, rest: Vec<OsString>) -> Vec<OsString> {
     args
 }
 
+#[cfg(debug_assertions)]
 fn dispatch_in_process(command_name: &str, rest: Vec<OsString>) -> Result<ExitCode, String> {
     let mut argv = Vec::with_capacity(rest.len() + 1);
     argv.push(OsString::from(command_name));
@@ -142,6 +144,7 @@ fn find_sibling_gflow(exe_dir: &Path) -> Option<PathBuf> {
     None
 }
 
+#[cfg(debug_assertions)]
 fn is_repo_target_binary(repo_root: &Path, exe: &Path) -> bool {
     exe.starts_with(repo_root.join("target"))
 }
