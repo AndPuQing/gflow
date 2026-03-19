@@ -16,10 +16,16 @@ pub(super) struct JobNode {
     pub(super) children: Vec<JobNodeChild>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RelationshipKind {
+    Dependency,
+    Redo,
+}
+
 /// Represents a child in the tree - either a real job node or a reference
 pub(super) enum JobNodeChild {
-    Node(Box<JobNode>, bool), // (node, is_redo_relationship)
-    Reference(u32),           // Reference to a job ID that appears elsewhere
+    Node(Box<JobNode>, RelationshipKind),
+    Reference(u32, RelationshipKind),
 }
 
 /// Context for rendering jobs with formatting and session information
@@ -28,33 +34,91 @@ struct RenderContext<'a> {
     tmux_sessions: &'a HashSet<String>,
 }
 
+#[derive(Clone, Copy)]
+struct ChildRelation {
+    relationship: RelationshipKind,
+    reference: bool,
+}
+
+fn relation_priority(relation: ChildRelation) -> u8 {
+    match (relation.reference, relation.relationship) {
+        (false, RelationshipKind::Dependency) => 4,
+        (false, RelationshipKind::Redo) => 3,
+        (true, RelationshipKind::Dependency) => 2,
+        (true, RelationshipKind::Redo) => 1,
+    }
+}
+
+fn insert_child_relation(
+    children_by_parent: &mut HashMap<u32, HashMap<u32, ChildRelation>>,
+    parent_id: u32,
+    child_id: u32,
+    relation: ChildRelation,
+) {
+    let parent_children = children_by_parent.entry(parent_id).or_default();
+    match parent_children.get_mut(&child_id) {
+        Some(existing) if relation_priority(relation) > relation_priority(*existing) => {
+            *existing = relation;
+        }
+        Some(_) => {}
+        None => {
+            parent_children.insert(child_id, relation);
+        }
+    }
+}
+
 /// Builds a dependency tree from a list of jobs, with cycle detection
 pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNode> {
     // Create a map of job_id -> job for quick lookup
     let job_map: HashMap<u32, &gflow::core::job::Job> = jobs.iter().map(|j| (j.id, j)).collect();
 
-    // Create a map of parent_id -> child jobs (for dependency relationships)
-    let mut children_map: HashMap<Option<u32>, Vec<u32>> = HashMap::new();
-
-    // Create a map of original_job_id -> redo jobs (for redo relationships)
-    let mut redo_map: HashMap<u32, Vec<u32>> = HashMap::new();
-
-    // Track all jobs that appear as dependency children (globally)
-    let mut all_dependency_children: HashSet<u32> = HashSet::new();
+    // Create a map of parent_id -> child jobs, annotating whether the link should
+    // render as a full node or as a reference, and whether it is a dependency or redo edge.
+    let mut children_by_parent: HashMap<u32, HashMap<u32, ChildRelation>> = HashMap::new();
 
     for job in jobs {
-        children_map.entry(job.depends_on).or_default().push(job.id);
+        let present_dependency_parents: Vec<u32> = job
+            .dependency_ids_iter()
+            .filter(|parent_id| job_map.contains_key(parent_id))
+            .collect();
 
-        // Track jobs whose dependency parent is present in the current list.
-        // If the dependency parent is filtered out, this job should still be rendered normally.
-        if let Some(parent_id) = job.depends_on {
-            if job_map.contains_key(&parent_id) {
-                all_dependency_children.insert(job.id);
+        if let Some((primary_parent, extra_parents)) = present_dependency_parents.split_first() {
+            insert_child_relation(
+                &mut children_by_parent,
+                *primary_parent,
+                job.id,
+                ChildRelation {
+                    relationship: RelationshipKind::Dependency,
+                    reference: false,
+                },
+            );
+
+            for parent_id in extra_parents {
+                insert_child_relation(
+                    &mut children_by_parent,
+                    *parent_id,
+                    job.id,
+                    ChildRelation {
+                        relationship: RelationshipKind::Dependency,
+                        reference: true,
+                    },
+                );
             }
         }
 
-        if let Some(redone_from) = job.redone_from {
-            redo_map.entry(redone_from).or_default().push(job.id);
+        if let Some(redone_from) = job
+            .redone_from
+            .filter(|parent_id| job_map.contains_key(parent_id))
+        {
+            insert_child_relation(
+                &mut children_by_parent,
+                redone_from,
+                job.id,
+                ChildRelation {
+                    relationship: RelationshipKind::Redo,
+                    reference: !present_dependency_parents.is_empty(),
+                },
+            );
         }
     }
 
@@ -62,9 +126,7 @@ pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNo
     fn build_node(
         job_id: u32,
         job_map: &HashMap<u32, &gflow::core::job::Job>,
-        children_map: &HashMap<Option<u32>, Vec<u32>>,
-        redo_map: &HashMap<u32, Vec<u32>>,
-        all_dependency_children: &HashSet<u32>,
+        children_by_parent: &HashMap<u32, HashMap<u32, ChildRelation>>,
         visited: &mut HashSet<u32>,
         recursion_stack: &mut HashSet<u32>,
     ) -> Option<JobNode> {
@@ -84,41 +146,24 @@ pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNo
         visited.insert(job_id);
         recursion_stack.insert(job_id);
 
-        // Collect dependency children IDs first
-        let dep_child_ids: HashSet<u32> = children_map
-            .get(&Some(job_id))
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect();
-
-        let dep_iter = dep_child_ids.iter().map(|&id| (id, false));
-
-        // For redo children that are dependency children elsewhere, create references
-        let redo_iter = redo_map
+        let mut children: Vec<JobNodeChild> = children_by_parent
             .get(&job_id)
             .into_iter()
-            .flatten()
-            .map(|&id| (id, true));
-
-        let mut children: Vec<JobNodeChild> = dep_iter
-            .chain(redo_iter)
-            .filter_map(|(child_id, is_redo)| {
-                // If this is a redo child that appears as a dependency child elsewhere,
-                // create a reference instead of a full node
-                if is_redo && all_dependency_children.contains(&child_id) {
-                    Some(JobNodeChild::Reference(child_id))
+            .flat_map(|children| children.iter())
+            .filter_map(|(&child_id, &relation)| {
+                if relation.reference {
+                    Some(JobNodeChild::Reference(child_id, relation.relationship))
                 } else {
                     build_node(
                         child_id,
                         job_map,
-                        children_map,
-                        redo_map,
-                        all_dependency_children,
+                        children_by_parent,
                         visited,
                         recursion_stack,
                     )
-                    .map(|child_node| JobNodeChild::Node(Box::new(child_node), is_redo))
+                    .map(|child_node| {
+                        JobNodeChild::Node(Box::new(child_node), relation.relationship)
+                    })
                 }
             })
             .collect();
@@ -126,7 +171,7 @@ pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNo
         // Sort children by job ID to maintain proper ordering
         children.sort_by_key(|child| match child {
             JobNodeChild::Node(node, _) => node.job.id,
-            JobNodeChild::Reference(id) => *id,
+            JobNodeChild::Reference(id, _) => *id,
         });
 
         // Remove from recursion stack (backtrack)
@@ -137,30 +182,25 @@ pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNo
 
     // Find root jobs:
     // - jobs with no dependency
-    // - jobs whose dependency parent is outside the current filtered job list
+    // - jobs whose dependency and redo parents are outside the current filtered job list
     let mut root_ids: Vec<u32> = jobs
         .iter()
-        .filter_map(|job| match job.depends_on {
-            None => Some(job.id),
-            Some(parent_id) if !job_map.contains_key(&parent_id) => Some(job.id),
-            _ => None,
+        .filter(|job| {
+            let has_present_dependency_parent = job
+                .dependency_ids_iter()
+                .any(|parent_id| job_map.contains_key(&parent_id));
+            let has_present_redo_parent = job
+                .redone_from
+                .is_some_and(|parent_id| job_map.contains_key(&parent_id));
+
+            !has_present_dependency_parent && !has_present_redo_parent
         })
+        .map(|job| job.id)
         .collect();
 
     // Keep root ordering deterministic by job id.
     root_ids.sort_unstable();
     root_ids.dedup();
-
-    // Exclude jobs that have redone_from relationships where the original job exists in the list
-    // These jobs will be displayed as children of their original jobs with dashed lines
-    root_ids.retain(|job_id| {
-        let parent_exists = job_map
-            .get(job_id)
-            .and_then(|job| job.redone_from)
-            .is_some_and(|parent_id| job_map.contains_key(&parent_id));
-
-        !parent_exists
-    });
 
     let mut visited = HashSet::new();
     let mut recursion_stack = HashSet::new();
@@ -171,9 +211,7 @@ pub(super) fn build_dependency_tree(jobs: &[gflow::core::job::Job]) -> Vec<JobNo
             build_node(
                 job_id,
                 &job_map,
-                &children_map,
-                &redo_map,
-                &all_dependency_children,
+                &children_by_parent,
                 &mut visited,
                 &mut recursion_stack,
             )
@@ -214,7 +252,15 @@ pub(super) fn display_jobs_tree(
 
     // Collect all tree rows
     for node in &tree {
-        collect_tree_rows(&mut builder, node, &ctx, "", true, true, false);
+        collect_tree_rows(
+            &mut builder,
+            node,
+            &ctx,
+            "",
+            true,
+            true,
+            RelationshipKind::Dependency,
+        );
     }
 
     let mut table = builder.build();
@@ -231,12 +277,12 @@ fn collect_tree_rows(
     prefix: &str,
     is_last: bool,
     is_root: bool,
-    is_redo: bool,
+    relationship: RelationshipKind,
 ) {
     let job = &node.job;
     let tree_prefix = if is_root {
         String::new()
-    } else if is_redo {
+    } else if relationship == RelationshipKind::Redo {
         // Use dashed lines for redo relationships
         if is_last {
             TREE_EDGE_DASHED.to_string()
@@ -288,7 +334,7 @@ fn collect_tree_rows(
         };
 
         match child {
-            JobNodeChild::Node(child_node, child_is_redo) => {
+            JobNodeChild::Node(child_node, child_relationship) => {
                 collect_tree_rows(
                     builder,
                     child_node,
@@ -296,12 +342,18 @@ fn collect_tree_rows(
                     &child_prefix,
                     is_last_child,
                     false,
-                    *child_is_redo,
+                    *child_relationship,
                 );
             }
-            JobNodeChild::Reference(job_id) => {
+            JobNodeChild::Reference(job_id, child_relationship) => {
                 // Add a reference row - make it compact by using minimal spacing
-                let tree_prefix = if is_last_child {
+                let tree_prefix = if *child_relationship == RelationshipKind::Dependency {
+                    if is_last_child {
+                        TREE_EDGE
+                    } else {
+                        TREE_BRANCH
+                    }
+                } else if is_last_child {
                     TREE_EDGE_DASHED
                 } else {
                     TREE_BRANCH_DASHED

@@ -264,6 +264,17 @@ mod tests {
         }
     }
 
+    fn create_test_job_with_dependencies(
+        id: u32,
+        name: &str,
+        depends_on: Option<u32>,
+        depends_on_ids: &[u32],
+    ) -> Job {
+        let mut job = create_test_job(id, name, depends_on);
+        job.depends_on_ids = depends_on_ids.iter().copied().collect();
+        job
+    }
+
     fn create_test_job_with_state(id: u32, name: &str, state: JobState) -> Job {
         Job {
             id,
@@ -428,7 +439,7 @@ mod tests {
             .iter()
             .filter_map(|child| match child {
                 JobNodeChild::Node(node, _) => Some(node.job.id),
-                JobNodeChild::Reference(_) => None,
+                JobNodeChild::Reference(_, _) => None,
             })
             .collect();
         assert_eq!(first_children, vec![3]);
@@ -450,10 +461,50 @@ mod tests {
             .iter()
             .filter_map(|child| match child {
                 JobNodeChild::Node(node, _) => Some(node.job.id),
-                JobNodeChild::Reference(_) => None,
+                JobNodeChild::Reference(_, _) => None,
             })
             .collect();
         assert_eq!(first_children, vec![2]);
+    }
+
+    #[test]
+    fn test_build_tree_supports_multi_dependencies_with_reference_parents() {
+        let jobs = vec![
+            create_test_job(1, "root-a", None),
+            create_test_job(2, "root-b", None),
+            create_test_job_with_dependencies(3, "multi-dep", None, &[1, 2]),
+        ];
+
+        let tree = build_dependency_tree(&jobs);
+        let root_ids: Vec<u32> = tree.iter().map(|node| node.job.id).collect();
+        assert_eq!(root_ids, vec![1, 2]);
+
+        match &tree[0].children[..] {
+            [JobNodeChild::Node(node, _)] => assert_eq!(node.job.id, 3),
+            _ => panic!("expected job 3 as a concrete child of the first dependency parent"),
+        }
+
+        match &tree[1].children[..] {
+            [JobNodeChild::Reference(3, _)] => {}
+            _ => panic!("expected job 3 as a reference under the secondary dependency parent"),
+        }
+    }
+
+    #[test]
+    fn test_build_tree_uses_present_dependency_when_legacy_parent_missing() {
+        let jobs = vec![
+            create_test_job(1, "root", None),
+            create_test_job_with_dependencies(2, "child", Some(99), &[1]),
+        ];
+
+        let tree = build_dependency_tree(&jobs);
+        let root_ids: Vec<u32> = tree.iter().map(|node| node.job.id).collect();
+        assert_eq!(root_ids, vec![1]);
+
+        match &tree[0].children[..] {
+            [JobNodeChild::Node(node, _)] => assert_eq!(node.job.id, 2),
+            _ => panic!("expected job 2 to attach to the present dependency parent"),
+        }
     }
 
     #[test]
