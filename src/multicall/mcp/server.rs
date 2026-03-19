@@ -120,6 +120,20 @@ pub struct UpdateJobToolRequest {
     pub clear_max_concurrent: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RedoJobRequest {
+    pub job_id: u32,
+    pub gpus: Option<u32>,
+    pub priority: Option<u8>,
+    pub depends_on: Option<u32>,
+    pub time_limit_secs: Option<u64>,
+    pub memory_limit_mb: Option<u64>,
+    pub gpu_memory_limit_mb: Option<u64>,
+    pub conda_env: Option<String>,
+    pub clear_deps: Option<bool>,
+    pub cascade: Option<bool>,
+}
+
 #[derive(Debug, serde::Serialize, JsonSchema)]
 pub struct ArbitraryObjectSchema {
     #[schemars(flatten)]
@@ -210,6 +224,22 @@ pub struct BatchJobSubmitOutput {
 pub struct UpdateJobOutputSchema {
     pub job: ArbitraryObjectSchema,
     pub updated_fields: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct RedoCascadeJobOutput {
+    pub original_job_id: u32,
+    pub new_job_id: u32,
+    pub run_name: String,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct RedoJobOutput {
+    pub original_job_id: u32,
+    pub new_job_id: u32,
+    pub run_name: String,
+    pub cascaded_jobs: Vec<RedoCascadeJobOutput>,
+    pub cascaded_count: usize,
 }
 
 #[derive(Clone)]
@@ -454,6 +484,52 @@ impl GflowMcpServer {
             .await
             .map_err(stringify_error)?;
         structured_response(response)
+    }
+
+    #[tool(
+        description = "Resubmit a finished job with the same or overridden parameters, optionally cascading to dependency-cancelled child jobs.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<RedoJobOutput>()
+    )]
+    async fn redo_job(
+        &self,
+        Parameters(params): Parameters<RedoJobRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = self.client().map_err(stringify_error)?;
+        let options = crate::multicall::gjob::commands::redo::RedoJobOptions {
+            gpus_override: params.gpus,
+            priority_override: params.priority,
+            depends_on_override: params.depends_on,
+            time_limit_override: params.time_limit_secs.map(Duration::from_secs),
+            memory_limit_mb_override: params.memory_limit_mb,
+            gpu_memory_limit_mb_override: params.gpu_memory_limit_mb,
+            conda_env_override: params.conda_env,
+            clear_deps: params.clear_deps.unwrap_or(false),
+            cascade: params.cascade.unwrap_or(false),
+        };
+        let result =
+            crate::multicall::gjob::commands::redo::redo_job(&client, params.job_id, &options)
+                .await
+                .map_err(stringify_error)?;
+        let cascaded_count = result.cascaded_jobs.len();
+        let cascaded_jobs = result
+            .cascaded_jobs
+            .into_iter()
+            .map(|job| {
+                json!({
+                    "original_job_id": job.original_job_id,
+                    "new_job_id": job.new_job_id,
+                    "run_name": job.run_name,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        structured_response(json!({
+            "original_job_id": result.original_job_id,
+            "new_job_id": result.new_job_id,
+            "run_name": result.run_name,
+            "cascaded_jobs": cascaded_jobs,
+            "cascaded_count": cascaded_count,
+        }))
     }
 }
 
@@ -824,6 +900,7 @@ mod tests {
             "submit_job",
             "submit_jobs_batch",
             "update_job",
+            "redo_job",
         ] {
             let tool = tools
                 .iter()

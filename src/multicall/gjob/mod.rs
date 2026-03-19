@@ -1,5 +1,5 @@
 mod cli;
-mod commands;
+pub(crate) mod commands;
 mod utils;
 
 use anyhow::Result;
