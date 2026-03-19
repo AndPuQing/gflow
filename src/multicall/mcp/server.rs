@@ -92,6 +92,11 @@ pub struct SubmitJobRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SubmitJobsBatchRequest {
+    pub jobs: Vec<SubmitJobRequest>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct UpdateJobToolRequest {
     pub job_id: u32,
     pub command: Option<String>,
@@ -193,6 +198,12 @@ pub struct JobActionOutput {
 pub struct JobSubmitOutput {
     pub id: u32,
     pub run_name: String,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct BatchJobSubmitOutput {
+    pub jobs: Vec<JobSubmitOutput>,
+    pub count: usize,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -409,6 +420,24 @@ impl GflowMcpServer {
     }
 
     #[tool(
+        description = "Submit multiple jobs to the local gflow daemon using the same simplified schema as submit_job.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<BatchJobSubmitOutput>()
+    )]
+    async fn submit_jobs_batch(
+        &self,
+        Parameters(params): Parameters<SubmitJobsBatchRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = self.client().map_err(stringify_error)?;
+        let jobs =
+            build_submit_jobs_batch(params).map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
+        let responses = client.add_jobs(jobs).await.map_err(stringify_error)?;
+        structured_response(json!({
+            "jobs": responses,
+            "count": responses.len(),
+        }))
+    }
+
+    #[tool(
         description = "Update mutable job parameters on the local gflow daemon.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<UpdateJobOutputSchema>()
     )]
@@ -522,6 +551,17 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
     }
 
     Ok(builder.build())
+}
+
+fn build_submit_jobs_batch(params: SubmitJobsBatchRequest) -> Result<Vec<Job>, String> {
+    if params.jobs.is_empty() {
+        return Err("submit_jobs_batch requires at least one job".to_string());
+    }
+    if params.jobs.len() > 1000 {
+        return Err("submit_jobs_batch accepts at most 1000 jobs".to_string());
+    }
+
+    params.jobs.into_iter().map(build_submit_job).collect()
 }
 
 fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest, String> {
@@ -763,7 +803,9 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::GflowMcpServer;
+    use super::{
+        build_submit_jobs_batch, GflowMcpServer, SubmitJobRequest, SubmitJobsBatchRequest,
+    };
 
     #[test]
     fn tool_schemas_are_exposed_for_object_outputs() {
@@ -780,6 +822,7 @@ mod tests {
             "hold_job",
             "release_job",
             "submit_job",
+            "submit_jobs_batch",
             "update_job",
         ] {
             let tool = tools
@@ -791,6 +834,46 @@ mod tests {
                 "expected output schema for {tool_name}"
             );
         }
+    }
+
+    #[test]
+    fn submit_jobs_batch_rejects_empty_batches() {
+        let err = build_submit_jobs_batch(SubmitJobsBatchRequest { jobs: vec![] }).unwrap_err();
+        assert_eq!(err, "submit_jobs_batch requires at least one job");
+    }
+
+    #[test]
+    fn submit_jobs_batch_reuses_single_job_validation() {
+        let err = build_submit_jobs_batch(SubmitJobsBatchRequest {
+            jobs: vec![SubmitJobRequest {
+                command: Some("echo hello".to_string()),
+                script: None,
+                gpus: Some(1),
+                conda_env: None,
+                run_dir: None,
+                priority: None,
+                depends_on: None,
+                depends_on_ids: None,
+                dependency_mode: None,
+                auto_cancel_on_dependency_failure: None,
+                shared: Some(true),
+                gpu_memory_limit_mb: None,
+                time_limit_secs: None,
+                memory_limit_mb: None,
+                submitted_by: None,
+                parameters: None,
+                run_name: None,
+                project: None,
+                max_concurrent: None,
+                auto_close_tmux: None,
+            }],
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            "submit_job requires 'gpu_memory_limit_mb' when 'shared' is true"
+        );
     }
 
     #[test]
