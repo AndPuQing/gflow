@@ -1,9 +1,104 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { createHighlighterCoreSync } from "@shikijs/core";
+import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
+import bash from "@shikijs/langs/bash";
+import githubDark from "@shikijs/themes/github-dark";
+import githubLight from "@shikijs/themes/github-light";
 
 const props = defineProps<{
     locale?: "en" | "zh-CN";
 }>();
+
+const highlighter = createHighlighterCoreSync({
+    engine: createJavaScriptRegexEngine(),
+    themes: [githubLight, githubDark],
+    langs: [bash],
+});
+
+const highlightThemes = {
+    light: "github-light",
+    dark: "github-dark",
+} as const;
+
+function escapeHtml(value: string) {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+}
+
+function extractCodeHtml(html: string) {
+    const match = html.match(/<code[^>]*>([\s\S]*?)<\/code>/);
+    return match?.[1] ?? html;
+}
+
+function highlightShell(code: string) {
+    let placeholderIndex = 0;
+    const placeholders = new Map<string, string>();
+    const normalizedCode = code.replace(/<[^>\n]+>/g, (placeholder) => {
+        const token = `GFLOWPLACEHOLDER${placeholderIndex++}`;
+        placeholders.set(token, placeholder);
+        return token;
+    });
+
+    let html = extractCodeHtml(
+        highlighter.codeToHtml(normalizedCode, {
+            lang: "bash",
+            themes: highlightThemes,
+        }),
+    );
+
+    for (const [token, placeholder] of placeholders) {
+        html = html.replace(token, `<span class="lp-code-placeholder">${escapeHtml(placeholder)}</span>`);
+    }
+
+    return html;
+}
+
+function classifyTerminalLine(line: string) {
+    if (line.startsWith("$ ")) {
+        return {
+            kind: "command",
+            html: `<span class="lp-terminal-prompt">$</span> ${highlightShell(line.slice(2))}`,
+        };
+    }
+
+    if (line.startsWith("JOBID")) {
+        return {
+            kind: "header",
+            html: escapeHtml(line),
+        };
+    }
+
+    if (/^\d+\s+/.test(line)) {
+        return {
+            kind: "table",
+            html: escapeHtml(line),
+        };
+    }
+
+    if (line.includes("=")) {
+        return {
+            kind: "metrics",
+            html: escapeHtml(line),
+        };
+    }
+
+    if (line.startsWith("daemon ready") || line.startsWith("submitted batch job")) {
+        return {
+            kind: "success",
+            html: escapeHtml(line),
+        };
+    }
+
+    return {
+        kind: "output",
+        html: escapeHtml(line),
+    };
+}
 
 const copies = {
     en: {
@@ -400,6 +495,14 @@ const copies = {
 
 const currentLocale = computed(() => (props.locale === "zh-CN" ? "zh-CN" : "en"));
 const copy = computed(() => copies[currentLocale.value]);
+const terminalLines = computed(() => copy.value.panel.lines.map(classifyTerminalLine));
+const workflowSteps = computed(() =>
+    copy.value.workflow.steps.map((step) => ({
+        ...step,
+        commandHtml: highlightShell(step.command),
+    })),
+);
+const mcpCommandHtml = computed(() => highlightShell(copy.value.mcp.command));
 </script>
 
 <template>
@@ -442,7 +545,14 @@ const copy = computed(() => copies[currentLocale.value]);
                         <span />
                         <strong>{{ copy.panel.title }}</strong>
                     </div>
-                    <pre class="lp-terminal-body"><code>{{ copy.panel.lines.join("\n") }}</code></pre>
+                    <div class="lp-terminal-body">
+                        <div
+                            v-for="(line, index) in terminalLines"
+                            :key="`${currentLocale}-${index}`"
+                            :class="['lp-terminal-line', `lp-terminal-line-${line.kind}`]"
+                            v-html="line.html"
+                        />
+                    </div>
                 </div>
                 <article class="lp-floating-card lp-floating-card-queue">
                     <p class="lp-floating-title">{{ copy.panel.queueCardTitle }}</p>
@@ -493,9 +603,9 @@ const copy = computed(() => copies[currentLocale.value]);
                 <h2>{{ copy.workflow.title }}</h2>
             </div>
             <div class="lp-step-grid">
-                <article v-for="step in copy.workflow.steps" :key="step.label" class="lp-step-card">
+                <article v-for="step in workflowSteps" :key="step.label" class="lp-step-card">
                     <span class="lp-step-label">{{ step.label }}</span>
-                    <code>{{ step.command }}</code>
+                    <code class="lp-code-inline" v-html="step.commandHtml"></code>
                     <p>{{ step.description }}</p>
                 </article>
             </div>
@@ -548,7 +658,7 @@ const copy = computed(() => copies[currentLocale.value]);
                 <p>{{ copy.mcp.lead }}</p>
             </div>
             <div class="lp-mcp-row">
-                <pre><code>{{ copy.mcp.command }}</code></pre>
+                <pre><code class="lp-code-inline" v-html="mcpCommandHtml"></code></pre>
                 <a class="lp-button lp-button-brand" :href="copy.mcp.href">{{ copy.mcp.cta }}</a>
             </div>
         </section>

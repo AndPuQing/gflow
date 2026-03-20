@@ -67,9 +67,21 @@
     overflow: hidden;
     padding: 3rem 0 5rem;
     background:
-        radial-gradient(circle at top left, rgba(13, 118, 110, 0.14), transparent 32rem),
-        radial-gradient(circle at top right, rgba(197, 106, 27, 0.18), transparent 28rem),
-        linear-gradient(180deg, var(--lp-bg) 0%, color-mix(in srgb, var(--lp-bg) 82%, #ffffff 18%) 100%);
+        radial-gradient(
+            circle at top left,
+            rgba(13, 118, 110, 0.14),
+            transparent 32rem
+        ),
+        radial-gradient(
+            circle at top right,
+            rgba(197, 106, 27, 0.18),
+            transparent 28rem
+        ),
+        linear-gradient(
+            180deg,
+            var(--lp-bg) 0%,
+            color-mix(in srgb, var(--lp-bg) 82%, #ffffff 18%) 100%
+        );
     color: var(--lp-text);
     font-family: "Space Grotesk", "Avenir Next", "Trebuchet MS", sans-serif;
 }
@@ -186,7 +198,11 @@
 }
 
 .lp-button-brand {
-    background: linear-gradient(135deg, var(--lp-accent) 0%, var(--lp-accent-strong) 100%);
+    background: linear-gradient(
+        135deg,
+        var(--lp-accent) 0%,
+        var(--lp-accent-strong) 100%
+    );
     color: #fff7ee;
     box-shadow: 0 18px 40px rgba(161, 75, 15, 0.24);
 }
@@ -270,7 +286,11 @@
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 1.7rem;
-    background: linear-gradient(180deg, rgba(16, 29, 43, 0.96), rgba(7, 13, 23, 0.98));
+    background: linear-gradient(
+        180deg,
+        rgba(16, 29, 43, 0.96),
+        rgba(7, 13, 23, 0.98)
+    );
     box-shadow:
         0 30px 100px rgba(0, 0, 0, 0.34),
         inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -315,6 +335,57 @@
     font-size: 0.9rem;
     line-height: 1.8;
     white-space: pre-wrap;
+}
+
+.lp-terminal-line {
+    white-space: pre-wrap;
+}
+
+.lp-terminal-line + .lp-terminal-line {
+    margin-top: 0.05rem;
+}
+
+.lp-terminal-prompt {
+    color: #7dd3fc;
+    font-weight: 700;
+}
+
+.lp-terminal-line-success {
+    color: #86efac;
+}
+
+.lp-terminal-line-header {
+    color: #93c5fd;
+    opacity: 0.94;
+}
+
+.lp-terminal-line-table,
+.lp-terminal-line-metrics,
+.lp-terminal-line-output {
+    color: rgba(219, 230, 244, 0.88);
+}
+
+.lp-code-inline,
+.lp-terminal-line-command {
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Cascadia Code", monospace;
+}
+
+.lp-code-inline span[style],
+.lp-terminal-line-command span[style] {
+    color: var(--shiki-light) !important;
+}
+
+.dark .lp-code-inline span[style],
+.dark .lp-terminal-line-command span[style] {
+    color: var(--shiki-dark) !important;
+}
+
+.lp-code-placeholder {
+    color: #fca5a5;
+}
+
+.dark .lp-code-placeholder {
+    color: #fda4af;
 }
 
 .lp-floating-card {
@@ -413,8 +484,15 @@
 }
 
 .lp-compare-card-accent {
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--lp-accent-soft) 60%, var(--lp-bg-elevated) 40%), color-mix(in srgb, var(--lp-bg-elevated) 94%, transparent));
+    background: linear-gradient(
+        180deg,
+        color-mix(
+            in srgb,
+            var(--lp-accent-soft) 60%,
+            var(--lp-bg-elevated) 40%
+        ),
+        color-mix(in srgb, var(--lp-bg-elevated) 94%, transparent)
+    );
 }
 
 .lp-compare-card ul {
@@ -450,12 +528,17 @@
     font-size: 0.94rem;
 }
 
-.lp-step-card code {
+.lp-step-card code,
+.lp-mcp-row code {
     display: inline-block;
     padding: 0.6rem 0.75rem;
     border-radius: 0.9rem;
     background: var(--lp-terminal);
     color: var(--lp-terminal-text);
+}
+
+.lp-code-inline {
+    white-space: pre-wrap;
 }
 
 .lp-step-card p,
@@ -474,8 +557,11 @@
 }
 
 .lp-card-scenario {
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--lp-bg-elevated) 95%, transparent), color-mix(in srgb, var(--lp-accent-soft) 30%, transparent));
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--lp-bg-elevated) 95%, transparent),
+        color-mix(in srgb, var(--lp-accent-soft) 30%, transparent)
+    );
 }
 
 .lp-card-link a {
@@ -495,8 +581,11 @@
     padding: 1.75rem;
     border: 1px solid var(--lp-border);
     border-radius: 1.8rem;
-    background:
-        linear-gradient(135deg, color-mix(in srgb, var(--lp-accent-soft) 36%, transparent), color-mix(in srgb, var(--lp-bg-elevated) 92%, transparent));
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--lp-accent-soft) 36%, transparent),
+        color-mix(in srgb, var(--lp-bg-elevated) 92%, transparent)
+    );
     box-shadow: var(--lp-shadow);
 }
 
@@ -517,13 +606,22 @@
     overflow-x: auto;
 }
 
+.lp-mcp-row pre .lp-code-inline {
+    padding: 0;
+    background: transparent;
+}
+
 .lp-closing {
     margin-top: 2.5rem;
     padding: 2rem;
     border-radius: 2rem;
     text-align: center;
     background:
-        radial-gradient(circle at top, rgba(197, 106, 27, 0.16), transparent 70%),
+        radial-gradient(
+            circle at top,
+            rgba(197, 106, 27, 0.16),
+            transparent 70%
+        ),
         color-mix(in srgb, var(--lp-bg-elevated) 95%, transparent);
 }
 
