@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="gflow-favicon-bg" x1="12" y1="10" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2b7fff"/>
+      <stop offset="1" stop-color="#1447b8"/>
+    </linearGradient>
+    <linearGradient id="gflow-favicon-stroke" x1="18" y1="16" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d6e7ff"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#gflow-favicon-bg)"/>
+  <g fill="none" stroke="url(#gflow-favicon-stroke)" stroke-linecap="round" stroke-linejoin="round" stroke-width="3">
+    <rect x="18" y="18" width="28" height="28" rx="7"/>
+    <path d="M24 24l5 5"/>
+    <path d="M29 29h-4"/>
+    <path d="M29 29v-4"/>
+    <path d="M40 24l-5 5"/>
+    <path d="M35 29h4"/>
+    <path d="M35 29v-4"/>
+    <path d="M24 40l5-5"/>
+    <path d="M29 35h-4"/>
+    <path d="M29 35v4"/>
+    <path d="M40 40l-5-5"/>
+    <path d="M35 35h4"/>
+    <path d="M35 35v4"/>
+    <circle cx="32" cy="32" r="4.5" fill="#ffffff" stroke="none"/>
+  </g>
+</svg>

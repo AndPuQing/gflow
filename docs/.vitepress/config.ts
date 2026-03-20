@@ -7,6 +7,10 @@ export default defineConfig({
     description: "A lightweight, single-node job scheduler inspired by Slurm",
     base: "",
     srcDir: "src",
+    head: [
+        ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+        ["link", { rel: "shortcut icon", href: "/favicon.svg" }],
+    ],
 
     locales: {
         root: {
