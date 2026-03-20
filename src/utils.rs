@@ -1,3 +1,4 @@
+pub mod parameter_sweep;
 pub mod parsers;
 pub mod timezone;
 
@@ -12,6 +13,7 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
 // Re-export parser functions for backward compatibility
+pub use parameter_sweep::{generate_param_combinations, parse_param_spec};
 pub use parsers::{
     parse_gpu_indices, parse_job_ids, parse_memory_limit, parse_since_time, parse_time_limit,
 };

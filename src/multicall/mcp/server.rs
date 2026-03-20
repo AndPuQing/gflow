@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap_verbosity_flag::Verbosity;
 use gflow::client::{UpdateJobRequest, UpdateJobResponse};
 use gflow::core::job::{DependencyMode, Job, JobBuilder};
+use gflow::utils::{generate_param_combinations, parse_param_spec};
 use gflow::Client;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -67,7 +68,7 @@ pub struct GetStatsRequest {
     pub since: Option<i64>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct SubmitJobRequest {
     pub command: Option<String>,
     pub script: Option<String>,
@@ -84,6 +85,10 @@ pub struct SubmitJobRequest {
     pub time_limit_secs: Option<u64>,
     pub memory_limit_mb: Option<u64>,
     pub submitted_by: Option<String>,
+    /// CLI-style parameter sweep definitions such as `lr=0.001,0.01`.
+    /// Each input job can expand into multiple jobs via cartesian product.
+    pub param: Option<Vec<String>>,
+    /// Concrete parameter values used for `{name}` substitution.
     pub parameters: Option<HashMap<String, String>>,
     pub run_name: Option<String>,
     pub project: Option<String>,
@@ -448,16 +453,18 @@ impl GflowMcpServer {
         Parameters(params): Parameters<SubmitJobsRequest>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
-        if params.jobs.len() > 1000 {
+        let expanded_jobs = expand_submit_job_requests(params.jobs)
+            .map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
+        if expanded_jobs.len() > 1000 {
             return Err(stringify_error(anyhow::anyhow!(
                 "submit_jobs accepts at most 1000 jobs"
             )));
         }
 
-        let mut results = Vec::with_capacity(params.jobs.len());
+        let mut results = Vec::with_capacity(expanded_jobs.len());
         let mut submitted = 0usize;
 
-        for (index, params) in params.jobs.into_iter().enumerate() {
+        for (index, params) in expanded_jobs {
             match build_submit_job(params) {
                 Ok(job) => match client.add_job(job).await {
                     Ok(response) => {
@@ -660,6 +667,60 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
     }
 
     Ok(builder.build())
+}
+
+fn expand_submit_job_requests(
+    jobs: Vec<SubmitJobRequest>,
+) -> Result<Vec<(usize, SubmitJobRequest)>, String> {
+    let mut expanded = Vec::new();
+
+    for (index, job) in jobs.into_iter().enumerate() {
+        expanded.extend(expand_single_submit_job_request(index, job)?);
+    }
+
+    Ok(expanded)
+}
+
+fn expand_single_submit_job_request(
+    index: usize,
+    job: SubmitJobRequest,
+) -> Result<Vec<(usize, SubmitJobRequest)>, String> {
+    let Some(param_specs_raw) = job.param.clone().filter(|params| !params.is_empty()) else {
+        return Ok(vec![(index, job)]);
+    };
+
+    let mut parsed_specs = Vec::with_capacity(param_specs_raw.len());
+    for spec in &param_specs_raw {
+        parsed_specs.push(parse_param_spec(spec).map_err(|err| err.to_string())?);
+    }
+
+    let param_combinations = generate_param_combinations(&parsed_specs);
+    let mut expanded_jobs = Vec::with_capacity(param_combinations.len());
+
+    for combination in param_combinations {
+        let mut expanded_job = job.clone();
+        expanded_job.param = None;
+
+        let mut parameters = expanded_job.parameters.take().unwrap_or_default();
+        for (key, value) in combination {
+            if parameters.contains_key(&key) {
+                return Err(format!(
+                    "submit_job cannot use the same key in both 'parameters' and 'param': {}",
+                    key
+                ));
+            }
+            parameters.insert(key, value);
+        }
+
+        expanded_job.parameters = if parameters.is_empty() {
+            None
+        } else {
+            Some(parameters)
+        };
+        expanded_jobs.push((index, expanded_job));
+    }
+
+    Ok(expanded_jobs)
 }
 
 fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest, String> {
@@ -901,7 +962,8 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_submit_job, GflowMcpServer, SubmitJobRequest};
+    use super::{build_submit_job, expand_submit_job_requests, GflowMcpServer, SubmitJobRequest};
+    use std::collections::HashMap;
 
     #[test]
     fn tool_schemas_are_exposed_for_object_outputs() {
@@ -950,6 +1012,7 @@ mod tests {
             time_limit_secs: None,
             memory_limit_mb: None,
             submitted_by: None,
+            param: None,
             parameters: None,
             run_name: None,
             project: None,
@@ -979,5 +1042,106 @@ mod tests {
                 "expected no output schema for {tool_name}"
             );
         }
+    }
+
+    #[test]
+    fn submit_jobs_expand_cli_style_param_combinations() {
+        let expanded = expand_submit_job_requests(vec![SubmitJobRequest {
+            command: Some("python train.py --lr {lr} --batch-size {bs}".to_string()),
+            script: None,
+            gpus: Some(0),
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: None,
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            param: Some(vec!["lr=0.001,0.01".to_string(), "bs=32,64".to_string()]),
+            parameters: Some(HashMap::from([("seed".to_string(), "123".to_string())])),
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            auto_close_tmux: None,
+        }])
+        .unwrap();
+
+        assert_eq!(expanded.len(), 4);
+        assert!(expanded.iter().all(|(index, _)| *index == 0));
+        assert!(expanded.iter().all(|(_, job)| job.param.is_none()));
+        assert_eq!(
+            expanded[0]
+                .1
+                .parameters
+                .as_ref()
+                .and_then(|params| params.get("seed"))
+                .map(String::as_str),
+            Some("123")
+        );
+        assert_eq!(
+            expanded[0]
+                .1
+                .parameters
+                .as_ref()
+                .and_then(|params| params.get("lr"))
+                .map(String::as_str),
+            Some("0.001")
+        );
+        assert_eq!(
+            expanded[3]
+                .1
+                .parameters
+                .as_ref()
+                .and_then(|params| params.get("lr"))
+                .map(String::as_str),
+            Some("0.01")
+        );
+        assert_eq!(
+            expanded[3]
+                .1
+                .parameters
+                .as_ref()
+                .and_then(|params| params.get("bs"))
+                .map(String::as_str),
+            Some("64")
+        );
+    }
+
+    #[test]
+    fn submit_jobs_reject_duplicate_keys_between_parameters_and_param() {
+        let err = expand_submit_job_requests(vec![SubmitJobRequest {
+            command: Some("echo {lr}".to_string()),
+            script: None,
+            gpus: None,
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: None,
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            param: Some(vec!["lr=0.001,0.01".to_string()]),
+            parameters: Some(HashMap::from([("lr".to_string(), "0.1".to_string())])),
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            auto_close_tmux: None,
+        }])
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            "submit_job cannot use the same key in both 'parameters' and 'param': lr"
+        );
     }
 }

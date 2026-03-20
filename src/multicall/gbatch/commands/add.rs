@@ -3,7 +3,8 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
 use gflow::core::job::{GpuSharingMode, Job};
-use gflow::utils::parsers::{parse_array_spec, parse_range_spec};
+use gflow::utils::parsers::parse_array_spec;
+use gflow::utils::{generate_param_combinations, parse_param_spec};
 use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
 
 /// Validate project against configuration requirements
@@ -49,72 +50,6 @@ fn substitute_template(template: &str, parameters: &HashMap<String, String>) -> 
         result = result.replace(&pattern, &sanitized_value);
     }
     result
-}
-
-/// Parse a single parameter spec like "name=val1,val2,val3"
-/// Returns (param_name, vec_of_values)
-fn parse_param_spec(spec: &str) -> Result<(String, Vec<String>)> {
-    let parts: Vec<&str> = spec.splitn(2, '=').collect();
-    if parts.len() != 2 {
-        return Err(anyhow!(
-            "Invalid param format. Expected 'name=val1,val2,...'"
-        ));
-    }
-
-    let name = parts[0].trim().to_string();
-    if name.is_empty() {
-        return Err(anyhow!("Parameter name cannot be empty"));
-    }
-
-    let value_spec = parts[1];
-
-    // Detect range syntax (contains : but not just in the middle of values)
-    // Check if it looks like a range (has exactly 1 or 2 colons)
-    let colon_count = value_spec.matches(':').count();
-    let values = if (1..=2).contains(&colon_count) && !value_spec.contains(',') {
-        // Range syntax: start:stop or start:stop:step
-        parse_range_spec(value_spec)?
-    } else {
-        // Comma-separated syntax
-        value_spec
-            .split(',')
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .collect()
-    };
-
-    if values.is_empty() {
-        return Err(anyhow!("Parameter must have at least one value"));
-    }
-
-    Ok((name, values))
-}
-
-/// Generate cartesian product of parameter values
-/// Example: {lr: [0.01, 0.1], bs: [32, 64]} →
-///   [{lr: "0.01", bs: "32"}, {lr: "0.01", bs: "64"}, ...]
-fn generate_param_combinations(
-    param_specs: &[(String, Vec<String>)],
-) -> Vec<HashMap<String, String>> {
-    if param_specs.is_empty() {
-        return vec![HashMap::new()];
-    }
-
-    let mut combinations = vec![HashMap::new()];
-
-    for (param_name, values) in param_specs {
-        let mut new_combinations = Vec::with_capacity(combinations.len() * values.len());
-        for combo in &combinations {
-            for value in values {
-                let mut new_combo = combo.clone();
-                new_combo.insert(param_name.to_string(), value.to_string());
-                new_combinations.push(new_combo);
-            }
-        }
-        combinations = new_combinations;
-    }
-
-    combinations
 }
 
 /// Parse parameter file (CSV format)
