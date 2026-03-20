@@ -168,6 +168,18 @@ pub struct SchedulerInfoOutput {
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct ListJobsOutput {
+    pub jobs: Vec<Value>,
+    pub count: usize,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct ListReservationsOutput {
+    pub reservations: Vec<Value>,
+    pub count: usize,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
 pub struct JobLogOutput {
     pub job_id: u32,
     pub log_path: String,
@@ -295,7 +307,10 @@ impl GflowMcpServer {
         }))
     }
 
-    #[tool(description = "List jobs from the local gflow daemon.")]
+    #[tool(
+        description = "List jobs from the local gflow daemon.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<ListJobsOutput>()
+    )]
     async fn list_jobs(
         &self,
         Parameters(params): Parameters<ListJobsRequest>,
@@ -311,7 +326,11 @@ impl GflowMcpServer {
             )
             .await
             .map_err(stringify_error)?;
-        structured_response(jobs)
+        let count = jobs.len();
+        structured_response(json!({
+            "jobs": jobs,
+            "count": count,
+        }))
     }
 
     #[tool(
@@ -395,14 +414,21 @@ impl GflowMcpServer {
         structured_response(stats)
     }
 
-    #[tool(description = "List GPU reservations from the local gflow daemon.")]
+    #[tool(
+        description = "List GPU reservations from the local gflow daemon.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<ListReservationsOutput>()
+    )]
     async fn list_reservations(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
         let reservations = client
             .list_reservations(None, None, false)
             .await
             .map_err(stringify_error)?;
-        structured_response(reservations)
+        let count = reservations.len();
+        structured_response(json!({
+            "reservations": reservations,
+            "count": count,
+        }))
     }
 
     #[tool(
@@ -1028,7 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn array_outputs_remain_schema_less_for_compatibility() {
+    fn list_outputs_expose_object_schemas() {
         let server = GflowMcpServer::new(None);
         let tools = server.tool_router.list_all();
 
@@ -1038,8 +1064,8 @@ mod tests {
                 .find(|tool| tool.name == tool_name)
                 .unwrap_or_else(|| panic!("missing tool: {tool_name}"));
             assert!(
-                tool.output_schema.is_none(),
-                "expected no output schema for {tool_name}"
+                tool.output_schema.is_some(),
+                "expected output schema for {tool_name}"
             );
         }
     }
