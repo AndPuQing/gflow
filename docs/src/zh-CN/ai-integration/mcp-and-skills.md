@@ -2,20 +2,25 @@
 
 `gflow` 可以作为本地 `stdio` MCP 服务器运行，让 `Claude Code`、`Codex`、`OpenCode` 这类 agent CLI 直接把调度器操作当作工具调用，而不是每次都手写 shell 命令。
 
+在 agent 的 MCP 配置里，把下面这条命令作为服务启动命令：
+
 ```bash
 gflow mcp serve
 ```
 
-在接入任意 agent CLI 之前，先确认这三个命令都正常：
+`gflow mcp serve` 是本地 `stdio` server 的启动命令。MCP 客户端通常会按配置的命令和参数，把这类 `stdio` server 作为本地子进程拉起。
+
+在接入任意 agent CLI 之前，先确认本地调度器状态正常：
 
 ```bash
 gflowd up
+gflowd status
 ginfo
-gflow mcp serve
 ```
 
 - `gflowd` 需要先启动。
 - 如果 `gflow` 不在 `PATH` 中，请改用绝对路径。
+- 如果想确认 MCP 子命令可用，可以运行 `gflow mcp serve --help`。
 
 ## Claude Code
 
@@ -125,7 +130,7 @@ opencode mcp list
 ```bash
 gflowd status
 ginfo
-gflow mcp serve
+gflow mcp serve --help
 ```
 
 常见原因：
@@ -133,6 +138,7 @@ gflow mcp serve
 - `gflowd` 没启动。
 - agent 启动时的 `PATH` 里没有 `gflow`。
 - 本地配置文件指向了错误的守护进程地址或端口。
+- 如果你直接在 shell 里启动 `gflow mcp serve`，它会等待来自 MCP 客户端的 stdio 通信。
 
 ## 另见
 

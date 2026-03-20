@@ -65,13 +65,13 @@ gflowd down
 
 ## MCP
 
-`gflow` can also run as a local MCP server for Claude Desktop, Claude Code, Codex, Cursor, and similar tools:
+`gflow` can also run as a local MCP server for Claude Desktop, Claude Code, Codex, Cursor, and similar tools. Use the following command as the MCP server entry in your client configuration:
 
 ```bash
 gflow mcp serve
 ```
 
-Keep `gflowd` running on the same machine and let the MCP server connect through the local config.
+Keep `gflowd` running on the same machine and let the MCP server connect through the local config. MCP clients typically launch local stdio servers using the configured command and arguments.
 
 Claude Desktop example:
 

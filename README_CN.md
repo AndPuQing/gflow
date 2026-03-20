@@ -65,13 +65,13 @@ gflowd down
 
 ## MCP
 
-`gflow` 也可以作为本地 MCP 服务器运行，供 Claude Desktop、Claude Code、Codex、Cursor 等工具调用：
+`gflow` 也可以作为本地 MCP 服务器运行，供 Claude Desktop、Claude Code、Codex、Cursor 等工具调用。在客户端配置里，把下面这条命令作为 MCP 服务入口：
 
 ```bash
 gflow mcp serve
 ```
 
-建议让同一台机器上的 `gflowd` 持续运行，再由 MCP 服务器通过本地配置连接守护进程。
+建议让同一台机器上的 `gflowd` 持续运行，再由 MCP 服务器通过本地配置连接守护进程。MCP 客户端通常会按配置的命令和参数拉起本地 `stdio` server。
 
 Claude Desktop 示例配置：
 

@@ -2,20 +2,25 @@
 
 `gflow` can run as a local `stdio` MCP server, allowing agent CLIs such as `Claude Code`, `Codex`, and `OpenCode` to treat scheduler operations as tool calls instead of rewriting shell commands every time.
 
+Use this as the MCP server command in your agent configuration:
+
 ```bash
 gflow mcp serve
 ```
 
-Before connecting any agent CLI, first make sure these three commands all work:
+`gflow mcp serve` is a local stdio server command. MCP clients typically launch stdio servers as local child processes using the configured command and arguments.
+
+Before connecting any agent CLI, first make sure the local scheduler is healthy:
 
 ```bash
 gflowd up
+gflowd status
 ginfo
-gflow mcp serve
 ```
 
 - `gflowd` must be started first.
 - If `gflow` is not on `PATH`, use an absolute path instead.
+- To confirm the MCP subcommand is available, run `gflow mcp serve --help`.
 
 ## Claude Code
 
@@ -125,7 +130,7 @@ Check these first:
 ```bash
 gflowd status
 ginfo
-gflow mcp serve
+gflow mcp serve --help
 ```
 
 Common causes:
@@ -133,6 +138,7 @@ Common causes:
 - `gflowd` is not running.
 - `gflow` is not on the `PATH` seen by the agent process.
 - The local config points to the wrong daemon address or port.
+- If you start `gflow mcp serve` directly in a shell, it will wait for stdio traffic from an MCP client.
 
 ## See Also
 
