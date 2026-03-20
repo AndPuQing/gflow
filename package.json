@@ -12,7 +12,7 @@
         "@shikijs/core": "^3.13.0",
         "@shikijs/engine-javascript": "^3.13.0",
         "@shikijs/langs": "^3.13.0",
-        "@shikijs/themes": "^3.13.0",
+        "@shikijs/themes": "^4.0.0",
         "vitepress-mermaid-preview": "^0.1.1"
     }
 }
