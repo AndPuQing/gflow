@@ -14,21 +14,17 @@
 
 English | [简体中文](README_CN.md)
 
-`gflow` is a lightweight job scheduler for a single Linux machine. It gives you a Slurm-like workflow for shared GPU workstations, lab servers, and small research boxes without deploying a full cluster.
+`gflow` is a lightweight scheduler for a single Linux machine. It brings a Slurm-like workflow to shared GPU workstations and lab servers without cluster setup.
 
 ## Why gflow
 
-- Queue and manage jobs on one machine with a daemon-backed scheduler.
+- Queue and run jobs on one machine.
 - Submit commands or scripts with GPUs, time limits, dependencies, arrays, and priorities.
-- Inspect, attach, cancel, and recover jobs through a small CLI toolset.
+- Inspect, attach, cancel, and recover jobs with a small CLI.
 
 ## Install
 
-Requirements:
-
-- Linux
-- `tmux`
-- NVIDIA drivers only if you need GPU scheduling
+Requirements: Linux, `tmux`, and NVIDIA drivers only if you need GPU scheduling.
 
 Install with Python tooling:
 
@@ -65,13 +61,13 @@ gflowd down
 
 ## MCP
 
-`gflow` can also run as a local MCP server for Claude Desktop, Claude Code, Codex, Cursor, and similar tools. Use the following command as the MCP server entry in your client configuration:
+`gflow` can also run as a local MCP server for Claude Desktop, Claude Code, Codex, Cursor, and similar tools:
 
 ```bash
 gflow mcp serve
 ```
 
-Keep `gflowd` running on the same machine and let the MCP server connect through the local config. MCP clients typically launch local stdio servers using the configured command and arguments.
+Keep `gflowd` running on the same machine. MCP clients start `gflow mcp serve` as a local stdio server.
 
 Claude Desktop example:
 
@@ -101,7 +97,7 @@ If `gflow` is not on your `PATH`, replace it with the absolute binary path.
 
 ## Documentation
 
-Most detailed usage now lives in the docs:
+Most usage details live in the docs:
 
 - [Quick start](https://runqd.com/getting-started/quick-start.html)
 - [Installation](https://runqd.com/getting-started/installation.html)

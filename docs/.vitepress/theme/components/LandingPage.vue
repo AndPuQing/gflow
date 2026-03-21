@@ -105,7 +105,7 @@ const copies = {
         hero: {
             eyebrow: "Single-node scheduling for shared machines",
             title: "Give one Linux machine a real job scheduler",
-            lead: "Queue, run, inspect, and control GPU or CPU jobs on a shared workstation with a small CLI and a local daemon. No cluster deployment required.",
+            lead: "Queue, run, and inspect GPU or CPU jobs on a shared workstation with a small CLI and a local daemon.",
             actions: [
                 { label: "Quick Start", href: "/getting-started/quick-start", kind: "brand" },
                 { label: "Installation", href: "/getting-started/installation", kind: "alt" },
@@ -120,15 +120,15 @@ const copies = {
             stats: [
                 {
                     value: "CLI-first",
-                    label: "Operate queueing, runtime control, and inspection from familiar commands.",
+                    label: "Queueing, control, and inspection from familiar commands.",
                 },
                 {
                     value: "Recoverable",
-                    label: "Attach to sessions, follow logs, and redo failed work without losing context.",
+                    label: "Attach, follow logs, and redo failed work.",
                 },
                 {
                     value: "Explicit policy",
-                    label: "Set GPUs, VRAM limits, priorities, reservations, and dependencies with clear intent.",
+                    label: "Declare GPUs, VRAM limits, priorities, reservations, and dependencies.",
                 },
             ],
         },
@@ -160,19 +160,19 @@ const copies = {
         },
         problem: {
             eyebrow: "Why it exists",
-            title: "When one machine becomes shared infrastructure",
-            lead: "Shell history, ad hoc tmux sessions, and hand-managed GPU etiquette stop scaling the moment a workstation is shared.",
+            title: "When one machine is no longer just yours",
+            lead: "Ad hoc tmux sessions and manual GPU etiquette break down once a workstation is shared.",
             painTitle: "Without queue discipline",
             painItems: [
-                "Long jobs collide with interactive work and nobody has a system-wide view.",
-                "Failures are hard to recover because process state, logs, and ownership are scattered.",
-                "GPU requests become tribal knowledge instead of explicit scheduling rules.",
+                "Long jobs collide with interactive work.",
+                "Failures are hard to recover because state and logs are scattered.",
+                "GPU requests become tribal knowledge instead of policy.",
             ],
             valueTitle: "With gflow",
             valueItems: [
-                "A local daemon keeps scheduling state, runtime control, and queue inspection consistent.",
-                "Every job has a lifecycle you can list, filter, attach to, update, or redo.",
-                "Resource requests, dependencies, arrays, and reservations are encoded at submission time.",
+                "A local daemon keeps state and queue control consistent.",
+                "Every job has a lifecycle you can inspect and recover.",
+                "Resources and dependencies are declared at submission time.",
             ],
         },
         workflow: {
@@ -182,70 +182,70 @@ const copies = {
                 {
                     label: "01",
                     command: "gflowd up",
-                    description: "Start the local scheduler inside a tmux-backed daemon session.",
+                    description: "Start the local scheduler.",
                 },
                 {
                     label: "02",
                     command: "gbatch --gpus 1 python train.py",
-                    description: "Submit a command or script with explicit resources, limits, and metadata.",
+                    description: "Submit a command or script with explicit resources.",
                 },
                 {
                     label: "03",
                     command: "gqueue",
-                    description: "Inspect active, queued, or completed jobs in table, tree, or structured formats.",
+                    description: "Inspect running, queued, or completed jobs.",
                 },
                 {
                     label: "04",
                     command: "gjob log <job_id>",
-                    description: "Follow logs, attach to the session, or intervene when a run needs attention.",
+                    description: "Follow logs or attach when a run needs attention.",
                 },
             ],
         },
         capabilities: {
             eyebrow: "Capabilities",
-            title: "Built for day-to-day workstation operations",
+            title: "Built for daily workstation use",
             items: [
                 {
                     title: "Queueing and lifecycle",
-                    body: "Submit, hold, release, cancel, update, and redo jobs with a state model you can inspect.",
+                    body: "Submit, hold, release, cancel, update, and redo jobs with an inspectable state model.",
                 },
                 {
                     title: "GPU-aware scheduling",
-                    body: "Request GPUs directly, enable shared mode, and place VRAM limits on jobs that can coexist.",
+                    body: "Request GPUs directly, enable shared mode, and set VRAM limits.",
                 },
                 {
                     title: "Workflow composition",
-                    body: "Combine dependencies, arrays, and parameter sweeps for multi-stage experiments.",
+                    body: "Use dependencies, arrays, and parameter sweeps for multi-stage runs.",
                 },
                 {
                     title: "Operational visibility",
-                    body: "Read queue state through tables, trees, JSON, CSV, or YAML without bespoke wrappers.",
+                    body: "Read queue state through tables, trees, JSON, CSV, or YAML.",
                 },
                 {
                     title: "Recoverable execution",
-                    body: "Run every job in its own tmux session so logs and interactive recovery stay close to the process.",
+                    body: "Run each job in its own tmux session for direct logs and recovery.",
                 },
                 {
                     title: "Automation and AI integration",
-                    body: "Expose scheduler actions through the local MCP server for Codex, Claude Code, and similar tools.",
+                    body: "Expose scheduler actions through a local MCP server.",
                 },
             ],
         },
         scenarios: {
             eyebrow: "Where it fits",
-            title: "Common workstation scenarios",
+            title: "Common scenarios",
             items: [
                 {
                     title: "Shared lab GPU server",
-                    body: "Coordinate multiple researchers on one box without turning daily scheduling into Slack negotiations.",
+                    body: "Coordinate multiple researchers on one box with explicit scheduling rules.",
                 },
                 {
                     title: "Solo research machine",
-                    body: "Keep long-running experiments structured, restartable, and visible even when nobody else uses the host.",
+                    body: "Keep long-running experiments structured and restartable.",
                 },
                 {
                     title: "Local evaluation pipelines",
-                    body: "Chain prep, train, benchmark, and reporting jobs with dependencies instead of hand-written shell choreography.",
+                    body: "Chain prep, train, benchmark, and reporting jobs with dependencies.",
                 },
             ],
         },
@@ -255,13 +255,13 @@ const copies = {
             items: [
                 {
                     title: "Install and launch",
-                    body: "Set up the binary, create config defaults, and bring the daemon online.",
+                    body: "Install the binary, create config defaults, and start the daemon.",
                     href: "/getting-started/installation",
                     cta: "Open Installation",
                 },
                 {
                     title: "Learn the first workflow",
-                    body: "Follow the shortest path from daemon startup to job submission, queue inspection, and logs.",
+                    body: "Start the daemon, submit a job, inspect the queue, and read logs.",
                     href: "/getting-started/quick-start",
                     cta: "Open Quick Start",
                 },
@@ -273,7 +273,7 @@ const copies = {
                 },
                 {
                     title: "Connect your agents",
-                    body: "Run `gflow` as a local MCP server for Codex, Claude Code, and other agent tooling.",
+                    body: "Run `gflow` as a local MCP server for agent tooling.",
                     href: "/ai-integration/mcp-and-skills",
                     cta: "Open AI Integration",
                 },
@@ -282,14 +282,14 @@ const copies = {
         mcp: {
             eyebrow: "AI integration",
             title: "Make scheduler operations available as tools",
-            lead: "Run gflow as a local stdio MCP server so agent CLIs can inspect queues, summarize logs, and drive scheduler workflows without reconstructing shell commands each time.",
+            lead: "Run gflow as a local stdio MCP server so agent CLIs can inspect queues and drive scheduler workflows.",
             command: "gflow mcp serve",
             href: "/ai-integration/mcp-and-skills",
             cta: "Read Agents, MCP, and Skills",
         },
         cta: {
             title: "Start scheduling the machine you already have",
-            lead: "Use the docs as an operator handbook, not just a command dump.",
+            lead: "Use the docs as an operator handbook.",
             actions: [
                 { label: "Install gflow", href: "/getting-started/installation", kind: "brand" },
                 { label: "Read Quick Start", href: "/getting-started/quick-start", kind: "alt" },
@@ -300,7 +300,7 @@ const copies = {
         hero: {
             eyebrow: "面向共享机器的单节点调度",
             title: "让一台 Linux 机器拥有真正的任务调度器",
-            lead: "在共享工作站上，用轻量 CLI 和本地 daemon 完成 GPU 或 CPU 任务的提交、排队、查看与控制，不必部署整套集群系统。",
+            lead: "在共享工作站上，用轻量 CLI 和本地 daemon 完成 GPU 或 CPU 任务的提交、排队与查看。",
             actions: [
                 { label: "快速开始", href: "/zh-CN/getting-started/quick-start", kind: "brand" },
                 { label: "安装指南", href: "/zh-CN/getting-started/installation", kind: "alt" },
@@ -315,15 +315,15 @@ const copies = {
             stats: [
                 {
                     value: "CLI 优先",
-                    label: "通过熟悉的命令行完成排队、运行时控制和队列查看。",
+                    label: "用熟悉的命令完成排队、控制和查看。",
                 },
                 {
                     value: "可恢复",
-                    label: "随时 attach 会话、追踪日志，并在失败后重做任务而不丢失上下文。",
+                    label: "随时 attach、追踪日志、重做任务。",
                 },
                 {
                     value: "策略明确",
-                    label: "用清晰的资源声明表达 GPU、显存、优先级、预约和依赖关系。",
+                    label: "明确声明 GPU、显存、优先级、预约和依赖。",
                 },
             ],
         },
@@ -355,19 +355,19 @@ const copies = {
         },
         problem: {
             eyebrow: "为什么需要它",
-            title: "当一台机器变成共享基础设施",
-            lead: "一旦工作站开始被多人或多个实验共享，shell 历史、临时 tmux 会话和口头约定就很快失效。",
+            title: "当一台机器不再只属于你",
+            lead: "一旦工作站开始共享，临时 tmux 会话和口头约定很快就会失效。",
             painTitle: "没有队列纪律时",
             painItems: [
-                "长任务会和交互式工作互相打架，而且没人能看到全局状态。",
-                "失败后很难恢复，因为进程、日志和责任边界都散落在不同地方。",
-                "GPU 使用规则只能靠经验相传，而不是明确的调度策略。",
+                "长任务会和交互式工作互相打架。",
+                "失败后难以恢复，因为状态和日志散落在不同地方。",
+                "GPU 使用规则只能靠经验相传。",
             ],
             valueTitle: "使用 gflow 后",
             valueItems: [
-                "本地 daemon 统一保存调度状态、运行时控制和队列视图。",
-                "每个任务都有可查看、可筛选、可 attach、可更新、可重做的生命周期。",
-                "资源请求、依赖、数组任务和预约都在提交时明确表达出来。",
+                "本地 daemon 统一保存状态和队列控制。",
+                "每个任务都有可查看、可恢复的生命周期。",
+                "资源和依赖在提交时明确声明。",
             ],
         },
         workflow: {
@@ -377,70 +377,70 @@ const copies = {
                 {
                     label: "01",
                     command: "gflowd up",
-                    description: "在 tmux 支撑的 daemon 会话中启动本地调度器。",
+                    description: "启动本地调度器。",
                 },
                 {
                     label: "02",
                     command: "gbatch --gpus 1 python train.py",
-                    description: "用明确的资源、限制和元信息提交命令或脚本。",
+                    description: "用明确的资源声明提交命令或脚本。",
                 },
                 {
                     label: "03",
                     command: "gqueue",
-                    description: "以表格、树状或结构化格式查看运行中、排队中或已完成任务。",
+                    description: "查看运行中、排队中或已完成任务。",
                 },
                 {
                     label: "04",
                     command: "gjob log <job_id>",
-                    description: "追踪日志、attach 会话，并在任务需要介入时快速处理。",
+                    description: "追踪日志，或在需要时 attach 会话。",
                 },
             ],
         },
         capabilities: {
             eyebrow: "能力概览",
-            title: "面向日常工作站运维的设计",
+            title: "为日常工作站使用而设计",
             items: [
                 {
                     title: "队列与生命周期",
-                    body: "支持提交、挂起、恢复、取消、更新与重做，并拥有可检查的状态模型。",
+                    body: "支持提交、挂起、恢复、取消、更新与重做，并提供可检查的状态模型。",
                 },
                 {
                     title: "GPU 感知调度",
-                    body: "直接声明 GPU 数量，开启共享模式，并为可并行运行的任务设置显存上限。",
+                    body: "直接声明 GPU 数量，开启共享模式，并设置显存上限。",
                 },
                 {
                     title: "工作流编排",
-                    body: "通过依赖、数组任务和参数扫描组合出多阶段实验流程。",
+                    body: "通过依赖、数组任务和参数扫描组织多阶段任务。",
                 },
                 {
                     title: "可观测性",
-                    body: "无需额外封装即可通过表格、树状、JSON、CSV 或 YAML 查看队列状态。",
+                    body: "通过表格、树状、JSON、CSV 或 YAML 查看队列状态。",
                 },
                 {
                     title: "可恢复执行",
-                    body: "每个任务都运行在独立 tmux 会话中，日志、attach 和恢复都更直接。",
+                    body: "每个任务都运行在独立 tmux 会话中，便于日志查看和恢复。",
                 },
                 {
                     title: "自动化与 AI 集成",
-                    body: "通过本地 MCP server 暴露调度操作，方便 Codex、Claude Code 等 Agent 调用。",
+                    body: "通过本地 MCP server 暴露调度操作，供 Agent 调用。",
                 },
             ],
         },
         scenarios: {
             eyebrow: "适用场景",
-            title: "常见的工作站使用方式",
+            title: "常见场景",
             items: [
                 {
                     title: "共享实验室 GPU 服务器",
-                    body: "多人共用一台机器时，用明确的调度规则替代口头协调和即时沟通。",
+                    body: "多人共用一台机器时，用明确规则替代口头协调。",
                 },
                 {
                     title: "个人研究主机",
-                    body: "即使机器只给自己使用，也能让长时间实验保持结构化、可恢复、可追踪。",
+                    body: "让长时间实验保持结构化、可恢复。",
                 },
                 {
                     title: "本地评测与自动化流水线",
-                    body: "用依赖关系串联预处理、训练、评测和汇总，而不是堆叠脆弱的 shell 脚本。",
+                    body: "用依赖关系串联预处理、训练、评测和汇总。",
                 },
             ],
         },
@@ -450,13 +450,13 @@ const copies = {
             items: [
                 {
                     title: "安装并启动",
-                    body: "完成二进制安装、生成默认配置，并启动 daemon。",
+                    body: "安装二进制、生成默认配置，并启动 daemon。",
                     href: "/zh-CN/getting-started/installation",
                     cta: "查看安装指南",
                 },
                 {
                     title: "学习第一个流程",
-                    body: "从启动调度器到提交任务、查看队列、读取日志，走完最短路径。",
+                    body: "从启动调度器到提交任务、查看队列、读取日志。",
                     href: "/zh-CN/getting-started/quick-start",
                     cta: "查看快速开始",
                 },
@@ -468,7 +468,7 @@ const copies = {
                 },
                 {
                     title: "连接你的 Agent",
-                    body: "把 `gflow` 作为本地 MCP server 接给 Codex、Claude Code 等工具。",
+                    body: "把 `gflow` 作为本地 MCP server 接给 Agent 工具。",
                     href: "/zh-CN/ai-integration/mcp-and-skills",
                     cta: "查看 AI 集成",
                 },
@@ -477,14 +477,14 @@ const copies = {
         mcp: {
             eyebrow: "AI 集成",
             title: "把调度操作暴露成 Agent 可调用的工具",
-            lead: "将 gflow 作为本地 stdio MCP server 运行后，Agent CLI 可以直接查看队列、总结日志并驱动调度流程，而不必反复拼接 shell 命令。",
+            lead: "将 gflow 作为本地 stdio MCP server 运行后，Agent CLI 可以直接查看队列并驱动调度流程。",
             command: "gflow mcp serve",
             href: "/zh-CN/ai-integration/mcp-and-skills",
             cta: "阅读 Agent、MCP 与 Skill",
         },
         cta: {
             title: "从你已经拥有的那台机器开始调度",
-            lead: "把这套文档当作运维手册，而不是单纯的命令堆叠。",
+            lead: "把这套文档当作运维手册。",
             actions: [
                 { label: "安装 gflow", href: "/zh-CN/getting-started/installation", kind: "brand" },
                 { label: "阅读快速开始", href: "/zh-CN/getting-started/quick-start", kind: "alt" },

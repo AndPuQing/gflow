@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide gets you running with gflow in a few minutes.
+Run through the smallest gflow workflow with the commands below.
 
 ::: tip Before You Start
 Make sure `tmux` is installed. If not, finish [Installation](./installation) first.
@@ -8,7 +8,7 @@ Make sure `tmux` is installed. If not, finish [Installation](./installation) fir
 
 ## Optional: Initialize Configuration
 
-Create a config file with sensible defaults:
+Create a default config:
 
 ```shell
 gflowd init
@@ -16,14 +16,14 @@ gflowd init
 
 ## Step 1: Start the Scheduler
 
-Start the daemon (runs inside a tmux session):
+Start the daemon:
 
 ```shell
 gflowd up
 ```
 
 ::: warning
-If `gflowd up` fails, the most common cause is a missing `tmux` installation.
+If `gflowd up` fails, check `tmux` first.
 :::
 
 Check status:
@@ -50,14 +50,14 @@ gbatch echo 'Hello from gflow!'
 gqueue
 ```
 
-Then view output:
+Then read the logs:
 
 ```shell
 gjob log <job_id>
 ```
 
 ::: info
-Use `gjob log <job_id>` after `gqueue` so you can inspect a specific completed or running job.
+Use `gqueue` first to find the job ID.
 :::
 
 ## Step 4: Stop the Scheduler
@@ -68,11 +68,11 @@ gflowd down
 
 ## Next Steps
 
-Now that you're familiar with the basics, explore:
+Next:
 
-- [Job Submission](../user-guide/job-submission) - Detailed job options
-- [Time Limits](../user-guide/time-limits) - Managing job timeouts
-- [Job Dependencies](../user-guide/job-dependencies) - Complex workflows
-- [GPU Management](../user-guide/gpu-management) - GPU allocation
-- [Configuration](../user-guide/configuration) - Defaults and system behavior
-- [Quick Reference](../reference/quick-reference) - Command cheat sheet
+- [Job Submission](../user-guide/job-submission)
+- [Time Limits](../user-guide/time-limits)
+- [Job Dependencies](../user-guide/job-dependencies)
+- [GPU Management](../user-guide/gpu-management)
+- [Configuration](../user-guide/configuration)
+- [Quick Reference](../reference/quick-reference)

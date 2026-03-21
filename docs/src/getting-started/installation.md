@@ -1,17 +1,16 @@
 # Installation
 
-This guide will help you install gflow on your system.
+Install gflow with the steps below.
 
 ::: info Package Name
-Install the Python package `runqd`. It provides the `gflowd`, `gbatch`, `gqueue`, `gjob`, `ginfo`, `gcancel`, and `gctl` commands.
+The Python package name is `runqd`. It provides `gflowd`, `gbatch`, `gqueue`, `gjob`, `ginfo`, `gcancel`, and `gctl`.
 :::
 
 ## Prerequisites
 
-- **Operating System**: Linux (tested on Ubuntu 20.04+)
-- **tmux**: Required for job execution
-- **NVIDIA GPU** (optional): For GPU job scheduling
-- **NVIDIA drivers** (optional): If using GPU features
+- **Operating System**: Linux
+- **tmux**: Required
+- **NVIDIA GPU / drivers**: Only required for GPU scheduling
 
 ### Installing Prerequisites
 
@@ -32,7 +31,7 @@ sudo dnf install tmux
 
 ### Method 1: Install via PyPI (Recommended)
 
-Install gflow using `uv` (recommended for CLI tools):
+Use `uv` or `pipx` for CLI installs:
 
 ::: code-group
 ```bash [uv]
@@ -48,11 +47,11 @@ pip install runqd
 ```
 :::
 
-This will install pre-built binaries for Linux (x86_64, ARM64).
+Pre-built binaries are available for Linux `x86_64` and `ARM64`.
 
 ### Install Nightly Build
 
-To try the latest development version, install from TestPyPI:
+For the latest development build, install from TestPyPI:
 
 ::: code-group
 ```bash [uv]
@@ -82,81 +81,80 @@ cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
 :::
 
-This will compile and install all binaries to `~/.cargo/bin/`, which should be in your `PATH`.
+This installs binaries to `~/.cargo/bin/`. Make sure it is in your `PATH`.
 
 ### Method 3: Build from Source
 
-If you want to build from the latest source code:
+To build from source:
 
-1. **Clone the repository**:
+1. Clone the repository:
    ```bash
    git clone https://github.com/AndPuQing/gflow.git
    cd gflow
    ```
 
-2. **Build the project**:
+2. Build the project:
    ```bash
    cargo build --release
    ```
 
-   The executables will be in `target/release/`.
+   Executables will be in `target/release/`.
 
-3. **Install to system** (optional):
+3. Install to the system (optional):
    ```bash
    cargo install --path .
    ```
 
 ## Verify Installation
 
-After installation, verify that gflow is properly installed:
+After installation, check the commands and version:
 
 ```bash
-# Check if commands are available
+# Check commands
 which gflowd ginfo gbatch gqueue gcancel
 
-# Verify version
+# Check version
 gflowd --version
 ```
 
 ::: tip
-If the commands are available and `gflowd --version` prints a version, the installation is complete.
+If the commands work and `gflowd --version` prints a version, the install is complete.
 :::
 
-## Sanity Check
+## Run Checks
 
-### 1. tmux
-Make sure tmux works:
+### 1. Check tmux
 ```bash
 tmux new-session -d -s test
-tmux has-session -t test && echo "tmux is working!"
+tmux has-session -t test && echo "tmux ok"
 tmux kill-session -t test
 ```
 
-### 2. Daemon + GPU detection (Optional)
+### 2. Check the daemon and GPU detection (optional)
 
-If you have NVIDIA GPUs, verify they're detected:
+If you have NVIDIA GPUs, you can verify detection:
 
 ```bash
-# (Optional) Create a config file with sensible defaults
+# Optional: create a default config
 gflowd init
 
 # Start the daemon
 gflowd up
 
-# Verify it started
+# Check status
 gflowd status
 ```
 
-Check system info and GPU allocation:
+Check system info and GPUs:
 ```bash
 ginfo
 ```
 
-The daemon shows GPU information if NVIDIA GPUs are available.
+If detection works, the output includes GPU information.
 
 ## File Locations
 
-gflow uses the following directories:
+gflow uses these directories:
 
 | Location | Purpose |
 |----------|---------|
@@ -170,17 +168,17 @@ gflow uses the following directories:
 
 If you get "command not found" after installation:
 
-1. **Check if `~/.cargo/bin` is in your PATH**:
+1. Check if `~/.cargo/bin` is in your `PATH`:
    ```bash
    echo $PATH | grep -o ~/.cargo/bin
    ```
 
-2. **Add to PATH** if missing (add to `~/.bashrc` or `~/.zshrc`):
+2. Add it to `~/.bashrc` or `~/.zshrc` if missing:
    ```bash
    export PATH="$HOME/.cargo/bin:$PATH"
    ```
 
-3. **Reload shell**:
+3. Reload the shell:
    ```bash
    source ~/.bashrc  # or ~/.zshrc
    ```
@@ -188,17 +186,17 @@ If you get "command not found" after installation:
 
 ::: details Issue: GPU not detected
 
-1. **Check NVIDIA drivers**:
+1. Check NVIDIA drivers:
    ```bash
    nvidia-smi
    ```
 
-2. **Verify NVML library**:
+2. Check the NVML library:
    ```bash
    ldconfig -p | grep libnvidia-ml
    ```
 
-3. If GPU detection fails, gflow will still work but won't manage GPU resources.
+3. If detection fails, gflow still works for CPU jobs.
 :::
 
 ## Updating gflow
@@ -240,4 +238,4 @@ rm -rf ~/.local/share/gflow
 
 ## Next Steps
 
-Now that gflow is installed, head to the [Quick Start Guide](./quick-start) to learn how to use it!
+After installation, continue with [Quick Start](./quick-start).

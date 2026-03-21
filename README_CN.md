@@ -14,21 +14,17 @@
 
 [English](README.md) | 简体中文
 
-`gflow` 是一个面向单台 Linux 机器的轻量级任务调度器，适合共享 GPU 工作站、实验室服务器和小型研究环境，用一组简单命令就能完成提交、排队、查看、取消和管理任务。
+`gflow` 是一个面向单台 Linux 机器的轻量级任务调度器。它为共享 GPU 工作站和实验室服务器提供接近 Slurm 的工作流，但不需要部署集群。
 
 ## 为什么用 gflow
 
-- 用守护进程维护队列、状态和资源分配，给单机补上调度能力。
-- 支持命令或脚本提交，并可设置 GPU、时间限制、依赖、数组任务和优先级。
-- 提供精简 CLI，用来查看、attach、取消和恢复任务。
+- 在一台机器上完成排队和调度。
+- 提交命令或脚本，并声明 GPU、时间限制、依赖、数组任务和优先级。
+- 用精简 CLI 查看、attach、取消和恢复任务。
 
 ## 安装
 
-前置要求：
-
-- Linux
-- `tmux`
-- 只有在需要 GPU 调度时才需要 NVIDIA 驱动
+前置要求：Linux、`tmux`，以及可选的 NVIDIA 驱动（仅在需要 GPU 调度时）。
 
 使用 Python 工具安装：
 
@@ -65,13 +61,13 @@ gflowd down
 
 ## MCP
 
-`gflow` 也可以作为本地 MCP 服务器运行，供 Claude Desktop、Claude Code、Codex、Cursor 等工具调用。在客户端配置里，把下面这条命令作为 MCP 服务入口：
+`gflow` 也可以作为本地 MCP 服务器运行，供 Claude Desktop、Claude Code、Codex、Cursor 等工具调用：
 
 ```bash
 gflow mcp serve
 ```
 
-建议让同一台机器上的 `gflowd` 持续运行，再由 MCP 服务器通过本地配置连接守护进程。MCP 客户端通常会按配置的命令和参数拉起本地 `stdio` server。
+建议让同一台机器上的 `gflowd` 持续运行。MCP 客户端会按配置拉起本地 `stdio` server。
 
 Claude Desktop 示例配置：
 
@@ -101,7 +97,7 @@ args = ["mcp", "serve"]
 
 ## 文档
 
-更完整的内容放在文档站：
+更完整的内容见文档站：
 
 - [快速开始](https://runqd.com/zh-CN/getting-started/quick-start.html)
 - [安装指南](https://runqd.com/zh-CN/getting-started/installation.html)
