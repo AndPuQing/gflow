@@ -26,29 +26,26 @@ gflow jobs can be in one of seven states:
 
 ## State Transition Diagram
 
-The following diagram shows all possible state transitions in gflow:
+The following diagram keeps only the core transitions. Completed states are terminal.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Queued: Submit job
-
-    Queued --> Running: Resources available &<br/>dependencies met
-    Queued --> Hold: User holds job
-    Queued --> Cancelled: User cancels or<br/>dependency fails
-
-    Hold --> Queued: User releases job
-    Hold --> Cancelled: User cancels job
-
-    Running --> Finished: Job completes<br/>successfully
-    Running --> Failed: Job exits with<br/>error code
-    Running --> Cancelled: User cancels job
-    Running --> Timeout: Time limit exceeded
-
-    Finished --> [*]
-    Failed --> [*]
-    Cancelled --> [*]
-    Timeout --> [*]
+---
+showToolbar: true
+---
+flowchart LR
+    Submit([Submit]) --> Queued[Queued]
+    Queued -->|ready| Running[Running]
+    Queued -->|hold| Hold[Hold]
+    Queued -->|cancel / dependency failed| Cancelled[Cancelled]
+    Hold -->|release| Queued
+    Hold -->|cancel| Cancelled
+    Running -->|exit 0| Finished[Finished]
+    Running -->|exit != 0| Failed[Failed]
+    Running -->|cancel| Cancelled
+    Running -->|time limit| Timeout[Timeout]
 ```
+
+Use the toolbar in the top-right corner to zoom, fit, download, or enter fullscreen.
 
 ### State Transition Rules
 
@@ -88,45 +85,39 @@ View the reason with `gjob show <job_id>` or `gqueue -f JOBID,ST,REASON`.
 
 ## Status Checking Workflow
 
-The following diagram shows how to check job status and take appropriate actions:
+The following diagram shows a simplified check -> action -> recheck loop:
 
 ```mermaid
+---
+showToolbar: true
+---
 flowchart TD
-    Start([Check Job Status]) --> CheckState{What is the<br/>job state?}
+    Check([Run gqueue -f JOBID,ST,REASON]) --> State{State?}
 
-    CheckState -->|Queued| CheckReason{Check reason}
-    CheckReason -->|WaitingForDependency| CheckDep[Check dependency status<br/>gqueue -t]
-    CheckReason -->|WaitingForResources| CheckRes[Check resource availability<br/>ginfo]
-    CheckDep --> DepOK{Dependency<br/>finished?}
-    DepOK -->|Yes| Wait1[Wait for resources]
-    DepOK -->|No| Wait2[Wait for dependency]
-    CheckRes --> Wait1
+    State -->|Queued| QueuedReason{Reason?}
+    QueuedReason -->|WaitingForDependency| Dep[Check parent jobs<br/>gqueue -t]
+    QueuedReason -->|WaitingForResources| Res[Check resources<br/>ginfo]
+    Dep --> Recheck([Recheck later])
+    Res --> Recheck
 
-    CheckState -->|Hold| Release[Release job<br/>gjob release ID]
-    Release --> Queued2[Job moves to Queued]
+    State -->|Hold| Release[Release job<br/>gjob release ID]
+    Release --> Recheck
 
-    CheckState -->|Running| Monitor[Monitor progress<br/>gjob log ID<br/>gjob attach ID]
-    Monitor --> Wait3[Wait for completion]
+    State -->|Running| Monitor[Monitor logs or attach<br/>gjob log ID / gjob attach ID]
+    Monitor --> Recheck
 
-    CheckState -->|Finished| Success([Job completed<br/>successfully])
+    State -->|Finished| Done([Done])
 
-    CheckState -->|Failed| Investigate[Check logs<br/>gjob log ID]
-    Investigate --> Fix{Can fix?}
-    Fix -->|Yes| Redo[Redo job<br/>gjob redo ID]
-    Fix -->|No| End1([Investigation needed])
+    State -->|Failed| Retry[Inspect logs and redo if fixed<br/>gjob log ID / gjob redo ID]
+    Retry --> Recheck
 
-    CheckState -->|Cancelled| CheckCancelReason{Check<br/>reason}
-    CheckCancelReason -->|CancelledByUser| End2([User action])
-    CheckCancelReason -->|DependencyFailed| RedoCascade[Fix parent and redo<br/>gjob redo PARENT_ID --cascade]
+    State -->|Cancelled| CancelReason{Reason?}
+    CancelReason -->|CancelledByUser| Stop([No further action])
+    CancelReason -->|DependencyFailed| Cascade[Fix parent and redo<br/>gjob redo PARENT_ID --cascade]
+    Cascade --> Recheck
 
-    CheckState -->|Timeout| IncreaseTime[Increase time limit<br/>gjob redo ID --time HH:MM:SS]
-
-    Wait1 --> Start
-    Wait2 --> Start
-    Wait3 --> Start
-    Redo --> Start
-    RedoCascade --> Start
-    IncreaseTime --> Start
+    State -->|Timeout| MoreTime[Redo with more time<br/>gjob redo ID --time HH:MM:SS]
+    MoreTime --> Recheck
 ```
 
 ## See Also

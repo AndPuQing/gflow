@@ -26,29 +26,26 @@ gflow 任务可以处于以下七种状态之一：
 
 ## 状态转换图
 
-以下图表显示了 gflow 中所有可能的状态转换：
+下图只保留核心状态转换。完成态均为终态。
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Queued: 提交任务
-
-    Queued --> Running: 资源可用且<br/>依赖满足
-    Queued --> Hold: 用户暂停任务
-    Queued --> Cancelled: 用户取消或<br/>依赖失败
-
-    Hold --> Queued: 用户释放任务
-    Hold --> Cancelled: 用户取消任务
-
-    Running --> Finished: 任务成功<br/>完成
-    Running --> Failed: 任务以错误<br/>代码退出
-    Running --> Cancelled: 用户取消任务
-    Running --> Timeout: 超过时间限制
-
-    Finished --> [*]
-    Failed --> [*]
-    Cancelled --> [*]
-    Timeout --> [*]
+---
+showToolbar: true
+---
+flowchart LR
+    Submit([提交]) --> Queued[Queued]
+    Queued -->|可运行| Running[Running]
+    Queued -->|暂停| Hold[Hold]
+    Queued -->|取消 / 依赖失败| Cancelled[Cancelled]
+    Hold -->|释放| Queued
+    Hold -->|取消| Cancelled
+    Running -->|退出码 0| Finished[Finished]
+    Running -->|退出码非 0| Failed[Failed]
+    Running -->|取消| Cancelled
+    Running -->|超时| Timeout[Timeout]
 ```
+
+右上角工具栏支持放大、适配、下载和全屏查看。
 
 ### 状态转换规则
 
@@ -88,45 +85,39 @@ stateDiagram-v2
 
 ## 状态检查工作流
 
-以下图表显示了如何检查任务状态并采取适当的操作：
+下图将流程收敛为“检查 -> 操作 -> 再检查”的循环：
 
 ```mermaid
+---
+showToolbar: true
+---
 flowchart TD
-    Start([检查任务状态]) --> CheckState{任务状态<br/>是什么？}
+    Check([运行 gqueue -f JOBID,ST,REASON]) --> State{当前状态？}
 
-    CheckState -->|Queued| CheckReason{检查原因}
-    CheckReason -->|WaitingForDependency| CheckDep[检查依赖状态<br/>gqueue -t]
-    CheckReason -->|WaitingForResources| CheckRes[检查资源可用性<br/>ginfo]
-    CheckDep --> DepOK{依赖<br/>完成了吗？}
-    DepOK -->|是| Wait1[等待资源]
-    DepOK -->|否| Wait2[等待依赖]
-    CheckRes --> Wait1
+    State -->|Queued| QueuedReason{原因？}
+    QueuedReason -->|WaitingForDependency| Dep[检查父任务<br/>gqueue -t]
+    QueuedReason -->|WaitingForResources| Res[检查资源<br/>ginfo]
+    Dep --> Recheck([稍后再检查])
+    Res --> Recheck
 
-    CheckState -->|Hold| Release[释放任务<br/>gjob release ID]
-    Release --> Queued2[任务移至 Queued]
+    State -->|Hold| Release[释放任务<br/>gjob release ID]
+    Release --> Recheck
 
-    CheckState -->|Running| Monitor[监控进度<br/>gjob log ID<br/>gjob attach ID]
-    Monitor --> Wait3[等待完成]
+    State -->|Running| Monitor[查看日志或附着<br/>gjob log ID / gjob attach ID]
+    Monitor --> Recheck
 
-    CheckState -->|Finished| Success([任务成功<br/>完成])
+    State -->|Finished| Done([已完成])
 
-    CheckState -->|Failed| Investigate[检查日志<br/>gjob log ID]
-    Investigate --> Fix{能修复吗？}
-    Fix -->|是| Redo[重做任务<br/>gjob redo ID]
-    Fix -->|否| End1([需要调查])
+    State -->|Failed| Retry[检查日志并在修复后重做<br/>gjob log ID / gjob redo ID]
+    Retry --> Recheck
 
-    CheckState -->|Cancelled| CheckCancelReason{检查<br/>原因}
-    CheckCancelReason -->|CancelledByUser| End2([用户操作])
-    CheckCancelReason -->|DependencyFailed| RedoCascade[修复父任务并重做<br/>gjob redo PARENT_ID --cascade]
+    State -->|Cancelled| CancelReason{原因？}
+    CancelReason -->|CancelledByUser| Stop([无需进一步操作])
+    CancelReason -->|DependencyFailed| Cascade[修复父任务并级联重做<br/>gjob redo PARENT_ID --cascade]
+    Cascade --> Recheck
 
-    CheckState -->|Timeout| IncreaseTime[增加时间限制<br/>gjob redo ID --time HH:MM:SS]
-
-    Wait1 --> Start
-    Wait2 --> Start
-    Wait3 --> Start
-    Redo --> Start
-    RedoCascade --> Start
-    IncreaseTime --> Start
+    State -->|Timeout| MoreTime[增加时间后重做<br/>gjob redo ID --time HH:MM:SS]
+    MoreTime --> Recheck
 ```
 
 ## 另请参阅
