@@ -90,7 +90,7 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
     };
 
     let mut jobs_vec = client
-        .list_jobs_with_query(states_filter, user_filter, None, None, created_after)
+        .list_jobs_with_query(states_filter, user_filter, None, None, created_after, None)
         .await?;
 
     if let Some(job_ids) = options.jobs.as_deref() {

@@ -33,7 +33,7 @@ pub async fn handle_close_sessions(
         // Exclude running job sessions - only query Running state for efficiency
         let client = gflow::create_client(config_path)?;
         let running_jobs = client
-            .list_jobs_with_query(Some("Running".to_string()), None, None, None, None)
+            .list_jobs_with_query(Some("Running".to_string()), None, None, None, None, None)
             .await?;
         for job in running_jobs {
             if let Some(name) = job.run_name {

@@ -12,12 +12,14 @@ use rmcp::{
     transport::stdio,
     ServiceExt,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const DEFAULT_MCP_LIST_JOBS_LIMIT: usize = 50;
 
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
 pub enum DependencyModeInput {
@@ -34,17 +36,45 @@ impl From<DependencyModeInput> for DependencyMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ListJobsOrderInput {
+    Asc,
+    Desc,
+}
+
+impl ListJobsOrderInput {
+    fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ListJobsDetailInput {
+    Summary,
+    Full,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListJobsRequest {
     /// Comma-separated job states, for example `Running,Finished`.
     pub state: Option<String>,
     /// Filter by submitting user.
     pub user: Option<String>,
-    /// Defaults to 100 when omitted.
+    /// Defaults to 50 when omitted.
     pub limit: Option<usize>,
+    /// Zero-based offset into the filtered result set.
     pub offset: Option<usize>,
     /// Unix timestamp in seconds.
     pub created_after: Option<i64>,
+    /// Defaults to `desc` so recent jobs are returned first.
+    pub order: Option<ListJobsOrderInput>,
+    /// Defaults to `summary` to keep MCP responses compact. Use `full` for the entire job object.
+    pub detail: Option<ListJobsDetailInput>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -171,6 +201,11 @@ pub struct SchedulerInfoOutput {
 pub struct ListJobsOutput {
     pub jobs: Vec<Value>,
     pub count: usize,
+    pub detail: ListJobsDetailInput,
+    pub limit: usize,
+    pub offset: usize,
+    pub has_more: bool,
+    pub next_offset: Option<usize>,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -269,6 +304,15 @@ struct GflowMcpServer {
     tool_router: ToolRouter<Self>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResolvedListJobsPage {
+    limit: usize,
+    offset: usize,
+    order: ListJobsOrderInput,
+    detail: ListJobsDetailInput,
+    query_limit: usize,
+}
+
 #[tool_router]
 impl GflowMcpServer {
     fn new(config_path: Option<PathBuf>) -> Self {
@@ -308,7 +352,7 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "List jobs from the local gflow daemon.",
+        description = "List jobs from the local gflow daemon. Defaults to recent jobs first.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<ListJobsOutput>()
     )]
     async fn list_jobs(
@@ -316,20 +360,40 @@ impl GflowMcpServer {
         Parameters(params): Parameters<ListJobsRequest>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
+        let page = resolve_list_jobs_page(&params);
         let jobs = client
             .list_jobs_with_query(
                 params.state,
                 params.user,
-                Some(params.limit.unwrap_or(100)),
-                params.offset,
+                Some(page.query_limit),
+                Some(page.offset),
                 params.created_after,
+                Some(page.order.as_query_value().to_string()),
             )
             .await
             .map_err(stringify_error)?;
+        let mut jobs = jobs;
+        let has_more = jobs.len() > page.limit;
+        if has_more {
+            jobs.truncate(page.limit);
+        }
+        let jobs = jobs
+            .into_iter()
+            .map(|job| serialize_list_job(job, page.detail))
+            .collect::<Vec<_>>();
         let count = jobs.len();
         structured_response(json!({
             "jobs": jobs,
             "count": count,
+            "detail": page.detail,
+            "limit": page.limit,
+            "offset": page.offset,
+            "has_more": has_more,
+            "next_offset": if has_more {
+                Some(page.offset.saturating_add(count))
+            } else {
+                None::<usize>
+            },
         }))
     }
 
@@ -613,6 +677,48 @@ impl GflowMcpServer {
     fn client(&self) -> anyhow::Result<Client> {
         gflow::create_client(&self.config_path)
     }
+}
+
+fn resolve_list_jobs_page(params: &ListJobsRequest) -> ResolvedListJobsPage {
+    let limit = params.limit.unwrap_or(DEFAULT_MCP_LIST_JOBS_LIMIT);
+    let offset = params.offset.unwrap_or(0);
+    let order = params.order.unwrap_or(ListJobsOrderInput::Desc);
+    let detail = params.detail.unwrap_or(ListJobsDetailInput::Summary);
+
+    ResolvedListJobsPage {
+        limit,
+        offset,
+        order,
+        detail,
+        query_limit: limit.saturating_add(1),
+    }
+}
+
+fn serialize_list_job(job: Job, detail: ListJobsDetailInput) -> Value {
+    match detail {
+        ListJobsDetailInput::Summary => json!({
+            "id": job.id,
+            "name": job.run_name,
+            "state": job.state,
+            "reason": job.reason.as_deref().map(ToString::to_string),
+            "gpus": job.gpus,
+            "gpu_ids": job.gpu_ids,
+            "user": job.submitted_by,
+            "project": job.project,
+            "submitted": job.submitted_at.and_then(system_time_to_unix_secs),
+            "started": job.started_at.and_then(system_time_to_unix_secs),
+            "finished": job.finished_at.and_then(system_time_to_unix_secs),
+        }),
+        ListJobsDetailInput::Full => serde_json::to_value(job).unwrap_or_else(|err| {
+            json!({
+                "error": format!("Failed to serialize job: {}", err),
+            })
+        }),
+    }
+}
+
+fn system_time_to_unix_secs(ts: SystemTime) -> Option<u64> {
+    ts.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
 }
 
 pub async fn run(config_path: Option<PathBuf>, verbosity: Verbosity) -> Result<()> {
@@ -988,7 +1094,14 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_submit_job, expand_submit_job_requests, GflowMcpServer, SubmitJobRequest};
+    use super::{
+        build_submit_job, expand_submit_job_requests, resolve_list_jobs_page, serialize_list_job,
+        GflowMcpServer, ListJobsDetailInput, ListJobsOrderInput, ListJobsOutput, ListJobsRequest,
+        SubmitJobRequest, DEFAULT_MCP_LIST_JOBS_LIMIT,
+    };
+    use gflow::core::job::{JobBuilder, JobState, JobStateReason};
+    use schemars::schema_for;
+    use serde_json::Value;
     use std::collections::HashMap;
 
     #[test]
@@ -1066,6 +1179,119 @@ mod tests {
             assert!(
                 tool.output_schema.is_some(),
                 "expected output schema for {tool_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_jobs_defaults_to_recent_first_paging() {
+        let resolved = resolve_list_jobs_page(&ListJobsRequest {
+            state: None,
+            user: None,
+            limit: None,
+            offset: None,
+            created_after: None,
+            order: None,
+            detail: None,
+        });
+
+        assert_eq!(resolved.limit, DEFAULT_MCP_LIST_JOBS_LIMIT);
+        assert_eq!(resolved.offset, 0);
+        assert_eq!(resolved.order, ListJobsOrderInput::Desc);
+        assert_eq!(resolved.detail, ListJobsDetailInput::Summary);
+        assert_eq!(resolved.query_limit, DEFAULT_MCP_LIST_JOBS_LIMIT + 1);
+    }
+
+    #[test]
+    fn list_jobs_honors_explicit_paging_request() {
+        let resolved = resolve_list_jobs_page(&ListJobsRequest {
+            state: Some("Running".to_string()),
+            user: Some("alice".to_string()),
+            limit: Some(12),
+            offset: Some(24),
+            created_after: Some(1_700_000_000),
+            order: Some(ListJobsOrderInput::Asc),
+            detail: Some(ListJobsDetailInput::Full),
+        });
+
+        assert_eq!(resolved.limit, 12);
+        assert_eq!(resolved.offset, 24);
+        assert_eq!(resolved.order, ListJobsOrderInput::Asc);
+        assert_eq!(resolved.detail, ListJobsDetailInput::Full);
+        assert_eq!(resolved.query_limit, 13);
+    }
+
+    #[test]
+    fn list_jobs_output_schema_includes_pagination_fields() {
+        let schema = schema_for!(ListJobsOutput);
+        let schema_json = serde_json::to_value(&schema).expect("schema should serialize");
+        let properties = schema_json
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("schema should expose properties");
+
+        for field in [
+            "jobs",
+            "count",
+            "detail",
+            "limit",
+            "offset",
+            "has_more",
+            "next_offset",
+        ] {
+            assert!(
+                properties.contains_key(field),
+                "missing list_jobs output field in schema: {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_jobs_summary_is_compact() {
+        let mut job = JobBuilder::new()
+            .command("python train.py --epochs 100")
+            .submitted_by("alice")
+            .run_name(Some("exp-42".to_string()))
+            .project(Some("vision".to_string()))
+            .gpus(2)
+            .build();
+        job.id = 42;
+        job.state = JobState::Running;
+        job.reason = Some(Box::new(JobStateReason::WaitingForResources));
+
+        let value = serialize_list_job(job, ListJobsDetailInput::Summary);
+        let object = value.as_object().expect("summary should be an object");
+
+        for field in [
+            "id",
+            "name",
+            "state",
+            "reason",
+            "gpus",
+            "gpu_ids",
+            "user",
+            "project",
+            "submitted",
+            "started",
+            "finished",
+        ] {
+            assert!(object.contains_key(field), "missing summary field: {field}");
+        }
+
+        for field in [
+            "command",
+            "script",
+            "conda_env",
+            "run_dir",
+            "parameters",
+            "depends_on",
+            "depends_on_ids",
+            "memory_limit_mb",
+            "time_limit",
+        ] {
+            assert!(
+                !object.contains_key(field),
+                "summary should omit verbose field: {field}"
             );
         }
     }

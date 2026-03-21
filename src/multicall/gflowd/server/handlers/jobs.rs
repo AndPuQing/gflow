@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use gflow::core::job::{Job, JobState};
+use gflow::core::job::{Job, JobRuntime, JobSpec, JobState};
 use std::collections::HashMap;
 
 #[axum::debug_handler]
@@ -25,6 +25,7 @@ pub(in crate::multicall::gflowd::server) struct ListJobsQuery {
     limit: Option<usize>,
     offset: Option<usize>,
     created_after: Option<i64>,
+    order: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -52,15 +53,54 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
         UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
     });
 
-    // Stream over split storage in ID order and materialize only the requested page.
+    // Stream over split storage in the requested ID order and materialize only the requested page.
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(usize::MAX);
+    let descending = params
+        .order
+        .as_deref()
+        .is_some_and(|order| order.eq_ignore_ascii_case("desc"));
 
     let mut matched = 0usize;
     let mut jobs = Vec::new();
 
     let users = user_filter.as_ref().filter(|u| !u.is_empty());
     let states = state_filter.as_ref().filter(|s| !s.is_empty());
+
+    let matches_filters = |spec: &JobSpec, rt: &JobRuntime| -> bool {
+        if let Some(ref states) = state_filter {
+            if !states.is_empty() && !states.contains(&rt.state) {
+                return false;
+            }
+        }
+
+        if let Some(ref users) = user_filter {
+            if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
+                return false;
+            }
+        }
+
+        if let Some(created_after) = time_filter {
+            if spec.submitted_at.is_none_or(|ts| ts < created_after) {
+                return false;
+            }
+        }
+
+        true
+    };
+
+    let mut collect_job = |spec: &JobSpec, rt: &JobRuntime| -> bool {
+        if !matches_filters(spec, rt) {
+            return false;
+        }
+
+        if matched >= offset && jobs.len() < limit {
+            jobs.push(Job::from_parts(spec.clone(), rt.clone()));
+        }
+        matched += 1;
+
+        jobs.len() >= limit
+    };
 
     // Choose the most selective index (user or state) when both filters are present.
     //
@@ -120,38 +160,30 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
                     return (StatusCode::OK, Json(jobs));
                 };
 
-                for &job_id in job_ids {
+                let mut visit_job_id = |job_id: u32| -> bool {
                     let idx = match job_id.checked_sub(1) {
                         Some(v) => v as usize,
-                        None => continue,
+                        None => return false,
                     };
                     let (Some(spec), Some(rt)) =
                         (state.job_specs().get(idx), state.job_runtimes().get(idx))
                     else {
-                        continue;
+                        return false;
                     };
+                    collect_job(spec, rt)
+                };
 
-                    // Apply state filter (hot).
-                    if let Some(ref states) = state_filter {
-                        if !states.is_empty() && !states.contains(&rt.state) {
-                            continue;
+                if descending {
+                    for &job_id in job_ids.iter().rev() {
+                        if visit_job_id(job_id) {
+                            break;
                         }
                     }
-
-                    // Apply time filter (warm).
-                    if let Some(created_after) = time_filter {
-                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                            continue;
+                } else {
+                    for &job_id in job_ids {
+                        if visit_job_id(job_id) {
+                            break;
                         }
-                    }
-
-                    if matched >= offset && jobs.len() < limit {
-                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                    }
-                    matched += 1;
-
-                    if jobs.len() >= limit {
-                        break;
                     }
                 }
             } else {
@@ -166,38 +198,30 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
                 job_ids.sort_unstable();
                 job_ids.dedup();
 
-                for job_id in job_ids {
+                let mut visit_job_id = |job_id: u32| -> bool {
                     let idx = match job_id.checked_sub(1) {
                         Some(v) => v as usize,
-                        None => continue,
+                        None => return false,
                     };
                     let (Some(spec), Some(rt)) =
                         (state.job_specs().get(idx), state.job_runtimes().get(idx))
                     else {
-                        continue;
+                        return false;
                     };
+                    collect_job(spec, rt)
+                };
 
-                    // Apply state filter (hot).
-                    if let Some(ref states) = state_filter {
-                        if !states.is_empty() && !states.contains(&rt.state) {
-                            continue;
+                if descending {
+                    for job_id in job_ids.into_iter().rev() {
+                        if visit_job_id(job_id) {
+                            break;
                         }
                     }
-
-                    // Apply time filter (warm).
-                    if let Some(created_after) = time_filter {
-                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                            continue;
+                } else {
+                    for job_id in job_ids {
+                        if visit_job_id(job_id) {
+                            break;
                         }
-                    }
-
-                    if matched >= offset && jobs.len() < limit {
-                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                    }
-                    matched += 1;
-
-                    if jobs.len() >= limit {
-                        break;
                     }
                 }
             }
@@ -212,47 +236,30 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
                     return (StatusCode::OK, Json(jobs));
                 };
 
-                for &job_id in job_ids {
+                let mut visit_job_id = |job_id: u32| -> bool {
                     let idx = match job_id.checked_sub(1) {
                         Some(v) => v as usize,
-                        None => continue,
+                        None => return false,
                     };
                     let (Some(spec), Some(rt)) =
                         (state.job_specs().get(idx), state.job_runtimes().get(idx))
                     else {
-                        continue;
+                        return false;
                     };
+                    collect_job(spec, rt)
+                };
 
-                    // Apply state filter (hot) for safety (index should already match).
-                    if let Some(ref states) = state_filter {
-                        if !states.is_empty() && !states.contains(&rt.state) {
-                            continue;
+                if descending {
+                    for &job_id in job_ids.iter().rev() {
+                        if visit_job_id(job_id) {
+                            break;
                         }
                     }
-
-                    // Apply user filter (cold).
-                    if let Some(ref users) = user_filter {
-                        if !users.is_empty()
-                            && !users.iter().any(|u| u == spec.submitted_by.as_str())
-                        {
-                            continue;
+                } else {
+                    for &job_id in job_ids {
+                        if visit_job_id(job_id) {
+                            break;
                         }
-                    }
-
-                    // Apply time filter (warm).
-                    if let Some(created_after) = time_filter {
-                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                            continue;
-                        }
-                    }
-
-                    if matched >= offset && jobs.len() < limit {
-                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                    }
-                    matched += 1;
-
-                    if jobs.len() >= limit {
-                        break;
                     }
                 }
             } else {
@@ -267,82 +274,51 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
                 job_ids.sort_unstable();
                 job_ids.dedup();
 
-                for job_id in job_ids {
+                let mut visit_job_id = |job_id: u32| -> bool {
                     let idx = match job_id.checked_sub(1) {
                         Some(v) => v as usize,
-                        None => continue,
+                        None => return false,
                     };
                     let (Some(spec), Some(rt)) =
                         (state.job_specs().get(idx), state.job_runtimes().get(idx))
                     else {
-                        continue;
+                        return false;
                     };
+                    collect_job(spec, rt)
+                };
 
-                    // Apply state filter (hot) for safety.
-                    if let Some(ref states) = state_filter {
-                        if !states.is_empty() && !states.contains(&rt.state) {
-                            continue;
+                if descending {
+                    for job_id in job_ids.into_iter().rev() {
+                        if visit_job_id(job_id) {
+                            break;
                         }
                     }
-
-                    // Apply user filter (cold).
-                    if let Some(ref users) = user_filter {
-                        if !users.is_empty()
-                            && !users.iter().any(|u| u == spec.submitted_by.as_str())
-                        {
-                            continue;
+                } else {
+                    for job_id in job_ids {
+                        if visit_job_id(job_id) {
+                            break;
                         }
-                    }
-
-                    // Apply time filter (warm).
-                    if let Some(created_after) = time_filter {
-                        if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                            continue;
-                        }
-                    }
-
-                    if matched >= offset && jobs.len() < limit {
-                        jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                    }
-                    matched += 1;
-
-                    if jobs.len() >= limit {
-                        break;
                     }
                 }
             }
         }
         CandidateSource::ScanAll => {
-            for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
-                // Apply state filter (hot).
-                if let Some(ref states) = state_filter {
-                    if !states.is_empty() && !states.contains(&rt.state) {
-                        continue;
+            if descending {
+                for (spec, rt) in state
+                    .job_specs()
+                    .iter()
+                    .zip(state.job_runtimes().iter())
+                    .rev()
+                {
+                    if collect_job(spec, rt) {
+                        break;
                     }
                 }
-
-                // Apply user filter (cold).
-                if let Some(ref users) = user_filter {
-                    if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
-                        continue;
+            } else {
+                for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
+                    if collect_job(spec, rt) {
+                        break;
                     }
-                }
-
-                // Apply time filter (warm).
-                if let Some(created_after) = time_filter {
-                    if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                        continue;
-                    }
-                }
-
-                if matched >= offset && jobs.len() < limit {
-                    jobs.push(gflow::core::job::Job::from_parts(spec.clone(), rt.clone()));
-                }
-                matched += 1;
-
-                if jobs.len() >= limit {
-                    // We can stop early once the page is full, since we're iterating in ID order.
-                    break;
                 }
             }
         }
