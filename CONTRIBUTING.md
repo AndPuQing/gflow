@@ -42,30 +42,6 @@ You can run the tests with:
 cargo test --workspace
 ```
 
-### Running benchmark regression checks
-
-Issue `#129` adds a small Criterion-based regression suite for scheduler hot paths.
-
-List the curated benchmark cases:
-
-```sh
-just bench-regression-list
-```
-
-Create or refresh a local baseline:
-
-```sh
-just bench-regression-baseline local
-```
-
-Compare your current branch against that baseline:
-
-```sh
-just bench-regression-compare local
-```
-
-Each run writes machine-readable and Markdown summaries to `target/benchmark-regression-summary.*`.
-
 ### Submitting a pull request
 
 When you're done with your changes, you can submit a pull request. Make sure to reference the issue you're working on in the pull request description.

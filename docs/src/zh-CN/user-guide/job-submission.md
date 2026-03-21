@@ -2,6 +2,10 @@
 
 使用 `gbatch` 提交任务（类似 Slurm 的 `sbatch`）。你可以直接提交命令，也可以提交脚本。
 
+::: tip
+单步命令适合直接提交；如果需要环境准备、多条 shell 语句或更稳定的复用方式，优先使用脚本。
+:::
+
 ## 快速开始
 
 ```bash
@@ -33,7 +37,7 @@ chmod +x train.sh
 gbatch train.sh
 ```
 
-### 脚本指令
+::: details 支持的脚本指令
 
 脚本里只会解析少量选项：
 
@@ -46,14 +50,21 @@ gbatch train.sh
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>`（仅单依赖）
 - `# GFLOW --project=<CODE>`
+:::
 
+::: info
 命令行参数优先于脚本指令。
+:::
 
 ### 内存语义
 
 - `--memory`（`--max-mem` / `--max-memory`）限制主机内存（RAM）。
 - `--gpu-memory`（`--max-gpu-mem` / `--max-gpu-memory`）限制每张 GPU 的显存（VRAM）。
 - 共享模式任务必须同时设置 `--shared` 和 `--gpu-memory`。
+
+::: warning
+使用 GPU 共享模式时，`--shared` 和 `--gpu-memory` 缺一不可。
+:::
 
 ## 常用选项
 
@@ -92,7 +103,14 @@ gbatch --depends-on <job_id> --no-auto-cancel python next.py
 gbatch --dry-run --gpus 1 python train.py
 ```
 
+::: details 依赖简写
+- `@` 表示最近一次提交的任务。
+- `@~N` 表示倒数第 N+1 次提交的任务。例如 `@~1` 表示上一次提交。
+:::
+
+::: info
 项目值在提交后不可修改。
+:::
 
 ## 任务数组
 

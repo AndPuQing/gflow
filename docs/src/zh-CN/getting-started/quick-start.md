@@ -2,7 +2,11 @@
 
 本指南将在几分钟内带您跑通 gflow 的最小闭环。
 
-## 0）（可选）初始化配置
+::: tip 开始前
+请先确认 `tmux` 已安装。若尚未安装，请先完成[安装](./installation)。
+:::
+
+## 可选：初始化配置
 
 生成带有合理默认值的配置文件：
 
@@ -10,13 +14,17 @@
 gflowd init
 ```
 
-## 1）启动调度器
+## 第 1 步：启动调度器
 
 启动守护进程（在 tmux 会话中运行）：
 
 ```shell
 gflowd up
 ```
+
+::: warning
+如果 `gflowd up` 启动失败，最常见的原因是系统中没有安装 `tmux`。
+:::
 
 检查状态：
 
@@ -30,13 +38,13 @@ gflowd status
 ginfo
 ```
 
-## 2）提交一个任务
+## 第 2 步：提交任务
 
 ```shell
 gbatch echo 'Hello from gflow!'
 ```
 
-## 3）查看队列与日志
+## 第 3 步：查看队列与日志
 
 ```shell
 gqueue
@@ -48,7 +56,11 @@ gqueue
 gjob log <job_id>
 ```
 
-## 4）停止调度器
+::: info
+通常先通过 `gqueue` 找到任务编号，再用 `gjob log <job_id>` 查看对应输出。
+:::
+
+## 第 4 步：停止调度器
 
 ```shell
 gflowd down

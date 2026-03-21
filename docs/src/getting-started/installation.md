@@ -2,6 +2,10 @@
 
 This guide will help you install gflow on your system.
 
+::: info Package Name
+Install the Python package `runqd`. It provides the `gflowd`, `gbatch`, `gqueue`, `gjob`, `ginfo`, `gcancel`, and `gctl` commands.
+:::
+
 ## Prerequisites
 
 - **Operating System**: Linux (tested on Ubuntu 20.04+)
@@ -11,18 +15,18 @@ This guide will help you install gflow on your system.
 
 ### Installing Prerequisites
 
-#### Ubuntu/Debian
-```bash
+::: code-group
+```bash [Ubuntu/Debian]
 # Install tmux
 sudo apt-get update
 sudo apt-get install tmux
 ```
 
-#### Fedora/RHEL
-```bash
+```bash [Fedora/RHEL]
 # Install tmux
 sudo dnf install tmux
 ```
+:::
 
 ## Installation Methods
 
@@ -30,21 +34,19 @@ sudo dnf install tmux
 
 Install gflow using `uv` (recommended for CLI tools):
 
-```bash
+::: code-group
+```bash [uv]
 uv tool install runqd
 ```
 
-Or using `pipx`:
-
-```bash
+```bash [pipx]
 pipx install runqd
 ```
 
-Or using `pip`:
-
-```bash
+```bash [pip]
 pip install runqd
 ```
+:::
 
 This will install pre-built binaries for Linux (x86_64, ARM64).
 
@@ -52,23 +54,33 @@ This will install pre-built binaries for Linux (x86_64, ARM64).
 
 To try the latest development version, install from TestPyPI:
 
-```bash
+::: code-group
+```bash [uv]
+uv tool install --index https://test.pypi.org/simple/ runqd
+```
+
+```bash [pipx]
+pipx install --index-url https://test.pypi.org/simple/ runqd
+```
+
+```bash [pip]
 pip install --index-url https://test.pypi.org/simple/ runqd
 ```
+:::
 
 ### Method 2: Install via Cargo
 
 Build and install from crates.io:
 
-```bash
+::: code-group
+```bash [crates.io]
 cargo install gflow
 ```
 
-Or install from the main branch:
-
-```bash
+```bash [main branch]
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
+:::
 
 This will compile and install all binaries to `~/.cargo/bin/`, which should be in your `PATH`.
 
@@ -106,6 +118,10 @@ which gflowd ginfo gbatch gqueue gcancel
 gflowd --version
 ```
 
+::: tip
+If the commands are available and `gflowd --version` prints a version, the installation is complete.
+:::
+
 ## Sanity Check
 
 ### 1. tmux
@@ -137,6 +153,7 @@ ginfo
 ```
 
 The daemon shows GPU information if NVIDIA GPUs are available.
+
 ## File Locations
 
 gflow uses the following directories:
@@ -149,7 +166,7 @@ gflow uses the following directories:
 
 ## Troubleshooting
 
-### Issue: Command not found
+::: details Issue: Command not found
 
 If you get "command not found" after installation:
 
@@ -167,8 +184,9 @@ If you get "command not found" after installation:
    ```bash
    source ~/.bashrc  # or ~/.zshrc
    ```
+:::
 
-### Issue: GPU not detected
+::: details Issue: GPU not detected
 
 1. **Check NVIDIA drivers**:
    ```bash
@@ -181,25 +199,32 @@ If you get "command not found" after installation:
    ```
 
 3. If GPU detection fails, gflow will still work but won't manage GPU resources.
+:::
 
 ## Updating gflow
 
-### If installed via cargo:
+::: details If installed via Cargo
 ```bash
 cargo install gflow --force
 ```
+:::
 
-### If built from source:
+::: details If built from source
 ```bash
 cd gflow
 git pull
 cargo build --release
 cargo install --path . --force
 ```
+:::
 
 ## Uninstallation
 
 To remove gflow:
+
+::: warning
+The optional data cleanup commands below permanently remove local scheduler state and logs.
+:::
 
 ```bash
 # Stop the daemon first
@@ -216,7 +241,3 @@ rm -rf ~/.local/share/gflow
 ## Next Steps
 
 Now that gflow is installed, head to the [Quick Start Guide](./quick-start) to learn how to use it!
-
----
-
-**Previous**: [Introduction](/) | **Next**: [Quick Start](./quick-start)

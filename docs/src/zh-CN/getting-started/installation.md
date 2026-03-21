@@ -2,6 +2,10 @@
 
 本指南将帮助您在系统上安装 gflow。
 
+::: info 包名说明
+安装的 Python 包名是 `runqd`，安装完成后会提供 `gflowd`、`gbatch`、`gqueue`、`gjob`、`ginfo`、`gcancel` 和 `gctl` 等命令。
+:::
+
 ## 前置要求
 
 - **操作系统**：Linux（在 Ubuntu 20.04+ 上测试）
@@ -11,18 +15,18 @@
 
 ### 安装前置要求
 
-#### Ubuntu/Debian
-```bash
+::: code-group
+```bash [Ubuntu/Debian]
 # 安装 tmux
 sudo apt-get update
 sudo apt-get install tmux
 ```
 
-#### Fedora/RHEL
-```bash
+```bash [Fedora/RHEL]
 # 安装 tmux
 sudo dnf install tmux
 ```
+:::
 
 ## 安装方法
 
@@ -30,21 +34,19 @@ sudo dnf install tmux
 
 使用 `uv` 安装 gflow（推荐用于 CLI 工具）：
 
-```bash
+::: code-group
+```bash [uv]
 uv tool install runqd
 ```
 
-或使用 `pipx`：
-
-```bash
+```bash [pipx]
 pipx install runqd
 ```
 
-或使用 `pip`：
-
-```bash
+```bash [pip]
 pip install runqd
 ```
+:::
 
 这将为 Linux（x86_64、ARM64）安装预构建的二进制文件。
 
@@ -52,23 +54,33 @@ pip install runqd
 
 如需体验最新开发版本，可从 TestPyPI 安装：
 
-```bash
+::: code-group
+```bash [uv]
+uv tool install --index https://test.pypi.org/simple/ runqd
+```
+
+```bash [pipx]
+pipx install --index-url https://test.pypi.org/simple/ runqd
+```
+
+```bash [pip]
 pip install --index-url https://test.pypi.org/simple/ runqd
 ```
+:::
 
 ### 方法 2：通过 Cargo 安装
 
 从 crates.io 构建并安装：
 
-```bash
+::: code-group
+```bash [crates.io]
 cargo install gflow
 ```
 
-或从 main 分支安装：
-
-```bash
+```bash [main branch]
 cargo install --git https://github.com/AndPuQing/gflow.git --locked
 ```
+:::
 
 这将编译并安装所有二进制文件到 `~/.cargo/bin/`，该目录应该在您的 `PATH` 中。
 
@@ -106,6 +118,10 @@ which gflowd ginfo gbatch gqueue gcancel
 gflowd --version
 ```
 
+::: tip
+如果命令可执行，且 `gflowd --version` 能输出版本号，就说明安装已经完成。
+:::
+
 ## 快速检查
 
 ### 1. 测试 tmux
@@ -137,6 +153,7 @@ ginfo
 ```
 
 如果有可用的 NVIDIA GPU，守护进程会显示 GPU 信息。
+
 ## 文件位置
 
 gflow 使用以下目录：
@@ -149,7 +166,7 @@ gflow 使用以下目录：
 
 ## 故障排除
 
-### 问题：找不到命令
+::: details 问题：找不到命令
 
 如果安装后出现"找不到命令"错误：
 
@@ -167,8 +184,9 @@ gflow 使用以下目录：
    ```bash
    source ~/.bashrc  # 或 ~/.zshrc
    ```
+:::
 
-### 问题：未检测到 GPU
+::: details 问题：未检测到 GPU
 
 1. **检查 NVIDIA 驱动程序**：
    ```bash
@@ -181,25 +199,32 @@ gflow 使用以下目录：
    ```
 
 3. 如果 GPU 检测失败，gflow 仍然可以工作，但不会管理 GPU 资源。
+:::
 
 ## 更新 gflow
 
-### 如果通过 cargo 安装：
+::: details 如果通过 Cargo 安装
 ```bash
 cargo install gflow --force
 ```
+:::
 
-### 如果从源代码构建：
+::: details 如果从源代码构建
 ```bash
 cd gflow
 git pull
 cargo build --release
 cargo install --path . --force
 ```
+:::
 
 ## 卸载
 
 要删除 gflow：
+
+::: warning
+下面可选的数据清理命令会永久删除本地调度状态和日志。
+:::
 
 ```bash
 # 首先停止守护进程
@@ -216,7 +241,3 @@ rm -rf ~/.local/share/gflow
 ## 下一步
 
 现在 gflow 已安装完成，请前往[快速入门指南](./quick-start)了解如何使用它！
-
----
-
-**上一页**：[介绍](/) | **下一页**：[快速入门](./quick-start)

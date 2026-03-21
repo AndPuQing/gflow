@@ -2,7 +2,11 @@
 
 This guide gets you running with gflow in a few minutes.
 
-## 0) (Optional) Initialize Configuration
+::: tip Before You Start
+Make sure `tmux` is installed. If not, finish [Installation](./installation) first.
+:::
+
+## Optional: Initialize Configuration
 
 Create a config file with sensible defaults:
 
@@ -10,7 +14,7 @@ Create a config file with sensible defaults:
 gflowd init
 ```
 
-## 1) Start the Scheduler
+## Step 1: Start the Scheduler
 
 Start the daemon (runs inside a tmux session):
 
@@ -18,7 +22,9 @@ Start the daemon (runs inside a tmux session):
 gflowd up
 ```
 
-If this fails, make sure `tmux` is installed (see [Installation](./installation)).
+::: warning
+If `gflowd up` fails, the most common cause is a missing `tmux` installation.
+:::
 
 Check status:
 
@@ -32,13 +38,13 @@ Verify the client can reach it:
 ginfo
 ```
 
-## 2) Submit a Job
+## Step 2: Submit a Job
 
 ```shell
 gbatch echo 'Hello from gflow!'
 ```
 
-## 3) Check Queue and Logs
+## Step 3: Check Queue and Logs
 
 ```shell
 gqueue
@@ -50,7 +56,11 @@ Then view output:
 gjob log <job_id>
 ```
 
-## 4) Stop the Scheduler
+::: info
+Use `gjob log <job_id>` after `gqueue` so you can inspect a specific completed or running job.
+:::
+
+## Step 4: Stop the Scheduler
 
 ```shell
 gflowd down
@@ -66,7 +76,3 @@ Now that you're familiar with the basics, explore:
 - [GPU Management](../user-guide/gpu-management) - GPU allocation
 - [Configuration](../user-guide/configuration) - Defaults and system behavior
 - [Quick Reference](../reference/quick-reference) - Command cheat sheet
-
----
-
-**Previous**: [Installation](./installation) | **Next**: [Job Submission](../user-guide/job-submission)

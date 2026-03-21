@@ -78,10 +78,6 @@ export default defineConfig({
                                 link: "/user-guide/configuration",
                             },
                             {
-                                text: "Benchmark Regression",
-                                link: "/user-guide/benchmark-regression",
-                            },
-                            {
                                 text: "Tips",
                                 link: "/user-guide/tips",
                             },
@@ -210,10 +206,6 @@ export default defineConfig({
                             {
                                 text: "配置",
                                 link: "/zh-CN/user-guide/configuration",
-                            },
-                            {
-                                text: "Benchmark 回归",
-                                link: "/zh-CN/user-guide/benchmark-regression",
                             },
                             {
                                 text: "实用技巧",

@@ -2,6 +2,10 @@
 
 Submit jobs with `gbatch` (similar to Slurm `sbatch`). You can submit a command directly or run a script.
 
+::: tip
+Use direct commands for short, single-step work. Switch to a script when the command needs setup, environment activation, or multiple shell steps.
+:::
+
 ## Quick Start
 
 ```bash
@@ -33,7 +37,7 @@ chmod +x train.sh
 gbatch train.sh
 ```
 
-### Script Directives
+::: details Supported script directives
 
 Only a small subset of options are parsed from scripts:
 
@@ -46,14 +50,21 @@ Only a small subset of options are parsed from scripts:
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>` (single dependency only)
 - `# GFLOW --project=<CODE>`
+:::
 
+::: info
 CLI flags override script directives.
+:::
 
 ### Memory Semantics
 
 - `--memory` (`--max-mem` / `--max-memory`) limits host RAM.
 - `--gpu-memory` (`--max-gpu-mem` / `--max-gpu-memory`) limits per-GPU VRAM.
 - Shared jobs must set both `--shared` and `--gpu-memory`.
+
+::: warning
+Shared GPU mode is incomplete unless both `--shared` and `--gpu-memory` are set.
+:::
 
 ## Common Options
 
@@ -92,7 +103,14 @@ gbatch --depends-on <job_id> --no-auto-cancel python next.py
 gbatch --dry-run --gpus 1 python train.py
 ```
 
+::: details Dependency shorthands
+- `@` refers to the most recently submitted job.
+- `@~N` refers to the Nth most recent submission. For example, `@~1` means the previous submission.
+:::
+
+::: info
 Project values are immutable after submission.
+:::
 
 ## Job Arrays
 
