@@ -9,7 +9,7 @@
         "vitepress": "^2.0.0-alpha.15"
     },
     "dependencies": {
-        "@shikijs/core": "^3.13.0",
+        "@shikijs/core": "^4.0.0",
         "@shikijs/engine-javascript": "^4.0.0",
         "@shikijs/langs": "^4.0.0",
         "@shikijs/themes": "^4.0.0",
