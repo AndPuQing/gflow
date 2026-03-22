@@ -75,7 +75,9 @@ flowchart LR
 | 状态 | 原因 | 描述 |
 |------|------|------|
 | Queued | `WaitingForDependency` | 任务正在等待父任务完成 |
-| Queued | `WaitingForResources` | 任务正在等待可用的 GPU/内存 |
+| Queued | `WaitingForGpu` (`Resources(GPU)`) | 任务正在等待可用 GPU |
+| Queued | `WaitingForMemory` (`Resources(Memory)`) | 任务正在等待可用主机内存 |
+| Queued | `WaitingForResources` | 任务正在等待其他调度器管理的资源或限制 |
 | Hold | `JobHeldUser` | 任务被用户暂停 |
 | Cancelled | `CancelledByUser` | 用户明确取消了任务 |
 | Cancelled | `DependencyFailed:<job_id>` | 任务因任务 `<job_id>` 失败而自动取消 |
@@ -96,7 +98,9 @@ flowchart TD
 
     State -->|Queued| QueuedReason{原因？}
     QueuedReason -->|WaitingForDependency| Dep[检查父任务<br/>gqueue -t]
-    QueuedReason -->|WaitingForResources| Res[检查资源<br/>ginfo]
+    QueuedReason -->|WaitingForGpu| GpuRes[检查 GPU 可用性<br/>ginfo]
+    QueuedReason -->|WaitingForMemory| MemRes[检查主机内存压力<br/>gqueue --format JOBID,NAME,ST,MEMORY,NODELIST(REASON)]
+    QueuedReason -->|WaitingForResources| Res[检查预约或组并发限制<br/>ginfo]
     Dep --> Recheck([稍后再检查])
     Res --> Recheck
 

@@ -585,7 +585,10 @@ impl SchedulerRuntime {
         };
 
         // Keep scheduler dependency graph in sync if dependencies changed.
-        if updated_fields.iter().any(|f| f == "depends_on_ids") {
+        if updated_fields
+            .iter()
+            .any(|f| f == "depends_on_ids" || f == "dependency_mode")
+        {
             if let Some((spec, _rt)) = self.scheduler.get_job_parts(job_id) {
                 let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
                 if let Some(dep) = spec.depends_on {
@@ -595,6 +598,7 @@ impl SchedulerRuntime {
                 }
                 self.scheduler.set_job_dependencies(job_id, deps);
             }
+            self.scheduler.sync_queued_dependency_reason(job_id);
         }
 
         // Mark state as dirty for persistence

@@ -72,6 +72,10 @@ pub struct Scheduler {
     /// Maps job_id -> list of dependency job IDs
     #[serde(skip)]
     pub(crate) dependency_graph: HashMap<u32, Vec<u32>>,
+    /// Reverse dependency graph for fast dependent lookup
+    /// Maps dependency job ID -> sorted list of dependent job IDs
+    #[serde(skip)]
+    pub(crate) dependents_graph: HashMap<u32, Vec<u32>>,
     /// Index of running job counts by group_id for O(1) group concurrency checks
     /// Maps group_id -> count of running jobs in that group
     #[serde(skip)]
@@ -214,6 +218,28 @@ mod tests {
     }
 
     #[test]
+    fn test_submit_job_sets_waiting_for_dependency_reason() {
+        let mut scheduler = create_test_scheduler();
+
+        let parent = create_test_job("test");
+        let (parent_id, _) = scheduler.submit_job(parent);
+
+        let child = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![parent_id])
+            .build();
+        let (child_id, _) = scheduler.submit_job(child);
+
+        assert_eq!(
+            scheduler
+                .get_job(child_id)
+                .and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForDependency)
+        );
+    }
+
+    #[test]
     fn test_gpu_allocation_strategy_sequential_uses_lowest_indices_first() {
         let mut scheduler = create_test_scheduler();
         scheduler.set_gpu_allocation_strategy(GpuAllocationStrategy::Sequential);
@@ -327,11 +353,18 @@ mod tests {
             scheduler.get_job(exclusive_job_id).map(|j| j.state),
             Some(JobState::Queued)
         );
+        assert_eq!(
+            scheduler
+                .get_job(exclusive_job_id)
+                .and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForGpu)
+        );
 
         scheduler.finish_job(shared_job_id);
         let prepared_after_finish = scheduler.prepare_jobs_for_execution();
         assert_eq!(prepared_after_finish.len(), 1);
         assert_eq!(prepared_after_finish[0].id, exclusive_job_id);
+        assert_eq!(scheduler.get_job(exclusive_job_id).unwrap().reason, None);
     }
 
     #[test]
@@ -584,6 +617,43 @@ mod tests {
             JobState::Running
         );
         assert_eq!(scheduler.available_memory_mb, total - 8 * 1024);
+    }
+
+    #[test]
+    fn test_job_wait_reason_distinguishes_host_memory_pressure() {
+        let mut scheduler = create_test_scheduler();
+
+        let first_job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .memory_limit_mb(Some(12 * 1024))
+            .build();
+        let (first_job_id, _) = scheduler.submit_job(first_job);
+        scheduler.prepare_jobs_for_execution();
+        assert_eq!(
+            scheduler.get_job(first_job_id).unwrap().state,
+            JobState::Running
+        );
+
+        let second_job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .memory_limit_mb(Some(8 * 1024))
+            .build();
+        let (second_job_id, _) = scheduler.submit_job(second_job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert!(prepared.is_empty());
+        assert_eq!(
+            scheduler.get_job(second_job_id).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+        assert_eq!(
+            scheduler
+                .get_job(second_job_id)
+                .and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForMemory)
+        );
     }
 
     #[test]

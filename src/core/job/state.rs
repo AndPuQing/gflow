@@ -75,6 +75,8 @@ pub enum JobStateReason {
     JobHeldUser,
     WaitingForDependency,
     WaitingForResources,
+    WaitingForGpu,
+    WaitingForMemory,
     CancelledByUser,
     DependencyFailed(u32),
     SystemError(CompactString),
@@ -86,6 +88,8 @@ impl fmt::Display for JobStateReason {
             JobStateReason::JobHeldUser => write!(f, "JobHeldUser"),
             JobStateReason::WaitingForDependency => write!(f, "Dependency"),
             JobStateReason::WaitingForResources => write!(f, "Resources"),
+            JobStateReason::WaitingForGpu => write!(f, "Resources(GPU)"),
+            JobStateReason::WaitingForMemory => write!(f, "Resources(Memory)"),
             JobStateReason::CancelledByUser => write!(f, "CancelledByUser"),
             JobStateReason::DependencyFailed(job_id) => {
                 write!(f, "DependencyFailed:{}", job_id)

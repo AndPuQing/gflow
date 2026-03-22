@@ -68,6 +68,12 @@ impl Scheduler {
         )
     }
 
+    fn set_job_reason(&mut self, job_id: u32, reason: Option<JobStateReason>) {
+        if let Some(rt) = self.get_job_runtime_mut(job_id) {
+            rt.reason = reason.map(Box::new);
+        }
+    }
+
     /// Prepare jobs for execution by allocating resources and marking them as Running
     ///
     /// # Warning
@@ -249,6 +255,7 @@ impl Scheduler {
                 let has_enough_gpus = requested_gpu_count as usize <= compatible_gpus.len();
 
                 if !has_enough_gpus {
+                    self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
                     continue;
                 }
 
@@ -328,8 +335,10 @@ impl Scheduler {
                     if let Some(rt) = self.job_runtimes.get_mut(idx) {
                         rt.gpu_ids = None;
                     }
+                    self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
                 }
             } else if !has_enough_memory {
+                self.set_job_reason(job_id, Some(JobStateReason::WaitingForMemory));
                 if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
@@ -338,7 +347,10 @@ impl Scheduler {
                         available_memory
                     );
                 }
+            } else if !within_group_limit {
+                self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
             } else if !respects_reservations {
+                self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
                 if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} blocked by active GPU reservations (user: {}, needs {} GPUs)",
@@ -478,6 +490,7 @@ impl Scheduler {
         self.state_jobs_index.clear();
         self.project_jobs_index.clear();
         self.dependency_graph.clear();
+        self.dependents_graph.clear();
         self.group_running_count.clear();
 
         self.check_invariant();
@@ -514,6 +527,19 @@ impl Scheduler {
                     }
                 }
                 self.dependency_graph.insert(rt.id, deps);
+                for dep in self
+                    .dependency_graph
+                    .get(&rt.id)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                {
+                    let entry = self.dependents_graph.entry(dep).or_default();
+                    match entry.binary_search(&rt.id) {
+                        Ok(_) => {}
+                        Err(pos) => entry.insert(pos, rt.id),
+                    }
+                }
             }
 
             // Rebuild group running count index.

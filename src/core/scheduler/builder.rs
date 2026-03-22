@@ -69,6 +69,7 @@ impl SchedulerBuilder {
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),
             dependency_graph: HashMap::new(),
+            dependents_graph: HashMap::new(),
             group_running_count: HashMap::new(),
             reservations: Vec::new(),
             next_reservation_id: 1,

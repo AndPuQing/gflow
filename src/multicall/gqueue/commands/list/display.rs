@@ -142,14 +142,7 @@ pub(super) fn get_job_reason_display(job: &gflow::core::job::Job) -> String {
     // Compute the reason based on state
     match job.state {
         JobState::Hold => format!("({})", JobStateReason::JobHeldUser),
-        JobState::Queued => {
-            let has_dependencies = job.depends_on.is_some() || !job.depends_on_ids.is_empty();
-            if has_dependencies {
-                format!("({})", JobStateReason::WaitingForDependency)
-            } else {
-                format!("({})", JobStateReason::WaitingForResources)
-            }
-        }
+        JobState::Queued => format!("({})", JobStateReason::WaitingForResources),
         JobState::Cancelled => "-".to_string(),
         _ => "-".to_string(),
     }

@@ -75,7 +75,9 @@ Jobs in certain states have an associated reason that provides more context:
 | State | Reason | Description |
 |-------|--------|-------------|
 | Queued | `WaitingForDependency` | Job is waiting for parent jobs to finish |
-| Queued | `WaitingForResources` | Job is waiting for available GPUs/memory |
+| Queued | `WaitingForGpu` (`Resources(GPU)`) | Job is waiting for available GPUs |
+| Queued | `WaitingForMemory` (`Resources(Memory)`) | Job is waiting for available host memory |
+| Queued | `WaitingForResources` | Job is waiting for other scheduler-managed resources/limits |
 | Hold | `JobHeldUser` | Job was put on hold by user request |
 | Cancelled | `CancelledByUser` | User explicitly cancelled the job |
 | Cancelled | `DependencyFailed:<job_id>` | Job was auto-cancelled because job `<job_id>` failed |
@@ -96,7 +98,9 @@ flowchart TD
 
     State -->|Queued| QueuedReason{Reason?}
     QueuedReason -->|WaitingForDependency| Dep[Check parent jobs<br/>gqueue -t]
-    QueuedReason -->|WaitingForResources| Res[Check resources<br/>ginfo]
+    QueuedReason -->|WaitingForGpu| GpuRes[Check GPU availability<br/>ginfo]
+    QueuedReason -->|WaitingForMemory| MemRes[Check host memory pressure<br/>gqueue --format JOBID,NAME,ST,MEMORY,NODELIST(REASON)]
+    QueuedReason -->|WaitingForResources| Res[Check reservations/group limits<br/>ginfo]
     Dep --> Recheck([Recheck later])
     Res --> Recheck
 

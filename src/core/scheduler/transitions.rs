@@ -1,6 +1,119 @@
 use super::*;
 
 impl Scheduler {
+    fn replace_job_dependencies_index(&mut self, job_id: u32, deps: Vec<u32>) {
+        if let Some(old_deps) = self.dependency_graph.remove(&job_id) {
+            for dep in old_deps {
+                if let Some(dependents) = self.dependents_graph.get_mut(&dep) {
+                    if let Ok(pos) = dependents.binary_search(&job_id) {
+                        dependents.remove(pos);
+                    }
+                    if dependents.is_empty() {
+                        self.dependents_graph.remove(&dep);
+                    }
+                }
+            }
+        }
+
+        if deps.is_empty() {
+            return;
+        }
+
+        self.dependency_graph.insert(job_id, deps.clone());
+        for dep in deps {
+            let entry = self.dependents_graph.entry(dep).or_default();
+            match entry.binary_search(&job_id) {
+                Ok(_) => {}
+                Err(pos) => entry.insert(pos, job_id),
+            }
+        }
+    }
+
+    fn are_dependencies_satisfied_now(&self, spec: &JobSpec) -> bool {
+        if spec.depends_on.is_none() && spec.depends_on_ids.is_empty() {
+            return true;
+        }
+
+        let mut dep_ids: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+        if let Some(dep) = spec.depends_on {
+            if !dep_ids.contains(&dep) {
+                dep_ids.push(dep);
+            }
+        }
+
+        match spec
+            .dependency_mode
+            .as_ref()
+            .unwrap_or(&DependencyMode::All)
+        {
+            DependencyMode::All => dep_ids.iter().all(|dep_id| {
+                self.get_job_runtime(*dep_id)
+                    .is_some_and(|rt| rt.state == JobState::Finished)
+            }),
+            DependencyMode::Any => dep_ids.iter().any(|dep_id| {
+                self.get_job_runtime(*dep_id)
+                    .is_some_and(|rt| rt.state == JobState::Finished)
+            }),
+        }
+    }
+
+    fn queued_dependency_reason_for_job(&self, job_id: u32) -> Option<JobStateReason> {
+        let (spec, rt) = self.get_job_parts(job_id)?;
+        if rt.state != JobState::Queued {
+            return None;
+        }
+
+        if self.are_dependencies_satisfied_now(spec) {
+            None
+        } else {
+            Some(JobStateReason::WaitingForDependency)
+        }
+    }
+
+    pub(crate) fn sync_queued_dependency_reason(&mut self, job_id: u32) {
+        let reason = self.queued_dependency_reason_for_job(job_id);
+        if let Some(rt) = self.get_job_runtime_mut(job_id) {
+            rt.reason = reason.map(Box::new);
+        }
+    }
+
+    fn refresh_dependency_reasons_for_dependents(&mut self, dependency_job_id: u32) {
+        let dependent_job_ids = self
+            .dependents_graph
+            .get(&dependency_job_id)
+            .cloned()
+            .unwrap_or_default();
+
+        for job_id in dependent_job_ids {
+            if self
+                .get_job_runtime(job_id)
+                .is_none_or(|rt| rt.state != JobState::Queued)
+            {
+                continue;
+            }
+
+            let desired_reason = self.queued_dependency_reason_for_job(job_id);
+            let current_reason = self
+                .get_job_runtime(job_id)
+                .and_then(|rt| rt.reason.as_deref().cloned());
+
+            let should_update = match desired_reason {
+                Some(JobStateReason::WaitingForDependency) => true,
+                None => {
+                    current_reason.is_none()
+                        || matches!(current_reason, Some(JobStateReason::WaitingForDependency))
+                }
+                Some(_) => false,
+            };
+
+            if should_update {
+                if let Some(rt) = self.get_job_runtime_mut(job_id) {
+                    rt.reason = desired_reason.map(Box::new);
+                }
+            }
+        }
+    }
+
     pub fn submit_job(&mut self, job: Job) -> (u32, String) {
         let job_id = self.next_job_id;
         self.next_job_id += 1;
@@ -43,19 +156,18 @@ impl Scheduler {
         self.update_project_jobs_index(job_id, None, spec.project.as_ref());
 
         // Update dependency graph only if job has dependencies.
-        if spec.depends_on.is_some() || !spec.depends_on_ids.is_empty() {
-            let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
-            if let Some(dep) = spec.depends_on {
-                if !deps.contains(&dep) {
-                    deps.push(dep);
-                }
+        let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
+        if let Some(dep) = spec.depends_on {
+            if !deps.contains(&dep) {
+                deps.push(dep);
             }
-            self.dependency_graph.insert(job_id, deps);
         }
 
         // Store split representation only (no large Vec<Job> in memory).
         self.job_specs.push(spec);
         self.job_runtimes.push(runtime);
+        self.replace_job_dependencies_index(job_id, deps);
+        self.sync_queued_dependency_reason(job_id);
         self.check_invariant();
 
         (job_id, run_name.into())
@@ -68,11 +180,7 @@ impl Scheduler {
     ///
     /// Scheduling itself uses `JobSpec` directly, so this cache is only for validation speed.
     pub fn set_job_dependencies(&mut self, job_id: u32, deps: Vec<u32>) {
-        if deps.is_empty() {
-            self.dependency_graph.remove(&job_id);
-        } else {
-            self.dependency_graph.insert(job_id, deps);
-        }
+        self.replace_job_dependencies_index(job_id, deps);
     }
 
     /// Update group_running_count index when a job transitions states
@@ -148,9 +256,7 @@ impl Scheduler {
                 _ => {}
             }
 
-            if let Some(reason) = reason {
-                rt.reason = Some(Box::new(reason));
-            }
+            rt.reason = reason.map(Box::new);
 
             rt.state = next;
             tracing::debug!("Job {} transitioned to {}", job_id, next);
@@ -176,18 +282,29 @@ impl Scheduler {
         // Attempt transition, but preserve the historical behavior of returning `Some(...)`
         // as long as the job exists.
         self.transition_job_state(job_id, JobState::Finished, None)?;
+        self.refresh_dependency_reasons_for_dependents(job_id);
 
         Some((should_close_tmux, run_name))
     }
 
     pub fn fail_job(&mut self, job_id: u32) -> bool {
-        self.transition_job_state(job_id, JobState::Failed, None)
-            .is_some()
+        let result = self
+            .transition_job_state(job_id, JobState::Failed, None)
+            .is_some();
+        if result {
+            self.refresh_dependency_reasons_for_dependents(job_id);
+        }
+        result
     }
 
     pub fn timeout_job(&mut self, job_id: u32) -> bool {
-        self.transition_job_state(job_id, JobState::Timeout, None)
-            .is_some()
+        let result = self
+            .transition_job_state(job_id, JobState::Timeout, None)
+            .is_some();
+        if result {
+            self.refresh_dependency_reasons_for_dependents(job_id);
+        }
+        result
     }
 
     /// Cancel a job and return run_name if it needs Ctrl-C (was Running)
@@ -206,6 +323,7 @@ impl Scheduler {
 
         let reason = reason.unwrap_or(JobStateReason::CancelledByUser);
         self.transition_job_state(job_id, JobState::Cancelled, Some(reason))?;
+        self.refresh_dependency_reasons_for_dependents(job_id);
 
         Some((was_running, run_name))
     }
@@ -216,8 +334,13 @@ impl Scheduler {
     }
 
     pub fn release_job(&mut self, job_id: u32) -> bool {
-        self.transition_job_state(job_id, JobState::Queued, None)
-            .is_some()
+        let result = self
+            .transition_job_state(job_id, JobState::Queued, None)
+            .is_some();
+        if result {
+            self.sync_queued_dependency_reason(job_id);
+        }
+        result
     }
 
     /// Resolve dependency shorthand to a job ID
@@ -354,24 +477,15 @@ impl Scheduler {
         // Process jobs in waves: cancel direct dependents, then their dependents, etc.
         while let Some(current_failed_id) = jobs_to_process.pop() {
             let dependent_job_ids: Vec<u32> = self
-                .job_runtimes
-                .iter()
-                .enumerate()
-                .filter(|(_, rt)| rt.state == JobState::Queued)
-                .filter_map(|(idx, rt)| {
-                    let spec = self.job_specs.get(idx)?;
-                    if !spec.auto_cancel_on_dependency_failure {
-                        return None;
-                    }
-
-                    // Fast dependency membership check without allocating.
-                    if spec.depends_on == Some(current_failed_id)
-                        || spec.depends_on_ids.contains(&current_failed_id)
-                    {
-                        Some(rt.id)
-                    } else {
-                        None
-                    }
+                .dependents_graph
+                .get(&current_failed_id)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|job_id| {
+                    self.get_job_parts(*job_id).is_some_and(|(spec, rt)| {
+                        rt.state == JobState::Queued && spec.auto_cancel_on_dependency_failure
+                    })
                 })
                 .collect();
 
