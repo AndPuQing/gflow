@@ -131,6 +131,28 @@ impl Client {
         error_body
     }
 
+    async fn post_expect_success(&self, path: String, action: &str) -> anyhow::Result<()> {
+        let response = self
+            .client
+            .post(path)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_msg = Self::extract_error_message(response).await;
+            let detail = if error_msg.trim().is_empty() {
+                status.to_string()
+            } else {
+                format!("{status}: {error_msg}")
+            };
+            return Err(anyhow!("Failed to {action}: {detail}"));
+        }
+
+        Ok(())
+    }
+
     /// List jobs with optional query parameters.
     ///
     /// If no parameters are provided, returns jobs from memory (active jobs only).
@@ -282,52 +304,47 @@ impl Client {
 
     pub async fn finish_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Finishing job {job_id}");
-        self.client
-            .post(format!("{}/jobs/{}/finish", self.base_url, job_id))
-            .send()
-            .await
-            .map_err(connection_error_context)?;
-        Ok(())
+        self.post_expect_success(
+            format!("{}/jobs/{}/finish", self.base_url, job_id),
+            "finish job",
+        )
+        .await
     }
 
     pub async fn fail_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Failing job {job_id}");
-        self.client
-            .post(format!("{}/jobs/{}/fail", self.base_url, job_id))
-            .send()
-            .await
-            .map_err(connection_error_context)?;
-        Ok(())
+        self.post_expect_success(
+            format!("{}/jobs/{}/fail", self.base_url, job_id),
+            "fail job",
+        )
+        .await
     }
 
     pub async fn cancel_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Cancelling job {job_id}");
-        self.client
-            .post(format!("{}/jobs/{}/cancel", self.base_url, job_id))
-            .send()
-            .await
-            .map_err(connection_error_context)?;
-        Ok(())
+        self.post_expect_success(
+            format!("{}/jobs/{}/cancel", self.base_url, job_id),
+            "cancel job",
+        )
+        .await
     }
 
     pub async fn hold_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Holding job {job_id}");
-        self.client
-            .post(format!("{}/jobs/{}/hold", self.base_url, job_id))
-            .send()
-            .await
-            .map_err(connection_error_context)?;
-        Ok(())
+        self.post_expect_success(
+            format!("{}/jobs/{}/hold", self.base_url, job_id),
+            "hold job",
+        )
+        .await
     }
 
     pub async fn release_job(&self, job_id: u32) -> anyhow::Result<()> {
         tracing::debug!("Releasing job {job_id}");
-        self.client
-            .post(format!("{}/jobs/{}/release", self.base_url, job_id))
-            .send()
-            .await
-            .map_err(connection_error_context)?;
-        Ok(())
+        self.post_expect_success(
+            format!("{}/jobs/{}/release", self.base_url, job_id),
+            "release job",
+        )
+        .await
     }
 
     pub async fn update_job(

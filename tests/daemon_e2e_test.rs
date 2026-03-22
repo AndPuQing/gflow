@@ -609,6 +609,23 @@ async fn custom_run_name_is_normalized_and_job_still_executes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelling_missing_job_returns_client_error() {
+    let Some(mut sandbox) = TestSandbox::new() else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let err = client.cancel_job(u32::MAX).await.unwrap_err();
+    assert!(err.to_string().contains("Failed to cancel job"));
+    assert!(err.to_string().contains("404"));
+
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_reports_recovery_mode_for_corrupt_state() {
     let Some(mut sandbox) = TestSandbox::new() else {
         return;
