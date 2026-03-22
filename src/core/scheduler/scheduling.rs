@@ -114,38 +114,29 @@ impl Scheduler {
             .filter_map(|slot| slot.total_memory_mb.map(|total_mb| (slot.index, total_mb)))
             .collect();
 
-        // Build finished jobs set by iterating only runtimes (hot data)
-        let finished_jobs: std::collections::HashSet<u32> = self
-            .job_runtimes
-            .iter()
-            .filter(|rt| rt.state == JobState::Finished)
-            .map(|rt| rt.id)
-            .collect();
-
-        // Collect and sort runnable jobs - iterate only runtimes (hot path)
-        let mut runnable_jobs: Vec<_> = self
-            .job_runtimes
-            .iter()
-            .enumerate()
-            .filter(|(_, rt)| rt.state == JobState::Queued)
-            .filter(|(idx, _rt)| {
-                // Access spec only when needed for dependency check
-                let spec = &self.job_specs[*idx];
-                Self::are_dependencies_satisfied_split(spec, &finished_jobs)
-            })
-            .map(|(_idx, rt)| rt.id)
-            .collect();
-
-        // Sort by priority - only access runtime fields (hot data)
-        runnable_jobs.sort_by_key(|job_id| {
-            let idx = (*job_id - 1) as usize;
-            if let Some(rt) = self.job_runtimes.get(idx) {
-                let time_bonus = Self::calculate_time_bonus(&rt.time_limit);
-                std::cmp::Reverse((rt.priority, time_bonus, std::cmp::Reverse(rt.id)))
-            } else {
-                std::cmp::Reverse((0, 0, std::cmp::Reverse(*job_id)))
+        let mut runnable_jobs = Vec::new();
+        let mut seen_ready_jobs = HashSet::new();
+        while let Some(entry) = self.ready_heap.pop() {
+            if !seen_ready_jobs.insert(entry.job_id) {
+                continue;
             }
-        });
+
+            let Some(rt) = self.get_job_runtime(entry.job_id) else {
+                continue;
+            };
+            let Some(dep_rt) = self.dependency_runtime(entry.job_id) else {
+                continue;
+            };
+
+            if rt.state != JobState::Queued
+                || dep_rt.ready_epoch != entry.epoch
+                || !dep_rt.deps_satisfied
+            {
+                continue;
+            }
+
+            runnable_jobs.push(entry.job_id);
+        }
 
         // Allocate resources for runnable jobs
         let mut available_memory = self.available_memory_mb;
@@ -256,6 +247,7 @@ impl Scheduler {
 
                 if !has_enough_gpus {
                     self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
+                    self.enqueue_if_ready(job_id);
                     continue;
                 }
 
@@ -336,9 +328,11 @@ impl Scheduler {
                         rt.gpu_ids = None;
                     }
                     self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
+                    self.enqueue_if_ready(job_id);
                 }
             } else if !has_enough_memory {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForMemory));
+                self.enqueue_if_ready(job_id);
                 if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} waiting for memory: needs {}MB, available {}MB",
@@ -349,8 +343,10 @@ impl Scheduler {
                 }
             } else if !within_group_limit {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
+                self.enqueue_if_ready(job_id);
             } else if !respects_reservations {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
+                self.enqueue_if_ready(job_id);
                 if let Some(rt) = self.job_runtimes.get(idx) {
                     tracing::debug!(
                         "Job {} blocked by active GPU reservations (user: {}, needs {} GPUs)",
@@ -489,8 +485,9 @@ impl Scheduler {
         self.user_jobs_index.clear();
         self.state_jobs_index.clear();
         self.project_jobs_index.clear();
-        self.dependency_graph.clear();
         self.dependents_graph.clear();
+        self.dependency_runtimes = vec![DependencyRuntime::default(); self.job_specs.len()];
+        self.ready_heap.clear();
         self.group_running_count.clear();
 
         self.check_invariant();
@@ -518,36 +515,28 @@ impl Scheduler {
                     .push(rt.id);
             }
 
-            // Rebuild dependency graph.
-            if spec.depends_on.is_some() || !spec.depends_on_ids.is_empty() {
-                let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
-                if let Some(dep) = spec.depends_on {
-                    if !deps.contains(&dep) {
-                        deps.push(dep);
-                    }
-                }
-                self.dependency_graph.insert(rt.id, deps);
-                for dep in self
-                    .dependency_graph
-                    .get(&rt.id)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                {
-                    let entry = self.dependents_graph.entry(dep).or_default();
-                    match entry.binary_search(&rt.id) {
-                        Ok(_) => {}
-                        Err(pos) => entry.insert(pos, rt.id),
-                    }
-                }
-            }
-
             // Rebuild group running count index.
             if rt.state == JobState::Running {
                 if let Some(group_id) = rt.group_id {
                     *self.group_running_count.entry(group_id).or_insert(0) += 1;
                 }
             }
+        }
+
+        let job_ids: Vec<u32> = self.job_runtimes.iter().map(|rt| rt.id).collect();
+        for job_id in &job_ids {
+            let Some(spec) = self.get_job_spec(*job_id) else {
+                continue;
+            };
+            let deps = Self::normalized_dependency_ids(spec);
+            self.insert_job_dependencies_index(*job_id, &deps);
+        }
+
+        for job_id in job_ids {
+            let dep_rt = self.build_dependency_runtime(job_id);
+            self.set_dependency_runtime(job_id, dep_rt);
+            self.sync_queued_dependency_reason(job_id);
+            self.enqueue_if_ready(job_id);
         }
     }
 

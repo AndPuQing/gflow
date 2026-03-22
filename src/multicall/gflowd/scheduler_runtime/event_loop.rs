@@ -7,11 +7,6 @@ use tracing::Instrument;
 pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus>) {
     // Spawn all event handlers and monitors
     let handles = vec![
-        // Cascade handler - reacts to job failures/cancellations
-        tokio::spawn(
-            cascade_handler(event_bus.subscribe(), Arc::clone(&shared_state))
-                .instrument(tracing::info_span!("cascade_handler_task")),
-        ),
         // Scheduler trigger handler with debouncing
         tokio::spawn(
             scheduler_trigger_handler_with_debounce(
@@ -69,53 +64,6 @@ pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus
     for handle in handles {
         if let Err(e) = handle.await {
             tracing::error!(error = ?e, "Event handler task panicked");
-        }
-    }
-}
-
-/// Cascade handler - reacts to job failures/cancellations and triggers cascade cancellation
-async fn cascade_handler(
-    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
-    state: SharedState,
-) {
-    loop {
-        match events.recv().await {
-            Ok(event) => {
-                let handling_span = event.handling_span("cascade_handler");
-                let _entered = handling_span.enter();
-                if let SchedulerEvent::JobCompleted {
-                    job_id,
-                    final_state,
-                    ..
-                } = event.event
-                {
-                    // Only trigger cascade for failed, cancelled, or timed out jobs
-                    if matches!(
-                        final_state,
-                        JobState::Failed | JobState::Cancelled | JobState::Timeout
-                    ) {
-                        let mut state_guard = state.write().await;
-                        let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
-                        if !cancelled.is_empty() {
-                            tracing::info!(
-                                job_id,
-                                final_state = ?final_state,
-                                cancelled_count = cancelled.len(),
-                                cancelled_jobs = ?cancelled,
-                                "Auto-cancelled dependent jobs"
-                            );
-                            state_guard.mark_dirty();
-                        }
-                    }
-                }
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!(skipped, "Cascade handler lagged");
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                tracing::info!("Event bus closed, cascade handler exiting");
-                break;
-            }
         }
     }
 }

@@ -9,7 +9,8 @@ use crate::core::job::{
 use crate::core::reservation::{GpuReservation, ReservationStatus};
 use compact_str::{format_compact, CompactString};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -27,6 +28,47 @@ mod scheduling;
 mod transitions;
 
 pub use builder::SchedulerBuilder;
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DependencyRuntime {
+    pub total: u32,
+    pub success: u32,
+    pub terminal_non_success: u32,
+    pub deps_satisfied: bool,
+    pub impossible: bool,
+    pub ready_epoch: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReadyEntry {
+    pub job_id: u32,
+    pub epoch: u64,
+    pub priority: u8,
+    pub time_bonus: u32,
+}
+
+impl Ord for ReadyEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (
+            self.priority,
+            self.time_bonus,
+            std::cmp::Reverse(self.job_id),
+            self.epoch,
+        )
+            .cmp(&(
+                other.priority,
+                other.time_bonus,
+                std::cmp::Reverse(other.job_id),
+                other.epoch,
+            ))
+    }
+}
+
+impl PartialOrd for ReadyEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// Core scheduler with dependency injection for execution strategy
 #[derive(Serialize)]
@@ -68,14 +110,16 @@ pub struct Scheduler {
     /// Maps project -> sorted list of job IDs (ascending order)
     #[serde(skip)]
     pub(crate) project_jobs_index: HashMap<CompactString, Vec<u32>>,
-    /// Dependency graph for fast circular dependency validation
-    /// Maps job_id -> list of dependency job IDs
-    #[serde(skip)]
-    pub(crate) dependency_graph: HashMap<u32, Vec<u32>>,
     /// Reverse dependency graph for fast dependent lookup
     /// Maps dependency job ID -> sorted list of dependent job IDs
     #[serde(skip)]
     pub(crate) dependents_graph: HashMap<u32, Vec<u32>>,
+    /// Runtime dependency state aligned with job IDs (job_id - 1).
+    #[serde(skip)]
+    pub(crate) dependency_runtimes: Vec<DependencyRuntime>,
+    /// Heap of queued jobs whose dependencies are already satisfied.
+    #[serde(skip)]
+    pub(crate) ready_heap: BinaryHeap<ReadyEntry>,
     /// Index of running job counts by group_id for O(1) group concurrency checks
     /// Maps group_id -> count of running jobs in that group
     #[serde(skip)]
@@ -773,15 +817,9 @@ mod tests {
             .build();
         let (job_b_id, _) = scheduler.submit_job(job_b);
 
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
         // Fail job A
         scheduler.fail_job(job_a_id);
-
-        // Auto-cancel dependent jobs
-        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
-
-        // Job B should be cancelled
-        assert_eq!(cancelled.len(), 1);
-        assert!(cancelled.contains(&job_b_id));
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().state,
             JobState::Cancelled
@@ -821,16 +859,9 @@ mod tests {
             .build();
         let (job_c_id, _) = scheduler.submit_job(job_c);
 
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
         // Fail job A
         scheduler.fail_job(job_a_id);
-
-        // Auto-cancel dependent jobs (should cancel both B and C)
-        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
-
-        // Both B and C should be cancelled
-        assert_eq!(cancelled.len(), 2);
-        assert!(cancelled.contains(&job_b_id));
-        assert!(cancelled.contains(&job_c_id));
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().state,
             JobState::Cancelled
@@ -892,18 +923,9 @@ mod tests {
             .build();
         let (job_e_id, _) = scheduler.submit_job(job_e);
 
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
         // Fail job A
         scheduler.fail_job(job_a_id);
-
-        // Auto-cancel dependent jobs (should cancel B, C, D, E)
-        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
-
-        // All downstream jobs should be cancelled
-        assert_eq!(cancelled.len(), 4);
-        assert!(cancelled.contains(&job_b_id));
-        assert!(cancelled.contains(&job_c_id));
-        assert!(cancelled.contains(&job_d_id));
-        assert!(cancelled.contains(&job_e_id));
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().state,
             JobState::Cancelled
@@ -942,14 +964,9 @@ mod tests {
             .build();
         let (job_b_id, _) = scheduler.submit_job(job_b);
 
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
         // Fail job A
         scheduler.fail_job(job_a_id);
-
-        // Auto-cancel dependent jobs
-        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
-
-        // Job B should NOT be cancelled
-        assert_eq!(cancelled.len(), 0);
         assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
     }
 
@@ -982,20 +999,51 @@ mod tests {
             .build();
         let (job_c_id, _) = scheduler.submit_job(job_c);
 
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
         // Fail job A
         scheduler.fail_job(job_a_id);
-
-        // Auto-cancel dependent jobs
-        let cancelled = scheduler.auto_cancel_dependent_jobs(job_a_id);
-
-        // Only B should be cancelled, not C (because C has auto_cancel disabled)
-        assert_eq!(cancelled.len(), 1);
-        assert!(cancelled.contains(&job_b_id));
         assert_eq!(
             scheduler.get_job(job_b_id).unwrap().state,
             JobState::Cancelled
         );
         assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_auto_cancel_waits_for_any_mode_to_become_impossible() {
+        let mut scheduler = create_test_scheduler();
+
+        let job_a = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let job_c = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id, job_b_id])
+            .dependency_mode(Some(DependencyMode::Any))
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        scheduler.transition_job_state(job_a_id, JobState::Running, None);
+        scheduler.fail_job(job_a_id);
+        assert_eq!(scheduler.get_job(job_c_id).unwrap().state, JobState::Queued);
+
+        scheduler.transition_job_state(job_b_id, JobState::Running, None);
+        scheduler.fail_job(job_b_id);
+        assert_eq!(
+            scheduler.get_job(job_c_id).unwrap().state,
+            JobState::Cancelled
+        );
     }
 
     #[test]

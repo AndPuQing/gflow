@@ -425,7 +425,6 @@ impl SchedulerRuntime {
 
         let result = self.scheduler.fail_job(job_id);
         if result {
-            // Note: Cascade cancellation is now handled by the cascade_handler event handler
             self.mark_dirty();
 
             // Disable PipePane to prevent process leaks (keep session alive for user inspection)
@@ -438,7 +437,6 @@ impl SchedulerRuntime {
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
         if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id, None) {
-            // Note: Cascade cancellation is now handled by the cascade_handler event handler
             self.mark_dirty();
 
             // If the job was running, send Ctrl-C to gracefully interrupt it, then disable PipePane
@@ -491,6 +489,7 @@ impl SchedulerRuntime {
         request: super::server::UpdateJobRequest,
     ) -> Result<(Job, Vec<String>), String> {
         let mut updated_fields = Vec::new();
+        let old_deps = self.scheduler.dependency_ids_for_job(job_id);
 
         // Validate the update first
         let new_deps = request.depends_on_ids.as_deref();
@@ -584,21 +583,24 @@ impl SchedulerRuntime {
             }
         };
 
-        // Keep scheduler dependency graph in sync if dependencies changed.
-        if updated_fields
-            .iter()
-            .any(|f| f == "depends_on_ids" || f == "dependency_mode")
-        {
-            if let Some((spec, _rt)) = self.scheduler.get_job_parts(job_id) {
-                let mut deps: Vec<u32> = spec.depends_on_ids.iter().copied().collect();
-                if let Some(dep) = spec.depends_on {
-                    if !deps.contains(&dep) {
-                        deps.push(dep);
-                    }
-                }
-                self.scheduler.set_job_dependencies(job_id, deps);
-            }
-            self.scheduler.sync_queued_dependency_reason(job_id);
+        let dependencies_changed = updated_fields.iter().any(|f| f == "depends_on_ids");
+        let affects_ready_queue = updated_fields.iter().any(|f| {
+            matches!(
+                f.as_str(),
+                "depends_on_ids"
+                    | "dependency_mode"
+                    | "auto_cancel_on_dependency_failure"
+                    | "priority"
+                    | "time_limit"
+            )
+        });
+
+        if dependencies_changed {
+            let new_deps = self.scheduler.dependency_ids_for_job(job_id);
+            self.scheduler
+                .replace_job_dependencies(job_id, old_deps, new_deps);
+        } else if affects_ready_queue {
+            self.scheduler.refresh_job_readiness(job_id);
         }
 
         // Mark state as dirty for persistence

@@ -6,7 +6,7 @@
 #![allow(deprecated)]
 
 use gflow::core::executor::Executor;
-use gflow::core::job::{DependencyIds, Job, JobBuilder, JobState};
+use gflow::core::job::{DependencyIds, Job, JobBuilder, JobState, JobStateReason};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::core::GPUSlot;
 use smallvec::smallvec;
@@ -326,7 +326,14 @@ fn test_dependency_not_started_if_parent_failed() {
     // Job B should not run because A failed
     let results = scheduler.schedule_jobs();
     assert_eq!(results.len(), 0);
-    assert_eq!(scheduler.get_job(job_b_id).unwrap().state, JobState::Queued);
+    assert_eq!(
+        scheduler.get_job(job_b_id).unwrap().state,
+        JobState::Cancelled
+    );
+    assert_eq!(
+        scheduler.get_job(job_b_id).unwrap().reason,
+        Some(Box::new(JobStateReason::DependencyFailed(job_a_id)))
+    );
 }
 
 // ============================================================================
@@ -700,9 +707,6 @@ fn test_cascade_redo_dependency_chain() {
     // Fail Job 1 - this should cascade cancel Job 2 and Job 3
     scheduler.fail_job(job1_id);
     assert_eq!(scheduler.get_job(job1_id).unwrap().state, JobState::Failed);
-
-    // Trigger auto-cancellation
-    scheduler.auto_cancel_dependent_jobs(job1_id);
 
     // Verify cascade cancellation
     assert_eq!(

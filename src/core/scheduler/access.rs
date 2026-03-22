@@ -136,6 +136,11 @@ impl Scheduler {
             self.job_runtimes.len(),
             "job_specs and job_runtimes must have same length"
         );
+        debug_assert!(
+            self.dependency_runtimes.is_empty()
+                || self.dependency_runtimes.len() == self.job_runtimes.len(),
+            "dependency_runtimes must be empty or aligned with job_runtimes"
+        );
     }
 
     /// Total jobs stored in the scheduler.

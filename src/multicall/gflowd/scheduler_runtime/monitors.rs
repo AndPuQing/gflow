@@ -192,17 +192,6 @@ pub(super) async fn timeout_handler_task(
                 // Update job state (write lock)
                 let mut state_guard = state.write().await;
                 if state_guard.scheduler.timeout_job(job_id) {
-                    // Auto-cancel dependent jobs
-                    let cancelled = state_guard.scheduler.auto_cancel_dependent_jobs(job_id);
-                    if !cancelled.is_empty() {
-                        tracing::info!(
-                            job_id,
-                            cancelled_count = cancelled.len(),
-                            cancelled_jobs = ?cancelled,
-                            "Auto-cancelled dependent jobs due to timeout"
-                        );
-                    }
-
                     state_guard.mark_dirty();
                 }
                 drop(state_guard); // Release lock before disabling PipePane
