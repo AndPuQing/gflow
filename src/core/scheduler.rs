@@ -544,6 +544,49 @@ mod tests {
     }
 
     #[test]
+    fn test_prepare_jobs_refreshes_memory_after_finished_job() {
+        let mut scheduler = create_test_scheduler();
+        let total = scheduler.total_memory_mb;
+
+        let first_job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .memory_limit_mb(Some(12 * 1024))
+            .build();
+        let (first_job_id, _) = scheduler.submit_job(first_job);
+
+        let first_results = scheduler.prepare_jobs_for_execution();
+        assert_eq!(first_results.len(), 1);
+        assert_eq!(
+            scheduler.get_job(first_job_id).unwrap().state,
+            JobState::Running
+        );
+        assert_eq!(scheduler.available_memory_mb, total - 12 * 1024);
+
+        scheduler.finish_job(first_job_id).unwrap();
+        assert_eq!(
+            scheduler.get_job(first_job_id).unwrap().state,
+            JobState::Finished
+        );
+
+        let second_job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .memory_limit_mb(Some(8 * 1024))
+            .build();
+        let (second_job_id, _) = scheduler.submit_job(second_job);
+
+        let second_results = scheduler.prepare_jobs_for_execution();
+        assert_eq!(second_results.len(), 1);
+        assert_eq!(second_results[0].id, second_job_id);
+        assert_eq!(
+            scheduler.get_job(second_job_id).unwrap().state,
+            JobState::Running
+        );
+        assert_eq!(scheduler.available_memory_mb, total - 8 * 1024);
+    }
+
+    #[test]
     fn test_state_jobs_index_updates_on_transitions() {
         let mut scheduler = create_test_scheduler();
 

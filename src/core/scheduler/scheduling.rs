@@ -94,6 +94,9 @@ impl Scheduler {
     pub fn prepare_jobs_for_execution(&mut self) -> Vec<Job> {
         // Update reservation statuses first
         self.update_reservation_statuses();
+        // Recompute host RAM from currently running jobs before making new decisions.
+        // Without this, finished/cancelled jobs can leave stale memory pressure behind.
+        self.refresh_available_memory();
 
         let mut job_ids_to_execute = Vec::new();
         let available_gpus = self.get_available_gpu_slots();
