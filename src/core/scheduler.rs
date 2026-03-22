@@ -282,6 +282,126 @@ mod tests {
             Some(JobStateReason::WaitingForDependency)
         );
     }
+    #[test]
+    fn test_dependency_update_refresh_uses_wavefront_for_deep_queued_chain() {
+        let mut scheduler = create_test_scheduler();
+
+        let job_a = create_test_job("test");
+        let (job_a_id, _) = scheduler.submit_job(job_a);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_a_id])
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let job_c = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_id])
+            .build();
+        let (job_c_id, _) = scheduler.submit_job(job_c);
+
+        let initial_epoch_c = scheduler
+            .dependency_runtime(job_c_id)
+            .map(|dep_rt| dep_rt.ready_epoch)
+            .unwrap();
+
+        let job_b_idx = (job_b_id - 1) as usize;
+        scheduler.job_specs[job_b_idx].depends_on = None;
+        scheduler.job_specs[job_b_idx].depends_on_ids.clear();
+        scheduler.replace_job_dependencies(job_b_id, vec![job_a_id], vec![]);
+
+        assert_eq!(
+            scheduler
+                .get_job(job_b_id)
+                .and_then(|j| j.reason.map(|r| *r)),
+            None
+        );
+        assert_eq!(
+            scheduler
+                .dependency_runtime(job_c_id)
+                .map(|dep_rt| dep_rt.ready_epoch)
+                .unwrap(),
+            initial_epoch_c + 1
+        );
+        assert_eq!(
+            scheduler
+                .get_job(job_c_id)
+                .and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForDependency)
+        );
+    }
+
+    #[test]
+    fn test_terminal_dependency_propagation_keeps_ready_entry_valid() {
+        let mut scheduler = create_test_scheduler();
+
+        let parent = create_test_job("test");
+        let (parent_id, _) = scheduler.submit_job(parent);
+
+        let child = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![parent_id])
+            .build();
+        let (child_id, _) = scheduler.submit_job(child);
+
+        scheduler.transition_job_state(parent_id, JobState::Running, None);
+        scheduler.finish_job(parent_id);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, child_id);
+        assert_eq!(
+            scheduler.get_job(child_id).map(|j| j.state),
+            Some(JobState::Running)
+        );
+    }
+
+    #[test]
+    fn test_wavefront_refresh_requeues_already_ready_any_mode_job() {
+        let mut scheduler = create_test_scheduler();
+
+        let job_b_parent = create_test_job("test");
+        let (job_b_parent_id, _) = scheduler.submit_job(job_b_parent);
+
+        let job_b = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_parent_id])
+            .build();
+        let (job_b_id, _) = scheduler.submit_job(job_b);
+
+        let job_x = create_test_job("test");
+        let (job_x_id, _) = scheduler.submit_job(job_x);
+        scheduler.transition_job_state(job_x_id, JobState::Running, None);
+        scheduler.finish_job(job_x_id);
+
+        let job_d = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![job_b_id, job_x_id])
+            .dependency_mode(Some(DependencyMode::Any))
+            .build();
+        let (job_d_id, _) = scheduler.submit_job(job_d);
+
+        assert_eq!(
+            scheduler
+                .dependency_runtime(job_d_id)
+                .map(|dep_rt| dep_rt.deps_satisfied),
+            Some(true)
+        );
+
+        let job_b_idx = (job_b_id - 1) as usize;
+        scheduler.job_specs[job_b_idx].depends_on = None;
+        scheduler.job_specs[job_b_idx].depends_on_ids.clear();
+        scheduler.replace_job_dependencies(job_b_id, vec![job_b_parent_id], vec![]);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert!(prepared.iter().any(|job| job.id == job_d_id));
+    }
 
     #[test]
     fn test_gpu_allocation_strategy_sequential_uses_lowest_indices_first() {

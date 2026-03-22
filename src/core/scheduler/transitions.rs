@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::VecDeque;
 
 impl Scheduler {
     pub(super) fn normalized_dependency_ids(spec: &JobSpec) -> Vec<u32> {
@@ -225,10 +226,12 @@ impl Scheduler {
         })
     }
 
-    pub(crate) fn refresh_job_readiness(&mut self, job_id: u32) {
+    fn refresh_single_job_readiness(&mut self, job_id: u32) -> bool {
         if !self.job_exists(job_id) {
-            return;
+            return false;
         }
+
+        let old_reason = self.queued_dependency_reason_for_job(job_id);
 
         self.bump_ready_epoch(job_id);
         let dep_rt = self.build_dependency_runtime(job_id);
@@ -250,10 +253,58 @@ impl Scheduler {
                 JobState::Cancelled,
                 Some(JobStateReason::DependencyFailed(failed_dep)),
             );
+            return true;
+        }
+
+        if self
+            .dependency_runtime(job_id)
+            .is_some_and(|dep_rt| dep_rt.deps_satisfied)
+        {
+            self.enqueue_if_ready(job_id);
+        }
+
+        self.queued_dependency_reason_for_job(job_id) != old_reason
+    }
+
+    fn refresh_queued_dependency_reason_wavefront(&mut self, source_job_id: u32) {
+        let mut queue = VecDeque::from([source_job_id]);
+        let mut seen = HashSet::new();
+
+        while let Some(current_job_id) = queue.pop_front() {
+            if !seen.insert(current_job_id) {
+                continue;
+            }
+
+            let dependent_job_ids = self
+                .dependents_graph
+                .get(&current_job_id)
+                .cloned()
+                .unwrap_or_default();
+
+            for job_id in dependent_job_ids {
+                let is_queued = self
+                    .get_job_runtime(job_id)
+                    .is_some_and(|rt| rt.state == JobState::Queued);
+                if !is_queued {
+                    continue;
+                }
+
+                if self.refresh_single_job_readiness(job_id) {
+                    queue.push_back(job_id);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn refresh_job_readiness(&mut self, job_id: u32) {
+        if !self.job_exists(job_id) {
             return;
         }
 
-        self.enqueue_if_ready(job_id);
+        let reason_changed = self.refresh_single_job_readiness(job_id);
+        if reason_changed {
+            self.refresh_queued_dependency_reason_wavefront(job_id);
+        }
     }
 
     fn propagate_terminal_state_to_dependents(
@@ -484,7 +535,7 @@ impl Scheduler {
             match next {
                 JobState::Queued => self.refresh_job_readiness(job_id),
                 JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout => {
-                    self.propagate_terminal_state_to_dependents(job_id, next)
+                    self.propagate_terminal_state_to_dependents(job_id, next);
                 }
                 JobState::Hold | JobState::Running => {}
             }
