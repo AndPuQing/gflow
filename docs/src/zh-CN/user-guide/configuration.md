@@ -278,4 +278,5 @@ port = 59001
 
 - [安装](../getting-started/installation) - 初始设置
 - [快速开始](../getting-started/quick-start) - 基本用法
+- [多用户使用](./multi-user) - 共享调度器使用方式
 - [GPU 管理](./gpu-management) - GPU 分配

@@ -75,4 +75,5 @@ Next:
 - [Job Dependencies](../user-guide/job-dependencies)
 - [GPU Management](../user-guide/gpu-management)
 - [Configuration](../user-guide/configuration)
+- [Multi-User Usage](../user-guide/multi-user)
 - [Quick Reference](../reference/quick-reference)

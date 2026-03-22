@@ -78,6 +78,10 @@ export default defineConfig({
                                 link: "/user-guide/configuration",
                             },
                             {
+                                text: "Multi-User Usage",
+                                link: "/user-guide/multi-user",
+                            },
+                            {
                                 text: "Tips",
                                 link: "/user-guide/tips",
                             },
@@ -206,6 +210,10 @@ export default defineConfig({
                             {
                                 text: "配置",
                                 link: "/zh-CN/user-guide/configuration",
+                            },
+                            {
+                                text: "多用户使用",
+                                link: "/zh-CN/user-guide/multi-user",
                             },
                             {
                                 text: "实用技巧",

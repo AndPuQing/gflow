@@ -278,4 +278,5 @@ port = 59001
 
 - [Installation](../getting-started/installation) - Initial setup
 - [Quick Start](../getting-started/quick-start) - Basic usage
+- [Multi-User Usage](./multi-user) - Shared scheduler setup
 - [GPU Management](./gpu-management) - GPU allocation

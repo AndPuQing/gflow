@@ -73,4 +73,5 @@ gflowd down
 - [任务依赖](../user-guide/job-dependencies)
 - [GPU 管理](../user-guide/gpu-management)
 - [配置](../user-guide/configuration)
+- [多用户使用](../user-guide/multi-user)
 - [命令速查](../reference/quick-reference)
