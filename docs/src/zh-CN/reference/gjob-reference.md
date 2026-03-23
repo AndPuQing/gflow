@@ -18,6 +18,12 @@ gjob show 42
 # 输出最近一次任务的日志
 gjob log @
 
+# 只看前 20 行日志
+gjob log @ --first 20
+
+# 只看后 50 行日志
+gjob log 42 --last 50
+
 # 连接到正在运行任务的 tmux 会话
 gjob attach @
 
@@ -59,10 +65,15 @@ gjob attach <job>
 别名：`gjob l`
 
 ```bash
-gjob log <job>
+gjob log <job> [options]
 ```
 
 `<job>` 支持数字任务 ID，或用 `@` 表示最近一次任务。
+
+选项：
+
+- `-f, --first <lines>`：只输出前 N 行
+- `-l, --last <lines>`：只输出后 N 行
 
 ### `gjob hold <job_ids>`
 

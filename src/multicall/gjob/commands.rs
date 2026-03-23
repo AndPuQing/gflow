@@ -18,8 +18,8 @@ pub async fn handle_commands(
         Commands::Attach { job } => {
             attach::handle_attach(config_path, &job).await?;
         }
-        Commands::Log { job } => {
-            log::handle_log(config_path, &job).await?;
+        Commands::Log { job, first, last } => {
+            log::handle_log(config_path, &job, first, last).await?;
         }
         Commands::Hold { job } => {
             hold::handle_hold(config_path, job).await?;

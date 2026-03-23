@@ -86,8 +86,11 @@ pub struct JobIdRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetJobLogRequest {
     pub job_id: u32,
+    /// Return only the first N lines.
+    pub first_lines: Option<usize>,
     /// Return only the last N lines.
-    pub tail_lines: Option<usize>,
+    #[serde(alias = "tail_lines")]
+    pub last_lines: Option<usize>,
     /// Truncate to the last N bytes.
     pub max_bytes: Option<usize>,
 }
@@ -455,11 +458,8 @@ impl GflowMcpServer {
                 err
             ))
         })?;
-        let cleaned = slice_text(
-            clean_terminal_output(&raw),
-            params.tail_lines,
-            params.max_bytes,
-        );
+        let slice = resolve_log_slice(&params).map_err(stringify_error)?;
+        let cleaned = slice_text(clean_terminal_output(&raw), slice, params.max_bytes);
         let program_output = extract_likely_program_output(&cleaned, &job);
 
         structured_response(json!({
@@ -1003,20 +1003,48 @@ fn stringify_error(err: anyhow::Error) -> rmcp::ErrorData {
     rmcp::ErrorData::internal_error(err.to_string(), None)
 }
 
-fn slice_text(text: String, tail_lines: Option<usize>, max_bytes: Option<usize>) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextSlice {
+    Full,
+    First(usize),
+    Last(usize),
+}
+
+fn resolve_log_slice(params: &GetJobLogRequest) -> anyhow::Result<TextSlice> {
+    match (params.first_lines, params.last_lines) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("get_job_log accepts only one of first_lines or last_lines")
+        }
+        (Some(lines), None) => Ok(TextSlice::First(lines)),
+        (None, Some(lines)) => Ok(TextSlice::Last(lines)),
+        (None, None) => Ok(TextSlice::Full),
+    }
+}
+
+fn slice_text(text: String, slice: TextSlice, max_bytes: Option<usize>) -> String {
     let mut output = text;
 
-    if let Some(tail_lines) = tail_lines {
-        let lines: Vec<_> = output.lines().collect();
-        output = lines
-            .into_iter()
-            .rev()
-            .take(tail_lines)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n");
+    match slice {
+        TextSlice::Full => {}
+        TextSlice::First(first_lines) => {
+            output = output
+                .lines()
+                .take(first_lines)
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+        TextSlice::Last(last_lines) => {
+            let lines: Vec<_> = output.lines().collect();
+            output = lines
+                .into_iter()
+                .rev()
+                .take(last_lines)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
     }
 
     if let Some(max_bytes) = max_bytes {
@@ -1150,9 +1178,9 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 mod tests {
     use super::{
         build_submit_job, build_update_request, expand_submit_job_requests, resolve_list_jobs_page,
-        serialize_list_job, GflowMcpServer, ListJobsDetailInput, ListJobsOrderInput,
-        ListJobsOutput, ListJobsRequest, SubmitJobRequest, UpdateJobToolRequest,
-        DEFAULT_MCP_LIST_JOBS_LIMIT,
+        resolve_log_slice, serialize_list_job, slice_text, GetJobLogRequest, GflowMcpServer,
+        ListJobsDetailInput, ListJobsOrderInput, ListJobsOutput, ListJobsRequest, SubmitJobRequest,
+        TextSlice, UpdateJobToolRequest, DEFAULT_MCP_LIST_JOBS_LIMIT,
     };
     use gflow::core::job::{JobBuilder, JobState, JobStateReason};
     use schemars::schema_for;
@@ -1419,6 +1447,72 @@ mod tests {
                 "missing list_jobs output field in schema: {field}"
             );
         }
+    }
+
+    #[test]
+    fn get_job_log_supports_first_lines() {
+        let slice = resolve_log_slice(&GetJobLogRequest {
+            job_id: 7,
+            first_lines: Some(10),
+            last_lines: None,
+            max_bytes: None,
+        })
+        .expect("first_lines should resolve");
+
+        assert_eq!(slice, TextSlice::First(10));
+    }
+
+    #[test]
+    fn get_job_log_accepts_tail_lines_as_deprecated_alias() {
+        let params: GetJobLogRequest = serde_json::from_value(serde_json::json!({
+            "job_id": 7,
+            "tail_lines": 25
+        }))
+        .expect("tail_lines alias should deserialize");
+        let slice = resolve_log_slice(&params).expect("tail_lines alias should resolve");
+
+        assert_eq!(slice, TextSlice::Last(25));
+    }
+
+    #[test]
+    fn get_job_log_rejects_conflicting_line_slice_options() {
+        let err = resolve_log_slice(&GetJobLogRequest {
+            job_id: 7,
+            first_lines: Some(10),
+            last_lines: Some(20),
+            max_bytes: None,
+        })
+        .expect_err("conflicting options should fail");
+
+        assert!(err
+            .to_string()
+            .contains("only one of first_lines or last_lines"));
+    }
+
+    #[test]
+    fn get_job_log_schema_hides_deprecated_tail_lines_field() {
+        let schema = schema_for!(GetJobLogRequest);
+        let schema_json = serde_json::to_value(&schema).expect("schema should serialize");
+        let properties = schema_json
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("schema should expose properties");
+
+        assert!(properties.contains_key("first_lines"));
+        assert!(properties.contains_key("last_lines"));
+        assert!(!properties.contains_key("tail_lines"));
+    }
+
+    #[test]
+    fn slice_text_can_take_first_lines() {
+        let output = slice_text("a\nb\nc\nd".to_string(), TextSlice::First(2), None);
+        assert_eq!(output, "a\nb");
+    }
+
+    #[test]
+    fn slice_text_can_take_last_lines() {
+        let output = slice_text("a\nb\nc\nd".to_string(), TextSlice::Last(2), None);
+        assert_eq!(output, "c\nd");
     }
 
     #[test]
