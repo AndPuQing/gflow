@@ -174,6 +174,7 @@ pub async fn handle_update(
             dependency_mode: parsed_dependency_mode,
             auto_cancel_on_dependency_failure: parsed_auto_cancel,
             max_concurrent: parsed_max_concurrent,
+            notifications: None,
         };
 
         // Update the job

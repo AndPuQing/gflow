@@ -581,6 +581,11 @@ impl SchedulerRuntime {
                 rt.max_concurrent = max_concurrent;
                 updated_fields.push("max_concurrent".to_string());
             }
+
+            if let Some(notifications) = request.notifications {
+                spec.notifications = notifications;
+                updated_fields.push("notifications".to_string());
+            }
         };
 
         let dependencies_changed = updated_fields.iter().any(|f| f == "depends_on_ids");
@@ -939,6 +944,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: None,
             max_concurrent: None,
+            notifications: None,
         };
 
         let result = runtime.update_job(job_id, req).await;
@@ -950,6 +956,63 @@ mod tests {
         let current = runtime.get_job(job_id).unwrap();
         assert_eq!(current.gpu_sharing_mode, GpuSharingMode::Shared);
         assert_eq!(current.gpu_memory_limit_mb, Some(1024));
+    }
+
+    #[tokio::test]
+    async fn updates_job_notifications() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("echo test")
+            .submitted_by("alice")
+            .build();
+        let (job_id, _run_name, _job) = runtime.submit_job(job).await.unwrap();
+
+        let req = crate::multicall::gflowd::server::UpdateJobRequest {
+            command: None,
+            script: None,
+            gpus: None,
+            conda_env: None,
+            priority: None,
+            parameters: None,
+            time_limit: None,
+            memory_limit_mb: None,
+            gpu_memory_limit_mb: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            max_concurrent: None,
+            notifications: Some(gflow::core::job::JobNotifications::normalized(
+                vec!["alice@example.com".to_string()],
+                vec!["job_failed".to_string()],
+            )),
+        };
+
+        let (updated, updated_fields) = runtime.update_job(job_id, req).await.unwrap();
+
+        assert_eq!(updated_fields, vec!["notifications".to_string()]);
+        assert_eq!(updated.notifications.emails.len(), 1);
+        assert_eq!(
+            updated.notifications.emails[0].as_str(),
+            "alice@example.com"
+        );
+        assert_eq!(
+            updated
+                .notifications
+                .events
+                .iter()
+                .map(|event| event.as_str())
+                .collect::<Vec<_>>(),
+            vec!["job_failed"]
+        );
     }
 
     #[tokio::test]

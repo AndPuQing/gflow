@@ -1,9 +1,10 @@
 use anyhow::Result;
 use clap_verbosity_flag::Verbosity;
 use gflow::client::{UpdateJobRequest, UpdateJobResponse};
-use gflow::core::job::{DependencyMode, Job, JobBuilder};
+use gflow::core::job::{DependencyMode, Job, JobBuilder, JobNotifications};
 use gflow::utils::{generate_param_combinations, parse_param_spec};
 use gflow::Client;
+use lettre::message::Mailbox;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, ServerCapabilities, ServerInfo},
@@ -124,6 +125,10 @@ pub struct SubmitJobRequest {
     pub project: Option<String>,
     pub max_concurrent: Option<usize>,
     pub auto_close_tmux: Option<bool>,
+    /// Additional email recipient for this job's notifications.
+    pub notify_email: Option<Vec<String>>,
+    /// Event names for this job's notifications (defaults to terminal events when omitted).
+    pub notify_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -153,6 +158,10 @@ pub struct UpdateJobToolRequest {
     pub auto_cancel_on_dependency_failure: Option<bool>,
     pub max_concurrent: Option<usize>,
     pub clear_max_concurrent: Option<bool>,
+    /// Replace this job's email notification recipients. Use an empty list to clear notifications.
+    pub notify_email: Option<Vec<String>>,
+    /// Replace this job's notification events. Requires `notify_email` in the same request.
+    pub notify_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -764,6 +773,12 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
         .run_name(params.run_name)
         .project(params.project);
 
+    if let Some(notifications) =
+        resolve_job_notifications(params.notify_email, params.notify_on, "submit_job")?
+    {
+        builder = builder.notifications(notifications);
+    }
+
     if let Some(command) = params.command {
         builder = builder.command(command);
     }
@@ -875,6 +890,9 @@ fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest
         return Err("Cannot set and clear max_concurrent in the same request".to_string());
     }
 
+    let notifications =
+        resolve_job_notifications(params.notify_email, params.notify_on, "update_job")?;
+
     Ok(UpdateJobRequest {
         command: params.command,
         script: params.script.map(PathBuf::from),
@@ -928,7 +946,43 @@ fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest
             (None, true) => Some(None),
             _ => None,
         },
+        notifications,
     })
+}
+
+fn resolve_job_notifications(
+    notify_email: Option<Vec<String>>,
+    notify_on: Option<Vec<String>>,
+    context: &str,
+) -> Result<Option<JobNotifications>, String> {
+    let Some(emails) = notify_email else {
+        if notify_on.is_some() {
+            return Err(format!(
+                "{context} requires 'notify_email' when 'notify_on' is set"
+            ));
+        }
+        return Ok(None);
+    };
+
+    for email in &emails {
+        email.parse::<Mailbox>().map_err(|err| {
+            format!(
+                "{context} received invalid email recipient '{}': {err}",
+                email
+            )
+        })?;
+    }
+
+    if emails.is_empty() && notify_on.as_ref().is_some_and(|events| !events.is_empty()) {
+        return Err(format!(
+            "{context} cannot use 'notify_on' with an empty 'notify_email' list"
+        ));
+    }
+
+    Ok(Some(JobNotifications::normalized(
+        emails,
+        notify_on.unwrap_or_default(),
+    )))
 }
 
 fn resolve_default_submitted_by() -> String {
@@ -1095,9 +1149,10 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_submit_job, expand_submit_job_requests, resolve_list_jobs_page, serialize_list_job,
-        GflowMcpServer, ListJobsDetailInput, ListJobsOrderInput, ListJobsOutput, ListJobsRequest,
-        SubmitJobRequest, DEFAULT_MCP_LIST_JOBS_LIMIT,
+        build_submit_job, build_update_request, expand_submit_job_requests, resolve_list_jobs_page,
+        serialize_list_job, GflowMcpServer, ListJobsDetailInput, ListJobsOrderInput,
+        ListJobsOutput, ListJobsRequest, SubmitJobRequest, UpdateJobToolRequest,
+        DEFAULT_MCP_LIST_JOBS_LIMIT,
     };
     use gflow::core::job::{JobBuilder, JobState, JobStateReason};
     use schemars::schema_for;
@@ -1157,12 +1212,132 @@ mod tests {
             project: None,
             max_concurrent: None,
             auto_close_tmux: None,
+            notify_email: None,
+            notify_on: None,
         })
         .unwrap_err();
 
         assert_eq!(
             err,
             "submit_job requires 'gpu_memory_limit_mb' when 'shared' is true"
+        );
+    }
+
+    #[test]
+    fn submit_job_maps_notifications_from_mcp_fields() {
+        let job = build_submit_job(SubmitJobRequest {
+            command: Some("echo hello".to_string()),
+            script: None,
+            gpus: Some(0),
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: None,
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            param: None,
+            parameters: None,
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            auto_close_tmux: None,
+            notify_email: Some(vec!["alice@example.com".to_string()]),
+            notify_on: Some(vec!["JOB_FAILED".to_string(), "job_timeout".to_string()]),
+        })
+        .expect("submit job should build");
+
+        assert_eq!(job.notifications.emails.len(), 1);
+        assert_eq!(job.notifications.emails[0].as_str(), "alice@example.com");
+        assert_eq!(
+            job.notifications
+                .events
+                .iter()
+                .map(|event| event.as_str())
+                .collect::<Vec<_>>(),
+            vec!["job_failed", "job_timeout"]
+        );
+    }
+
+    #[test]
+    fn update_job_maps_notifications_from_mcp_fields() {
+        let request = build_update_request(UpdateJobToolRequest {
+            job_id: 7,
+            command: None,
+            script: None,
+            gpus: None,
+            conda_env: None,
+            clear_conda_env: None,
+            priority: None,
+            parameters: None,
+            time_limit_secs: None,
+            clear_time_limit: None,
+            memory_limit_mb: None,
+            clear_memory_limit: None,
+            gpu_memory_limit_mb: None,
+            clear_gpu_memory_limit: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            clear_dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            max_concurrent: None,
+            clear_max_concurrent: None,
+            notify_email: Some(vec!["alice@example.com".to_string()]),
+            notify_on: Some(vec!["job_failed".to_string()]),
+        })
+        .expect("update request should build");
+
+        let notifications = request
+            .notifications
+            .expect("notifications should be present");
+        assert_eq!(notifications.emails.len(), 1);
+        assert_eq!(notifications.emails[0].as_str(), "alice@example.com");
+        assert_eq!(
+            notifications
+                .events
+                .iter()
+                .map(|event| event.as_str())
+                .collect::<Vec<_>>(),
+            vec!["job_failed"]
+        );
+    }
+
+    #[test]
+    fn update_job_rejects_notify_on_without_notify_email() {
+        let err = build_update_request(UpdateJobToolRequest {
+            job_id: 7,
+            command: None,
+            script: None,
+            gpus: None,
+            conda_env: None,
+            clear_conda_env: None,
+            priority: None,
+            parameters: None,
+            time_limit_secs: None,
+            clear_time_limit: None,
+            memory_limit_mb: None,
+            clear_memory_limit: None,
+            gpu_memory_limit_mb: None,
+            clear_gpu_memory_limit: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            clear_dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            max_concurrent: None,
+            clear_max_concurrent: None,
+            notify_email: None,
+            notify_on: Some(vec!["job_failed".to_string()]),
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            "update_job requires 'notify_email' when 'notify_on' is set"
         );
     }
 
@@ -1320,6 +1495,8 @@ mod tests {
             project: None,
             max_concurrent: None,
             auto_close_tmux: None,
+            notify_email: None,
+            notify_on: None,
         }])
         .unwrap();
 
@@ -1388,6 +1565,8 @@ mod tests {
             project: None,
             max_concurrent: None,
             auto_close_tmux: None,
+            notify_email: None,
+            notify_on: None,
         }])
         .unwrap_err();
 

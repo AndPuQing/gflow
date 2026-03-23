@@ -1,5 +1,5 @@
 use crate::core::info::SchedulerInfo;
-use crate::core::job::{DependencyMode, Job};
+use crate::core::job::{DependencyMode, Job, JobNotifications};
 use anyhow::{anyhow, Context};
 use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,8 @@ pub struct UpdateJobRequest {
     pub auto_cancel_on_dependency_failure: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_concurrent: Option<Option<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notifications: Option<JobNotifications>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

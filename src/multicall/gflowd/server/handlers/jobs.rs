@@ -1007,6 +1007,7 @@ pub(crate) struct UpdateJobRequest {
     pub dependency_mode: Option<Option<gflow::core::job::DependencyMode>>,
     pub auto_cancel_on_dependency_failure: Option<bool>,
     pub max_concurrent: Option<Option<usize>>,
+    pub notifications: Option<gflow::core::job::JobNotifications>,
 }
 
 #[axum::debug_handler]
