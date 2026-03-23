@@ -121,6 +121,8 @@ gjob hold <job_id>
 gjob release <job_id>
 
 # 详情 / 重做 / 更新
+gjob log <job_id> --first 20
+gjob log <job_id> --last 50
 gjob show <job_id>
 gjob redo <job_id>
 gjob redo <job_id> --cascade

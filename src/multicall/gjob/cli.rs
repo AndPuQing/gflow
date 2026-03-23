@@ -2,6 +2,7 @@ use clap::Parser;
 use clap_complete::Shell;
 use clap_verbosity_flag::Verbosity;
 use gflow::utils::STYLES;
+use std::num::NonZeroUsize;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -36,6 +37,24 @@ pub enum Commands {
     Log {
         #[arg(help = "Job ID to view the log for (supports @ for most recent job)", value_hint = clap::ValueHint::Other)]
         job: String,
+
+        #[arg(
+            short = 'f',
+            long = "first",
+            help = "Print only the first N lines of the job log",
+            value_name = "LINES",
+            conflicts_with = "last"
+        )]
+        first: Option<NonZeroUsize>,
+
+        #[arg(
+            short = 'l',
+            long = "last",
+            help = "Print only the last N lines of the job log",
+            value_name = "LINES",
+            conflicts_with = "first"
+        )]
+        last: Option<NonZeroUsize>,
     },
     /// Put a queued job on hold
     #[command(visible_alias = "h")]
@@ -242,4 +261,34 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_log_first_option() {
+        let args =
+            GJob::try_parse_from(["gjob", "log", "@", "--first", "25"]).expect("should parse");
+
+        match args.command {
+            Commands::Log { job, first, last } => {
+                assert_eq!(job, "@");
+                assert_eq!(first.map(NonZeroUsize::get), Some(25));
+                assert_eq!(last, None);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_conflicting_log_slice_options() {
+        let err = GJob::try_parse_from(["gjob", "log", "42", "--first", "10", "--last", "10"])
+            .expect_err("should reject conflicting options");
+
+        let message = err.to_string();
+        assert!(message.contains("--first"));
+        assert!(message.contains("--last"));
+    }
 }

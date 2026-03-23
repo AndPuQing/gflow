@@ -18,6 +18,12 @@ gjob show 42
 # Tail the most recent job's log
 gjob log @
 
+# Show the first 20 log lines
+gjob log @ --first 20
+
+# Show the last 50 log lines
+gjob log 42 --last 50
+
 # Attach to a running job's tmux session
 gjob attach @
 
@@ -59,10 +65,15 @@ Print a job's log file to stdout.
 Alias: `gjob l`
 
 ```bash
-gjob log <job>
+gjob log <job> [options]
 ```
 
 `<job>` supports a numeric job ID or `@` for the most recent job.
+
+Options:
+
+- `-f, --first <lines>`: print only the first N lines
+- `-l, --last <lines>`: print only the last N lines
 
 ### `gjob hold <job_ids>`
 
