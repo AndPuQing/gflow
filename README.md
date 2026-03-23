@@ -14,6 +14,8 @@
 
 English | [简体中文](README_CN.md)
 
+[![asciicast](https://asciinema.org/a/777578.svg)](https://asciinema.org/a/777578)
+
 `gflow` is a lightweight scheduler for a single Linux machine. It brings a Slurm-like workflow to shared GPU workstations and lab servers without cluster setup.
 
 ## Why gflow
