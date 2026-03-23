@@ -285,18 +285,7 @@ impl SchedulerRuntime {
         Ok(())
     }
 
-    fn allocate_run_name(&self, requested: Option<&str>) -> String {
-        let next_job_id = self.scheduler.next_job_id();
-        let default_name = format!("gjob-{next_job_id}");
-
-        let normalized_requested = requested
-            .map(gflow::tmux::normalize_session_name)
-            .filter(|name| !name.is_empty());
-        let base_name = normalized_requested
-            .clone()
-            .map(|name| format!("gjob-{next_job_id}-{name}"))
-            .unwrap_or_else(|| default_name.clone());
-
+    fn current_reserved_run_names(&self) -> HashSet<String> {
         let mut reserved_names: HashSet<String> = self
             .scheduler
             .job_specs()
@@ -306,6 +295,24 @@ impl SchedulerRuntime {
             .filter_map(|(spec, _)| spec.run_name.as_ref().map(|name| name.to_string()))
             .collect();
         reserved_names.extend(gflow::tmux::get_all_session_names());
+        reserved_names
+    }
+
+    fn allocate_run_name(
+        &self,
+        job_id: u32,
+        requested: Option<&str>,
+        reserved_names: &HashSet<String>,
+    ) -> String {
+        let default_name = format!("gjob-{job_id}");
+
+        let normalized_requested = requested
+            .map(gflow::tmux::normalize_session_name)
+            .filter(|name| !name.is_empty());
+        let base_name = normalized_requested
+            .clone()
+            .map(|name| format!("gjob-{job_id}-{name}"))
+            .unwrap_or_else(|| default_name.clone());
 
         if !reserved_names.contains(&base_name) {
             return base_name;
@@ -313,7 +320,7 @@ impl SchedulerRuntime {
 
         let suffix_seed = normalized_requested
             .as_ref()
-            .map(|_| next_job_id.to_string())
+            .map(|_| job_id.to_string())
             .unwrap_or_else(|| "1".to_string());
         let mut counter = 0usize;
 
@@ -330,9 +337,9 @@ impl SchedulerRuntime {
         }
     }
 
-    fn prepare_run_name(&self, job: &mut Job) {
+    fn prepare_run_name(&self, job: &mut Job, job_id: u32, reserved_names: &mut HashSet<String>) {
         let requested = job.run_name.as_ref().map(|name| name.as_str());
-        let allocated = self.allocate_run_name(requested);
+        let allocated = self.allocate_run_name(job_id, requested, reserved_names);
 
         if let Some(requested_name) = requested {
             if requested_name != allocated {
@@ -344,13 +351,15 @@ impl SchedulerRuntime {
             }
         }
 
+        reserved_names.insert(allocated.clone());
         job.run_name = Some(CompactString::from(allocated));
     }
 
     pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
         self.normalize_and_validate_project(&mut job)?;
         Self::validate_shared_job_requirements(&job)?;
-        self.prepare_run_name(&mut job);
+        let mut reserved_names = self.current_reserved_run_names();
+        self.prepare_run_name(&mut job, self.scheduler.next_job_id(), &mut reserved_names);
         let (job_id, run_name) = self.scheduler.submit_job(job);
         self.mark_dirty();
 
@@ -367,11 +376,12 @@ impl SchedulerRuntime {
         &mut self,
         jobs: Vec<Job>,
     ) -> Result<(Vec<(u32, String, String)>, Vec<Job>, u32)> {
+        let mut reserved_names = self.current_reserved_run_names();
         let mut normalized_jobs = Vec::with_capacity(jobs.len());
-        for mut job in jobs {
+        for (next_job_id, mut job) in (self.scheduler.next_job_id()..).zip(jobs) {
             self.normalize_and_validate_project(&mut job)?;
             Self::validate_shared_job_requirements(&job)?;
-            self.prepare_run_name(&mut job);
+            self.prepare_run_name(&mut job, next_job_id, &mut reserved_names);
             normalized_jobs.push(job);
         }
 
@@ -908,6 +918,78 @@ mod tests {
 
         assert_eq!(run_name1, "gjob-1-demo");
         assert_eq!(run_name2, "gjob-2-demo");
+    }
+
+    #[tokio::test]
+    async fn batch_submit_assigns_unique_default_run_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job1 = Job::builder()
+            .command("echo first")
+            .submitted_by("alice")
+            .build();
+        let job2 = Job::builder()
+            .command("echo second")
+            .submitted_by("alice")
+            .build();
+
+        let (results, submitted_jobs, next_id) =
+            runtime.submit_jobs(vec![job1, job2]).await.unwrap();
+
+        assert_eq!(next_id, 3);
+        assert_eq!(results.len(), 2);
+        assert_eq!(submitted_jobs.len(), 2);
+        assert_eq!(results[0].0, 1);
+        assert_eq!(results[0].1, "gjob-1");
+        assert_eq!(results[1].0, 2);
+        assert_eq!(results[1].1, "gjob-2");
+        assert_eq!(submitted_jobs[0].run_name.as_deref(), Some("gjob-1"));
+        assert_eq!(submitted_jobs[1].run_name.as_deref(), Some("gjob-2"));
+    }
+
+    #[tokio::test]
+    async fn batch_submit_assigns_unique_custom_run_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job1 = Job::builder()
+            .command("echo first")
+            .submitted_by("alice")
+            .run_name(Some("demo".to_string()))
+            .build();
+        let job2 = Job::builder()
+            .command("echo second")
+            .submitted_by("alice")
+            .run_name(Some("demo".to_string()))
+            .build();
+
+        let (results, submitted_jobs, next_id) =
+            runtime.submit_jobs(vec![job1, job2]).await.unwrap();
+
+        assert_eq!(next_id, 3);
+        assert_eq!(results.len(), 2);
+        assert_eq!(submitted_jobs.len(), 2);
+        assert_eq!(results[0].0, 1);
+        assert_eq!(results[0].1, "gjob-1-demo");
+        assert_eq!(results[1].0, 2);
+        assert_eq!(results[1].1, "gjob-2-demo");
+        assert_eq!(submitted_jobs[0].run_name.as_deref(), Some("gjob-1-demo"));
+        assert_eq!(submitted_jobs[1].run_name.as_deref(), Some("gjob-2-demo"));
     }
 
     #[tokio::test]

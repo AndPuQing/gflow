@@ -3,6 +3,27 @@ use super::*;
 use gflow::tmux::disable_pipe_pane_for_job;
 use std::sync::Arc;
 
+const ZOMBIE_STARTUP_GRACE_PERIOD: Duration = Duration::from_secs(30);
+
+fn should_check_missing_session_as_zombie(
+    started_at: Option<std::time::SystemTime>,
+    now: std::time::SystemTime,
+) -> bool {
+    let Some(started_at) = started_at else {
+        // Legacy/recovered Running jobs may not have persisted `started_at`.
+        // Keep checking them so they don't get stuck in Running forever.
+        return true;
+    };
+
+    let Ok(elapsed) = now.duration_since(started_at) else {
+        // Clock skew/backwards adjustments can make `started_at` appear in the future.
+        // Keep checking so missing sessions still get recovered.
+        return true;
+    };
+
+    elapsed >= ZOMBIE_STARTUP_GRACE_PERIOD
+}
+
 /// GPU monitor task - polls NVML every 10s and publishes changes
 pub(super) async fn gpu_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -52,7 +73,7 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
                         .scheduler
                         .get_job_spec(rt.id)
                         .and_then(|spec| spec.run_name.clone());
-                    (rt.id, run_name)
+                    (rt.id, run_name, rt.started_at)
                 })
                 .collect::<Vec<_>>()
         };
@@ -61,12 +82,19 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
             continue;
         }
 
+        // Sample time after building the Running-job snapshot so jobs that
+        // started during snapshot construction don't look like future starts.
+        let now = std::time::SystemTime::now();
+
         // Get all tmux sessions in a single batch call (no lock held)
         let existing_sessions = gflow::tmux::get_all_session_names();
 
         // Check which jobs are zombies
-        for (job_id, run_name) in running_jobs {
+        for (job_id, run_name, started_at) in running_jobs {
             if let Some(rn) = run_name {
+                if !should_check_missing_session_as_zombie(started_at, now) {
+                    continue;
+                }
                 if !existing_sessions.contains(rn.as_str()) {
                     tracing::warn!(job_id, run_name = %rn, "Found zombie job");
                     event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
@@ -351,6 +379,33 @@ mod tests {
     use super::*;
     use gflow::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn zombie_check_allows_legacy_jobs_without_start_time() {
+        let now = SystemTime::now();
+        assert!(should_check_missing_session_as_zombie(None, now));
+    }
+
+    #[test]
+    fn zombie_check_skips_recently_started_jobs() {
+        let now = SystemTime::now();
+        let started_at = now.checked_sub(Duration::from_secs(5));
+        assert!(!should_check_missing_session_as_zombie(started_at, now));
+    }
+
+    #[test]
+    fn zombie_check_allows_old_running_jobs() {
+        let now = SystemTime::now();
+        let started_at = now.checked_sub(Duration::from_secs(45));
+        assert!(should_check_missing_session_as_zombie(started_at, now));
+    }
+
+    #[test]
+    fn zombie_check_allows_future_started_at_jobs() {
+        let now = SystemTime::now();
+        let started_at = now.checked_add(Duration::from_secs(45));
+        assert!(should_check_missing_session_as_zombie(started_at, now));
+    }
 
     #[test]
     fn test_calculate_next_transition_no_reservations() {
