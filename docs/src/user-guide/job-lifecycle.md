@@ -75,8 +75,8 @@ Jobs in certain states have an associated reason that provides more context:
 | State | Reason | Description |
 |-------|--------|-------------|
 | Queued | `WaitingForDependency` | Job is waiting for parent jobs to finish |
-| Queued | `WaitingForGpu` (`Resources(GPU)`) | Job is waiting for available GPUs |
-| Queued | `WaitingForMemory` (`Resources(Memory)`) | Job is waiting for available host memory |
+| Queued | `WaitingForGpu` (`Resources`) | Job is waiting for available GPUs |
+| Queued | `WaitingForMemory` (`Resources`) | Job is waiting for available host memory |
 | Queued | `WaitingForResources` | Job is waiting for other scheduler-managed resources/limits |
 | Hold | `JobHeldUser` | Job was put on hold by user request |
 | Cancelled | `CancelledByUser` | User explicitly cancelled the job |

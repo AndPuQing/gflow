@@ -75,8 +75,8 @@ flowchart LR
 | 状态 | 原因 | 描述 |
 |------|------|------|
 | Queued | `WaitingForDependency` | 任务正在等待父任务完成 |
-| Queued | `WaitingForGpu` (`Resources(GPU)`) | 任务正在等待可用 GPU |
-| Queued | `WaitingForMemory` (`Resources(Memory)`) | 任务正在等待可用主机内存 |
+| Queued | `WaitingForGpu` (`Resources`) | 任务正在等待可用 GPU |
+| Queued | `WaitingForMemory` (`Resources`) | 任务正在等待可用主机内存 |
 | Queued | `WaitingForResources` | 任务正在等待其他调度器管理的资源或限制 |
 | Hold | `JobHeldUser` | 任务被用户暂停 |
 | Cancelled | `CancelledByUser` | 用户明确取消了任务 |

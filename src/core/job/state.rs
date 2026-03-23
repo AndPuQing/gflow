@@ -88,8 +88,8 @@ impl fmt::Display for JobStateReason {
             JobStateReason::JobHeldUser => write!(f, "JobHeldUser"),
             JobStateReason::WaitingForDependency => write!(f, "Dependency"),
             JobStateReason::WaitingForResources => write!(f, "Resources"),
-            JobStateReason::WaitingForGpu => write!(f, "Resources(GPU)"),
-            JobStateReason::WaitingForMemory => write!(f, "Resources(Memory)"),
+            JobStateReason::WaitingForGpu => write!(f, "Resources"),
+            JobStateReason::WaitingForMemory => write!(f, "Resources"),
             JobStateReason::CancelledByUser => write!(f, "CancelledByUser"),
             JobStateReason::DependencyFailed(job_id) => {
                 write!(f, "DependencyFailed:{}", job_id)
@@ -151,5 +151,17 @@ impl JobState {
 
     pub fn completed_states() -> &'static [JobState] {
         Self::COMPLETED
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JobStateReason;
+
+    #[test]
+    fn resource_wait_reasons_share_the_same_display_label() {
+        assert_eq!(JobStateReason::WaitingForResources.to_string(), "Resources");
+        assert_eq!(JobStateReason::WaitingForGpu.to_string(), "Resources");
+        assert_eq!(JobStateReason::WaitingForMemory.to_string(), "Resources");
     }
 }
