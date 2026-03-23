@@ -1,6 +1,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
+
+#[cfg(any(debug_assertions, not(unix)))]
+use std::process::Command;
 
 const MULTICALL_SENTINEL: &str = "__multicall";
 
@@ -24,13 +27,15 @@ fn do_exec(command_name: &str) -> Result<ExitCode, String> {
     // reinstalling binaries. When this wrapper itself is already the repo's
     // Cargo-built artifact, debug builds can dispatch in-process to avoid
     // spawning a nested `cargo run` while keeping release/package wrappers thin.
-    if !dev_auto_disabled() {
-        if let Some(repo_root) = find_gflow_repo_root() {
-            #[cfg(debug_assertions)]
-            if is_repo_target_binary(&repo_root, &exe) {
-                return dispatch_in_process(command_name, forwarded_args);
+    #[cfg(debug_assertions)]
+    {
+        if !dev_auto_disabled() {
+            if let Some(repo_root) = find_gflow_repo_root() {
+                if is_repo_target_binary(&repo_root, &exe) {
+                    return dispatch_in_process(command_name, forwarded_args.clone());
+                }
+                return exec_with_cargo(repo_root, multicall_args(command_name, forwarded_args));
             }
-            return exec_with_cargo(repo_root, multicall_args(command_name, forwarded_args));
         }
     }
 
@@ -73,8 +78,34 @@ fn dispatch_in_process(command_name: &str, rest: Vec<OsString>) -> Result<ExitCo
 fn exec_binary(gflow_path: PathBuf, args: Vec<OsString>) -> Result<ExitCode, String> {
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
-        let err = Command::new(&gflow_path).args(args).exec();
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let path_bytes = gflow_path.as_os_str().as_bytes();
+        let c_path = CString::new(path_bytes).map_err(|_| {
+            format!(
+                "Executable path contains NUL byte: {}",
+                gflow_path.display()
+            )
+        })?;
+
+        let mut c_args = Vec::with_capacity(args.len() + 1);
+        c_args.push(c_path.clone());
+        for arg in args {
+            c_args.push(
+                CString::new(arg.as_os_str().as_bytes())
+                    .map_err(|_| "Argument contains NUL byte".to_string())?,
+            );
+        }
+
+        let mut argv: Vec<*const libc::c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
+        argv.push(std::ptr::null());
+
+        // SAFETY: c_path and argv remain alive for the duration of the execv call,
+        // and argv is null-terminated as required by execv.
+        let rc = unsafe { libc::execv(c_path.as_ptr(), argv.as_ptr()) };
+        let err = std::io::Error::last_os_error();
+        debug_assert_eq!(rc, -1);
         Err(format!("Failed to exec `{}`: {err}", gflow_path.display()))
     }
 
@@ -88,6 +119,7 @@ fn exec_binary(gflow_path: PathBuf, args: Vec<OsString>) -> Result<ExitCode, Str
     }
 }
 
+#[cfg(debug_assertions)]
 fn exec_with_cargo(repo_root: PathBuf, args: Vec<OsString>) -> Result<ExitCode, String> {
     #[cfg(unix)]
     {
@@ -126,6 +158,7 @@ fn exec_with_cargo(repo_root: PathBuf, args: Vec<OsString>) -> Result<ExitCode, 
     }
 }
 
+#[cfg(debug_assertions)]
 fn dev_auto_disabled() -> bool {
     std::env::var_os("GFLOW_DISABLE_DEV_AUTO")
         .map(|v| {
@@ -149,6 +182,7 @@ fn is_repo_target_binary(repo_root: &Path, exe: &Path) -> bool {
     exe.starts_with(repo_root.join("target"))
 }
 
+#[cfg(debug_assertions)]
 fn find_gflow_repo_root() -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
