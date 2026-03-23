@@ -22,14 +22,6 @@ impl Scheduler {
         spec.dependency_mode.unwrap_or(DependencyMode::All)
     }
 
-    fn dependency_outcome(state: JobState) -> Option<bool> {
-        match state {
-            JobState::Finished => Some(true),
-            JobState::Failed | JobState::Cancelled | JobState::Timeout => Some(false),
-            _ => None,
-        }
-    }
-
     pub(super) fn build_dependency_runtime(&self, job_id: u32) -> DependencyRuntime {
         let Some(spec) = self.get_job_spec(job_id) else {
             return DependencyRuntime::default();
@@ -44,11 +36,9 @@ impl Scheduler {
             let Some(rt) = self.get_job_runtime(dep_id) else {
                 continue;
             };
-            match rt.state {
-                JobState::Finished => success += 1,
-                JobState::Failed | JobState::Cancelled | JobState::Timeout => {
-                    terminal_non_success += 1;
-                }
+            match rt.state.dependency_outcome() {
+                Some(true) => success += 1,
+                Some(false) => terminal_non_success += 1,
                 _ => {}
             }
         }
@@ -206,22 +196,13 @@ impl Scheduler {
 
         let has_success = deps.iter().copied().any(|dep_id| {
             self.get_job_runtime(dep_id)
-                .is_some_and(|rt| rt.state == JobState::Finished)
+                .is_some_and(|rt| rt.state.dependency_outcome() == Some(true))
         });
 
         deps.into_iter().find(|&dep_id| {
             self.get_job_runtime(dep_id).is_some_and(|rt| match mode {
-                DependencyMode::All => matches!(
-                    rt.state,
-                    JobState::Failed | JobState::Cancelled | JobState::Timeout
-                ),
-                DependencyMode::Any => {
-                    !has_success
-                        && matches!(
-                            rt.state,
-                            JobState::Failed | JobState::Cancelled | JobState::Timeout
-                        )
-                }
+                DependencyMode::All => rt.state.dependency_outcome() == Some(false),
+                DependencyMode::Any => !has_success && rt.state.dependency_outcome() == Some(false),
             })
         })
     }
@@ -312,7 +293,7 @@ impl Scheduler {
         source_job_id: u32,
         final_state: JobState,
     ) {
-        let Some(success) = Self::dependency_outcome(final_state) else {
+        let Some(success) = final_state.dependency_outcome() else {
             return;
         };
 

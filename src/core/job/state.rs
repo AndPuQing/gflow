@@ -132,6 +132,10 @@ impl JobState {
         Self::COMPLETED.contains(self)
     }
 
+    pub fn dependency_outcome(self) -> Option<bool> {
+        self.is_final().then_some(self == Self::Finished)
+    }
+
     pub const ACTIVE: &'static [JobState] = &[JobState::Queued, JobState::Hold, JobState::Running];
 
     pub const COMPLETED: &'static [JobState] = &[
