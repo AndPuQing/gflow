@@ -162,9 +162,8 @@ gqueue --format JOBID,NAME,PROJECT,ST,TIME
 
 ## Notifications
 
-Keep notification settings in a dedicated section:
+Use [Notifications](./notifications) when you need webhook or email delivery for job and system events.
 
-- Use [Notifications](./notifications) for webhook and email delivery.
 - `notifications.emails` is also the SMTP transport used by per-job flags such as `gbatch --notify-email`.
 - Keep the daemon on `localhost` when possible if notification payloads contain sensitive job metadata.
 

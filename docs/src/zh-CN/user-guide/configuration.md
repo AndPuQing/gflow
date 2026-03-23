@@ -162,9 +162,8 @@ gqueue --format JOBID,NAME,PROJECT,ST,TIME
 
 ## 通知
 
-通知相关配置已拆分为独立章节：
+如果你需要任务或系统事件的 webhook / 邮件通知，请直接查看[通知](./notifications)。
 
-- Webhook 和邮件通知见[通知](./notifications)。
 - `notifications.emails` 也是 `gbatch --notify-email` 这类单任务邮件通知所复用的 SMTP 通道。
 - 如果通知内容包含敏感任务元数据，仍应优先让守护进程只监听 `localhost`。
 
