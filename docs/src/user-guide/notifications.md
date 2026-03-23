@@ -28,21 +28,28 @@ timeout_secs = 10
 max_retries = 3
 ```
 
-## Events
+## Event Scope
 
-- `job_submitted`
-- `job_updated`
-- `job_started`
-- `job_completed`
-- `job_failed`
-- `job_cancelled`
-- `job_timeout`
-- `job_held`
-- `job_released`
-- `gpu_available` (only when a GPU becomes available)
-- `reservation_created`
-- `reservation_cancelled`
-- `scheduler_online`
+| Event | Global notifications (webhook / email) | Per-job email (`gbatch --notify-on`) | Notes |
+| --- | --- | --- | --- |
+| `job_submitted` | Supported | Supported | Job was submitted |
+| `job_updated` | Supported | Supported | Job metadata changed |
+| `job_started` | Supported | Supported | Job entered running state |
+| `job_completed` | Supported | Supported | Job finished successfully |
+| `job_failed` | Supported | Supported | Job finished with failure |
+| `job_cancelled` | Supported | Supported | Job was cancelled |
+| `job_timeout` | Supported | Supported | Job hit its time limit |
+| `job_held` | Supported | Supported | Job was moved to hold |
+| `job_released` | Supported | Supported | Job was released from hold back to queue |
+| `gpu_available` | Supported | Not supported | Only emitted when a GPU becomes available again |
+| `reservation_created` | Supported | Not supported | Reservation was created |
+| `reservation_cancelled` | Supported | Not supported | Reservation was cancelled |
+| `scheduler_online` | Supported | Not supported | `gflowd` finished starting up |
+
+::: tip Choosing between global and per-job notifications
+Use global notifications for system-level events such as GPU availability, reservations, or daemon startup.
+Use `--notify-email` and `--notify-on` when you only want extra email delivery for one job; per-job notifications only match the job-scoped events in the table above.
+:::
 
 ## Payload
 
@@ -57,13 +64,14 @@ Fields may be omitted depending on the event.
 }
 ```
 
-## Per-Job Email Recipients
+## Per-Job Email Notifications
 
 Per-job notifications reuse the SMTP transports configured in `notifications.emails`.
 
 - Use `gbatch --notify-email <address>` to add recipients for one job.
-- Use `gbatch --notify-on <event1,event2,...>` to choose triggering events.
+- Use `gbatch --notify-on <event1,event2,...>` to choose job-scoped triggering events from the table above.
 - If `--notify-email` is set without `--notify-on`, gflow defaults to `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
+- Per-job notifications send email only; they do not produce webhook deliveries.
 
 ## Notes
 
