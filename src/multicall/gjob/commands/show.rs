@@ -85,6 +85,30 @@ fn print_job_details(job: &Job) {
     println!("\nExecution:");
     print_field!("WorkingDir", "{}", job.run_dir.display());
     print_optional_field!("TmuxSession", job.run_name);
+    if !job.notifications.is_empty() {
+        print_field!(
+            "NotifyEmail",
+            "{}",
+            job.notifications
+                .emails
+                .iter()
+                .map(|email| email.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        if !job.notifications.events.is_empty() {
+            print_field!(
+                "NotifyOn",
+                "{}",
+                job.notifications
+                    .events
+                    .iter()
+                    .map(|event| event.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+    }
 
     // Dependencies
     let all_deps = job.all_dependency_ids();

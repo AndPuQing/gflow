@@ -3,6 +3,7 @@ use std::ffi::OsString;
 
 mod cli;
 mod commands;
+mod emails;
 mod events;
 mod executor;
 mod scheduler_runtime;

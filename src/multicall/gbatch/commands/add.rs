@@ -2,9 +2,10 @@ use crate::multicall::gbatch::cli;
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use gflow::client::Client;
-use gflow::core::job::{GpuSharingMode, Job};
+use gflow::core::job::{GpuSharingMode, Job, JobNotifications};
 use gflow::utils::parsers::parse_array_spec;
 use gflow::utils::{generate_param_combinations, parse_param_spec};
+use lettre::message::Mailbox;
 use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
 
 /// Validate project against configuration requirements
@@ -20,6 +21,55 @@ fn resolve_project(args: &cli::AddArgs, script_args: &Option<cli::AddArgs>) -> O
     args.project
         .clone()
         .or_else(|| script_args.as_ref().and_then(|s| s.project.clone()))
+}
+
+fn default_per_job_notification_events() -> Vec<String> {
+    vec![
+        "job_completed".to_string(),
+        "job_failed".to_string(),
+        "job_timeout".to_string(),
+        "job_cancelled".to_string(),
+    ]
+}
+
+fn resolve_job_notifications(
+    args: &cli::AddArgs,
+    script_args: Option<&cli::AddArgs>,
+) -> Result<JobNotifications> {
+    let mut emails = script_args
+        .map(|s| s.notify_email.clone())
+        .unwrap_or_default();
+    emails.extend(args.notify_email.iter().cloned());
+
+    if emails.is_empty() {
+        return Ok(JobNotifications::default());
+    }
+
+    let events = if !args.notify_on.is_empty() {
+        args.notify_on.clone()
+    } else if let Some(script_args) = script_args {
+        if !script_args.notify_on.is_empty() {
+            script_args.notify_on.clone()
+        } else {
+            default_per_job_notification_events()
+        }
+    } else {
+        default_per_job_notification_events()
+    };
+
+    let notifications = JobNotifications::normalized(emails, events);
+    validate_job_notifications(&notifications)?;
+    Ok(notifications)
+}
+
+fn validate_job_notifications(notifications: &JobNotifications) -> Result<()> {
+    for email in &notifications.emails {
+        email
+            .as_str()
+            .parse::<Mailbox>()
+            .map_err(|e| anyhow!("Invalid --notify-email '{}': {e}", email))?;
+    }
+    Ok(())
 }
 
 fn validate_shared_requires_gpu_memory(job: &Job) -> Result<()> {
@@ -477,6 +527,7 @@ async fn build_job(
     builder = builder.depends_on_ids(depends_on_ids.clone());
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+    builder = builder.notifications(JobNotifications::default());
 
     // For backward compatibility, also set depends_on if there's exactly one dependency
     if depends_on_ids.len() == 1 {
@@ -493,6 +544,7 @@ async fn build_job(
         builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, &Some(script_args.clone())));
+        builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
@@ -537,6 +589,7 @@ async fn build_job(
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.shared(args.shared || script_args.shared);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
+            builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
             // CLI project takes precedence over script project
@@ -588,6 +641,7 @@ async fn build_job(
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
             builder = builder.project(resolve_project(args, &None));
+            builder = builder.notifications(resolve_job_notifications(args, None)?);
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
@@ -671,6 +725,7 @@ async fn build_job_with_params(
     builder = builder.depends_on_ids(depends_on_ids.clone());
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+    builder = builder.notifications(JobNotifications::default());
 
     // For backward compatibility, also set depends_on if there's exactly one dependency
     if depends_on_ids.len() == 1 {
@@ -687,6 +742,7 @@ async fn build_job_with_params(
         builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, &Some(script_args.clone())));
+        builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
         // CLI time limit takes precedence over script time limit
@@ -731,6 +787,7 @@ async fn build_job_with_params(
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.shared(args.shared || script_args.shared);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
+            builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
             // CLI project takes precedence over script project
@@ -782,6 +839,7 @@ async fn build_job_with_params(
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
             builder = builder.project(resolve_project(args, &None));
+            builder = builder.notifications(resolve_job_notifications(args, None)?);
 
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
@@ -832,6 +890,8 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             param_file: None,
             name_template: None,
             project: None,
+            notify_email: vec![],
+            notify_on: vec![],
         });
     }
 
@@ -941,4 +1001,81 @@ async fn parse_dependency_list(deps_str: &str, client: &Client) -> Result<Vec<u3
     }
 
     Ok(resolved_deps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_job_notifications_defaults_terminal_events() {
+        let args = cli::AddArgs {
+            script_or_command: vec!["python".to_string(), "train.py".to_string()],
+            conda_env: None,
+            gpus: None,
+            shared: false,
+            priority: None,
+            depends_on: None,
+            depends_on_all: None,
+            depends_on_any: None,
+            no_auto_cancel: false,
+            array: None,
+            time: None,
+            memory: None,
+            gpu_memory: None,
+            name: None,
+            auto_close: false,
+            param: vec![],
+            dry_run: false,
+            max_concurrent: None,
+            param_file: None,
+            name_template: None,
+            project: None,
+            notify_email: vec!["alice@example.com".to_string()],
+            notify_on: vec![],
+        };
+
+        let notifications = resolve_job_notifications(&args, None).unwrap();
+
+        assert_eq!(notifications.emails.len(), 1);
+        assert_eq!(notifications.emails[0].as_str(), "alice@example.com");
+        assert_eq!(
+            notifications
+                .events
+                .iter()
+                .map(|event| event.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "job_completed",
+                "job_failed",
+                "job_timeout",
+                "job_cancelled"
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_script_content_supports_notification_directives() {
+        let args = parse_script_content_for_args(
+            r#"#!/bin/bash
+# GFLOW --notify-email=alice@example.com
+# GFLOW --notify-email=ops@example.com
+# GFLOW --notify-on=job_failed,job_timeout
+python train.py
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            args.notify_email,
+            vec![
+                "alice@example.com".to_string(),
+                "ops@example.com".to_string()
+            ]
+        );
+        assert_eq!(
+            args.notify_on,
+            vec!["job_failed".to_string(), "job_timeout".to_string()]
+        );
+    }
 }

@@ -12,6 +12,7 @@ Use direct commands for short, single-step work. Switch to a script when the com
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --project ml-research python train.py
+gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
 ## Submit a Command
@@ -50,6 +51,8 @@ Only a small subset of options are parsed from scripts:
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>` (single dependency only)
 - `# GFLOW --project=<CODE>`
+- `# GFLOW --notify-email=<EMAIL>`
+- `# GFLOW --notify-on=<EVENT1,EVENT2,...>`
 :::
 
 ::: info
@@ -87,6 +90,10 @@ gbatch --conda-env myenv python script.py
 # Project code
 gbatch --project ml-research python train.py
 
+# Per-job email notifications
+gbatch --notify-email alice@example.com python train.py
+gbatch --notify-email alice@example.com --notify-email oncall@example.com --notify-on job_failed,job_timeout python train.py
+
 # Dependencies
 gbatch --depends-on <job_id|@|@~N> python next.py
 gbatch --depends-on-all 1,2,3 python merge.py
@@ -110,6 +117,10 @@ gbatch --dry-run --gpus 1 python train.py
 
 ::: info
 Project values are immutable after submission.
+:::
+
+::: info
+Per-job notifications reuse the SMTP transports configured in `notifications.emails`. If you set `--notify-email` without `--notify-on`, gflow defaults to terminal events: `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
 :::
 
 ## Job Arrays

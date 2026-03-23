@@ -110,6 +110,12 @@ serde_yaml = "0.9"
 dialoguer = "0.12"
 toml = "1.0"
 schemars = "1.0"
+lettre = { version = "0.11.19", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls-tls"
+] }
 
 # Use mimalloc only on x86_64 to avoid cross-compilation issues
 [target.'cfg(target_arch = "x86_64")'.dependencies]

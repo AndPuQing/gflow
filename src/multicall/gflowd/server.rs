@@ -26,6 +26,7 @@ use axum::{
 use socket2::{Domain, Protocol, Socket, Type};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tracing::Instrument;
 
 pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
@@ -91,13 +92,26 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     // Create server state with scheduler, event bus, and state saver
     let server_state = state::ServerState::new(scheduler, event_bus, state_saver_handle.clone());
 
-    // Spawn webhook notification dispatcher (best-effort)
-    if notifications.enabled && !notifications.webhooks.is_empty() {
+    // Spawn notification dispatchers (best-effort)
+    if notifications.enabled
+        && (!notifications.webhooks.is_empty() || !notifications.emails.is_empty())
+    {
+        let delivery_semaphore = Arc::new(Semaphore::new(
+            notifications.max_concurrent_deliveries.max(1),
+        ));
         super::webhooks::spawn_webhook_notifier(
-            notifications,
+            notifications.clone(),
+            Arc::clone(&delivery_semaphore),
             Arc::clone(&server_state.scheduler),
             Arc::clone(&server_state.event_bus),
             daemon_host,
+        );
+        super::emails::spawn_email_notifier(
+            notifications,
+            delivery_semaphore,
+            Arc::clone(&server_state.scheduler),
+            Arc::clone(&server_state.event_bus),
+            config.daemon.host.clone(),
         );
         // Notify that the daemon is online (covers both fresh start and reload).
         server_state

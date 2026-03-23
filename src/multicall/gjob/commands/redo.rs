@@ -142,6 +142,7 @@ pub(crate) fn build_redo_job(original_job: &Job, options: &RedoJobOptions) -> Jo
     builder = builder.task_id(original_job.task_id);
     builder = builder.auto_close_tmux(original_job.auto_close_tmux);
     builder = builder.parameters_compact(original_job.parameters.clone());
+    builder = builder.notifications(original_job.notifications.clone());
     builder = builder.redone_from(Some(original_job.id));
     builder = builder.submitted_by(gflow::platform::get_current_username());
 
@@ -434,7 +435,7 @@ async fn redo_with_cascade(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gflow::core::job::{JobBuilder, JobState, JobStateReason};
+    use gflow::core::job::{JobBuilder, JobNotifications, JobState, JobStateReason};
     use std::time::Duration;
 
     #[test]
@@ -515,6 +516,23 @@ mod tests {
             },
         );
         assert_eq!(cleared_job.depends_on, None);
+    }
+
+    #[test]
+    fn build_redo_job_preserves_per_job_notifications() {
+        let original_job = JobBuilder::new()
+            .command("python train.py")
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .notifications(JobNotifications::normalized(
+                vec!["alice@example.com".to_string()],
+                vec!["job_failed".to_string(), "job_timeout".to_string()],
+            ))
+            .build();
+
+        let redone_job = build_redo_job(&original_job, &RedoJobOptions::default());
+
+        assert_eq!(redone_job.notifications, original_job.notifications);
     }
 
     #[test]

@@ -188,13 +188,12 @@ pub async fn handle_init(config_path: &Option<PathBuf>, args: InitArgs) -> anyho
     };
 
     if configure_advanced {
-        let enable = Confirm::with_theme(&theme)
+        let enable_webhooks = Confirm::with_theme(&theme)
             .with_prompt("Enable webhook notifications?")
             .default(false)
             .interact()
             .map_err(map_dialoguer_err)?;
-        if enable {
-            cfg.notifications.enabled = true;
+        if enable_webhooks {
             let urls: String = Input::with_theme(&theme)
                 .with_prompt("Webhook URL(s) (comma-separated, leave empty to skip)")
                 .allow_empty(true)
@@ -217,9 +216,63 @@ pub async fn handle_init(config_path: &Option<PathBuf>, args: InitArgs) -> anyho
                     max_retries: 3,
                 })
                 .collect();
+        }
 
+        let enable_emails = Confirm::with_theme(&theme)
+            .with_prompt("Enable email notifications?")
+            .default(false)
+            .interact()
+            .map_err(map_dialoguer_err)?;
+        if enable_emails {
+            let smtp_url: String = Input::with_theme(&theme)
+                .with_prompt("SMTP URL (e.g. smtps://user:pass@smtp.example.com:465)")
+                .allow_empty(true)
+                .interact_text()
+                .map_err(map_dialoguer_err)?;
+            let smtp_url = smtp_url.trim().to_string();
+
+            if !smtp_url.is_empty() {
+                let from: String = Input::with_theme(&theme)
+                    .with_prompt("From email")
+                    .interact_text()
+                    .map_err(map_dialoguer_err)?;
+                let to: String = Input::with_theme(&theme)
+                    .with_prompt("Recipient email(s) (comma-separated)")
+                    .allow_empty(true)
+                    .interact_text()
+                    .map_err(map_dialoguer_err)?;
+                let subject_prefix: String = Input::with_theme(&theme)
+                    .with_prompt("Subject prefix (optional)")
+                    .allow_empty(true)
+                    .interact_text()
+                    .map_err(map_dialoguer_err)?;
+
+                cfg.notifications.emails.push(gflow::config::EmailConfig {
+                    smtp_url,
+                    from: from.trim().to_string(),
+                    to: to
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect(),
+                    events: vec!["*".to_string()],
+                    filter_users: None,
+                    subject_prefix: if subject_prefix.trim().is_empty() {
+                        None
+                    } else {
+                        Some(subject_prefix.trim().to_string())
+                    },
+                    timeout_secs: 10,
+                    max_retries: 3,
+                });
+            }
+        }
+
+        if !cfg.notifications.webhooks.is_empty() || !cfg.notifications.emails.is_empty() {
+            cfg.notifications.enabled = true;
             let max_conc: usize = Input::with_theme(&theme)
-                .with_prompt("Max concurrent webhook deliveries")
+                .with_prompt("Max concurrent notification deliveries")
                 .default(cfg.notifications.max_concurrent_deliveries)
                 .interact_text()
                 .map_err(map_dialoguer_err)?;
@@ -402,10 +455,13 @@ fn print_success(path: &Path, cfg: &gflow::config::Config, detected_gpus: &[Dete
         cfg.daemon.gpu_allocation_strategy
     );
     println!("  Timezone: {}", cfg.timezone.as_deref().unwrap_or("local"));
-    if cfg.notifications.enabled && !cfg.notifications.webhooks.is_empty() {
+    if cfg.notifications.enabled
+        && (!cfg.notifications.webhooks.is_empty() || !cfg.notifications.emails.is_empty())
+    {
         println!(
-            "  Notifications: enabled ({} webhook(s))",
-            cfg.notifications.webhooks.len()
+            "  Notifications: enabled ({} webhook(s), {} email target(s))",
+            cfg.notifications.webhooks.len(),
+            cfg.notifications.emails.len()
         );
     }
     println!();
@@ -446,6 +502,16 @@ mod tests {
             timeout_secs: 10,
             max_retries: 3,
         }];
+        cfg.notifications.emails = vec![gflow::config::EmailConfig {
+            smtp_url: "smtps://user:pass@smtp.example.com:465".to_string(),
+            from: "gflow <noreply@example.com>".to_string(),
+            to: vec!["alerts@example.com".to_string()],
+            events: vec!["job_failed".to_string()],
+            filter_users: None,
+            subject_prefix: Some("[gflow]".to_string()),
+            timeout_secs: 10,
+            max_retries: 3,
+        }];
 
         let rendered = render_config_toml(&cfg).unwrap();
         write_config_file(&path, &rendered, true).unwrap();
@@ -457,9 +523,14 @@ mod tests {
         assert_eq!(loaded.timezone.as_deref(), Some("UTC"));
         assert!(loaded.notifications.enabled);
         assert_eq!(loaded.notifications.webhooks.len(), 1);
+        assert_eq!(loaded.notifications.emails.len(), 1);
         assert_eq!(
             loaded.notifications.webhooks[0].url,
             "https://example.com/hook"
+        );
+        assert_eq!(
+            loaded.notifications.emails[0].smtp_url,
+            "smtps://user:pass@smtp.example.com:465"
         );
     }
 }

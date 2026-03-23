@@ -24,6 +24,7 @@ gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
 gbatch --project ml-research python train.py
+gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
 # Environment
 gbatch --conda-env myenv python script.py
@@ -107,6 +108,8 @@ When submitting a script, `gbatch` can parse a small subset of options from line
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
 # GFLOW --project=ml-research
+# GFLOW --notify-email=alice@example.com
+# GFLOW --notify-on=job_failed,job_timeout
 ```
 
 Notes:
@@ -121,3 +124,11 @@ Notes:
 - Maximum length is 64 characters.
 - Project value is immutable after submission.
 - CLI `--project` overrides `# GFLOW --project=...` in scripts.
+
+## Per-Job Notifications (`--notify-email`, `--notify-on`)
+
+- Use `--notify-email <address>` multiple times to attach job-specific email recipients.
+- Use `--notify-on <event1,event2,...>` to choose which events trigger those emails.
+- If `--notify-email` is set but `--notify-on` is omitted, gflow defaults to `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
+- CLI flags are merged with script directives for recipients; if CLI `--notify-on` is provided it overrides script events.
+- Delivery still uses the global SMTP transports configured under `notifications.emails`.

@@ -2,7 +2,7 @@ mod model;
 mod parameters;
 mod state;
 
-pub use model::{Job, JobBuilder, JobRuntime, JobSpec, JobView};
+pub use model::{Job, JobBuilder, JobNotifications, JobRuntime, JobSpec, JobView};
 pub use parameters::{DependencyIds, GpuIds, Parameters};
 pub use state::{DependencyMode, GpuSharingMode, JobError, JobState, JobStateReason};
 

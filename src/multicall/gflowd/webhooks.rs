@@ -12,6 +12,7 @@ use tracing::Instrument;
 
 pub(crate) fn spawn_webhook_notifier(
     notifications: NotificationsConfig,
+    semaphore: Arc<Semaphore>,
     scheduler: Arc<RwLock<SchedulerRuntime>>,
     event_bus: Arc<EventBus>,
     scheduler_host: String,
@@ -31,7 +32,6 @@ pub(crate) fn spawn_webhook_notifier(
     };
 
     let concurrency = notifications.max_concurrent_deliveries.max(1);
-    let semaphore = Arc::new(Semaphore::new(concurrency));
 
     let client = match reqwest::Client::builder()
         .user_agent(format!("gflow/{}/webhooks", env!("CARGO_PKG_VERSION")))
@@ -293,23 +293,23 @@ async fn deliver_once(
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct WebhookPayload {
-    event: String,
-    timestamp: String,
-    scheduler: SchedulerInfoPayload,
+pub(crate) struct WebhookPayload {
+    pub(crate) event: String,
+    pub(crate) timestamp: String,
+    pub(crate) scheduler: SchedulerInfoPayload,
     /// Human-readable summary (used by chat integrations like Matrix hookshot).
     #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
+    pub(crate) text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    job: Option<JobPayload>,
+    pub(crate) job: Option<JobPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reservation: Option<ReservationPayload>,
+    pub(crate) reservation: Option<ReservationPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    gpu: Option<GpuPayload>,
+    pub(crate) gpu: Option<GpuPayload>,
 }
 
 impl WebhookPayload {
-    fn user_for_filtering(&self) -> Option<&str> {
+    pub(crate) fn user_for_filtering(&self) -> Option<&str> {
         if let Some(ref job) = self.job {
             return job.user.as_deref();
         }
@@ -321,56 +321,56 @@ impl WebhookPayload {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct SchedulerInfoPayload {
-    host: String,
-    version: String,
+pub(crate) struct SchedulerInfoPayload {
+    pub(crate) host: String,
+    pub(crate) version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct JobPayload {
-    id: u32,
+pub(crate) struct JobPayload {
+    pub(crate) id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    user: Option<String>,
+    pub(crate) user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    state: Option<String>,
+    pub(crate) state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    runtime: Option<String>,
+    pub(crate) runtime: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    gpus: Option<Vec<u32>>,
+    pub(crate) gpus: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    submitted_at: Option<String>,
+    pub(crate) submitted_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    started_at: Option<String>,
+    pub(crate) started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    finished_at: Option<String>,
+    pub(crate) finished_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
+    pub(crate) reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ReservationPayload {
-    id: u32,
-    user: String,
-    gpu_count: u32,
+pub(crate) struct ReservationPayload {
+    pub(crate) id: u32,
+    pub(crate) user: String,
+    pub(crate) gpu_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    gpu_indices: Option<Vec<u32>>,
-    start_time: String,
-    end_time: String,
-    status: String,
-    created_at: String,
+    pub(crate) gpu_indices: Option<Vec<u32>>,
+    pub(crate) start_time: String,
+    pub(crate) end_time: String,
+    pub(crate) status: String,
+    pub(crate) created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cancelled_at: Option<String>,
+    pub(crate) cancelled_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct GpuPayload {
-    index: u32,
-    available: bool,
+pub(crate) struct GpuPayload {
+    pub(crate) index: u32,
+    pub(crate) available: bool,
 }
 
-async fn build_payloads(
+pub(crate) async fn build_payloads(
     scheduler: &Arc<RwLock<SchedulerRuntime>>,
     scheduler_host: &str,
     event: &SchedulerEvent,
@@ -754,11 +754,13 @@ mod tests {
                 timeout_secs: 5,
                 max_retries: 0,
             }],
+            emails: vec![],
             max_concurrent_deliveries: 4,
         };
 
         let _handle = spawn_webhook_notifier(
             notifications,
+            Arc::new(Semaphore::new(4)),
             Arc::clone(&scheduler),
             Arc::clone(&event_bus),
             "localhost".to_string(),

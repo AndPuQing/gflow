@@ -160,9 +160,9 @@ gqueue --project ml-research
 gqueue --format JOBID,NAME,PROJECT,ST,TIME
 ```
 
-## Notifications (Webhooks)
+## Notifications (Webhooks and Email)
 
-gflowd can send HTTP POST webhooks for job and system events (best-effort).
+gflowd can send HTTP POST webhooks and SMTP email notifications for job and system events (best-effort).
 
 Enable and configure:
 
@@ -178,10 +178,21 @@ filter_users = ["alice", "bob"] # optional
 headers = { Authorization = "Bearer token123" } # optional
 timeout_secs = 10
 max_retries = 3
+
+[[notifications.emails]]
+smtp_url = "smtps://user:pass@smtp.example.com:465"
+from = "gflow <noreply@example.com>"
+to = ["alice@example.com", "ml-oncall@example.com"] # optional if only using per-job recipients
+events = ["job_failed", "job_timeout"] # or ["*"]
+filter_users = ["alice"] # optional
+subject_prefix = "[gflow-prod]" # optional
+timeout_secs = 10
+max_retries = 3
 ```
 
 Supported event names:
 - `job_submitted`
+- `job_updated`
 - `job_started`
 - `job_completed`
 - `job_failed`
@@ -192,6 +203,7 @@ Supported event names:
 - `gpu_available` (only when a GPU becomes available)
 - `reservation_created`
 - `reservation_cancelled`
+- `scheduler_online`
 
 Payload shape (fields may be omitted depending on event):
 
@@ -207,8 +219,14 @@ Payload shape (fields may be omitted depending on event):
 Notes:
 - `events = ["*"]` subscribes to all supported events.
 - Use `filter_users` to restrict notifications by job submitter / reservation owner.
+- `smtp_url` follows lettre's SMTP URL syntax, for example:
+  `smtps://user:pass@smtp.example.com:465`,
+  `smtp://user:pass@smtp.example.com:587?tls=required`,
+  or `smtp://localhost:25` for plaintext local relays.
+- `to` may be omitted if you only want SMTP transport configured globally and recipients provided per job via `gbatch --notify-email`.
+- `subject_prefix` is only used for email notifications.
 - `max_retries` uses exponential backoff (best-effort); deliveries may be skipped if the daemon is overloaded.
-- Be careful with sensitive data: webhooks can include job metadata and usernames.
+- Be careful with sensitive data: notifications can include job metadata, usernames, and timing information.
 
 ### Logging
 

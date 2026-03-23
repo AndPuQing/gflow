@@ -47,7 +47,11 @@ pub struct NotificationsConfig {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub webhooks: Vec<WebhookConfig>,
-    /// Limit concurrent webhook deliveries across all endpoints
+    /// List of email endpoints
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub emails: Vec<EmailConfig>,
+    /// Limit concurrent notification deliveries across all endpoints
     #[serde(default = "default_max_concurrent_deliveries")]
     #[serde(skip_serializing_if = "is_default_max_concurrent_deliveries")]
     pub max_concurrent_deliveries: usize,
@@ -58,6 +62,7 @@ impl Default for NotificationsConfig {
         Self {
             enabled: false,
             webhooks: vec![],
+            emails: vec![],
             max_concurrent_deliveries: default_max_concurrent_deliveries(),
         }
     }
@@ -67,6 +72,7 @@ impl NotificationsConfig {
     fn is_default(value: &Self) -> bool {
         !value.enabled
             && value.webhooks.is_empty()
+            && value.emails.is_empty()
             && value.max_concurrent_deliveries == default_max_concurrent_deliveries()
     }
 }
@@ -120,6 +126,34 @@ pub struct WebhookConfig {
     pub max_retries: u32,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct EmailConfig {
+    /// SMTP connection URL (e.g. "smtps://user:pass@smtp.example.com:465")
+    pub smtp_url: String,
+    /// From mailbox (supports display name syntax like "gflow <noreply@example.com>")
+    pub from: String,
+    /// Recipient mailboxes
+    #[serde(default)]
+    pub to: Vec<String>,
+    /// Events to subscribe to. Supports `"*"` (all).
+    #[serde(default = "default_email_events")]
+    pub events: Vec<String>,
+    /// Optional: only notify for specific users (job submitter / reservation owner)
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter_users: Option<Vec<String>>,
+    /// Optional subject prefix, e.g. "[gflow-prod]"
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject_prefix: Option<String>,
+    /// Optional: per-delivery timeout in seconds (default: 10)
+    #[serde(default = "default_email_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Optional: number of retries after the initial attempt (default: 3)
+    #[serde(default = "default_email_max_retries")]
+    pub max_retries: u32,
+}
+
 fn default_webhook_events() -> Vec<String> {
     vec!["*".to_string()]
 }
@@ -129,6 +163,18 @@ fn default_webhook_timeout_secs() -> u64 {
 }
 
 fn default_webhook_max_retries() -> u32 {
+    3
+}
+
+fn default_email_events() -> Vec<String> {
+    vec!["*".to_string()]
+}
+
+fn default_email_timeout_secs() -> u64 {
+    10
+}
+
+fn default_email_max_retries() -> u32 {
     3
 }
 

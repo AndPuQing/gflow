@@ -143,6 +143,14 @@ pub struct AddArgs {
     /// Project code for tracking and organization
     #[arg(short = 'P', long, value_hint = clap::ValueHint::Other)]
     pub project: Option<String>,
+
+    /// Additional email recipient for this job's notifications
+    #[arg(long = "notify-email", value_hint = clap::ValueHint::EmailAddress)]
+    pub notify_email: Vec<String>,
+
+    /// Event names for this job's notifications (comma-separated or repeated)
+    #[arg(long = "notify-on", value_delimiter = ',', value_hint = clap::ValueHint::Other)]
+    pub notify_on: Vec<String>,
 }
 
 #[cfg(test)]
@@ -198,5 +206,32 @@ mod tests {
         let args = GBatch::try_parse_from(["gbatch", "--max-gpu-mem", "24G", "script.sh"])
             .expect("should parse --max-gpu-mem alias");
         assert_eq!(args.add_args.gpu_memory.as_deref(), Some("24G"));
+    }
+
+    #[test]
+    fn parses_per_job_notification_flags() {
+        let args = GBatch::try_parse_from([
+            "gbatch",
+            "--notify-email",
+            "alice@example.com",
+            "--notify-email",
+            "ops@example.com",
+            "--notify-on",
+            "job_failed,job_timeout",
+            "script.sh",
+        ])
+        .expect("should parse per-job notification flags");
+
+        assert_eq!(
+            args.add_args.notify_email,
+            vec![
+                "alice@example.com".to_string(),
+                "ops@example.com".to_string()
+            ]
+        );
+        assert_eq!(
+            args.add_args.notify_on,
+            vec!["job_failed".to_string(), "job_timeout".to_string()]
+        );
     }
 }

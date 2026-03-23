@@ -35,6 +35,10 @@ pub struct JobSpec {
     #[serde(default)]
     pub project: Option<CompactString>,
 
+    #[serde(default)]
+    #[serde(skip_serializing_if = "JobNotifications::is_empty")]
+    pub notifications: JobNotifications,
+
     // Dependency config (cold - accessed once during submission)
     pub depends_on: Option<u32>,
     #[serde(default)]
@@ -60,6 +64,7 @@ impl Default for JobSpec {
             auto_close_tmux: false,
             run_name: None,
             project: None,
+            notifications: JobNotifications::default(),
             depends_on: None,
             depends_on_ids: DependencyIds::new(),
             dependency_mode: None,
@@ -210,6 +215,10 @@ pub struct Job {
     pub finished_at: Option<SystemTime>,  // When the job finished or failed
     #[serde(default)]
     pub reason: Option<Box<JobStateReason>>, // Reason for cancellation/failure
+    // Append-only for backward compatibility with legacy msgpack array layout.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "JobNotifications::is_empty")]
+    pub notifications: JobNotifications,
 }
 
 #[derive(Default)]
@@ -236,7 +245,46 @@ pub struct JobBuilder {
     group_id: Option<Uuid>,
     max_concurrent: Option<usize>,
     project: Option<CompactString>,
+    notifications: Option<JobNotifications>,
     gpu_sharing_mode: Option<GpuSharingMode>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct JobNotifications {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub emails: Vec<CompactString>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<CompactString>,
+}
+
+impl JobNotifications {
+    pub fn is_empty(&self) -> bool {
+        self.emails.is_empty()
+    }
+
+    pub fn normalized(
+        emails: impl IntoIterator<Item = String>,
+        events: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let emails = dedupe_compact_strings(emails.into_iter().map(|s| s.trim().to_string()));
+        let events = dedupe_compact_strings(events.into_iter().map(|s| s.trim().to_lowercase()));
+        Self { emails, events }
+    }
+}
+
+fn dedupe_compact_strings(values: impl IntoIterator<Item = String>) -> Vec<CompactString> {
+    let mut out = Vec::new();
+    for value in values {
+        if value.is_empty() {
+            continue;
+        }
+        let value = CompactString::from(value);
+        if !out.contains(&value) {
+            out.push(value);
+        }
+    }
+    out
 }
 
 impl JobBuilder {
@@ -383,6 +431,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn notifications(mut self, notifications: JobNotifications) -> Self {
+        self.notifications = Some(notifications);
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -412,6 +465,7 @@ impl JobBuilder {
             max_concurrent: self.max_concurrent,
             run_name: self.run_name,
             project: self.project,
+            notifications: self.notifications.unwrap_or_default(),
             state: JobState::Queued,
             gpu_ids: None,
             run_dir: self.run_dir.unwrap_or_else(|| ".".into()),
@@ -450,6 +504,7 @@ impl Default for Job {
             max_concurrent: None,
             run_name: None,
             project: None,
+            notifications: JobNotifications::default(),
             state: JobState::Queued,
             gpu_ids: None,
             submitted_at: None,
@@ -492,6 +547,7 @@ impl Job {
             max_concurrent: runtime.max_concurrent,
             run_name: spec.run_name,
             project: spec.project,
+            notifications: spec.notifications,
             state: runtime.state,
             gpu_ids: runtime.gpu_ids,
             submitted_at: spec.submitted_at,
@@ -516,6 +572,7 @@ impl Job {
             auto_close_tmux: self.auto_close_tmux,
             run_name: self.run_name,
             project: self.project,
+            notifications: self.notifications,
             depends_on: self.depends_on,
             depends_on_ids: self.depends_on_ids,
             dependency_mode: self.dependency_mode,

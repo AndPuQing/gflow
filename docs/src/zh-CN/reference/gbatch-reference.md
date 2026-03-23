@@ -24,6 +24,7 @@ gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
 gbatch --project ml-research python train.py
+gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
 # 环境
 gbatch --conda-env myenv python script.py
@@ -107,6 +108,8 @@ gbatch --dry-run --gpus 1 python train.py
 # GFLOW --conda-env=myenv
 # GFLOW --depends-on=123
 # GFLOW --project=ml-research
+# GFLOW --notify-email=alice@example.com
+# GFLOW --notify-on=job_failed,job_timeout
 ```
 
 说明：
@@ -121,3 +124,11 @@ gbatch --dry-run --gpus 1 python train.py
 - 最大长度为 64 个字符。
 - 项目值在提交后不可修改。
 - 命令行 `--project` 会覆盖脚本中的 `# GFLOW --project=...`。
+
+## 单任务通知（`--notify-email`、`--notify-on`）
+
+- 使用 `--notify-email <address>` 可重复添加该任务的邮件收件人。
+- 使用 `--notify-on <event1,event2,...>` 选择触发这些邮件的事件。
+- 如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在 `job_completed`、`job_failed`、`job_timeout`、`job_cancelled` 时发送。
+- 收件人会合并脚本指令与命令行；如果命令行提供了 `--notify-on`，则覆盖脚本中的事件列表。
+- 实际发送仍然复用 `notifications.emails` 下配置的全局 SMTP 通道。

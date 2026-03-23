@@ -12,6 +12,7 @@
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --project ml-research python train.py
+gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
 ## 提交命令
@@ -50,6 +51,8 @@ gbatch train.sh
 - `# GFLOW --conda-env=<ENV>`
 - `# GFLOW --depends-on=<job_id|@|@~N>`（仅单依赖）
 - `# GFLOW --project=<CODE>`
+- `# GFLOW --notify-email=<EMAIL>`
+- `# GFLOW --notify-on=<EVENT1,EVENT2,...>`
 :::
 
 ::: info
@@ -87,6 +90,10 @@ gbatch --conda-env myenv python script.py
 # 项目编码
 gbatch --project ml-research python train.py
 
+# 单任务邮件通知
+gbatch --notify-email alice@example.com python train.py
+gbatch --notify-email alice@example.com --notify-email oncall@example.com --notify-on job_failed,job_timeout python train.py
+
 # 依赖
 gbatch --depends-on <job_id|@|@~N> python next.py
 gbatch --depends-on-all 1,2,3 python merge.py
@@ -110,6 +117,10 @@ gbatch --dry-run --gpus 1 python train.py
 
 ::: info
 项目值在提交后不可修改。
+:::
+
+::: info
+Per-job 通知会复用 `notifications.emails` 中配置的 SMTP 发送通道。如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在终态事件时发送：`job_completed`、`job_failed`、`job_timeout`、`job_cancelled`。
 :::
 
 ## 任务数组
