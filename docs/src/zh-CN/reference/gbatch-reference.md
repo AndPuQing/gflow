@@ -131,4 +131,4 @@ gbatch --dry-run --gpus 1 python train.py
 - 使用 `--notify-on <event1,event2,...>` 选择触发这些邮件的事件。
 - 如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在 `job_completed`、`job_failed`、`job_timeout`、`job_cancelled` 时发送。
 - 收件人会合并脚本指令与命令行；如果命令行提供了 `--notify-on`，则覆盖脚本中的事件列表。
-- 实际发送仍然复用 `notifications.emails` 下配置的全局 SMTP 通道。
+- 实际发送仍然复用[通知](../user-guide/notifications)里配置的全局 SMTP 通道。

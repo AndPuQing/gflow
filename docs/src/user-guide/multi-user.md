@@ -87,7 +87,7 @@ gstats --user alice
 gctl reserve list --timeline --range 48h
 ```
 
-If you need external monitoring or audit hooks, add [Notifications (Webhooks)](./configuration#notifications-webhooks).
+If you need external monitoring or audit hooks, add [Notifications](./notifications).
 
 ## For Regular Users
 

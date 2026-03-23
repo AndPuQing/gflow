@@ -120,7 +120,7 @@ gbatch --dry-run --gpus 1 python train.py
 :::
 
 ::: info
-Per-job 通知会复用 `notifications.emails` 中配置的 SMTP 发送通道。如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在终态事件时发送：`job_completed`、`job_failed`、`job_timeout`、`job_cancelled`。
+Per-job 通知会复用[通知](./notifications)里配置的 SMTP 发送通道。如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在终态事件时发送：`job_completed`、`job_failed`、`job_timeout`、`job_cancelled`。
 :::
 
 ## 任务数组
@@ -152,3 +152,4 @@ tail -f ~/.local/share/gflow/logs/<job_id>.log
 - [任务依赖](./job-dependencies) - 工作流与依赖模式
 - [时间限制](./time-limits) - 时间格式与行为
 - [GPU 管理](./gpu-management) - 分配细节
+- [通知](./notifications) - Webhook 与邮件投递

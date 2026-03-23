@@ -120,7 +120,7 @@ Project values are immutable after submission.
 :::
 
 ::: info
-Per-job notifications reuse the SMTP transports configured in `notifications.emails`. If you set `--notify-email` without `--notify-on`, gflow defaults to terminal events: `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
+Per-job notifications reuse the SMTP transports configured in [Notifications](./notifications). If you set `--notify-email` without `--notify-on`, gflow defaults to terminal events: `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
 :::
 
 ## Job Arrays
@@ -152,3 +152,4 @@ tail -f ~/.local/share/gflow/logs/<job_id>.log
 - [Job Dependencies](./job-dependencies) - Workflows and dependency modes
 - [Time Limits](./time-limits) - Time format and behavior
 - [GPU Management](./gpu-management) - Allocation details
+- [Notifications](./notifications) - Webhooks and email delivery

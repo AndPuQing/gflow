@@ -78,6 +78,10 @@ export default defineConfig({
                                 link: "/user-guide/configuration",
                             },
                             {
+                                text: "Notifications",
+                                link: "/user-guide/notifications",
+                            },
+                            {
                                 text: "Multi-User Usage",
                                 link: "/user-guide/multi-user",
                             },
@@ -210,6 +214,10 @@ export default defineConfig({
                             {
                                 text: "配置",
                                 link: "/zh-CN/user-guide/configuration",
+                            },
+                            {
+                                text: "通知",
+                                link: "/zh-CN/user-guide/notifications",
                             },
                             {
                                 text: "多用户使用",

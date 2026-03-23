@@ -160,73 +160,13 @@ gqueue --project ml-research
 gqueue --format JOBID,NAME,PROJECT,ST,TIME
 ```
 
-## 通知（Webhook 与邮件）
+## 通知
 
-gflowd 支持在任务/系统事件发生时发送 HTTP POST webhook 和 SMTP 邮件通知（尽力而为）。
+通知相关配置已拆分为独立章节：
 
-启用并配置：
-
-```toml
-[notifications]
-enabled = true
-max_concurrent_deliveries = 16
-
-[[notifications.webhooks]]
-url = "https://api.example.com/gflow/events"
-events = ["job_completed", "job_failed", "job_timeout"] # 或 ["*"]
-filter_users = ["alice", "bob"] # 可选
-headers = { Authorization = "Bearer token123" } # 可选
-timeout_secs = 10
-max_retries = 3
-
-[[notifications.emails]]
-smtp_url = "smtps://user:pass@smtp.example.com:465"
-from = "gflow <noreply@example.com>"
-to = ["alice@example.com", "ml-oncall@example.com"] # 仅使用 per-job 收件人时可省略
-events = ["job_failed", "job_timeout"] # 或 ["*"]
-filter_users = ["alice"] # 可选
-subject_prefix = "[gflow-prod]" # 可选
-timeout_secs = 10
-max_retries = 3
-```
-
-支持的事件名：
-- `job_submitted`
-- `job_updated`
-- `job_started`
-- `job_completed`
-- `job_failed`
-- `job_cancelled`
-- `job_timeout`
-- `job_held`
-- `job_released`
-- `gpu_available`（仅在 GPU 变为可用时）
-- `reservation_created`
-- `reservation_cancelled`
-- `scheduler_online`
-
-Payload 结构（不同事件可能省略部分字段）：
-
-```json
-{
-  "event": "job_completed",
-  "timestamp": "2026-02-04T12:30:45Z",
-  "job": { "id": 42, "user": "alice", "state": "Finished" },
-  "scheduler": { "host": "gpu-server-01", "version": "0.4.11" }
-}
-```
-
-备注：
-- `events = ["*"]` 表示订阅所有支持的事件。
-- `filter_users` 用于按任务提交者 / 预约创建者过滤通知。
-- `smtp_url` 使用 lettre 的 SMTP URL 语法，例如：
-  `smtps://user:pass@smtp.example.com:465`、
-  `smtp://user:pass@smtp.example.com:587?tls=required`，
-  或本地明文 relay 的 `smtp://localhost:25`。
-- 如果只想全局配置 SMTP 通道、收件人由 `gbatch --notify-email` 按任务提供，则 `to` 可以省略。
-- `subject_prefix` 仅用于邮件通知主题前缀。
-- `max_retries` 使用指数退避（尽力而为）；系统过载时可能丢弃通知。
-- 注意敏感信息：通知内容可能包含任务元数据、用户名和时间信息。
+- Webhook 和邮件通知见[通知](./notifications)。
+- `notifications.emails` 也是 `gbatch --notify-email` 这类单任务邮件通知所复用的 SMTP 通道。
+- 如果通知内容包含敏感任务元数据，仍应优先让守护进程只监听 `localhost`。
 
 ### 日志
 

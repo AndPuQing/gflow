@@ -87,7 +87,7 @@ gstats --user alice
 gctl reserve list --timeline --range 48h
 ```
 
-如果需要对接外部监控或审计，可以再配合[配置](./configuration)里的通知（Webhook）能力。
+如果需要对接外部监控或审计，可以再配合[通知](./notifications)能力。
 
 ## 给普通用户
 

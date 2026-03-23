@@ -131,4 +131,4 @@ Notes:
 - Use `--notify-on <event1,event2,...>` to choose which events trigger those emails.
 - If `--notify-email` is set but `--notify-on` is omitted, gflow defaults to `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
 - CLI flags are merged with script directives for recipients; if CLI `--notify-on` is provided it overrides script events.
-- Delivery still uses the global SMTP transports configured under `notifications.emails`.
+- Delivery still uses the global SMTP transports configured under [Notifications](../user-guide/notifications).
