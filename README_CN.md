@@ -14,6 +14,8 @@
 
 [English](README.md) | 简体中文
 
+[![asciicast](https://asciinema.org/a/777578.svg)](https://asciinema.org/a/777578)
+
 `gflow` 是一个面向单台 Linux 机器的轻量级任务调度器。它为共享 GPU 工作站和实验室服务器提供接近 Slurm 的工作流，但不需要部署集群。
 
 ## 为什么用 gflow
