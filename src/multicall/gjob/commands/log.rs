@@ -11,6 +11,20 @@ enum LogSlice {
     Last(usize),
 }
 
+fn resolve_log_slice(
+    first_lines: Option<NonZeroUsize>,
+    last_lines: Option<NonZeroUsize>,
+) -> Result<LogSlice> {
+    match (first_lines, last_lines) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("gjob log accepts only one of --first or --last");
+        }
+        (Some(lines), None) => Ok(LogSlice::First(lines.get())),
+        (None, Some(lines)) => Ok(LogSlice::Last(lines.get())),
+        (None, None) => Ok(LogSlice::Full),
+    }
+}
+
 pub async fn handle_log(
     config_path: &Option<PathBuf>,
     job_id_str: &str,
@@ -38,12 +52,7 @@ pub async fn handle_log(
         )
     })?;
 
-    let slice = match (first_lines, last_lines) {
-        (Some(lines), None) => LogSlice::First(lines.get()),
-        (None, Some(lines)) => LogSlice::Last(lines.get()),
-        (None, None) => LogSlice::Full,
-        (Some(_), Some(_)) => unreachable!("clap enforces --first/--last mutual exclusion"),
-    };
+    let slice = resolve_log_slice(first_lines, last_lines)?;
 
     let mut stdout = io::stdout();
     write_selected_log(&mut file, &mut stdout, slice)
@@ -88,7 +97,7 @@ fn write_selected_log<R: io::Read, W: Write>(
                 if tail.len() == lines {
                     tail.pop_front();
                 }
-                tail.push_back(buffer.clone());
+                tail.push_back(std::mem::take(&mut buffer));
             }
 
             for line in tail {
@@ -102,8 +111,17 @@ fn write_selected_log<R: io::Read, W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::{write_selected_log, LogSlice};
+    use super::{resolve_log_slice, write_selected_log, LogSlice};
     use std::io::Cursor;
+    use std::num::NonZeroUsize;
+
+    #[test]
+    fn rejects_conflicting_log_slice_options() {
+        let err = resolve_log_slice(NonZeroUsize::new(10), NonZeroUsize::new(20))
+            .expect_err("conflicting options should fail");
+
+        assert!(err.to_string().contains("only one of --first or --last"));
+    }
 
     #[test]
     fn writes_first_n_lines() {
