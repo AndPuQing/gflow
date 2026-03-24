@@ -24,6 +24,7 @@ host = "localhost"
 port = 59000
 # gpus = [0, 2]
 # gpu_allocation_strategy = "sequential" # 或 "random"
+# gpu_poll_interval_secs = 10
 ```
 
 所有命令都支持 `--config <path>` 指定配置文件：
@@ -89,6 +90,27 @@ gflowd up --gpus 0,2
 gflowd restart --gpus 0-3
 ```
 
+#### GPU 轮询间隔
+
+控制 gflow 发现外部 GPU 占用变化的速度。
+
+配置文件：
+
+```toml
+[daemon]
+gpu_poll_interval_secs = 3 # 默认：10
+```
+
+- 值越小，发现非 gflow 任务占用 GPU 会更快，但 NVML 轮询也会更频繁。
+- 该值必须至少为 `1`。
+
+守护进程 CLI 参数（覆盖配置文件）：
+
+```bash
+gflowd up --gpu-poll-interval-secs 3
+gflowd reload --gpu-poll-interval-secs 1
+```
+
 运行时控制（只影响新的分配）：
 
 ```bash
@@ -101,15 +123,21 @@ gctl show-gpus
 
 优先级（从高到低）：
 1. CLI 参数（`gflowd up --gpus ...`）
-2. 环境变量（`GFLOW_DAEMON_GPUS=...`）
+2. 环境变量（`GFLOW_DAEMON__GPUS=...`）
 3. 配置文件（`daemon.gpus = [...]`）
 4. 默认：所有检测到的 GPU
 
 分配策略优先级（从高到低）：
 1. CLI 参数（`gflowd up --gpu-allocation-strategy ...`）
-2. 环境变量（`GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=...`）
+2. 环境变量（`GFLOW_DAEMON__GPU_ALLOCATION_STRATEGY=...`）
 3. 配置文件（`daemon.gpu_allocation_strategy = "..."`）
 4. 默认：`sequential`
+
+GPU 轮询间隔优先级（从高到低）：
+1. CLI 参数（`gflowd up --gpu-poll-interval-secs ...`）
+2. 环境变量（`GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS=...`）
+3. 配置文件（`daemon.gpu_poll_interval_secs = ...`）
+4. 默认：`10`
 
 ## 时区
 
@@ -174,11 +202,14 @@ gqueue --format JOBID,NAME,PROJECT,ST,TIME
 
 ## 环境变量
 
+`daemon` 下的嵌套字段使用双下划线（`__`）分层。
+
 ```bash
-export GFLOW_DAEMON_HOST=localhost
-export GFLOW_DAEMON_PORT=59000
-export GFLOW_DAEMON_GPUS=0,2
-export GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=random
+export GFLOW_DAEMON__HOST=localhost
+export GFLOW_DAEMON__PORT=59000
+export GFLOW_DAEMON__GPUS=0,2
+export GFLOW_DAEMON__GPU_ALLOCATION_STRATEGY=random
+export GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS=3
 ```
 
 ## 文件与状态

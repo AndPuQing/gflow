@@ -24,9 +24,13 @@ fn should_check_missing_session_as_zombie(
     elapsed >= ZOMBIE_STARTUP_GRACE_PERIOD
 }
 
-/// GPU monitor task - polls NVML every 10s and publishes changes
-pub(super) async fn gpu_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(10));
+/// GPU monitor task - polls NVML on the configured interval and publishes changes
+pub(super) async fn gpu_monitor_task(
+    state: SharedState,
+    event_bus: Arc<EventBus>,
+    poll_interval: Duration,
+) {
+    let mut interval = tokio::time::interval(poll_interval);
     let mut previous_gpu_states: HashMap<u32, bool> = HashMap::new();
 
     loop {

@@ -6,6 +6,7 @@ pub async fn handle_up(
     config_path: &Option<std::path::PathBuf>,
     gpus: Option<String>,
     gpu_allocation_strategy: Option<String>,
+    gpu_poll_interval_secs: Option<u64>,
     verbosity: Verbosity,
 ) -> Result<()> {
     match existing_daemon_state(config_path).await? {
@@ -37,12 +38,14 @@ pub async fn handle_up(
         }
     }
 
-    let session = TmuxSession::create(super::TMUX_SESSION_NAME.to_string())?;
+    super::validate_daemon_startup_config(config_path, gpu_poll_interval_secs)?;
     let command = super::daemon_start_command(
         gpus.as_deref(),
         gpu_allocation_strategy.as_deref(),
+        gpu_poll_interval_secs,
         verbosity,
     )?;
+    let session = TmuxSession::create(super::TMUX_SESSION_NAME.to_string())?;
 
     session.try_send_command(&command)?;
 

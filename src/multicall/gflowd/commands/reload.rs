@@ -10,8 +10,11 @@ pub async fn handle_reload(
     config_path: &Option<std::path::PathBuf>,
     gpus: Option<String>,
     gpu_allocation_strategy: Option<String>,
+    gpu_poll_interval_secs: Option<u64>,
     verbosity: Verbosity,
 ) -> Result<()> {
+    super::validate_daemon_startup_config(config_path, gpu_poll_interval_secs)?;
+
     // Load config to get daemon URL
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
     let client = gflow::Client::build(&config)?;
@@ -34,13 +37,13 @@ pub async fn handle_reload(
         .unwrap()
         .as_micros();
     let new_session_name = format!("gflow_server_new_{}", timestamp);
-    let session = TmuxSession::create(new_session_name.clone())?;
-
     let command = super::daemon_start_command(
         gpus.as_deref(),
         gpu_allocation_strategy.as_deref(),
+        gpu_poll_interval_secs,
         verbosity,
     )?;
+    let session = TmuxSession::create(new_session_name.clone())?;
 
     session.try_send_command(&command)?;
 

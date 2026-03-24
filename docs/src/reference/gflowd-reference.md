@@ -24,6 +24,9 @@ gflowd up
 # Start with restricted GPUs and random allocation
 gflowd up --gpus 0,2 --gpu-allocation-strategy random
 
+# Start with faster GPU occupancy polling
+gflowd up --gpu-poll-interval-secs 3
+
 # Reload without downtime
 gflowd reload
 
@@ -49,7 +52,7 @@ gflowd down
 Create or update the configuration file via a guided wizard.
 
 ```bash
-gflowd init [--yes] [--force] [--advanced] [--gpus <indices>] [--host <host>] [--port <port>] [--timezone <tz>] [--gpu-allocation-strategy <strategy>]
+gflowd init [--yes] [--force] [--advanced] [--gpus <indices>] [--host <host>] [--port <port>] [--timezone <tz>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
 
 Options:
@@ -62,13 +65,14 @@ Options:
 - `--port <port>`: daemon port (default: `59000`)
 - `--timezone <tz>`: store a timezone like `Asia/Shanghai` or `UTC`; use `local` to leave it unset
 - `--gpu-allocation-strategy <strategy>`: `sequential` or `random`
+- `--gpu-poll-interval-secs <seconds>`: poll NVML for GPU occupancy changes every N seconds (default: `10`, minimum: `1`)
 
 ### `gflowd up`
 
 Start the daemon in a tmux session.
 
 ```bash
-gflowd up [--gpus <indices>] [--gpu-allocation-strategy <strategy>]
+gflowd up [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
 
 ### `gflowd reload`
@@ -76,7 +80,7 @@ gflowd up [--gpus <indices>] [--gpu-allocation-strategy <strategy>]
 Reload the daemon with zero downtime.
 
 ```bash
-gflowd reload [--gpus <indices>] [--gpu-allocation-strategy <strategy>]
+gflowd reload [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
 
 Use this when you want to refresh the running daemon without stopping it first.
@@ -86,7 +90,7 @@ Use this when you want to refresh the running daemon without stopping it first.
 Stop the daemon and start it again.
 
 ```bash
-gflowd restart [--gpus <indices>] [--gpu-allocation-strategy <strategy>]
+gflowd restart [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
 
 Use this when a full restart is acceptable or needed.
@@ -121,6 +125,7 @@ gflowd completion fish
 
 - `--gpus` affects which GPUs the scheduler may allocate for new work.
 - `--gpu-allocation-strategy` accepts `sequential` or `random`.
+- `--gpu-poll-interval-secs` controls how quickly unmanaged GPU occupancy changes are detected.
 - `gflowd up`, `reload`, and `restart` all accept the same GPU-related overrides.
 
 ## See Also

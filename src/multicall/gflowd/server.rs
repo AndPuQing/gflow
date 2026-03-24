@@ -33,8 +33,16 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     let state_dir = gflow::paths::get_data_dir()?;
     let allowed_gpus = config.daemon.gpus.clone();
     let gpu_allocation_strategy = config.daemon.gpu_allocation_strategy;
+    let gpu_poll_interval_secs = config.daemon.gpu_poll_interval_secs;
     let notifications = config.notifications.clone();
     let daemon_host = config.daemon.host.clone();
+
+    if gpu_poll_interval_secs == 0 {
+        anyhow::bail!(
+            "Invalid daemon.gpu_poll_interval_secs '0'. Use a value of at least 1 second."
+        );
+    }
+    let gpu_poll_interval = Duration::from_secs(gpu_poll_interval_secs);
 
     // Inject TmuxExecutor
     let executor = Box::new(TmuxExecutor);
@@ -78,7 +86,12 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         tokio::spawn(
             async move {
                 tracing::info!("Starting event-driven scheduler");
-                scheduler_runtime::run_event_driven(scheduler_clone, event_bus_clone).await;
+                scheduler_runtime::run_event_driven(
+                    scheduler_clone,
+                    event_bus_clone,
+                    gpu_poll_interval,
+                )
+                .await;
             }
             .instrument(tracing::info_span!("event_driven_scheduler")),
         );

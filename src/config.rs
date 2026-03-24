@@ -36,6 +36,10 @@ pub struct DaemonConfig {
     /// GPU assignment strategy when selecting from available GPUs.
     #[serde(default)]
     pub gpu_allocation_strategy: GpuAllocationStrategy,
+    /// How often to poll NVML for GPU occupancy updates.
+    #[serde(default = "default_gpu_poll_interval_secs")]
+    #[serde(skip_serializing_if = "is_default_gpu_poll_interval_secs")]
+    pub gpu_poll_interval_secs: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -186,6 +190,14 @@ fn default_port() -> u16 {
     59000
 }
 
+fn default_gpu_poll_interval_secs() -> u64 {
+    10
+}
+
+fn is_default_gpu_poll_interval_secs(v: &u64) -> bool {
+    *v == default_gpu_poll_interval_secs()
+}
+
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
@@ -193,6 +205,7 @@ impl Default for DaemonConfig {
             port: default_port(),
             gpus: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
+            gpu_poll_interval_secs: default_gpu_poll_interval_secs(),
         }
     }
 }
@@ -222,13 +235,97 @@ pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::Conf
     });
 
     settings
-        .add_source(
-            config::Environment::with_prefix("GFLOW")
-                .separator("_")
-                .try_parsing(true)
-                .list_separator(",")
-                .with_list_parse_key("daemon.gpus"),
-        )
+        .add_source(environment_source(None))
         .build()?
         .try_deserialize()
+}
+
+fn environment_source(source: Option<config::Map<String, String>>) -> config::Environment {
+    config::Environment::with_prefix("GFLOW")
+        .prefix_separator("_")
+        .separator("__")
+        .source(source)
+        .try_parsing(true)
+        .list_separator(",")
+        .with_list_parse_key("daemon.gpus")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_source_applies_gpu_allocation_strategy() {
+        let mut env = config::Map::new();
+        env.insert(
+            "GFLOW_DAEMON__GPU_ALLOCATION_STRATEGY".to_string(),
+            "random".to_string(),
+        );
+
+        let config = config::Config::builder()
+            .add_source(environment_source(Some(env)))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(
+            config.daemon.gpu_allocation_strategy,
+            GpuAllocationStrategy::Random
+        );
+    }
+
+    #[test]
+    fn environment_source_applies_gpu_poll_interval() {
+        let mut env = config::Map::new();
+        env.insert(
+            "GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS".to_string(),
+            "3".to_string(),
+        );
+
+        let config = config::Config::builder()
+            .add_source(environment_source(Some(env)))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(config.daemon.gpu_poll_interval_secs, 3);
+    }
+
+    #[test]
+    fn environment_source_rejects_invalid_gpu_poll_interval() {
+        let mut env = config::Map::new();
+        env.insert(
+            "GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS".to_string(),
+            "abc".to_string(),
+        );
+
+        let error = config::Config::builder()
+            .add_source(environment_source(Some(env)))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap_err();
+
+        assert!(error.to_string().contains("invalid type"));
+    }
+
+    #[test]
+    fn environment_source_does_not_treat_single_underscore_as_nested_separator() {
+        let mut env = config::Map::new();
+        env.insert(
+            "GFLOW_DAEMON_GPU_POLL_INTERVAL_SECS".to_string(),
+            "3".to_string(),
+        );
+
+        let config = config::Config::builder()
+            .add_source(environment_source(Some(env)))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(config.daemon.gpu_poll_interval_secs, 10);
+    }
 }

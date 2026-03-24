@@ -24,6 +24,7 @@ host = "localhost"
 port = 59000
 # gpus = [0, 2]
 # gpu_allocation_strategy = "sequential" # or "random"
+# gpu_poll_interval_secs = 10
 ```
 
 All CLIs accept `--config <path>` to use a different file:
@@ -89,6 +90,27 @@ gflowd up --gpus 0,2
 gflowd restart --gpus 0-3
 ```
 
+#### GPU Poll Interval
+
+Control how quickly gflow notices unmanaged GPU occupancy changes.
+
+Config file:
+
+```toml
+[daemon]
+gpu_poll_interval_secs = 3 # default: 10
+```
+
+- Lower values react faster to external GPU usage changes, but poll NVML more often.
+- Value must be at least `1`.
+
+Daemon CLI flag (overrides config):
+
+```bash
+gflowd up --gpu-poll-interval-secs 3
+gflowd reload --gpu-poll-interval-secs 1
+```
+
 Runtime control (affects new allocations only):
 
 ```bash
@@ -101,15 +123,21 @@ Supported specs: `0`, `0,2,4`, `0-3`, `0-1,3,5-6`.
 
 Precedence (highest → lowest):
 1. CLI flag (`gflowd up --gpus ...`)
-2. Env var (`GFLOW_DAEMON_GPUS=...`)
+2. Env var (`GFLOW_DAEMON__GPUS=...`)
 3. Config file (`daemon.gpus = [...]`)
 4. Default: all detected GPUs
 
 For allocation strategy:
 1. CLI flag (`gflowd up --gpu-allocation-strategy ...`)
-2. Env var (`GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=...`)
+2. Env var (`GFLOW_DAEMON__GPU_ALLOCATION_STRATEGY=...`)
 3. Config file (`daemon.gpu_allocation_strategy = "..."`)
 4. Default: `sequential`
+
+For GPU poll interval:
+1. CLI flag (`gflowd up --gpu-poll-interval-secs ...`)
+2. Env var (`GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS=...`)
+3. Config file (`daemon.gpu_poll_interval_secs = ...`)
+4. Default: `10`
 
 ## Timezone
 
@@ -174,11 +202,14 @@ Use [Notifications](./notifications) when you need webhook or email delivery for
 
 ## Environment Variables
 
+Nested daemon keys use double underscores (`__`).
+
 ```bash
-export GFLOW_DAEMON_HOST=localhost
-export GFLOW_DAEMON_PORT=59000
-export GFLOW_DAEMON_GPUS=0,2
-export GFLOW_DAEMON_GPU_ALLOCATION_STRATEGY=random
+export GFLOW_DAEMON__HOST=localhost
+export GFLOW_DAEMON__PORT=59000
+export GFLOW_DAEMON__GPUS=0,2
+export GFLOW_DAEMON__GPU_ALLOCATION_STRATEGY=random
+export GFLOW_DAEMON__GPU_POLL_INTERVAL_SECS=3
 ```
 
 ## Files and State

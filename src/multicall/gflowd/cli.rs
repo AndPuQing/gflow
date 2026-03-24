@@ -27,6 +27,10 @@ pub struct GFlowd {
     #[arg(long, hide = true)]
     pub gpu_allocation_strategy_internal: Option<String>,
 
+    /// GPU poll interval override (internal use, set by 'gflowd up --gpu-poll-interval-secs')
+    #[arg(long, hide = true)]
+    pub gpu_poll_interval_secs_internal: Option<u64>,
+
     #[command(flatten)]
     pub verbosity: Verbosity,
 }
@@ -66,6 +70,10 @@ pub enum Commands {
         /// GPU allocation strategy: sequential or random
         #[arg(long, value_name = "STRATEGY")]
         gpu_allocation_strategy: Option<String>,
+
+        /// Poll interval in seconds for GPU occupancy detection (default: 10)
+        #[arg(long, value_name = "SECONDS")]
+        gpu_poll_interval_secs: Option<u64>,
     },
     /// Start the daemon in a tmux session
     Up {
@@ -76,6 +84,10 @@ pub enum Commands {
         /// GPU allocation strategy: sequential or random
         #[arg(long, value_name = "STRATEGY")]
         gpu_allocation_strategy: Option<String>,
+
+        /// Poll interval in seconds for GPU occupancy detection (default: 10)
+        #[arg(long, value_name = "SECONDS")]
+        gpu_poll_interval_secs: Option<u64>,
     },
     /// Stop the daemon
     Down,
@@ -88,6 +100,10 @@ pub enum Commands {
         /// GPU allocation strategy: sequential or random
         #[arg(long, value_name = "STRATEGY")]
         gpu_allocation_strategy: Option<String>,
+
+        /// Poll interval in seconds for GPU occupancy detection (default: 10)
+        #[arg(long, value_name = "SECONDS")]
+        gpu_poll_interval_secs: Option<u64>,
     },
     /// Reload the daemon with zero downtime
     Reload {
@@ -98,6 +114,10 @@ pub enum Commands {
         /// GPU allocation strategy: sequential or random
         #[arg(long, value_name = "STRATEGY")]
         gpu_allocation_strategy: Option<String>,
+
+        /// Poll interval in seconds for GPU occupancy detection (default: 10)
+        #[arg(long, value_name = "SECONDS")]
+        gpu_poll_interval_secs: Option<u64>,
     },
     /// Show the daemon status
     Status,

@@ -68,6 +68,12 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
             )
         })?;
     }
+    if let Some(gpu_poll_interval_secs) = gflowd.gpu_poll_interval_secs_internal {
+        if gpu_poll_interval_secs == 0 {
+            anyhow::bail!("Invalid GPU poll interval '0'. Use a value of at least 1 second.");
+        }
+        config.daemon.gpu_poll_interval_secs = gpu_poll_interval_secs;
+    }
 
     server::run(config).await
 }

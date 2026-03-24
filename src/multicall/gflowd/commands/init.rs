@@ -16,6 +16,7 @@ pub struct InitArgs {
     pub port: Option<u16>,
     pub timezone: Option<String>,
     pub gpu_allocation_strategy: Option<String>,
+    pub gpu_poll_interval_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,12 @@ pub async fn handle_init(config_path: &Option<PathBuf>, args: InitArgs) -> anyho
         cfg.daemon.gpu_allocation_strategy = strategy.parse().with_context(|| {
             format!("Invalid GPU allocation strategy '{strategy}'. Use 'sequential' or 'random'.")
         })?;
+    }
+    if let Some(gpu_poll_interval_secs) = args.gpu_poll_interval_secs {
+        if gpu_poll_interval_secs == 0 {
+            anyhow::bail!("Invalid GPU poll interval '0'. Use a value of at least 1 second.");
+        }
+        cfg.daemon.gpu_poll_interval_secs = gpu_poll_interval_secs;
     }
 
     // Non-interactive mode: use flags + defaults.
@@ -454,6 +461,10 @@ fn print_success(path: &Path, cfg: &gflow::config::Config, detected_gpus: &[Dete
         "  GPU allocation strategy: {}",
         cfg.daemon.gpu_allocation_strategy
     );
+    println!(
+        "  GPU poll interval: {}s",
+        cfg.daemon.gpu_poll_interval_secs
+    );
     println!("  Timezone: {}", cfg.timezone.as_deref().unwrap_or("local"));
     if cfg.notifications.enabled
         && (!cfg.notifications.webhooks.is_empty() || !cfg.notifications.emails.is_empty())
@@ -492,6 +503,7 @@ mod tests {
         cfg.daemon.host = "localhost".to_string();
         cfg.daemon.port = 60001;
         cfg.daemon.gpus = Some(vec![0, 2, 3]);
+        cfg.daemon.gpu_poll_interval_secs = 3;
         cfg.timezone = Some("UTC".to_string());
         cfg.notifications.enabled = true;
         cfg.notifications.webhooks = vec![gflow::config::WebhookConfig {
@@ -520,6 +532,7 @@ mod tests {
         assert_eq!(loaded.daemon.host, "localhost");
         assert_eq!(loaded.daemon.port, 60001);
         assert_eq!(loaded.daemon.gpus, Some(vec![0, 2, 3]));
+        assert_eq!(loaded.daemon.gpu_poll_interval_secs, 3);
         assert_eq!(loaded.timezone.as_deref(), Some("UTC"));
         assert!(loaded.notifications.enabled);
         assert_eq!(loaded.notifications.webhooks.len(), 1);

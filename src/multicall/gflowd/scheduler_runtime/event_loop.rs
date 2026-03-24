@@ -4,7 +4,11 @@ use std::sync::Arc;
 use tracing::Instrument;
 
 /// Event-driven scheduling loop
-pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus>) {
+pub async fn run_event_driven(
+    shared_state: SharedState,
+    event_bus: Arc<EventBus>,
+    gpu_poll_interval: Duration,
+) {
     // Spawn all event handlers and monitors
     let handles = vec![
         // Scheduler trigger handler with debouncing
@@ -15,10 +19,14 @@ pub async fn run_event_driven(shared_state: SharedState, event_bus: Arc<EventBus
             )
             .instrument(tracing::info_span!("scheduler_trigger_task")),
         ),
-        // GPU monitor - polls NVML every 10s
+        // GPU monitor - polls NVML using the configured interval
         tokio::spawn(
-            super::monitors::gpu_monitor_task(Arc::clone(&shared_state), Arc::clone(&event_bus))
-                .instrument(tracing::info_span!("gpu_monitor_task")),
+            super::monitors::gpu_monitor_task(
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+                gpu_poll_interval,
+            )
+            .instrument(tracing::info_span!("gpu_monitor_task")),
         ),
         // Zombie monitor - checks tmux every 30s
         tokio::spawn(
