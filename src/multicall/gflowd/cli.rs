@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Args, Parser};
 use clap_complete::Shell;
 use clap_verbosity_flag::Verbosity;
 
@@ -35,6 +35,21 @@ pub struct GFlowd {
     pub verbosity: Verbosity,
 }
 
+#[derive(Debug, Clone, Default, Args)]
+pub struct DaemonOverrideArgs {
+    /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
+    #[arg(long, value_name = "INDICES")]
+    pub gpus: Option<String>,
+
+    /// GPU allocation strategy: sequential or random
+    #[arg(long, value_name = "STRATEGY")]
+    pub gpu_allocation_strategy: Option<String>,
+
+    /// Poll interval in seconds for GPU occupancy detection (default: 10)
+    #[arg(long, value_name = "SECONDS")]
+    pub gpu_poll_interval_secs: Option<u64>,
+}
+
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Create or update the configuration file via a guided wizard
@@ -51,10 +66,6 @@ pub enum Commands {
         #[arg(long)]
         advanced: bool,
 
-        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
-        #[arg(long, value_name = "INDICES")]
-        gpus: Option<String>,
-
         /// Daemon host (default: localhost)
         #[arg(long, value_name = "HOST")]
         host: Option<String>,
@@ -67,58 +78,17 @@ pub enum Commands {
         #[arg(long, value_name = "TZ")]
         timezone: Option<String>,
 
-        /// GPU allocation strategy: sequential or random
-        #[arg(long, value_name = "STRATEGY")]
-        gpu_allocation_strategy: Option<String>,
-
-        /// Poll interval in seconds for GPU occupancy detection (default: 10)
-        #[arg(long, value_name = "SECONDS")]
-        gpu_poll_interval_secs: Option<u64>,
+        #[command(flatten)]
+        daemon_overrides: DaemonOverrideArgs,
     },
     /// Start the daemon in a tmux session
-    Up {
-        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
-        #[arg(long, value_name = "INDICES")]
-        gpus: Option<String>,
-
-        /// GPU allocation strategy: sequential or random
-        #[arg(long, value_name = "STRATEGY")]
-        gpu_allocation_strategy: Option<String>,
-
-        /// Poll interval in seconds for GPU occupancy detection (default: 10)
-        #[arg(long, value_name = "SECONDS")]
-        gpu_poll_interval_secs: Option<u64>,
-    },
+    Up(DaemonOverrideArgs),
     /// Stop the daemon
     Down,
     /// Restart the daemon
-    Restart {
-        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
-        #[arg(long, value_name = "INDICES")]
-        gpus: Option<String>,
-
-        /// GPU allocation strategy: sequential or random
-        #[arg(long, value_name = "STRATEGY")]
-        gpu_allocation_strategy: Option<String>,
-
-        /// Poll interval in seconds for GPU occupancy detection (default: 10)
-        #[arg(long, value_name = "SECONDS")]
-        gpu_poll_interval_secs: Option<u64>,
-    },
+    Restart(DaemonOverrideArgs),
     /// Reload the daemon with zero downtime
-    Reload {
-        /// Limit which GPUs the scheduler can use (e.g., "0,2" or "0-2")
-        #[arg(long, value_name = "INDICES")]
-        gpus: Option<String>,
-
-        /// GPU allocation strategy: sequential or random
-        #[arg(long, value_name = "STRATEGY")]
-        gpu_allocation_strategy: Option<String>,
-
-        /// Poll interval in seconds for GPU occupancy detection (default: 10)
-        #[arg(long, value_name = "SECONDS")]
-        gpu_poll_interval_secs: Option<u64>,
-    },
+    Reload(DaemonOverrideArgs),
     /// Show the daemon status
     Status,
     /// Generate shell completion scripts

@@ -4,9 +4,7 @@ use gflow::tmux::{is_session_exist, TmuxSession};
 
 pub async fn handle_up(
     config_path: &Option<std::path::PathBuf>,
-    gpus: Option<String>,
-    gpu_allocation_strategy: Option<String>,
-    gpu_poll_interval_secs: Option<u64>,
+    daemon_overrides: super::super::cli::DaemonOverrideArgs,
     verbosity: Verbosity,
 ) -> Result<()> {
     match existing_daemon_state(config_path).await? {
@@ -38,13 +36,9 @@ pub async fn handle_up(
         }
     }
 
-    super::validate_daemon_startup_config(config_path, gpu_poll_interval_secs)?;
-    let command = super::daemon_start_command(
-        gpus.as_deref(),
-        gpu_allocation_strategy.as_deref(),
-        gpu_poll_interval_secs,
-        verbosity,
-    )?;
+    let start_options = super::DaemonStartOptions::from_overrides(&daemon_overrides, verbosity);
+    super::validate_daemon_startup_config(config_path, &start_options)?;
+    let command = super::daemon_start_command(&start_options)?;
     let session = TmuxSession::create(super::TMUX_SESSION_NAME.to_string())?;
 
     session.try_send_command(&command)?;

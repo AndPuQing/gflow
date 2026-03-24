@@ -8,12 +8,11 @@ use tmux_interface::{ListPanes, RenameSession, Tmux};
 
 pub async fn handle_reload(
     config_path: &Option<std::path::PathBuf>,
-    gpus: Option<String>,
-    gpu_allocation_strategy: Option<String>,
-    gpu_poll_interval_secs: Option<u64>,
+    daemon_overrides: super::super::cli::DaemonOverrideArgs,
     verbosity: Verbosity,
 ) -> Result<()> {
-    super::validate_daemon_startup_config(config_path, gpu_poll_interval_secs)?;
+    let start_options = super::DaemonStartOptions::from_overrides(&daemon_overrides, verbosity);
+    super::validate_daemon_startup_config(config_path, &start_options)?;
 
     // Load config to get daemon URL
     let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
@@ -37,12 +36,7 @@ pub async fn handle_reload(
         .unwrap()
         .as_micros();
     let new_session_name = format!("gflow_server_new_{}", timestamp);
-    let command = super::daemon_start_command(
-        gpus.as_deref(),
-        gpu_allocation_strategy.as_deref(),
-        gpu_poll_interval_secs,
-        verbosity,
-    )?;
+    let command = super::daemon_start_command(&start_options)?;
     let session = TmuxSession::create(new_session_name.clone())?;
 
     session.try_send_command(&command)?;
