@@ -19,6 +19,7 @@ jobs:
         outputs:
             should_build: ${{ steps.check.outputs.should_build }}
             version: ${{ steps.version.outputs.version }}
+            artifact_suffix: ${{ steps.version.outputs.artifact_suffix }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -43,9 +44,11 @@ jobs:
               if: steps.check.outputs.should_build == 'true'
               run: |
                   BASE_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml)
-                  DATE_SUFFIX=$(date -u +%Y%m%d)
-                  NIGHTLY_VERSION="${BASE_VERSION}.dev${DATE_SUFFIX}"
+                  BUILD_ID=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+                  NIGHTLY_VERSION="${BASE_VERSION}.dev${BUILD_ID}"
+                  ARTIFACT_SUFFIX="nightly-${BUILD_ID}"
                   echo "version=${NIGHTLY_VERSION}" >> $GITHUB_OUTPUT
+                  echo "artifact_suffix=${ARTIFACT_SUFFIX}" >> $GITHUB_OUTPUT
                   echo "Generated nightly version: ${NIGHTLY_VERSION}"
 
     linux:
@@ -85,7 +88,7 @@ jobs:
             - name: Upload wheels
               uses: actions/upload-artifact@v7
               with:
-                  name: wheels-linux-${{ matrix.platform.target }}
+                  name: wheels-linux-${{ matrix.platform.target }}-${{ needs.check.outputs.artifact_suffix }}
                   path: dist
 
     sdist:
@@ -113,7 +116,7 @@ jobs:
             - name: Upload sdist
               uses: actions/upload-artifact@v7
               with:
-                  name: wheels-sdist
+                  name: wheels-sdist-${{ needs.check.outputs.artifact_suffix }}
                   path: dist
 
     publish:
