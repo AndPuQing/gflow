@@ -411,6 +411,11 @@ impl SchedulerRuntime {
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
+        let retry_attempt = self
+            .scheduler
+            .get_job(job_id)
+            .map(|job| job.retry_attempt)
+            .unwrap_or(0);
         if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
             self.mark_dirty();
 
@@ -425,6 +430,14 @@ impl SchedulerRuntime {
                     // Disable pipe-pane to prevent process leaks (keep session alive for user inspection)
                     disable_pipe_pane_for_job(job_id, &name, false);
                 }
+            }
+
+            if let Err(e) = gflow::paths::prune_retry_log_history(job_id, retry_attempt) {
+                tracing::warn!(
+                    "Failed to prune retry log history for job {} after success: {}",
+                    job_id,
+                    e
+                );
             }
 
             true
@@ -445,14 +458,21 @@ impl SchedulerRuntime {
         if let Some(retry_attempt) = self.scheduler.retry_job_after_failure(job_id) {
             self.mark_dirty();
 
-            if let Err(e) = gflow::tmux::kill_session(&run_name) {
-                tracing::warn!(
-                    "Failed to close tmux session '{}' before retrying job {}: {}",
-                    run_name,
-                    job_id,
-                    e
-                );
-            }
+            let session_name_to_disable =
+                match gflow::tmux::rename_session_for_retry(&run_name, retry_attempt) {
+                    Ok(renamed) => renamed,
+                    Err(e) => {
+                        tracing::warn!(
+                        "Failed to preserve failed tmux session '{}' for retry {} of job {}: {}",
+                        run_name,
+                        retry_attempt,
+                        job_id,
+                        e
+                    );
+                        run_name.to_string()
+                    }
+                };
+            disable_pipe_pane_for_job(job_id, &session_name_to_disable, false);
 
             // Refresh immediately so the retried job does not wait for the next poll cycle
             // to see GPUs freed from the previous attempt.

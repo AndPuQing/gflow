@@ -1,5 +1,5 @@
 use std::path::Path;
-use tmux_interface::{KillSession, NewSession, PipePane, SendKeys, Tmux};
+use tmux_interface::{KillSession, NewSession, PipePane, RenameSession, SendKeys, Tmux};
 
 /// A tmux session
 pub struct TmuxSession {
@@ -133,6 +133,18 @@ pub fn normalize_session_name(name: &str) -> String {
     normalized.trim_matches('_').to_string()
 }
 
+pub fn retry_session_name(name: &str, retry_attempt: u32) -> String {
+    format!("{name}-retry{retry_attempt}")
+}
+
+fn retry_session_name_fallback(name: &str, retry_attempt: u32) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{}-{}", retry_session_name(name, retry_attempt), nanos)
+}
+
 pub fn is_session_exist(name: &str) -> bool {
     Tmux::with_command(tmux_interface::HasSession::new().target_session(name))
         .output()
@@ -162,6 +174,34 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
         .output()
         .map(|_| ())
         .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
+}
+
+pub fn rename_session(old_name: &str, new_name: &str) -> anyhow::Result<()> {
+    Tmux::with_command(
+        RenameSession::new()
+            .target_session(old_name)
+            .new_name(new_name),
+    )
+    .output()
+    .map(|_| ())
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to rename tmux session '{}' to '{}': {}",
+            old_name,
+            new_name,
+            e
+        )
+    })
+}
+
+pub fn rename_session_for_retry(name: &str, retry_attempt: u32) -> anyhow::Result<String> {
+    let target = if is_session_exist(&retry_session_name(name, retry_attempt)) {
+        retry_session_name_fallback(name, retry_attempt)
+    } else {
+        retry_session_name(name, retry_attempt)
+    };
+    rename_session(name, &target)?;
+    Ok(target)
 }
 
 /// Disable pipe-pane for a session (standalone function)
@@ -372,5 +412,11 @@ mod tests {
         );
         assert_eq!(normalize_session_name("中文:实验.1"), "中文_实验_1");
         assert_eq!(normalize_session_name("___"), "");
+    }
+
+    #[test]
+    fn retry_session_name_appends_attempt_suffix() {
+        assert_eq!(retry_session_name("train-job", 1), "train-job-retry1");
+        assert_eq!(retry_session_name("train-job", 2), "train-job-retry2");
     }
 }

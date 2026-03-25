@@ -43,7 +43,7 @@ impl Executor for TmuxExecutor {
             let session = TmuxSession::create(session_name.to_string())?;
 
             // Enable pipe-pane to capture output to log file
-            let log_path = gflow::paths::prepare_log_file_path(job.id)?;
+            let log_path = gflow::paths::prepare_log_file_path(job.id, job.retry_attempt)?;
             if let Some(parent) = log_path.parent() {
                 fs::create_dir_all(parent)?;
             }
