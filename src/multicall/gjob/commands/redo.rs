@@ -407,6 +407,7 @@ async fn redo_with_cascade(
         builder = builder.parameters_compact(cascade_job.parameters.clone());
         builder = builder.group_id_uuid(cascade_job.group_id);
         builder = builder.max_concurrent(cascade_job.max_concurrent);
+        builder = builder.max_retry(cascade_job.max_retry);
 
         // Track that this job was redone from the original cascade job
         builder = builder.redone_from(Some(cascade_job.id));

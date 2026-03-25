@@ -27,7 +27,6 @@ pub struct JobSpec {
     pub submitted_at: Option<SystemTime>,
     pub task_id: Option<u32>,
     pub redone_from: Option<u32>,
-    pub max_retry: Option<u32>,
     pub auto_close_tmux: bool,
     pub run_name: Option<CompactString>,
 
@@ -48,6 +47,7 @@ pub struct JobSpec {
     pub dependency_mode: Option<DependencyMode>,
     #[serde(default)]
     pub auto_cancel_on_dependency_failure: bool,
+    pub max_retry: Option<u32>,
 }
 
 impl Default for JobSpec {
@@ -62,7 +62,6 @@ impl Default for JobSpec {
             submitted_at: None,
             task_id: None,
             redone_from: None,
-            max_retry: None,
             auto_close_tmux: false,
             run_name: None,
             project: None,
@@ -71,6 +70,7 @@ impl Default for JobSpec {
             depends_on_ids: DependencyIds::new(),
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
+            max_retry: None,
         }
     }
 }
@@ -198,7 +198,6 @@ pub struct Job {
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: CompactString,
     pub redone_from: Option<u32>, // The job ID this job was redone from
-    pub max_retry: Option<u32>,   // Maximum automatic retries after a failed attempt
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
     #[serde(default)]
     pub parameters: Parameters, // Parameter values for template substitution
@@ -221,12 +220,14 @@ pub struct Job {
     pub finished_at: Option<SystemTime>,  // When the job finished or failed
     #[serde(default)]
     pub reason: Option<Box<JobStateReason>>, // Reason for cancellation/failure
-    #[serde(default)]
-    pub retry_attempt: u32, // Number of retry attempts already consumed
     // Append-only for backward compatibility with legacy msgpack array layout.
     #[serde(default)]
     #[serde(skip_serializing_if = "JobNotifications::is_empty")]
     pub notifications: JobNotifications,
+    #[serde(default)]
+    pub max_retry: Option<u32>, // Maximum automatic retries after a failed attempt
+    #[serde(default)]
+    pub retry_attempt: u32, // Number of retry attempts already consumed
 }
 
 #[derive(Default)]

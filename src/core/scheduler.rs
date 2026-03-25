@@ -213,11 +213,76 @@ mod tests {
 
     #[test]
     fn test_deserialize_legacy_scheduler_seq_msgpack_v2() {
+        #[derive(Serialize)]
+        struct LegacyJobV2 {
+            id: u32,
+            script: Option<PathBuf>,
+            command: Option<String>,
+            gpus: u32,
+            conda_env: Option<String>,
+            run_dir: PathBuf,
+            priority: u8,
+            depends_on: Option<u32>,
+            depends_on_ids: Vec<u32>,
+            dependency_mode: Option<DependencyMode>,
+            auto_cancel_on_dependency_failure: bool,
+            task_id: Option<u32>,
+            gpu_sharing_mode: GpuSharingMode,
+            gpu_memory_limit_mb: Option<u64>,
+            time_limit: Option<Duration>,
+            memory_limit_mb: Option<u64>,
+            submitted_by: String,
+            redone_from: Option<u32>,
+            auto_close_tmux: bool,
+            parameters: HashMap<String, String>,
+            group_id: Option<String>,
+            max_concurrent: Option<usize>,
+            run_name: Option<String>,
+            project: Option<String>,
+            state: JobState,
+            gpu_ids: Option<Vec<u32>>,
+            submitted_at: Option<std::time::SystemTime>,
+            started_at: Option<std::time::SystemTime>,
+            finished_at: Option<std::time::SystemTime>,
+            reason: Option<JobStateReason>,
+            notifications: crate::core::job::JobNotifications,
+        }
+
         // Old state.msgpack layout (array of 5):
         // (version, jobs, state_path, next_job_id, allowed_gpu_indices)
-        let mut job = JobBuilder::new().command("echo hi").gpus(1).build();
-        job.id = 1;
-        let jobs = vec![job];
+        let jobs = vec![LegacyJobV2 {
+            id: 1,
+            script: None,
+            command: Some("echo hi".to_string()),
+            gpus: 1,
+            conda_env: None,
+            run_dir: PathBuf::from("."),
+            priority: 10,
+            depends_on: None,
+            depends_on_ids: Vec::new(),
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: true,
+            task_id: None,
+            gpu_sharing_mode: GpuSharingMode::Exclusive,
+            gpu_memory_limit_mb: None,
+            time_limit: None,
+            memory_limit_mb: None,
+            submitted_by: "unknown".to_string(),
+            redone_from: None,
+            auto_close_tmux: false,
+            parameters: HashMap::new(),
+            group_id: None,
+            max_concurrent: None,
+            run_name: None,
+            project: None,
+            state: JobState::Queued,
+            gpu_ids: None,
+            submitted_at: None,
+            started_at: None,
+            finished_at: None,
+            reason: None,
+            notifications: crate::core::job::JobNotifications::default(),
+        }];
 
         let legacy = (
             2u32,
@@ -233,13 +298,11 @@ mod tests {
 
         assert_eq!(scheduler.job_specs.len(), 1);
         assert_eq!(scheduler.job_runtimes.len(), 1);
-        let cmd = scheduler
-            .get_job_spec(1)
-            .unwrap()
-            .command
-            .as_ref()
-            .map(|s| s.as_str());
+        let job = scheduler.get_job(1).unwrap();
+        let cmd = job.command.as_ref().map(|s| s.as_str());
         assert_eq!(cmd, Some("echo hi"));
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
     }
 
     fn create_test_job(username: &str) -> Job {
@@ -915,6 +978,36 @@ mod tests {
             None,
             "started_at should not be set when no executor is present"
         );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_schedule_jobs_retries_execution_failure_when_budget_exists() {
+        let executor = Box::new(MockExecutor {
+            executions: Arc::new(Mutex::new(Vec::new())),
+            should_fail: true,
+        });
+
+        let mut scheduler = SchedulerBuilder::new()
+            .with_executor(executor)
+            .with_state_path(PathBuf::from("/tmp/test.json"))
+            .with_total_memory_mb(16 * 1024)
+            .build();
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .max_retry(Some(1))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let results = scheduler.schedule_jobs();
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1.is_err());
+        let job = scheduler.get_job(job_id).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+        assert_eq!(job.retry_attempt, 1);
     }
 
     #[test]

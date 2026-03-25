@@ -393,11 +393,16 @@ impl Scheduler {
         results
     }
 
-    /// Handle execution failures by marking jobs as failed and releasing resources
-    /// Should be called WITH a lock after execute_jobs_no_lock
+    /// Handle execution failures by marking jobs as failed and releasing resources.
+    /// Jobs with remaining retry budget are re-queued instead so transient startup errors
+    /// can use the same automatic retry path as runtime failures.
     pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
         for (job_id, result) in results {
             if result.is_err() {
+                if self.retry_job_after_failure(*job_id).is_some() {
+                    continue;
+                }
+
                 let Some((had_gpus, required_memory)) = (|| {
                     let rt = self.get_job_runtime_mut(*job_id)?;
                     let had_gpus = rt.gpu_ids.take().is_some();
