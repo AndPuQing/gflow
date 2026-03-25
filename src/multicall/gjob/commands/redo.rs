@@ -143,6 +143,7 @@ pub(crate) fn build_redo_job(original_job: &Job, options: &RedoJobOptions) -> Jo
     builder = builder.auto_close_tmux(original_job.auto_close_tmux);
     builder = builder.parameters_compact(original_job.parameters.clone());
     builder = builder.notifications(original_job.notifications.clone());
+    builder = builder.max_retry(original_job.max_retry);
     builder = builder.redone_from(Some(original_job.id));
     builder = builder.submitted_by(gflow::platform::get_current_username());
 

@@ -131,6 +131,10 @@ pub struct AddArgs {
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub max_concurrent: Option<usize>,
 
+    /// Maximum number of automatic retries after a failed attempt
+    #[arg(long, value_name = "COUNT", value_hint = clap::ValueHint::Other)]
+    pub max_retry: Option<u32>,
+
     /// Load parameters from a CSV file (header row required)
     #[arg(long, value_hint = clap::ValueHint::FilePath)]
     pub param_file: Option<std::path::PathBuf>,
@@ -233,5 +237,12 @@ mod tests {
             args.add_args.notify_on,
             vec!["job_failed".to_string(), "job_timeout".to_string()]
         );
+    }
+
+    #[test]
+    fn parses_max_retry() {
+        let args = GBatch::try_parse_from(["gbatch", "--max-retry", "3", "script.sh"])
+            .expect("should parse --max-retry");
+        assert_eq!(args.add_args.max_retry, Some(3));
     }
 }

@@ -127,6 +127,7 @@ pub struct SubmitJobRequest {
     pub run_name: Option<String>,
     pub project: Option<String>,
     pub max_concurrent: Option<usize>,
+    pub max_retry: Option<u32>,
     pub auto_close_tmux: Option<bool>,
     /// Additional email recipient for this job's notifications.
     pub notify_email: Option<Vec<String>>,
@@ -770,6 +771,7 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
         .auto_close_tmux(params.auto_close_tmux.unwrap_or(false))
         .shared(params.shared.unwrap_or(false))
         .max_concurrent(params.max_concurrent)
+        .max_retry(params.max_retry)
         .run_name(params.run_name)
         .project(params.project);
 
@@ -1239,6 +1241,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retry: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,
@@ -1274,6 +1277,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retry: None,
             auto_close_tmux: None,
             notify_email: Some(vec!["alice@example.com".to_string()]),
             notify_on: Some(vec!["JOB_FAILED".to_string(), "job_timeout".to_string()]),
@@ -1333,6 +1337,74 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["job_failed"]
         );
+    }
+
+    #[test]
+    fn submit_job_leaves_max_retry_unset_by_default() {
+        let job = build_submit_job(SubmitJobRequest {
+            command: Some("echo hello".to_string()),
+            script: None,
+            gpus: Some(0),
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: None,
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            param: None,
+            parameters: None,
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            max_retry: None,
+            auto_close_tmux: None,
+            notify_email: None,
+            notify_on: None,
+        })
+        .expect("submit job should build");
+
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
+    }
+
+    #[test]
+    fn submit_job_maps_max_retry_when_requested() {
+        let job = build_submit_job(SubmitJobRequest {
+            command: Some("echo hello".to_string()),
+            script: None,
+            gpus: Some(0),
+            conda_env: None,
+            run_dir: None,
+            priority: None,
+            depends_on: None,
+            depends_on_ids: None,
+            dependency_mode: None,
+            auto_cancel_on_dependency_failure: None,
+            shared: None,
+            gpu_memory_limit_mb: None,
+            time_limit_secs: None,
+            memory_limit_mb: None,
+            submitted_by: None,
+            param: None,
+            parameters: None,
+            run_name: None,
+            project: None,
+            max_concurrent: None,
+            max_retry: Some(3),
+            auto_close_tmux: None,
+            notify_email: None,
+            notify_on: None,
+        })
+        .expect("submit job should build");
+
+        assert_eq!(job.max_retry, Some(3));
+        assert_eq!(job.retry_attempt, 0);
     }
 
     #[test]
@@ -1588,6 +1660,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retry: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,
@@ -1658,6 +1731,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retry: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,

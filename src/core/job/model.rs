@@ -27,6 +27,7 @@ pub struct JobSpec {
     pub submitted_at: Option<SystemTime>,
     pub task_id: Option<u32>,
     pub redone_from: Option<u32>,
+    pub max_retry: Option<u32>,
     pub auto_close_tmux: bool,
     pub run_name: Option<CompactString>,
 
@@ -61,6 +62,7 @@ impl Default for JobSpec {
             submitted_at: None,
             task_id: None,
             redone_from: None,
+            max_retry: None,
             auto_close_tmux: false,
             run_name: None,
             project: None,
@@ -113,6 +115,8 @@ pub struct JobRuntime {
     // Failure reason (cold - only set on failure)
     #[serde(default)]
     pub reason: Option<Box<JobStateReason>>,
+    #[serde(default)]
+    pub retry_attempt: u32,
 }
 
 impl Default for JobRuntime {
@@ -132,6 +136,7 @@ impl Default for JobRuntime {
             started_at: None,
             finished_at: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 }
@@ -193,6 +198,7 @@ pub struct Job {
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: CompactString,
     pub redone_from: Option<u32>, // The job ID this job was redone from
+    pub max_retry: Option<u32>,   // Maximum automatic retries after a failed attempt
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
     #[serde(default)]
     pub parameters: Parameters, // Parameter values for template substitution
@@ -215,6 +221,8 @@ pub struct Job {
     pub finished_at: Option<SystemTime>,  // When the job finished or failed
     #[serde(default)]
     pub reason: Option<Box<JobStateReason>>, // Reason for cancellation/failure
+    #[serde(default)]
+    pub retry_attempt: u32, // Number of retry attempts already consumed
     // Append-only for backward compatibility with legacy msgpack array layout.
     #[serde(default)]
     #[serde(skip_serializing_if = "JobNotifications::is_empty")]
@@ -240,6 +248,7 @@ pub struct JobBuilder {
     submitted_by: Option<CompactString>,
     run_name: Option<CompactString>,
     redone_from: Option<u32>,
+    max_retry: Option<u32>,
     auto_close_tmux: Option<bool>,
     parameters: Option<Parameters>,
     group_id: Option<Uuid>,
@@ -391,6 +400,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn max_retry(mut self, max_retry: Option<u32>) -> Self {
+        self.max_retry = max_retry;
+        self
+    }
+
     pub fn auto_close_tmux(mut self, auto_close_tmux: bool) -> Self {
         self.auto_close_tmux = Some(auto_close_tmux);
         self
@@ -459,6 +473,7 @@ impl JobBuilder {
                 .submitted_by
                 .unwrap_or_else(|| CompactString::const_new("unknown")),
             redone_from: self.redone_from,
+            max_retry: self.max_retry,
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
             parameters: self.parameters.unwrap_or_default(),
             group_id: self.group_id,
@@ -473,6 +488,7 @@ impl JobBuilder {
             started_at: None,
             finished_at: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 }
@@ -498,6 +514,7 @@ impl Default for Job {
             memory_limit_mb: None,
             submitted_by: CompactString::const_new("unknown"),
             redone_from: None,
+            max_retry: None,
             auto_close_tmux: false,
             parameters: Parameters::new(),
             group_id: None,
@@ -511,6 +528,7 @@ impl Default for Job {
             started_at: None,
             finished_at: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 }
@@ -541,6 +559,7 @@ impl Job {
             memory_limit_mb: runtime.memory_limit_mb,
             submitted_by: spec.submitted_by,
             redone_from: spec.redone_from,
+            max_retry: spec.max_retry,
             auto_close_tmux: spec.auto_close_tmux,
             parameters: spec.parameters,
             group_id: runtime.group_id,
@@ -554,6 +573,7 @@ impl Job {
             started_at: runtime.started_at,
             finished_at: runtime.finished_at,
             reason: runtime.reason,
+            retry_attempt: runtime.retry_attempt,
         }
     }
 
@@ -569,6 +589,7 @@ impl Job {
             submitted_at: self.submitted_at,
             task_id: self.task_id,
             redone_from: self.redone_from,
+            max_retry: self.max_retry,
             auto_close_tmux: self.auto_close_tmux,
             run_name: self.run_name,
             project: self.project,
@@ -594,6 +615,7 @@ impl Job {
             started_at: self.started_at,
             finished_at: self.finished_at,
             reason: self.reason,
+            retry_attempt: self.retry_attempt,
         };
 
         (spec, runtime)

@@ -951,6 +951,97 @@ mod tests {
     }
 
     #[test]
+    fn test_retry_job_after_failure_requeues_running_job() {
+        let mut scheduler = create_test_scheduler();
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .gpus(1)
+            .memory_limit_mb(Some(1024))
+            .max_retry(Some(2))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        scheduler.transition_job_state(job_id, JobState::Running, None);
+        if let Some(rt) = scheduler.get_job_runtime_mut(job_id) {
+            rt.gpu_ids = Some(smallvec::smallvec![0]);
+            rt.reason = Some(Box::new(JobStateReason::SystemError("boom".into())));
+        }
+        scheduler.available_memory_mb = scheduler.available_memory_mb.saturating_sub(1024);
+
+        let retry_attempt = scheduler.retry_job_after_failure(job_id);
+
+        assert_eq!(retry_attempt, Some(1));
+        let job = scheduler.get_job(job_id).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+        assert_eq!(job.retry_attempt, 1);
+        assert_eq!(job.gpu_ids, None);
+        assert_eq!(job.started_at, None);
+        assert_eq!(job.finished_at, None);
+        assert_eq!(job.reason, None);
+        assert_eq!(scheduler.available_memory_mb, scheduler.total_memory_mb);
+    }
+
+    #[test]
+    fn test_retry_job_after_failure_preserves_dependency_waiting_state() {
+        let mut scheduler = create_test_scheduler();
+
+        let parent = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .max_retry(Some(1))
+            .build();
+        let (parent_id, _) = scheduler.submit_job(parent);
+
+        let child = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .depends_on_ids(vec![parent_id])
+            .auto_cancel_on_dependency_failure(true)
+            .build();
+        let (child_id, _) = scheduler.submit_job(child);
+
+        scheduler.transition_job_state(parent_id, JobState::Running, None);
+
+        let retry_attempt = scheduler.retry_job_after_failure(parent_id);
+
+        assert_eq!(retry_attempt, Some(1));
+        assert_eq!(
+            scheduler.get_job(parent_id).unwrap().state,
+            JobState::Queued
+        );
+        assert_eq!(scheduler.get_job(child_id).unwrap().state, JobState::Queued);
+        assert_ne!(
+            scheduler.get_job(child_id).unwrap().reason,
+            Some(Box::new(JobStateReason::DependencyFailed(parent_id)))
+        );
+    }
+
+    #[test]
+    fn test_retry_job_after_failure_stops_when_budget_is_exhausted() {
+        let mut scheduler = create_test_scheduler();
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .max_retry(Some(1))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        scheduler.transition_job_state(job_id, JobState::Running, None);
+        assert_eq!(scheduler.retry_job_after_failure(job_id), Some(1));
+
+        scheduler.transition_job_state(job_id, JobState::Running, None);
+        assert_eq!(scheduler.retry_job_after_failure(job_id), None);
+        scheduler.fail_job(job_id);
+
+        let job = scheduler.get_job(job_id).unwrap();
+        assert_eq!(job.state, JobState::Failed);
+        assert_eq!(job.retry_attempt, 1);
+    }
+
+    #[test]
     fn test_auto_cancel_transitive_dependencies() {
         let mut scheduler = create_test_scheduler();
 

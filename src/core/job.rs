@@ -76,6 +76,8 @@ mod tests {
         assert_eq!(job.id, 1);
         assert!(!job.auto_close_tmux); // Should use default value
         assert_eq!(job.redone_from, None); // Should be None by default
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
     }
 
     #[test]
@@ -113,6 +115,8 @@ mod tests {
         assert_eq!(job.id, 2);
         assert!(job.auto_close_tmux);
         assert_eq!(job.redone_from, None); // Should use default value
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
     }
 
     #[test]
@@ -149,6 +153,8 @@ mod tests {
         let job = result.unwrap();
         assert_eq!(job.id, 3);
         assert_eq!(job.memory_limit_mb, None); // Should use default value
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
     }
 
     #[test]
@@ -175,6 +181,8 @@ mod tests {
         assert!(!job.auto_close_tmux);
         assert_eq!(job.redone_from, None);
         assert_eq!(job.memory_limit_mb, None);
+        assert_eq!(job.max_retry, None);
+        assert_eq!(job.retry_attempt, 0);
         assert_eq!(job.script, None);
         assert_eq!(job.command, None);
     }

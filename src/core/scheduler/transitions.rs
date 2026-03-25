@@ -535,6 +535,42 @@ impl Scheduler {
         Some((should_close_tmux, run_name))
     }
 
+    pub fn retry_job_after_failure(&mut self, job_id: u32) -> Option<u32> {
+        let (group_id, old_state, required_memory, next_attempt) = {
+            let (spec, runtime) = self.get_job_parts_mut(job_id)?;
+
+            if runtime.state != JobState::Running {
+                return None;
+            }
+
+            let max_retry = spec.max_retry.unwrap_or(0);
+            if runtime.retry_attempt >= max_retry {
+                return None;
+            }
+
+            let group_id = runtime.group_id;
+            let old_state = runtime.state;
+            let required_memory = runtime.memory_limit_mb.unwrap_or(0);
+
+            runtime.retry_attempt = runtime.retry_attempt.saturating_add(1);
+            runtime.state = JobState::Queued;
+            runtime.gpu_ids = None;
+            runtime.started_at = None;
+            runtime.finished_at = None;
+            runtime.reason = None;
+
+            (group_id, old_state, required_memory, runtime.retry_attempt)
+        };
+
+        self.available_memory_mb = self.available_memory_mb.saturating_add(required_memory);
+        self.update_group_running_count(group_id, old_state, JobState::Queued);
+        self.update_state_jobs_index(job_id, old_state, JobState::Queued);
+        self.bump_ready_epoch(job_id);
+        self.refresh_job_readiness(job_id);
+
+        Some(next_attempt)
+    }
+
     pub fn fail_job(&mut self, job_id: u32) -> bool {
         self.transition_job_state(job_id, JobState::Failed, None)
             .is_some()

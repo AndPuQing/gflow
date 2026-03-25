@@ -24,6 +24,13 @@ use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailJobOutcome {
+    NotFound,
+    Failed,
+    Retried { retry_attempt: u32 },
+}
+
 /// Wrapper to make Arc<dyn Executor> compatible with Box<dyn Executor>
 struct ArcExecutorWrapper(Arc<dyn Executor>);
 
@@ -426,23 +433,41 @@ impl SchedulerRuntime {
         }
     }
 
-    pub async fn fail_job(&mut self, job_id: u32) -> bool {
-        // Get run_name before modifying state (needed for PipePane cleanup)
-        let run_name = self
+    pub async fn fail_job_or_retry(&mut self, job_id: u32) -> FailJobOutcome {
+        let Some(run_name) = self
             .scheduler
             .get_job(job_id)
-            .and_then(|j| j.run_name.clone());
+            .and_then(|j| j.run_name.clone())
+        else {
+            return FailJobOutcome::NotFound;
+        };
+
+        if let Some(retry_attempt) = self.scheduler.retry_job_after_failure(job_id) {
+            self.mark_dirty();
+
+            if let Err(e) = gflow::tmux::kill_session(&run_name) {
+                tracing::warn!(
+                    "Failed to close tmux session '{}' before retrying job {}: {}",
+                    run_name,
+                    job_id,
+                    e
+                );
+            }
+
+            // Refresh immediately so the retried job does not wait for the next poll cycle
+            // to see GPUs freed from the previous attempt.
+            self.refresh_gpu_slots();
+            return FailJobOutcome::Retried { retry_attempt };
+        }
 
         let result = self.scheduler.fail_job(job_id);
         if result {
             self.mark_dirty();
-
-            // Disable PipePane to prevent process leaks (keep session alive for user inspection)
-            if let Some(name) = run_name {
-                disable_pipe_pane_for_job(job_id, &name, false);
-            }
+            disable_pipe_pane_for_job(job_id, &run_name, false);
+            FailJobOutcome::Failed
+        } else {
+            FailJobOutcome::NotFound
         }
-        result
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
@@ -1038,6 +1063,36 @@ mod tests {
         let current = runtime.get_job(job_id).unwrap();
         assert_eq!(current.gpu_sharing_mode, GpuSharingMode::Shared);
         assert_eq!(current.gpu_memory_limit_mb, Some(1024));
+    }
+
+    #[tokio::test]
+    async fn fail_job_or_retry_requeues_job_when_retry_budget_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("false")
+            .submitted_by("alice")
+            .max_retry(Some(1))
+            .build();
+        let (job_id, _run_name, _job) = runtime.submit_job(job).await.unwrap();
+        let prepared = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_id);
+
+        let outcome = runtime.fail_job_or_retry(job_id).await;
+
+        assert_eq!(outcome, FailJobOutcome::Retried { retry_attempt: 1 });
+        let job = runtime.get_job(job_id).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+        assert_eq!(job.retry_attempt, 1);
     }
 
     #[tokio::test]

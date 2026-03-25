@@ -477,6 +477,7 @@ async fn build_job(
     let run_dir = std::env::current_dir().context("Failed to get current directory")?;
     builder = builder.run_dir(run_dir);
     builder = builder.task_id(task_id);
+    builder = builder.max_retry(args.max_retry);
 
     // Get the username of the submitter
     let username = gflow::platform::get_current_username();
@@ -668,6 +669,7 @@ async fn build_job_with_params(
     builder = builder.run_dir(run_dir);
     // Parameters are for array-like submissions but without task_id
     builder = builder.task_id(None);
+    builder = builder.max_retry(args.max_retry);
     builder = builder.parameters(parameters.clone());
 
     // Get the username of the submitter
@@ -887,6 +889,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             param: vec![],
             dry_run: false,
             max_concurrent: None,
+            max_retry: None,
             param_file: None,
             name_template: None,
             project: None,
@@ -1028,6 +1031,7 @@ mod tests {
             param: vec![],
             dry_run: false,
             max_concurrent: None,
+            max_retry: None,
             param_file: None,
             name_template: None,
             project: None,

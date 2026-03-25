@@ -664,26 +664,42 @@ pub(in crate::multicall::gflowd::server) async fn fail_job(
         }
     };
 
-    let result = {
+    let outcome = {
         let mut state = server_state.scheduler.write().await;
-        state.fail_job(id).await
+        state.fail_job_or_retry(id).await
     }; // Lock released here
 
-    if result {
-        // Publish JobCompleted event to trigger cascade cancellation
-        server_state
-            .event_bus
-            .publish(SchedulerEvent::JobCompleted {
-                job_id: id,
-                final_state: JobState::Failed,
-                gpu_ids,
-                memory_mb,
-            });
+    match outcome {
+        crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::Failed => {
+            // Publish JobCompleted event to trigger cascade cancellation
+            server_state
+                .event_bus
+                .publish(SchedulerEvent::JobCompleted {
+                    job_id: id,
+                    final_state: JobState::Failed,
+                    gpu_ids,
+                    memory_mb,
+                });
+        }
+        crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::Retried { retry_attempt } => {
+            tracing::info!(
+                job_id = id,
+                retry_attempt,
+                "Job attempt failed; re-queued for automatic retry"
+            );
+            server_state
+                .event_bus
+                .publish(SchedulerEvent::JobUpdated { job_id: id });
+        }
+        crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::NotFound => {}
     }
 
-    // Record metrics only on successful transition
+    // Record metrics only on terminal failure
     #[cfg(feature = "metrics")]
-    if result {
+    if matches!(
+        outcome,
+        crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::Failed
+    ) {
         if let Some(submitted_by) = user {
             gflow::metrics::JOB_FAILED
                 .with_label_values(&[&submitted_by])
@@ -691,7 +707,11 @@ pub(in crate::multicall::gflowd::server) async fn fail_job(
         }
     }
 
-    if result {
+    if matches!(
+        outcome,
+        crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::Failed
+            | crate::multicall::gflowd::scheduler_runtime::FailJobOutcome::Retried { .. }
+    ) {
         (StatusCode::OK, Json(())).into_response()
     } else {
         (StatusCode::NOT_FOUND, Json(())).into_response()

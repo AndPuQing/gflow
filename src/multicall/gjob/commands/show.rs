@@ -32,6 +32,8 @@ fn print_job_details(job: &Job) {
     print_field!("Priority", "{}", job.priority);
     print_field!("SubmittedBy", "{}", job.submitted_by);
     print_optional_field!("GroupID", job.group_id);
+    print_optional_field!("MaxRetry", job.max_retry);
+    print_field!("RetryAttempt", "{}", job.retry_attempt);
 
     // Command or script
     print_optional_field!("Script", job.script, |s| s.display());

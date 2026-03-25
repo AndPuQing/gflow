@@ -257,11 +257,13 @@ mod tests {
             gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from: None,
+            max_retry: None,
             auto_close_tmux: false,
             parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 
@@ -304,11 +306,13 @@ mod tests {
             gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from: None,
+            max_retry: None,
             auto_close_tmux: false,
             parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 
@@ -340,11 +344,13 @@ mod tests {
             gpu_memory_limit_mb: None,
             submitted_by: "testuser".into(),
             redone_from,
+            max_retry: None,
             auto_close_tmux: false,
             parameters: gflow::core::job::Parameters::new(),
             group_id: None,
             max_concurrent: None,
             reason: None,
+            retry_attempt: 0,
         }
     }
 
