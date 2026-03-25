@@ -1,5 +1,6 @@
 use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
+use crate::core::scheduler::ExecutionFailureOutcome;
 use std::sync::Arc;
 use tracing::Instrument;
 
@@ -16,6 +17,7 @@ pub async fn run_event_driven(
             scheduler_trigger_handler_with_debounce(
                 event_bus.subscribe(),
                 Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
             )
             .instrument(tracing::info_span!("scheduler_trigger_task")),
         ),
@@ -80,6 +82,7 @@ pub async fn run_event_driven(
 async fn scheduler_trigger_handler_with_debounce(
     mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
+    event_bus: Arc<EventBus>,
 ) {
     let mut debounce = tokio::time::interval(Duration::from_millis(100));
     let mut pending_schedule = false;
@@ -114,7 +117,7 @@ async fn scheduler_trigger_handler_with_debounce(
             }
             _ = debounce.tick() => {
                 if pending_schedule {
-                    trigger_scheduling(&state).await;
+                    trigger_scheduling(&state, &event_bus).await;
                     pending_schedule = false;
                 }
             }
@@ -123,7 +126,7 @@ async fn scheduler_trigger_handler_with_debounce(
 }
 
 /// Trigger job scheduling
-async fn trigger_scheduling(state: &SharedState) {
+async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<EventBus>) {
     let scheduling_span = tracing::info_span!("trigger_scheduling");
     let _entered = scheduling_span.enter();
     #[cfg(feature = "metrics")]
@@ -201,13 +204,158 @@ async fn trigger_scheduling(state: &SharedState) {
 
     // Step 3: Handle failures (write lock - brief)
     if !execution_results.is_empty() {
-        let mut state_guard = state.write().await;
-        state_guard
-            .scheduler
-            .handle_execution_failures(&execution_results);
-        state_guard.mark_dirty();
+        let had_execution_errors = execution_results.iter().any(|(_, result)| result.is_err());
+        let failure_outcomes = {
+            let mut state_guard = state.write().await;
+            let outcomes = state_guard
+                .scheduler
+                .handle_execution_failures_with_outcomes(&execution_results);
+            state_guard.mark_dirty();
+            outcomes
+        };
+
+        for outcome in &failure_outcomes {
+            match outcome {
+                ExecutionFailureOutcome::Retried {
+                    job_id,
+                    retry_attempt,
+                    run_name,
+                } => {
+                    SchedulerRuntime::preserve_failed_tmux_session_for_retry(
+                        *job_id,
+                        run_name.as_deref(),
+                        *retry_attempt,
+                    );
+                }
+                ExecutionFailureOutcome::Failed {
+                    job_id, run_name, ..
+                } => {
+                    SchedulerRuntime::cleanup_failed_tmux_session(*job_id, run_name.as_deref());
+                }
+            }
+        }
+
+        if had_execution_errors {
+            let mut state_guard = state.write().await;
+            state_guard.refresh_gpu_slots();
+        }
+
+        for outcome in failure_outcomes {
+            match outcome {
+                ExecutionFailureOutcome::Retried { job_id, .. } => {
+                    event_bus.publish(SchedulerEvent::JobUpdated { job_id });
+                }
+                ExecutionFailureOutcome::Failed {
+                    job_id,
+                    gpu_ids,
+                    memory_mb,
+                    ..
+                } => {
+                    event_bus.publish(SchedulerEvent::JobCompleted {
+                        job_id,
+                        final_state: JobState::Failed,
+                        gpu_ids,
+                        memory_mb,
+                    });
+                }
+            }
+        }
     }
 
     #[cfg(feature = "metrics")]
     gflow::metrics::observe_scheduler_latency("trigger_scheduling", started_at.elapsed());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::executor::Executor;
+    use std::process::Command;
+
+    struct PartialTmuxFailExecutor;
+
+    impl Executor for PartialTmuxFailExecutor {
+        fn execute(&self, job: &Job) -> anyhow::Result<()> {
+            let session_name = job
+                .run_name
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("missing run_name"))?;
+            let _session = gflow::tmux::TmuxSession::create(session_name.to_string())?;
+            anyhow::bail!("simulated startup failure after tmux session creation")
+        }
+    }
+
+    fn tmux_usable() -> bool {
+        Command::new("tmux")
+            .arg("start-server")
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    fn unique_run_name(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        format!("{prefix}-{nanos}")
+    }
+
+    #[tokio::test]
+    async fn startup_failures_publish_job_updated_and_preserve_tmux_session() {
+        if !tmux_usable() {
+            eprintln!(
+                "Skipping startup_failures_publish_job_updated_and_preserve_tmux_session: tmux not usable"
+            );
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(RwLock::new(
+            SchedulerRuntime::with_state_path(
+                Box::new(PartialTmuxFailExecutor),
+                dir.path().to_path_buf(),
+                None,
+                gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+                gflow::config::ProjectsConfig::default(),
+            )
+            .unwrap(),
+        ));
+        let event_bus = Arc::new(EventBus::new(16));
+        let mut events = event_bus.subscribe();
+
+        let run_name = {
+            let mut state_guard = state.write().await;
+            let job = Job::builder()
+                .command("echo test")
+                .submitted_by("alice")
+                .run_name(Some(unique_run_name("startup-retry")))
+                .max_retry(Some(1))
+                .build();
+            let (_job_id, run_name, _job) = state_guard.submit_job(job).await.unwrap();
+            run_name
+        };
+
+        trigger_scheduling(&state, &event_bus).await;
+
+        let retried_run_name = gflow::tmux::retry_session_name(&run_name, 1);
+
+        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match event.event {
+            SchedulerEvent::JobUpdated { job_id } => assert_eq!(job_id, 1),
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let state_guard = state.read().await;
+        let job = state_guard.get_job(1).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+        assert_eq!(job.retry_attempt, 1);
+        drop(state_guard);
+
+        assert!(!gflow::tmux::is_session_exist(&run_name));
+        assert!(gflow::tmux::is_session_exist(&retried_run_name));
+        let _ = gflow::tmux::kill_session(&retried_run_name);
+    }
 }

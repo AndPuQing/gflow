@@ -28,6 +28,7 @@ mod scheduling;
 mod transitions;
 
 pub use builder::SchedulerBuilder;
+pub(crate) use scheduling::ExecutionFailureOutcome;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DependencyRuntime {

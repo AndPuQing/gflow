@@ -1,5 +1,20 @@
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExecutionFailureOutcome {
+    Retried {
+        job_id: u32,
+        retry_attempt: u32,
+        run_name: Option<String>,
+    },
+    Failed {
+        job_id: u32,
+        run_name: Option<String>,
+        gpu_ids: Option<GpuIds>,
+        memory_mb: Option<u64>,
+    },
+}
+
 impl Scheduler {
     pub fn calculate_time_bonus(time_limit: &Option<Duration>) -> u32 {
         match time_limit {
@@ -397,9 +412,39 @@ impl Scheduler {
     /// Jobs with remaining retry budget are re-queued instead so transient startup errors
     /// can use the same automatic retry path as runtime failures.
     pub fn handle_execution_failures(&mut self, results: &[(u32, Result<(), String>)]) {
+        let _ = self.handle_execution_failures_with_outcomes(results);
+    }
+
+    pub(crate) fn handle_execution_failures_with_outcomes(
+        &mut self,
+        results: &[(u32, Result<(), String>)],
+    ) -> Vec<ExecutionFailureOutcome> {
+        let mut outcomes = Vec::new();
+
         for (job_id, result) in results {
             if result.is_err() {
+                let Some((run_name, gpu_ids, memory_mb)) =
+                    self.get_job_parts(*job_id).map(|(spec, rt)| {
+                        (
+                            spec.run_name.as_ref().map(ToString::to_string),
+                            rt.gpu_ids.clone(),
+                            rt.memory_limit_mb,
+                        )
+                    })
+                else {
+                    continue;
+                };
+
                 if self.retry_job_after_failure(*job_id).is_some() {
+                    let retry_attempt = self
+                        .get_job_runtime(*job_id)
+                        .map(|rt| rt.retry_attempt)
+                        .unwrap_or_default();
+                    outcomes.push(ExecutionFailureOutcome::Retried {
+                        job_id: *job_id,
+                        retry_attempt,
+                        run_name,
+                    });
                     continue;
                 }
 
@@ -414,7 +459,9 @@ impl Scheduler {
 
                 // Keep previous behavior: return `true` (job exists) even if transition isn't valid,
                 // and always release resources when they were allocated.
-                self.transition_job_state(*job_id, JobState::Failed, None);
+                let transitioned = self
+                    .transition_job_state(*job_id, JobState::Failed, None)
+                    .unwrap_or(false);
 
                 // Return memory if we had allocated GPUs (i.e. we were running).
                 if had_gpus {
@@ -422,8 +469,19 @@ impl Scheduler {
                         self.available_memory_mb.saturating_add(required_memory);
                     // Note: GPUs will be returned in next refresh cycle.
                 }
+
+                if transitioned {
+                    outcomes.push(ExecutionFailureOutcome::Failed {
+                        job_id: *job_id,
+                        run_name,
+                        gpu_ids,
+                        memory_mb,
+                    });
+                }
             }
         }
+
+        outcomes
     }
 
     /// Legacy method for backward compatibility - calls both phases

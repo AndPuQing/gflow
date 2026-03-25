@@ -446,11 +446,43 @@ impl SchedulerRuntime {
         }
     }
 
+    pub(super) fn preserve_failed_tmux_session_for_retry(
+        job_id: u32,
+        run_name: Option<&str>,
+        retry_attempt: u32,
+    ) {
+        let Some(run_name) = run_name else {
+            return;
+        };
+
+        let session_name_to_disable =
+            match gflow::tmux::rename_session_for_retry(run_name, retry_attempt) {
+                Ok(renamed) => renamed,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to preserve failed tmux session '{}' for retry {} of job {}: {}",
+                        run_name,
+                        retry_attempt,
+                        job_id,
+                        e
+                    );
+                    run_name.to_string()
+                }
+            };
+        disable_pipe_pane_for_job(job_id, &session_name_to_disable, false);
+    }
+
+    pub(super) fn cleanup_failed_tmux_session(job_id: u32, run_name: Option<&str>) {
+        if let Some(run_name) = run_name {
+            disable_pipe_pane_for_job(job_id, run_name, false);
+        }
+    }
+
     pub async fn fail_job_or_retry(&mut self, job_id: u32) -> FailJobOutcome {
         let Some(run_name) = self
             .scheduler
             .get_job(job_id)
-            .and_then(|j| j.run_name.clone())
+            .map(|j| j.run_name.map(|name| name.to_string()))
         else {
             return FailJobOutcome::NotFound;
         };
@@ -458,21 +490,11 @@ impl SchedulerRuntime {
         if let Some(retry_attempt) = self.scheduler.retry_job_after_failure(job_id) {
             self.mark_dirty();
 
-            let session_name_to_disable =
-                match gflow::tmux::rename_session_for_retry(&run_name, retry_attempt) {
-                    Ok(renamed) => renamed,
-                    Err(e) => {
-                        tracing::warn!(
-                        "Failed to preserve failed tmux session '{}' for retry {} of job {}: {}",
-                        run_name,
-                        retry_attempt,
-                        job_id,
-                        e
-                    );
-                        run_name.to_string()
-                    }
-                };
-            disable_pipe_pane_for_job(job_id, &session_name_to_disable, false);
+            Self::preserve_failed_tmux_session_for_retry(
+                job_id,
+                run_name.as_deref(),
+                retry_attempt,
+            );
 
             // Refresh immediately so the retried job does not wait for the next poll cycle
             // to see GPUs freed from the previous attempt.
@@ -483,7 +505,7 @@ impl SchedulerRuntime {
         let result = self.scheduler.fail_job(job_id);
         if result {
             self.mark_dirty();
-            disable_pipe_pane_for_job(job_id, &run_name, false);
+            Self::cleanup_failed_tmux_session(job_id, run_name.as_deref());
             FailJobOutcome::Failed
         } else {
             FailJobOutcome::NotFound
@@ -1113,6 +1135,42 @@ mod tests {
         let job = runtime.get_job(job_id).unwrap();
         assert_eq!(job.state, JobState::Queued);
         assert_eq!(job.retry_attempt, 1);
+    }
+
+    #[tokio::test]
+    async fn fail_job_or_retry_supports_legacy_jobs_without_run_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let job = Job::builder()
+            .command("false")
+            .submitted_by("alice")
+            .build();
+        let (job_id, _run_name, _job) = runtime.submit_job(job).await.unwrap();
+        runtime
+            .scheduler
+            .get_job_parts_mut(job_id)
+            .unwrap()
+            .0
+            .run_name = None;
+
+        let prepared = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_id);
+
+        let outcome = runtime.fail_job_or_retry(job_id).await;
+
+        assert_eq!(outcome, FailJobOutcome::Failed);
+        let job = runtime.get_job(job_id).unwrap();
+        assert_eq!(job.run_name, None);
+        assert_eq!(job.state, JobState::Failed);
     }
 
     #[tokio::test]

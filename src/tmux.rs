@@ -146,7 +146,7 @@ fn retry_session_name_fallback(name: &str, retry_attempt: u32) -> String {
 }
 
 pub fn is_session_exist(name: &str) -> bool {
-    Tmux::with_command(tmux_interface::HasSession::new().target_session(name))
+    Tmux::with_command(tmux_interface::HasSession::new().target_session(format!("={name}")))
         .output()
         .map(|output| output.success())
         .unwrap_or(false)
@@ -177,13 +177,12 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
 }
 
 pub fn rename_session(old_name: &str, new_name: &str) -> anyhow::Result<()> {
-    Tmux::with_command(
+    let output = Tmux::with_command(
         RenameSession::new()
             .target_session(old_name)
             .new_name(new_name),
     )
     .output()
-    .map(|_| ())
     .map_err(|e| {
         anyhow::anyhow!(
             "Failed to rename tmux session '{}' to '{}': {}",
@@ -191,7 +190,23 @@ pub fn rename_session(old_name: &str, new_name: &str) -> anyhow::Result<()> {
             new_name,
             e
         )
-    })
+    })?;
+
+    if !output.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr()).trim().to_string();
+        anyhow::bail!(
+            "Failed to rename tmux session '{}' to '{}': {}",
+            old_name,
+            new_name,
+            if stderr.is_empty() {
+                "tmux returned a non-zero exit status"
+            } else {
+                &stderr
+            }
+        );
+    }
+
+    Ok(())
 }
 
 pub fn rename_session_for_retry(name: &str, retry_attempt: u32) -> anyhow::Result<String> {
@@ -400,6 +415,67 @@ mod tests {
         assert!(error.to_string().contains("Failed to create tmux session"));
 
         Tmux::with_command(KillSession::new().target_session(&session_name))
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_rename_session_reports_missing_session() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!("Skipping test_rename_session_reports_missing_session: tmux not usable");
+            return;
+        }
+
+        let session_name = format!(
+            "gflow-test-missing-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+
+        let error = rename_session(&session_name, &format!("{session_name}-renamed"))
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("Failed to rename tmux session"));
+    }
+
+    #[test]
+    fn is_session_exist_requires_exact_match() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!("Skipping is_session_exist_requires_exact_match: tmux not usable");
+            return;
+        }
+
+        let session_name = format!(
+            "gflow-test-exact-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let renamed_session = format!("{session_name}-retry1");
+
+        let _session = TmuxSession::create(renamed_session.clone()).unwrap();
+
+        assert!(!is_session_exist(&session_name));
+        assert!(is_session_exist(&renamed_session));
+
+        Tmux::with_command(KillSession::new().target_session(&renamed_session))
             .output()
             .unwrap();
     }
