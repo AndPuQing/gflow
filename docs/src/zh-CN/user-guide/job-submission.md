@@ -12,6 +12,7 @@
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --project ml-research python train.py
+gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
@@ -90,6 +91,9 @@ gbatch --conda-env myenv python script.py
 # 项目编码
 gbatch --project ml-research python train.py
 
+# 执行失败后自动重试
+gbatch --max-retries 2 python train.py
+
 # 单任务邮件通知
 gbatch --notify-email alice@example.com python train.py
 gbatch --notify-email alice@example.com --notify-email oncall@example.com --notify-on job_failed,job_timeout python train.py
@@ -122,6 +126,13 @@ gbatch --dry-run --gpus 1 python train.py
 ::: info
 Per-job 通知会复用[通知](./notifications)里配置的 SMTP 发送通道。如果设置了 `--notify-email` 但没有设置 `--notify-on`，gflow 默认在终态事件时发送：`job_completed`、`job_failed`、`job_timeout`、`job_cancelled`。
 :::
+
+## 自动重试
+
+- 使用 `--max-retries <N>`，允许任务在执行失败后最多自动重提 `N` 次。
+- 当前行为有意保持收敛：只有任务处于 `Running` 且以非零退出时才会自动重试。
+- 超时和显式 fail 目前仍是终态；需要人工重提时使用 `gjob redo`。
+- 如果失败任务还有排队中的下游依赖，gflow 会自动把它们改挂到最新一次重试任务上。
 
 ## 任务数组
 

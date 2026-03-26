@@ -33,6 +33,7 @@ gjob release 10,11
 
 # Update a queued or held job
 gjob update 42 --gpus 2 --time-limit 4:00:00
+gjob update 42 --max-retries 2
 
 # Redo a failed job with a larger time limit
 gjob redo 42 --time 8:00:00
@@ -142,7 +143,14 @@ Options:
 - `--no-auto-cancel-on-dep-failure`: disable dependency failure auto-cancel
 - `--max-concurrent <n>`: set group max concurrency
 - `--clear-max-concurrent`: remove group max concurrency
+- `--max-retries <n>`: set automatic retry limit
+- `--clear-max-retries`: clear automatic retry limit
 - `--param <key=value>`: update templated parameters; repeatable
+
+Notes:
+
+- `gjob show <job>` prints `MaxRetries` when a retry limit is set.
+- Automatic retries only apply to execution failures; timeouts still require manual action.
 
 ### `gjob redo <job>`
 

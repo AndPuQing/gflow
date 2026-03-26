@@ -68,6 +68,14 @@ Use the toolbar in the top-right corner to zoom, fit, download, or enter fullscr
 - No transitions (final states)
 - Use `gjob redo <job_id>` to create a new job with the same parameters
 
+## Automatic Retries
+
+- Set a per-job retry budget with `gbatch --max-retries <N>` or `gjob update <job_id> --max-retries <N>`.
+- When a running job exits non-zero, gflow can submit a new queued attempt until that budget is exhausted.
+- Queued dependents are retargeted to the newest retry attempt automatically.
+- Timeouts and explicit fail requests remain terminal today.
+- Manual `gjob redo` stays separate from automatic retry tracking.
+
 ## Job State Reasons
 
 Jobs in certain states have an associated reason that provides more context:
@@ -112,7 +120,7 @@ flowchart TD
 
     State -->|Finished| Done([Done])
 
-    State -->|Failed| Retry[Inspect logs and redo if fixed<br/>gjob log ID / gjob redo ID]
+    State -->|Failed| Retry[Inspect logs<br/>auto retry may queue next attempt<br/>or redo manually if needed]
     Retry --> Recheck
 
     State -->|Cancelled| CancelReason{Reason?}

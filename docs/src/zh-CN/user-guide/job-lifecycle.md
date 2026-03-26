@@ -68,6 +68,14 @@ flowchart LR
 - 无转换（最终状态）
 - 使用 `gjob redo <job_id>` 创建具有相同参数的新任务
 
+## 自动重试
+
+- 用 `gbatch --max-retries <N>` 或 `gjob update <job_id> --max-retries <N>` 为任务设置自动重试次数。
+- 当运行中的任务以非零退出时，gflow 会在额度内提交新的重试任务。
+- 仍在排队的下游依赖会自动改挂到最新一次重试任务上。
+- 当前超时和显式 fail 仍然是终态。
+- 手动 `gjob redo` 与自动重试分开计数。
+
 ## 任务状态原因
 
 某些状态的任务有关联的原因，提供更多上下文：
@@ -112,7 +120,7 @@ flowchart TD
 
     State -->|Finished| Done([已完成])
 
-    State -->|Failed| Retry[检查日志并在修复后重做<br/>gjob log ID / gjob redo ID]
+    State -->|Failed| Retry[检查日志<br/>可能已自动排入下一次重试<br/>必要时再手动 redo]
     Retry --> Recheck
 
     State -->|Cancelled| CancelReason{原因？}

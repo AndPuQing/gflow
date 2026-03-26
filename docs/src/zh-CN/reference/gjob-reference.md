@@ -33,6 +33,7 @@ gjob release 10,11
 
 # 原地修改排队/暂停任务
 gjob update 42 --gpus 2 --time-limit 4:00:00
+gjob update 42 --max-retries 2
 
 # 重提失败任务，并增加时间限制
 gjob redo 42 --time 8:00:00
@@ -142,7 +143,14 @@ gjob update <job_ids> [options]
 - `--no-auto-cancel-on-dep-failure`：关闭依赖失败自动取消
 - `--max-concurrent <n>`：设置任务组最大并发
 - `--clear-max-concurrent`：清除任务组最大并发
+- `--max-retries <n>`：设置自动重试次数
+- `--clear-max-retries`：清除自动重试次数
 - `--param <key=value>`：更新模板参数，可重复传入
+
+说明：
+
+- 设置了自动重试次数后，`gjob show <job>` 会显示 `MaxRetries`。
+- 自动重试当前只适用于执行失败；超时仍需要人工处理。
 
 ### `gjob redo <job>`
 

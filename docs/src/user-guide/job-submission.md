@@ -12,6 +12,7 @@ Use direct commands for short, single-step work. Switch to a script when the com
 gbatch python train.py
 gbatch --gpus 1 --time 2:00:00 --name train-resnet python train.py
 gbatch --project ml-research python train.py
+gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
@@ -90,6 +91,9 @@ gbatch --conda-env myenv python script.py
 # Project code
 gbatch --project ml-research python train.py
 
+# Automatic retries after execution failure
+gbatch --max-retries 2 python train.py
+
 # Per-job email notifications
 gbatch --notify-email alice@example.com python train.py
 gbatch --notify-email alice@example.com --notify-email oncall@example.com --notify-on job_failed,job_timeout python train.py
@@ -122,6 +126,13 @@ Project values are immutable after submission.
 ::: info
 Per-job notifications reuse the SMTP transports configured in [Notifications](./notifications). If you set `--notify-email` without `--notify-on`, gflow defaults to terminal events: `job_completed`, `job_failed`, `job_timeout`, and `job_cancelled`.
 :::
+
+## Automatic Retries
+
+- Use `--max-retries <N>` to allow up to `N` automatic resubmissions after execution failure.
+- Current behavior is narrow by design: only non-zero exits from `Running` trigger automatic retries.
+- Timeouts and explicit fail requests stay terminal; use `gjob redo` when you want a manual resubmission.
+- If a failed job has queued dependents, gflow retargets them to the newest retry attempt automatically.
 
 ## Job Arrays
 

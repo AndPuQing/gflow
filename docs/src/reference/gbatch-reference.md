@@ -24,6 +24,7 @@ gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
 gbatch --project ml-research python train.py
+gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
 # Environment
@@ -124,6 +125,13 @@ Notes:
 - Maximum length is 64 characters.
 - Project value is immutable after submission.
 - CLI `--project` overrides `# GFLOW --project=...` in scripts.
+
+## Automatic Retries (`--max-retries`)
+
+- Use `--max-retries <N>` to allow up to `N` automatic resubmissions after execution failure.
+- Retries currently trigger only for non-zero exits from `Running`.
+- Timeouts are not auto-retried yet.
+- If queued dependents point to the failed job, gflow retargets them to the newest retry attempt automatically.
 
 ## Per-Job Notifications (`--notify-email`, `--notify-on`)
 

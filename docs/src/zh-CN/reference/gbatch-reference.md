@@ -24,6 +24,7 @@ gbatch --gpu-memory 20G --shared --gpus 1 python train.py
 gbatch --priority 50 python urgent.py
 gbatch --name my-run python train.py
 gbatch --project ml-research python train.py
+gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
 # 环境
@@ -124,6 +125,13 @@ gbatch --dry-run --gpus 1 python train.py
 - 最大长度为 64 个字符。
 - 项目值在提交后不可修改。
 - 命令行 `--project` 会覆盖脚本中的 `# GFLOW --project=...`。
+
+## 自动重试（`--max-retries`）
+
+- 使用 `--max-retries <N>`，允许任务在执行失败后最多自动重提 `N` 次。
+- 当前只有任务从 `Running` 以非零退出时才会触发自动重试。
+- 超时暂时不会自动重试。
+- 如果失败任务还有排队中的下游依赖，gflow 会自动把它们改挂到最新一次重试任务上。
 
 ## 单任务通知（`--notify-email`、`--notify-on`）
 
