@@ -527,6 +527,7 @@ async fn build_job(
     builder = builder.depends_on_ids(depends_on_ids.clone());
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+    builder = builder.max_retries(args.max_retries.unwrap_or(0));
     builder = builder.notifications(JobNotifications::default());
 
     // For backward compatibility, also set depends_on if there's exactly one dependency
@@ -725,6 +726,7 @@ async fn build_job_with_params(
     builder = builder.depends_on_ids(depends_on_ids.clone());
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
+    builder = builder.max_retries(args.max_retries.unwrap_or(0));
     builder = builder.notifications(JobNotifications::default());
 
     // For backward compatibility, also set depends_on if there's exactly one dependency
@@ -887,6 +889,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
             param: vec![],
             dry_run: false,
             max_concurrent: None,
+            max_retries: None,
             param_file: None,
             name_template: None,
             project: None,
@@ -1028,6 +1031,7 @@ mod tests {
             param: vec![],
             dry_run: false,
             max_concurrent: None,
+            max_retries: None,
             param_file: None,
             name_template: None,
             project: None,

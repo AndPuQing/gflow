@@ -666,7 +666,7 @@ pub(in crate::multicall::gflowd::server) async fn fail_job(
 
     let result = {
         let mut state = server_state.scheduler.write().await;
-        state.fail_job(id).await
+        state.explicit_fail_job(id).await
     }; // Lock released here
 
     if result {
@@ -679,19 +679,14 @@ pub(in crate::multicall::gflowd::server) async fn fail_job(
                 gpu_ids,
                 memory_mb,
             });
-    }
 
-    // Record metrics only on successful transition
-    #[cfg(feature = "metrics")]
-    if result {
+        #[cfg(feature = "metrics")]
         if let Some(submitted_by) = user {
             gflow::metrics::JOB_FAILED
                 .with_label_values(&[&submitted_by])
                 .inc();
         }
-    }
 
-    if result {
         (StatusCode::OK, Json(())).into_response()
     } else {
         (StatusCode::NOT_FOUND, Json(())).into_response()
@@ -1007,6 +1002,7 @@ pub(crate) struct UpdateJobRequest {
     pub dependency_mode: Option<Option<gflow::core::job::DependencyMode>>,
     pub auto_cancel_on_dependency_failure: Option<bool>,
     pub max_concurrent: Option<Option<usize>>,
+    pub max_retries: Option<Option<u32>>,
     pub notifications: Option<gflow::core::job::JobNotifications>,
 }
 

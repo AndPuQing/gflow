@@ -51,6 +51,149 @@ pub struct SchedulerRuntime {
 }
 
 impl SchedulerRuntime {
+    fn retry_lineage_root_id(job: &Job) -> u32 {
+        job.redone_from.unwrap_or(job.id)
+    }
+
+    fn retry_budget_root_id(&self, job_id: u32) -> u32 {
+        let mut current_job_id = job_id;
+
+        while let Some(parent_id) = self
+            .scheduler
+            .get_job_spec(current_job_id)
+            .and_then(|spec| spec.retried_from)
+        {
+            current_job_id = parent_id;
+        }
+
+        current_job_id
+    }
+
+    fn retries_used_for_budget_root(&self, root_job_id: u32) -> u32 {
+        self.scheduler
+            .job_specs()
+            .iter()
+            .enumerate()
+            .filter(|spec| {
+                spec.1.retried_from.is_some()
+                    && self.retry_budget_root_id((spec.0 + 1) as u32) == root_job_id
+            })
+            .count() as u32
+    }
+
+    fn should_retry_job(&self, job: &Job) -> bool {
+        if job.state != JobState::Running {
+            return false;
+        }
+
+        if job.max_retries == 0 {
+            return false;
+        }
+
+        let root_job_id = self.retry_budget_root_id(job.id);
+        self.retries_used_for_budget_root(root_job_id) < job.max_retries
+    }
+
+    fn build_retry_job(&self, original_job: &Job) -> Job {
+        let retry_root_id = Self::retry_lineage_root_id(original_job);
+        let depends_on_ids = original_job.all_dependency_ids();
+        let mut builder = Job::builder();
+
+        if let Some(ref script) = original_job.script {
+            builder = builder.script((**script).clone());
+        }
+        if let Some(ref command) = original_job.command {
+            builder = builder.command(command.clone());
+        }
+
+        builder = builder.gpus(original_job.gpus);
+        builder = builder.gpu_sharing_mode(original_job.gpu_sharing_mode);
+        builder = builder.priority(original_job.priority);
+        builder = builder.conda_env(original_job.conda_env.as_ref().map(|s| s.to_string()));
+        builder = builder.time_limit(original_job.time_limit);
+        builder = builder.memory_limit_mb(original_job.memory_limit_mb);
+        builder = builder.gpu_memory_limit_mb(original_job.gpu_memory_limit_mb);
+        builder = builder.depends_on_ids(depends_on_ids.clone());
+        builder = builder.dependency_mode(original_job.dependency_mode);
+        builder = builder
+            .auto_cancel_on_dependency_failure(original_job.auto_cancel_on_dependency_failure);
+        if depends_on_ids.len() == 1 {
+            builder = builder.depends_on(Some(depends_on_ids[0]));
+        }
+        builder = builder.run_dir(original_job.run_dir.clone());
+        builder = builder.task_id(original_job.task_id);
+        builder = builder.max_retries(original_job.max_retries);
+        builder = builder.auto_close_tmux(original_job.auto_close_tmux);
+        builder = builder.parameters_compact(original_job.parameters.clone());
+        builder = builder.group_id_uuid(original_job.group_id);
+        builder = builder.max_concurrent(original_job.max_concurrent);
+        builder = builder.project(original_job.project.as_ref().map(|s| s.to_string()));
+        builder = builder.notifications(original_job.notifications.clone());
+        builder = builder.redone_from(Some(retry_root_id));
+        builder = builder.retried_from(Some(original_job.id));
+        builder = builder.submitted_by(original_job.submitted_by.to_string());
+
+        builder.build()
+    }
+
+    async fn finalize_job_with_retry(
+        &mut self,
+        job_id: u32,
+        final_state: JobState,
+    ) -> Option<Option<u32>> {
+        let original_job = self.scheduler.get_job(job_id)?;
+
+        if !matches!(final_state, JobState::Failed | JobState::Timeout) {
+            return None;
+        }
+
+        if original_job.state != JobState::Running {
+            return None;
+        }
+
+        // Timeouts are only delivered after sending Ctrl-C to the running process.
+        // We do not have a reliable "process has actually exited" signal yet, so spawning
+        // a retry attempt here could run concurrently with the timed-out payload.
+        if final_state == JobState::Failed && self.should_retry_job(&original_job) {
+            let retry_job = self.build_retry_job(&original_job);
+            match self.submit_job(retry_job).await {
+                Ok((new_job_id, _run_name, _stored_job)) => {
+                    self.scheduler
+                        .retarget_dependents_to_retry(job_id, new_job_id);
+                    let transitioned = match final_state {
+                        JobState::Failed => self.scheduler.fail_job_without_propagation(job_id),
+                        JobState::Timeout => self.scheduler.timeout_job_without_propagation(job_id),
+                        _ => false,
+                    };
+                    if transitioned {
+                        self.mark_dirty();
+                        return Some(Some(new_job_id));
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(
+                        job_id,
+                        desired_state = %final_state,
+                        error = %error,
+                        "Automatic retry submission failed; falling back to final terminal state"
+                    );
+                }
+            }
+        }
+
+        let transitioned = match final_state {
+            JobState::Failed => self.scheduler.fail_job(job_id),
+            JobState::Timeout => self.scheduler.timeout_job(job_id),
+            _ => false,
+        };
+        if transitioned {
+            self.mark_dirty();
+            Some(None)
+        } else {
+            None
+        }
+    }
+
     /// Create a new scheduler runtime with state loading and NVML initialization
     pub fn with_state_path(
         executor: Box<dyn Executor>,
@@ -426,8 +569,24 @@ impl SchedulerRuntime {
         }
     }
 
-    pub async fn fail_job(&mut self, job_id: u32) -> bool {
+    pub async fn fail_job(&mut self, job_id: u32) -> Option<Option<u32>> {
         // Get run_name before modifying state (needed for PipePane cleanup)
+        let run_name = self
+            .scheduler
+            .get_job(job_id)
+            .and_then(|j| j.run_name.clone());
+
+        let result = self.finalize_job_with_retry(job_id, JobState::Failed).await;
+        if result.is_some() {
+            // Disable PipePane to prevent process leaks (keep session alive for user inspection)
+            if let Some(name) = run_name {
+                disable_pipe_pane_for_job(job_id, &name, false);
+            }
+        }
+        result
+    }
+
+    pub async fn explicit_fail_job(&mut self, job_id: u32) -> bool {
         let run_name = self
             .scheduler
             .get_job(job_id)
@@ -436,8 +595,23 @@ impl SchedulerRuntime {
         let result = self.scheduler.fail_job(job_id);
         if result {
             self.mark_dirty();
+            if let Some(name) = run_name {
+                disable_pipe_pane_for_job(job_id, &name, false);
+            }
+        }
+        result
+    }
 
-            // Disable PipePane to prevent process leaks (keep session alive for user inspection)
+    pub async fn timeout_job(&mut self, job_id: u32) -> Option<Option<u32>> {
+        let run_name = self
+            .scheduler
+            .get_job(job_id)
+            .and_then(|j| j.run_name.clone());
+
+        let result = self
+            .finalize_job_with_retry(job_id, JobState::Timeout)
+            .await;
+        if result.is_some() {
             if let Some(name) = run_name {
                 disable_pipe_pane_for_job(job_id, &name, false);
             }
@@ -590,6 +764,11 @@ impl SchedulerRuntime {
             if let Some(max_concurrent) = request.max_concurrent {
                 rt.max_concurrent = max_concurrent;
                 updated_fields.push("max_concurrent".to_string());
+            }
+
+            if let Some(max_retries) = request.max_retries {
+                spec.max_retries = max_retries.unwrap_or(0);
+                updated_fields.push("max_retries".to_string());
             }
 
             if let Some(notifications) = request.notifications {
@@ -1026,6 +1205,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: None,
             max_concurrent: None,
+            max_retries: None,
             notifications: None,
         };
 
@@ -1072,6 +1252,7 @@ mod tests {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: None,
             max_concurrent: None,
+            max_retries: None,
             notifications: Some(gflow::core::job::JobNotifications::normalized(
                 vec!["alice@example.com".to_string()],
                 vec!["job_failed".to_string()],
@@ -1095,6 +1276,200 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["job_failed"]
         );
+    }
+
+    #[tokio::test]
+    async fn fail_job_creates_retry_attempt_and_retargets_queued_dependents() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let root = Job::builder()
+            .command("echo root")
+            .submitted_by("alice")
+            .max_retries(2)
+            .build();
+        let (root_id, _run_name, _job) = runtime.submit_job(root).await.unwrap();
+
+        let child = Job::builder()
+            .command("echo child")
+            .submitted_by("alice")
+            .depends_on(Some(root_id))
+            .depends_on_ids(vec![root_id])
+            .build();
+        let (child_id, _run_name, _job) = runtime.submit_job(child).await.unwrap();
+
+        let jobs_to_execute = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(jobs_to_execute.len(), 1);
+        assert_eq!(jobs_to_execute[0].id, root_id);
+        assert_eq!(runtime.get_job(root_id).unwrap().state, JobState::Running);
+
+        let retry_result = runtime.fail_job(root_id).await;
+        assert_eq!(retry_result, Some(Some(3)));
+
+        let failed_root = runtime.get_job(root_id).unwrap();
+        assert_eq!(failed_root.state, JobState::Failed);
+
+        let retry_job = runtime.get_job(3).unwrap();
+        assert_eq!(retry_job.redone_from, Some(root_id));
+        assert_eq!(retry_job.max_retries, 2);
+        assert_eq!(retry_job.state, JobState::Queued);
+
+        let updated_child = runtime.get_job(child_id).unwrap();
+        assert_eq!(updated_child.state, JobState::Queued);
+        assert_eq!(updated_child.all_dependency_ids().as_slice(), &[3]);
+    }
+
+    #[tokio::test]
+    async fn explicit_fail_job_does_not_spawn_retry_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let root = Job::builder()
+            .command("echo root")
+            .submitted_by("alice")
+            .max_retries(2)
+            .build();
+        let (root_id, _run_name, _job) = runtime.submit_job(root).await.unwrap();
+
+        let jobs_to_execute = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(jobs_to_execute.len(), 1);
+        assert_eq!(jobs_to_execute[0].id, root_id);
+
+        assert!(runtime.explicit_fail_job(root_id).await);
+        assert_eq!(runtime.get_job(root_id).unwrap().state, JobState::Failed);
+        assert!(runtime.get_job(2).is_none());
+    }
+
+    #[tokio::test]
+    async fn manual_redo_lineage_does_not_consume_automatic_retry_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let root = Job::builder()
+            .command("echo root")
+            .submitted_by("alice")
+            .build();
+        let (root_id, _run_name, _job) = runtime.submit_job(root).await.unwrap();
+
+        let manual_redo = Job::builder()
+            .command("echo redo")
+            .submitted_by("alice")
+            .redone_from(Some(root_id))
+            .max_retries(1)
+            .build();
+        let (redo_id, _run_name, _job) = runtime.submit_job(manual_redo).await.unwrap();
+
+        let jobs_to_execute = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(jobs_to_execute.len(), 2);
+        assert!(jobs_to_execute.iter().any(|job| job.id == redo_id));
+
+        let retry_result = runtime.fail_job(redo_id).await;
+        assert_eq!(retry_result, Some(Some(3)));
+
+        let retry_job = runtime.get_job(3).unwrap();
+        assert_eq!(retry_job.redone_from, Some(root_id));
+        assert_eq!(retry_job.retried_from, Some(redo_id));
+    }
+
+    #[tokio::test]
+    async fn sibling_manual_redos_do_not_share_automatic_retry_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let root = Job::builder()
+            .command("echo root")
+            .submitted_by("alice")
+            .build();
+        let (root_id, _run_name, _job) = runtime.submit_job(root).await.unwrap();
+
+        let redo_a = Job::builder()
+            .command("echo redo a")
+            .submitted_by("alice")
+            .redone_from(Some(root_id))
+            .max_retries(1)
+            .build();
+        let (redo_a_id, _run_name, _job) = runtime.submit_job(redo_a).await.unwrap();
+
+        let redo_b = Job::builder()
+            .command("echo redo b")
+            .submitted_by("alice")
+            .redone_from(Some(root_id))
+            .max_retries(1)
+            .build();
+        let (redo_b_id, _run_name, _job) = runtime.submit_job(redo_b).await.unwrap();
+
+        let jobs_to_execute = runtime.scheduler.prepare_jobs_for_execution();
+        assert!(jobs_to_execute.iter().any(|job| job.id == redo_a_id));
+        assert!(jobs_to_execute.iter().any(|job| job.id == redo_b_id));
+
+        assert_eq!(runtime.fail_job(redo_a_id).await, Some(Some(4)));
+        assert_eq!(runtime.fail_job(redo_b_id).await, Some(Some(5)));
+
+        let retry_a = runtime.get_job(4).unwrap();
+        assert_eq!(retry_a.redone_from, Some(root_id));
+        assert_eq!(retry_a.retried_from, Some(redo_a_id));
+
+        let retry_b = runtime.get_job(5).unwrap();
+        assert_eq!(retry_b.redone_from, Some(root_id));
+        assert_eq!(retry_b.retried_from, Some(redo_b_id));
+    }
+
+    #[tokio::test]
+    async fn timeout_does_not_spawn_retry_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        let root = Job::builder()
+            .command("echo root")
+            .submitted_by("alice")
+            .max_retries(2)
+            .build();
+        let (root_id, _run_name, _job) = runtime.submit_job(root).await.unwrap();
+
+        let jobs_to_execute = runtime.scheduler.prepare_jobs_for_execution();
+        assert_eq!(jobs_to_execute.len(), 1);
+        assert_eq!(jobs_to_execute[0].id, root_id);
+        assert_eq!(runtime.get_job(root_id).unwrap().state, JobState::Running);
+
+        let timeout_result = runtime.timeout_job(root_id).await;
+        assert_eq!(timeout_result, Some(None));
+        assert_eq!(runtime.get_job(root_id).unwrap().state, JobState::Timeout);
+        assert!(runtime.get_job(2).is_none());
     }
 
     #[tokio::test]

@@ -131,6 +131,10 @@ pub struct AddArgs {
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub max_concurrent: Option<usize>,
 
+    /// Automatically retry failed or timed-out jobs up to this many times
+    #[arg(long, value_hint = clap::ValueHint::Other)]
+    pub max_retries: Option<u32>,
+
     /// Load parameters from a CSV file (header row required)
     #[arg(long, value_hint = clap::ValueHint::FilePath)]
     pub param_file: Option<std::path::PathBuf>,

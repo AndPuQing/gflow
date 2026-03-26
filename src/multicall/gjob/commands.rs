@@ -48,6 +48,8 @@ pub async fn handle_commands(
             no_auto_cancel_on_dep_failure,
             max_concurrent,
             clear_max_concurrent,
+            max_retries,
+            clear_max_retries,
             params,
         } => {
             let update_params = update::UpdateJobParams {
@@ -71,6 +73,8 @@ pub async fn handle_commands(
                 no_auto_cancel_on_dep_failure,
                 max_concurrent,
                 clear_max_concurrent,
+                max_retries,
+                clear_max_retries,
                 params,
             };
             update::handle_update(config_path, update_params).await?;

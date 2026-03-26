@@ -27,6 +27,9 @@ pub struct JobSpec {
     pub submitted_at: Option<SystemTime>,
     pub task_id: Option<u32>,
     pub redone_from: Option<u32>,
+    pub retried_from: Option<u32>,
+    #[serde(default)]
+    pub max_retries: u32,
     pub auto_close_tmux: bool,
     pub run_name: Option<CompactString>,
 
@@ -61,6 +64,8 @@ impl Default for JobSpec {
             submitted_at: None,
             task_id: None,
             redone_from: None,
+            retried_from: None,
+            max_retries: 0,
             auto_close_tmux: false,
             run_name: None,
             project: None,
@@ -193,6 +198,10 @@ pub struct Job {
     pub memory_limit_mb: Option<u64>, // Maximum memory in MB (None = no limit)
     pub submitted_by: CompactString,
     pub redone_from: Option<u32>, // The job ID this job was redone from
+    #[serde(default)]
+    pub retried_from: Option<u32>, // The job ID this job was automatically retried from
+    #[serde(default)]
+    pub max_retries: u32, // Maximum automatic retries after failure/timeout
     pub auto_close_tmux: bool,    // Whether to automatically close tmux on successful completion
     #[serde(default)]
     pub parameters: Parameters, // Parameter values for template substitution
@@ -240,6 +249,8 @@ pub struct JobBuilder {
     submitted_by: Option<CompactString>,
     run_name: Option<CompactString>,
     redone_from: Option<u32>,
+    retried_from: Option<u32>,
+    max_retries: Option<u32>,
     auto_close_tmux: Option<bool>,
     parameters: Option<Parameters>,
     group_id: Option<Uuid>,
@@ -391,6 +402,16 @@ impl JobBuilder {
         self
     }
 
+    pub fn retried_from(mut self, retried_from: impl Into<Option<u32>>) -> Self {
+        self.retried_from = retried_from.into();
+        self
+    }
+
+    pub fn max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = Some(max_retries);
+        self
+    }
+
     pub fn auto_close_tmux(mut self, auto_close_tmux: bool) -> Self {
         self.auto_close_tmux = Some(auto_close_tmux);
         self
@@ -459,6 +480,8 @@ impl JobBuilder {
                 .submitted_by
                 .unwrap_or_else(|| CompactString::const_new("unknown")),
             redone_from: self.redone_from,
+            retried_from: self.retried_from,
+            max_retries: self.max_retries.unwrap_or(0),
             auto_close_tmux: self.auto_close_tmux.unwrap_or(false),
             parameters: self.parameters.unwrap_or_default(),
             group_id: self.group_id,
@@ -498,6 +521,8 @@ impl Default for Job {
             memory_limit_mb: None,
             submitted_by: CompactString::const_new("unknown"),
             redone_from: None,
+            retried_from: None,
+            max_retries: 0,
             auto_close_tmux: false,
             parameters: Parameters::new(),
             group_id: None,
@@ -541,6 +566,8 @@ impl Job {
             memory_limit_mb: runtime.memory_limit_mb,
             submitted_by: spec.submitted_by,
             redone_from: spec.redone_from,
+            retried_from: spec.retried_from,
+            max_retries: spec.max_retries,
             auto_close_tmux: spec.auto_close_tmux,
             parameters: spec.parameters,
             group_id: runtime.group_id,
@@ -569,6 +596,8 @@ impl Job {
             submitted_at: self.submitted_at,
             task_id: self.task_id,
             redone_from: self.redone_from,
+            retried_from: self.retried_from,
+            max_retries: self.max_retries,
             auto_close_tmux: self.auto_close_tmux,
             run_name: self.run_name,
             project: self.project,

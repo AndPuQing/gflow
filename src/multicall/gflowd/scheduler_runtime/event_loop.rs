@@ -16,6 +16,7 @@ pub async fn run_event_driven(
             scheduler_trigger_handler_with_debounce(
                 event_bus.subscribe(),
                 Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
             )
             .instrument(tracing::info_span!("scheduler_trigger_task")),
         ),
@@ -35,8 +36,12 @@ pub async fn run_event_driven(
         ),
         // Zombie handler - reacts to zombie events
         tokio::spawn(
-            super::monitors::zombie_handler_task(event_bus.subscribe(), Arc::clone(&shared_state))
-                .instrument(tracing::info_span!("zombie_handler_task")),
+            super::monitors::zombie_handler_task(
+                event_bus.subscribe(),
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+            )
+            .instrument(tracing::info_span!("zombie_handler_task")),
         ),
         // Timeout monitor - checks time limits every 10s
         tokio::spawn(
@@ -48,8 +53,12 @@ pub async fn run_event_driven(
         ),
         // Timeout handler - reacts to timeout events
         tokio::spawn(
-            super::monitors::timeout_handler_task(event_bus.subscribe(), Arc::clone(&shared_state))
-                .instrument(tracing::info_span!("timeout_handler_task")),
+            super::monitors::timeout_handler_task(
+                event_bus.subscribe(),
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+            )
+            .instrument(tracing::info_span!("timeout_handler_task")),
         ),
         // Reservation monitor - uses precise timers for status transitions
         tokio::spawn(
@@ -80,6 +89,7 @@ pub async fn run_event_driven(
 async fn scheduler_trigger_handler_with_debounce(
     mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
+    event_bus: Arc<EventBus>,
 ) {
     let mut debounce = tokio::time::interval(Duration::from_millis(100));
     let mut pending_schedule = false;
@@ -95,6 +105,7 @@ async fn scheduler_trigger_handler_with_debounce(
                             SchedulerEvent::JobSubmitted { .. }
                             | SchedulerEvent::JobUpdated { .. }
                             | SchedulerEvent::JobCompleted { .. }
+                            | SchedulerEvent::JobTimedOut { .. }
                             | SchedulerEvent::GpuAvailabilityChanged { .. }
                             | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
                                 pending_schedule = true;
@@ -114,7 +125,7 @@ async fn scheduler_trigger_handler_with_debounce(
             }
             _ = debounce.tick() => {
                 if pending_schedule {
-                    trigger_scheduling(&state).await;
+                    trigger_scheduling(&state, &event_bus).await;
                     pending_schedule = false;
                 }
             }
@@ -123,7 +134,7 @@ async fn scheduler_trigger_handler_with_debounce(
 }
 
 /// Trigger job scheduling
-async fn trigger_scheduling(state: &SharedState) {
+async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<EventBus>) {
     let scheduling_span = tracing::info_span!("trigger_scheduling");
     let _entered = scheduling_span.enter();
     #[cfg(feature = "metrics")]
@@ -201,11 +212,35 @@ async fn trigger_scheduling(state: &SharedState) {
 
     // Step 3: Handle failures (write lock - brief)
     if !execution_results.is_empty() {
+        let mut retried_jobs = Vec::new();
         let mut state_guard = state.write().await;
-        state_guard
-            .scheduler
-            .handle_execution_failures(&execution_results);
-        state_guard.mark_dirty();
+        for (job_id, result) in &execution_results {
+            if result.is_ok() {
+                continue;
+            }
+
+            let Some((had_gpus, was_running)) = (|| {
+                let rt = state_guard.scheduler.get_job_runtime_mut(*job_id)?;
+                Some((rt.gpu_ids.take().is_some(), rt.state == JobState::Running))
+            })() else {
+                continue;
+            };
+
+            if was_running {
+                if let Some(Some(new_job_id)) = state_guard.fail_job(*job_id).await {
+                    retried_jobs.push(new_job_id);
+                }
+            }
+
+            if had_gpus {
+                state_guard.scheduler.refresh_available_memory();
+            }
+        }
+        drop(state_guard);
+
+        for job_id in retried_jobs {
+            event_bus.publish(SchedulerEvent::JobSubmitted { job_id });
+        }
     }
 
     #[cfg(feature = "metrics")]

@@ -31,6 +31,9 @@ fn print_job_details(job: &Job) {
     print_field!("State", "{} ({})", job.state, job.state.short_form());
     print_field!("Priority", "{}", job.priority);
     print_field!("SubmittedBy", "{}", job.submitted_by);
+    if job.max_retries > 0 {
+        print_field!("MaxRetries", "{}", job.max_retries);
+    }
     print_optional_field!("GroupID", job.group_id);
 
     // Command or script

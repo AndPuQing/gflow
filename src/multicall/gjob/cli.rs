@@ -158,6 +158,12 @@ pub enum Commands {
         #[arg(long, help = "Clear max concurrent limit")]
         clear_max_concurrent: bool,
 
+        #[arg(long, help = "Update automatic retry limit")]
+        max_retries: Option<u32>,
+
+        #[arg(long, help = "Clear automatic retry limit")]
+        clear_max_retries: bool,
+
         #[arg(long = "param", help = "Update parameter (KEY=VALUE, can be repeated)", value_hint = clap::ValueHint::Other)]
         params: Vec<String>,
     },

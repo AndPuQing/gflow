@@ -437,6 +437,50 @@ impl Scheduler {
         self.refresh_job_readiness(job_id);
     }
 
+    pub fn retarget_dependents_to_retry(&mut self, old_job_id: u32, new_job_id: u32) -> Vec<u32> {
+        let dependent_job_ids = self
+            .dependents_graph
+            .get(&old_job_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut updated_jobs = Vec::new();
+
+        for job_id in dependent_job_ids {
+            let Some((spec, rt)) = self.get_job_parts(job_id) else {
+                continue;
+            };
+            if !matches!(rt.state, JobState::Queued | JobState::Hold) {
+                continue;
+            }
+
+            let old_deps = Self::normalized_dependency_ids(spec);
+            if !old_deps.contains(&old_job_id) {
+                continue;
+            }
+
+            let mut new_deps = Vec::with_capacity(old_deps.len());
+            for dep_id in old_deps {
+                let replacement = if dep_id == old_job_id {
+                    new_job_id
+                } else {
+                    dep_id
+                };
+                if !new_deps.contains(&replacement) {
+                    new_deps.push(replacement);
+                }
+            }
+
+            if let Some((spec, _rt)) = self.get_job_parts_mut(job_id) {
+                spec.depends_on_ids = new_deps.clone().into();
+                spec.depends_on = (new_deps.len() == 1).then_some(new_deps[0]);
+            }
+            self.replace_job_dependencies(job_id, vec![old_job_id], new_deps);
+            updated_jobs.push(job_id);
+        }
+
+        updated_jobs
+    }
+
     pub(super) fn update_group_running_count(
         &mut self,
         group_id: Option<uuid::Uuid>,
@@ -464,11 +508,12 @@ impl Scheduler {
         }
     }
 
-    pub(super) fn transition_job_state(
+    fn transition_job_state_internal(
         &mut self,
         job_id: u32,
         next: JobState,
         reason: Option<JobStateReason>,
+        propagate_terminal_state: bool,
     ) -> Option<bool> {
         let (group_id, old_state, transitioned) = (|| {
             let rt = self.get_job_runtime_mut(job_id)?;
@@ -516,13 +561,24 @@ impl Scheduler {
             match next {
                 JobState::Queued => self.refresh_job_readiness(job_id),
                 JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout => {
-                    self.propagate_terminal_state_to_dependents(job_id, next);
+                    if propagate_terminal_state {
+                        self.propagate_terminal_state_to_dependents(job_id, next);
+                    }
                 }
                 JobState::Hold | JobState::Running => {}
             }
         }
 
         Some(transitioned)
+    }
+
+    pub(super) fn transition_job_state(
+        &mut self,
+        job_id: u32,
+        next: JobState,
+        reason: Option<JobStateReason>,
+    ) -> Option<bool> {
+        self.transition_job_state_internal(job_id, next, reason, true)
     }
 
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {
@@ -540,8 +596,18 @@ impl Scheduler {
             .is_some()
     }
 
+    pub fn fail_job_without_propagation(&mut self, job_id: u32) -> bool {
+        self.transition_job_state_internal(job_id, JobState::Failed, None, false)
+            .is_some()
+    }
+
     pub fn timeout_job(&mut self, job_id: u32) -> bool {
         self.transition_job_state(job_id, JobState::Timeout, None)
+            .is_some()
+    }
+
+    pub fn timeout_job_without_propagation(&mut self, job_id: u32) -> bool {
+        self.transition_job_state_internal(job_id, JobState::Timeout, None, false)
             .is_some()
     }
 

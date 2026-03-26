@@ -131,17 +131,29 @@ pub(crate) fn build_redo_job(original_job: &Job, options: &RedoJobOptions) -> Jo
         .or(original_job.gpu_memory_limit_mb);
     builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
 
-    let depends_on = if options.clear_deps {
-        None
+    let depends_on_ids = if options.clear_deps {
+        Vec::new()
+    } else if let Some(depends_on_override) = options.depends_on_override {
+        vec![depends_on_override]
     } else {
-        options.depends_on_override.or(original_job.depends_on)
+        original_job.all_dependency_ids().to_vec()
     };
-    builder = builder.depends_on(depends_on);
+    builder = builder.depends_on_ids(depends_on_ids.clone());
+    builder = builder.dependency_mode(original_job.dependency_mode);
+    builder =
+        builder.auto_cancel_on_dependency_failure(original_job.auto_cancel_on_dependency_failure);
+    if depends_on_ids.len() == 1 {
+        builder = builder.depends_on(Some(depends_on_ids[0]));
+    }
 
     builder = builder.run_dir(original_job.run_dir.clone());
     builder = builder.task_id(original_job.task_id);
+    builder = builder.max_retries(original_job.max_retries);
     builder = builder.auto_close_tmux(original_job.auto_close_tmux);
     builder = builder.parameters_compact(original_job.parameters.clone());
+    builder = builder.group_id_uuid(original_job.group_id);
+    builder = builder.max_concurrent(original_job.max_concurrent);
+    builder = builder.project(original_job.project.as_ref().map(|s| s.to_string()));
     builder = builder.notifications(original_job.notifications.clone());
     builder = builder.redone_from(Some(original_job.id));
     builder = builder.submitted_by(gflow::platform::get_current_username());
@@ -386,6 +398,7 @@ async fn redo_with_cascade(
         builder = builder.conda_env(cascade_job.conda_env.as_ref().map(|s| s.to_string()));
         builder = builder.time_limit(cascade_job.time_limit);
         builder = builder.memory_limit_mb(cascade_job.memory_limit_mb);
+        builder = builder.max_retries(cascade_job.max_retries);
 
         // Update dependencies to point to new job IDs
         let updated_depends_on_ids: Vec<u32> = cascade_job
@@ -406,6 +419,8 @@ async fn redo_with_cascade(
         builder = builder.parameters_compact(cascade_job.parameters.clone());
         builder = builder.group_id_uuid(cascade_job.group_id);
         builder = builder.max_concurrent(cascade_job.max_concurrent);
+        builder = builder.project(cascade_job.project.as_ref().map(|s| s.to_string()));
+        builder = builder.notifications(cascade_job.notifications.clone());
 
         // Track that this job was redone from the original cascade job
         builder = builder.redone_from(Some(cascade_job.id));

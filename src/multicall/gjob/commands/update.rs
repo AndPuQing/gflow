@@ -25,6 +25,8 @@ pub struct UpdateJobParams {
     pub no_auto_cancel_on_dep_failure: bool,
     pub max_concurrent: Option<usize>,
     pub clear_max_concurrent: bool,
+    pub max_retries: Option<u32>,
+    pub clear_max_retries: bool,
     pub params: Vec<String>,
 }
 
@@ -56,6 +58,8 @@ pub async fn handle_update(
         || params.no_auto_cancel_on_dep_failure
         || params.max_concurrent.is_some()
         || params.clear_max_concurrent
+        || params.max_retries.is_some()
+        || params.clear_max_retries
         || !params.params.is_empty();
 
     if !has_updates {
@@ -127,6 +131,14 @@ pub async fn handle_update(
         None
     };
 
+    let parsed_max_retries = if let Some(max_retries) = params.max_retries {
+        Some(Some(max_retries))
+    } else if params.clear_max_retries {
+        Some(None)
+    } else {
+        None
+    };
+
     // Handle dependencies
     let (parsed_depends_on_ids, parsed_dependency_mode) = if let Some(deps) = &params.depends_on_all
     {
@@ -174,6 +186,7 @@ pub async fn handle_update(
             dependency_mode: parsed_dependency_mode,
             auto_cancel_on_dependency_failure: parsed_auto_cancel,
             max_concurrent: parsed_max_concurrent,
+            max_retries: parsed_max_retries,
             notifications: None,
         };
 

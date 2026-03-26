@@ -127,6 +127,7 @@ pub struct SubmitJobRequest {
     pub run_name: Option<String>,
     pub project: Option<String>,
     pub max_concurrent: Option<usize>,
+    pub max_retries: Option<u32>,
     pub auto_close_tmux: Option<bool>,
     /// Additional email recipient for this job's notifications.
     pub notify_email: Option<Vec<String>>,
@@ -161,6 +162,8 @@ pub struct UpdateJobToolRequest {
     pub auto_cancel_on_dependency_failure: Option<bool>,
     pub max_concurrent: Option<usize>,
     pub clear_max_concurrent: Option<bool>,
+    pub max_retries: Option<u32>,
+    pub clear_max_retries: Option<bool>,
     /// Replace this job's email notification recipients. Use an empty list to clear notifications.
     pub notify_email: Option<Vec<String>>,
     /// Replace this job's notification events. Requires `notify_email` in the same request.
@@ -770,6 +773,7 @@ fn build_submit_job(params: SubmitJobRequest) -> Result<Job, String> {
         .auto_close_tmux(params.auto_close_tmux.unwrap_or(false))
         .shared(params.shared.unwrap_or(false))
         .max_concurrent(params.max_concurrent)
+        .max_retries(params.max_retries.unwrap_or(0))
         .run_name(params.run_name)
         .project(params.project);
 
@@ -889,6 +893,9 @@ fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest
     if params.max_concurrent.is_some() && params.clear_max_concurrent.unwrap_or(false) {
         return Err("Cannot set and clear max_concurrent in the same request".to_string());
     }
+    if params.max_retries.is_some() && params.clear_max_retries.unwrap_or(false) {
+        return Err("Cannot set and clear max_retries in the same request".to_string());
+    }
 
     let notifications =
         resolve_job_notifications(params.notify_email, params.notify_on, "update_job")?;
@@ -941,6 +948,14 @@ fn build_update_request(params: UpdateJobToolRequest) -> Result<UpdateJobRequest
         max_concurrent: match (
             params.max_concurrent,
             params.clear_max_concurrent.unwrap_or(false),
+        ) {
+            (Some(value), false) => Some(Some(value)),
+            (None, true) => Some(None),
+            _ => None,
+        },
+        max_retries: match (
+            params.max_retries,
+            params.clear_max_retries.unwrap_or(false),
         ) {
             (Some(value), false) => Some(Some(value)),
             (None, true) => Some(None),
@@ -1239,6 +1254,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retries: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,
@@ -1274,6 +1290,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retries: None,
             auto_close_tmux: None,
             notify_email: Some(vec!["alice@example.com".to_string()]),
             notify_on: Some(vec!["JOB_FAILED".to_string(), "job_timeout".to_string()]),
@@ -1315,6 +1332,8 @@ mod tests {
             auto_cancel_on_dependency_failure: None,
             max_concurrent: None,
             clear_max_concurrent: None,
+            max_retries: None,
+            clear_max_retries: None,
             notify_email: Some(vec!["alice@example.com".to_string()]),
             notify_on: Some(vec!["job_failed".to_string()]),
         })
@@ -1358,6 +1377,8 @@ mod tests {
             auto_cancel_on_dependency_failure: None,
             max_concurrent: None,
             clear_max_concurrent: None,
+            max_retries: None,
+            clear_max_retries: None,
             notify_email: None,
             notify_on: Some(vec!["job_failed".to_string()]),
         })
@@ -1588,6 +1609,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retries: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,
@@ -1658,6 +1680,7 @@ mod tests {
             run_name: None,
             project: None,
             max_concurrent: None,
+            max_retries: None,
             auto_close_tmux: None,
             notify_email: None,
             notify_on: None,

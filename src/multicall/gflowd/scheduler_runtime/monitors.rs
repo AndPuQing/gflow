@@ -112,6 +112,7 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
 pub(super) async fn zombie_handler_task(
     mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
+    event_bus: Arc<EventBus>,
 ) {
     loop {
         match events.recv().await {
@@ -131,12 +132,15 @@ pub(super) async fn zombie_handler_task(
                 };
 
                 // Update job state (write lock)
-                let mut state_guard = state.write().await;
-                // Use fail_job to properly update group_running_count index
-                state_guard.scheduler.fail_job(job_id);
-                state_guard.mark_dirty();
-                tracing::info!(job_id, "Marked zombie job as failed");
-                drop(state_guard); // Release lock before disabling PipePane
+                let result = {
+                    let mut state_guard = state.write().await;
+                    state_guard.fail_job(job_id).await
+                };
+                if let Some(Some(new_job_id)) = result {
+                    event_bus.publish(SchedulerEvent::JobSubmitted { job_id: new_job_id });
+                } else if result.is_some() {
+                    tracing::info!(job_id, "Marked zombie job as failed");
+                }
 
                 // Disable PipePane if session still exists (no lock held)
                 // This handles the case where the session was manually killed but PipePane might still be active
@@ -205,6 +209,7 @@ pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<Even
 pub(super) async fn timeout_handler_task(
     mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
+    event_bus: Arc<EventBus>,
 ) {
     loop {
         match events.recv().await {
@@ -222,15 +227,13 @@ pub(super) async fn timeout_handler_task(
                 }
 
                 // Update job state (write lock)
-                let mut state_guard = state.write().await;
-                if state_guard.scheduler.timeout_job(job_id) {
-                    state_guard.mark_dirty();
-                }
-                drop(state_guard); // Release lock before disabling PipePane
+                let result = {
+                    let mut state_guard = state.write().await;
+                    state_guard.timeout_job(job_id).await
+                };
 
-                // Disable PipePane to prevent process leaks (no lock held)
-                if let Some(rn) = run_name {
-                    disable_pipe_pane_for_job(job_id, &rn, false);
+                if let Some(Some(new_job_id)) = result {
+                    event_bus.publish(SchedulerEvent::JobSubmitted { job_id: new_job_id });
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {

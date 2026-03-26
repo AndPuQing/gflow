@@ -62,6 +62,8 @@ pub struct UpdateJobRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_concurrent: Option<Option<usize>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<Option<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub notifications: Option<JobNotifications>,
 }
 
