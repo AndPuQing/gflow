@@ -107,6 +107,7 @@ async fn scheduler_trigger_handler_with_debounce(
                             | SchedulerEvent::JobCompleted { .. }
                             | SchedulerEvent::JobTimedOut { .. }
                             | SchedulerEvent::GpuAvailabilityChanged { .. }
+                            | SchedulerEvent::ManualGpuOverrideChanged { .. }
                             | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
                                 pending_schedule = true;
                             }

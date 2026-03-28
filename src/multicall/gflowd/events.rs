@@ -38,6 +38,11 @@ pub enum SchedulerEvent {
     /// GPU availability has changed
     GpuAvailabilityChanged { gpu_index: u32, available: bool },
 
+    /// GPU schedulability changed due to a manual runtime override.
+    /// This should trigger scheduler reconsideration, but is not a normal
+    /// "GPU became free" signal for external consumers.
+    ManualGpuOverrideChanged { gpu_index: u32, available: bool },
+
     /// Memory has been freed
     MemoryAvailabilityChanged { freed_mb: u64 },
 
@@ -71,6 +76,7 @@ impl SchedulerEvent {
             Self::JobUpdated { .. } => "job_updated",
             Self::JobCompleted { .. } => "job_completed",
             Self::GpuAvailabilityChanged { .. } => "gpu_availability_changed",
+            Self::ManualGpuOverrideChanged { .. } => "manual_gpu_override_changed",
             Self::MemoryAvailabilityChanged { .. } => "memory_availability_changed",
             Self::JobTimedOut { .. } => "job_timed_out",
             Self::ZombieJobDetected { .. } => "zombie_job_detected",

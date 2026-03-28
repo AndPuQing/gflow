@@ -516,6 +516,7 @@ pub(crate) async fn build_payloads(
                 }),
             }]
         }
+        SchedulerEvent::ManualGpuOverrideChanged { .. } => vec![],
         SchedulerEvent::MemoryAvailabilityChanged { .. }
         | SchedulerEvent::ZombieJobDetected { .. }
         | SchedulerEvent::PeriodicHealthCheck => vec![],

@@ -6,10 +6,11 @@ mod serialization;
 pub use event_loop::run_event_driven;
 
 use super::state_saver::StateSaverHandle;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use compact_str::CompactString;
 use gflow::core::executor::Executor;
 use gflow::core::gpu::{GPUSlot, GpuUuid};
+use gflow::core::info::IgnoredGpuProcess;
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use gflow::tmux::disable_pipe_pane_for_job;
@@ -48,6 +49,7 @@ pub struct SchedulerRuntime {
     journal_writable: bool,
     journal_error: Option<String>,
     journal_applied: bool,
+    ignored_gpu_processes: HashSet<IgnoredGpuProcess>,
 }
 
 impl SchedulerRuntime {
@@ -280,6 +282,7 @@ impl SchedulerRuntime {
             journal_writable: false,
             journal_error: None,
             journal_applied: false,
+            ignored_gpu_processes: HashSet::new(),
         };
         runtime.load_state();
         runtime.init_journal();
@@ -353,39 +356,163 @@ impl SchedulerRuntime {
         }
 
         if let Some(nvml) = &self.nvml {
+            let ignored_snapshot = self.ignored_gpu_processes.clone();
+            let mut active_ignored = ignored_snapshot.clone();
             if let Ok(device_count) = nvml.device_count() {
                 for i in 0..device_count {
-                    if let Ok(device) = nvml.device_by_index(i) {
-                        if let Ok(uuid) = device.uuid() {
-                            if let Some(slot) = self.scheduler.gpu_slots_mut().get_mut(&uuid) {
-                                let occupied_by_exclusive =
-                                    running_exclusive_gpu_indices.contains(&slot.index);
-                                let occupied_by_shared =
-                                    running_shared_gpu_indices.contains(&slot.index);
-                                let is_free_in_nvml = device
-                                    .running_compute_processes()
-                                    .is_ok_and(|procs| procs.is_empty());
-                                slot.available = if occupied_by_exclusive {
-                                    false
-                                } else if occupied_by_shared {
-                                    true
-                                } else {
-                                    is_free_in_nvml
-                                };
+                    let Ok(device) = nvml.device_by_index(i) else {
+                        tracing::warn!(gpu_index = i, "Failed to query NVML device by index");
+                        continue;
+                    };
+                    let Ok(uuid) = device.uuid() else {
+                        tracing::warn!(gpu_index = i, "Failed to query NVML device UUID");
+                        continue;
+                    };
+                    let Some(slot) = self.scheduler.gpu_slots_mut().get_mut(&uuid) else {
+                        continue;
+                    };
 
-                                // Set reason if GPU is occupied by non-gflow process
-                                if !occupied_by_exclusive && !occupied_by_shared && !is_free_in_nvml
-                                {
-                                    slot.reason = Some("Unmanaged".to_string());
+                    let occupied_by_exclusive = running_exclusive_gpu_indices.contains(&slot.index);
+                    let occupied_by_shared = running_shared_gpu_indices.contains(&slot.index);
+                    let slot_index = slot.index;
+
+                    match device.running_compute_processes() {
+                        Ok(processes) => {
+                            let mut unmanaged_pids = processes
+                                .into_iter()
+                                .map(|proc| proc.pid)
+                                .collect::<Vec<_>>();
+                            unmanaged_pids.sort_unstable();
+                            unmanaged_pids.dedup();
+
+                            let ignored_pids: Vec<u32> = unmanaged_pids
+                                .iter()
+                                .copied()
+                                .filter(|pid| {
+                                    ignored_snapshot.contains(&IgnoredGpuProcess {
+                                        gpu_index: slot_index,
+                                        pid: *pid,
+                                    })
+                                })
+                                .collect();
+
+                            active_ignored.retain(|entry| entry.gpu_index != slot_index);
+                            for pid in &ignored_pids {
+                                active_ignored.insert(IgnoredGpuProcess {
+                                    gpu_index: slot_index,
+                                    pid: *pid,
+                                });
+                            }
+
+                            unmanaged_pids.retain(|pid| {
+                                !ignored_snapshot.contains(&IgnoredGpuProcess {
+                                    gpu_index: slot_index,
+                                    pid: *pid,
+                                })
+                            });
+                            let is_free_in_nvml = unmanaged_pids.is_empty();
+                            slot.available = if occupied_by_exclusive {
+                                false
+                            } else if occupied_by_shared {
+                                true
+                            } else {
+                                is_free_in_nvml
+                            };
+
+                            if !occupied_by_exclusive && !occupied_by_shared {
+                                if !is_free_in_nvml {
+                                    slot.reason =
+                                        Some(format_unmanaged_process_reason(&unmanaged_pids));
+                                } else if !ignored_pids.is_empty() {
+                                    slot.reason = Some(format_manual_ignore_reason(
+                                        slot_index,
+                                        &ignored_pids,
+                                    ));
                                 } else {
                                     slot.reason = None;
                                 }
+                            } else {
+                                slot.reason = None;
                             }
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                gpu_index = slot_index,
+                                error = ?error,
+                                "Failed to inspect running GPU processes; keeping scheduler conservative"
+                            );
+                            slot.available = occupied_by_shared;
+                            slot.reason = if occupied_by_exclusive || occupied_by_shared {
+                                None
+                            } else {
+                                Some("nvml_query_failed".to_string())
+                            };
                         }
                     }
                 }
+            } else {
+                tracing::warn!("Failed to query NVML device count during GPU refresh");
             }
+            self.ignored_gpu_processes = active_ignored;
         }
+    }
+
+    fn current_compute_processes_on_gpu(&self, gpu_index: u32) -> Result<Vec<u32>> {
+        let nvml = self
+            .nvml
+            .as_ref()
+            .context("NVML is unavailable; GPU process inspection is not supported")?;
+
+        if !self.scheduler.has_gpu_index(gpu_index) {
+            anyhow::bail!(
+                "Invalid GPU index {} (scheduler does not manage that GPU)",
+                gpu_index,
+            );
+        }
+
+        let device = nvml
+            .device_by_index(gpu_index)
+            .with_context(|| format!("Failed to inspect GPU {}", gpu_index))?;
+        let mut pids = device
+            .running_compute_processes()
+            .with_context(|| format!("Failed to inspect running processes on GPU {}", gpu_index))?
+            .into_iter()
+            .map(|proc| proc.pid)
+            .collect::<Vec<_>>();
+        pids.sort_unstable();
+        pids.dedup();
+        Ok(pids)
+    }
+
+    pub fn ignore_gpu_process(&mut self, gpu_index: u32, pid: u32) -> Result<bool> {
+        let current_pids = self.current_compute_processes_on_gpu(gpu_index)?;
+        if !current_pids.contains(&pid) {
+            anyhow::bail!("PID {} is not currently running on GPU {}", pid, gpu_index);
+        }
+
+        let inserted = self
+            .ignored_gpu_processes
+            .insert(IgnoredGpuProcess { gpu_index, pid });
+        self.refresh_gpu_slots();
+        Ok(inserted)
+    }
+
+    pub fn unignore_gpu_process(&mut self, gpu_index: u32, pid: u32) -> bool {
+        let removed = self
+            .ignored_gpu_processes
+            .remove(&IgnoredGpuProcess { gpu_index, pid });
+        self.refresh_gpu_slots();
+        removed
+    }
+
+    pub fn list_ignored_gpu_processes(&self) -> Vec<IgnoredGpuProcess> {
+        let mut processes = self
+            .ignored_gpu_processes
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        processes.sort_unstable();
+        processes
     }
 
     /// Get total system memory in MB by reading /proc/meminfo (Linux)
@@ -827,6 +954,15 @@ impl SchedulerRuntime {
         self.mark_dirty();
     }
 
+    pub fn gpu_available(&self, gpu_index: u32) -> Option<bool> {
+        self.scheduler
+            .info()
+            .gpus
+            .into_iter()
+            .find(|gpu| gpu.index == gpu_index)
+            .map(|gpu| gpu.available)
+    }
+
     // Materialize all jobs for server handlers (allocates/clones).
     pub fn jobs(&self) -> Vec<Job> {
         self.scheduler.jobs_as_vec()
@@ -938,10 +1074,30 @@ impl SchedulerRuntime {
     }
 }
 
+fn format_pid_list(pids: &[u32]) -> String {
+    pids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn format_manual_ignore_reason(gpu_index: u32, ignored_pids: &[u32]) -> String {
+    format!(
+        "manual_ignore(gpu={},pid={})",
+        gpu_index,
+        format_pid_list(ignored_pids)
+    )
+}
+
+fn format_unmanaged_process_reason(unmanaged_pids: &[u32]) -> String {
+    format!("unmanaged(pid={})", format_pid_list(unmanaged_pids))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use gflow::core::executor::Executor;
+    use gflow::core::info::IgnoredGpuProcess;
     use gflow::core::job::{GpuSharingMode, Job, JobState};
 
     struct NoopExecutor;
@@ -950,6 +1106,61 @@ mod tests {
         fn execute(&self, _job: &Job) -> anyhow::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn formats_gpu_process_reasons() {
+        assert_eq!(
+            format_manual_ignore_reason(2, &[1234, 5678]),
+            "manual_ignore(gpu=2,pid=1234,5678)"
+        );
+        assert_eq!(
+            format_unmanaged_process_reason(&[222, 333]),
+            "unmanaged(pid=222,333)"
+        );
+    }
+
+    #[test]
+    fn list_ignored_gpu_processes_is_sorted() {
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            tempfile::tempdir().unwrap().path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+        )
+        .unwrap();
+
+        runtime.ignored_gpu_processes.insert(IgnoredGpuProcess {
+            gpu_index: 3,
+            pid: 99,
+        });
+        runtime.ignored_gpu_processes.insert(IgnoredGpuProcess {
+            gpu_index: 1,
+            pid: 200,
+        });
+        runtime.ignored_gpu_processes.insert(IgnoredGpuProcess {
+            gpu_index: 1,
+            pid: 100,
+        });
+
+        assert_eq!(
+            runtime.list_ignored_gpu_processes(),
+            vec![
+                IgnoredGpuProcess {
+                    gpu_index: 1,
+                    pid: 100
+                },
+                IgnoredGpuProcess {
+                    gpu_index: 1,
+                    pid: 200
+                },
+                IgnoredGpuProcess {
+                    gpu_index: 3,
+                    pid: 99
+                },
+            ]
+        );
     }
 
     #[tokio::test]

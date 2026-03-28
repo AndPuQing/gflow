@@ -36,15 +36,12 @@ pub(super) async fn gpu_monitor_task(
     loop {
         interval.tick().await;
 
-        // Refresh GPU slots
-        {
+        let info = {
             let mut state_guard = state.write().await;
             state_guard.refresh_gpu_slots();
-        }
+            state_guard.info()
+        };
 
-        // Check for changes and publish events
-        let state_guard = state.read().await;
-        let info = state_guard.info();
         for gpu_info in &info.gpus {
             let previous_available = previous_gpu_states.get(&gpu_info.index).copied();
             if previous_available != Some(gpu_info.available) {

@@ -1,4 +1,4 @@
-use crate::core::info::SchedulerInfo;
+use crate::core::info::{IgnoredGpuProcess, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobNotifications};
 use anyhow::{anyhow, Context};
 use reqwest::{Client as ReqwestClient, StatusCode};
@@ -541,6 +541,72 @@ impl Client {
         if !response.status().is_success() {
             let error_msg = Self::extract_error_message(response).await;
             return Err(anyhow!("Failed to set GPU configuration: {}", error_msg));
+        }
+
+        Ok(())
+    }
+
+    pub async fn list_ignored_gpu_processes(&self) -> anyhow::Result<Vec<IgnoredGpuProcess>> {
+        tracing::debug!("Listing ignored GPU processes");
+        let response = self
+            .client
+            .get(format!("{}/gpu-processes", self.base_url))
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!(
+                "Failed to list ignored GPU processes: {}",
+                error_msg
+            ));
+        }
+
+        let processes = response
+            .json::<Vec<IgnoredGpuProcess>>()
+            .await
+            .context("Failed to parse ignored GPU processes from response")?;
+        Ok(processes)
+    }
+
+    pub async fn ignore_gpu_process(&self, gpu_index: u32, pid: u32) -> anyhow::Result<()> {
+        tracing::debug!("Ignoring GPU process pid={} on gpu={}", pid, gpu_index);
+        self.post_gpu_process_action("ignore", gpu_index, pid).await
+    }
+
+    pub async fn unignore_gpu_process(&self, gpu_index: u32, pid: u32) -> anyhow::Result<()> {
+        tracing::debug!(
+            "Removing ignored GPU process pid={} on gpu={}",
+            pid,
+            gpu_index
+        );
+        self.post_gpu_process_action("unignore", gpu_index, pid)
+            .await
+    }
+
+    async fn post_gpu_process_action(
+        &self,
+        action: &str,
+        gpu_index: u32,
+        pid: u32,
+    ) -> anyhow::Result<()> {
+        let request_body = serde_json::json!({
+            "gpu_index": gpu_index,
+            "pid": pid
+        });
+
+        let response = self
+            .client
+            .post(format!("{}/gpu-processes/{}", self.base_url, action))
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to {} GPU process: {}", action, error_msg));
         }
 
         Ok(())

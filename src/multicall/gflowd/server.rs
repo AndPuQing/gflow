@@ -153,6 +153,12 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/info", get(handlers::info))
         .route("/health", get(handlers::get_health))
         .route("/gpus", post(handlers::set_allowed_gpus))
+        .route("/gpu-processes", get(handlers::list_ignored_gpu_processes))
+        .route("/gpu-processes/ignore", post(handlers::ignore_gpu_process))
+        .route(
+            "/gpu-processes/unignore",
+            post(handlers::unignore_gpu_process),
+        )
         .route(
             "/groups/{group_id}/max-concurrency",
             post(handlers::set_group_max_concurrency),

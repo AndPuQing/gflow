@@ -18,6 +18,15 @@ pub(in crate::multicall::gflowd::server) async fn info(
     (StatusCode::OK, Json(info))
 }
 
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn list_ignored_gpu_processes(
+    State(server_state): State<ServerState>,
+) -> impl IntoResponse {
+    let state = server_state.scheduler.read().await;
+    let processes = state.list_ignored_gpu_processes();
+    (StatusCode::OK, Json(processes))
+}
+
 #[derive(serde::Deserialize)]
 pub(in crate::multicall::gflowd::server) struct ListJobsQuery {
     state: Option<String>,
@@ -936,6 +945,12 @@ pub(in crate::multicall::gflowd::server) struct SetGpusRequest {
     allowed_indices: Option<Vec<u32>>,
 }
 
+#[derive(serde::Deserialize)]
+pub(in crate::multicall::gflowd::server) struct GpuProcessOverrideRequest {
+    gpu_index: u32,
+    pid: u32,
+}
+
 #[axum::debug_handler]
 pub(in crate::multicall::gflowd::server) async fn set_allowed_gpus(
     State(server_state): State<ServerState>,
@@ -977,6 +992,116 @@ pub(in crate::multicall::gflowd::server) async fn set_allowed_gpus(
         StatusCode::OK,
         Json(serde_json::json!({
             "allowed_gpu_indices": request.allowed_indices
+        })),
+    )
+        .into_response()
+}
+
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn ignore_gpu_process(
+    State(server_state): State<ServerState>,
+    Json(request): Json<GpuProcessOverrideRequest>,
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
+
+    let mut state = server_state.scheduler.write().await;
+    let available_before = state.gpu_available(request.gpu_index);
+    let result = state.ignore_gpu_process(request.gpu_index, request.pid);
+    let available_after = state.gpu_available(request.gpu_index);
+    drop(state);
+
+    match result {
+        Ok(inserted) => {
+            tracing::warn!(
+                gpu_index = request.gpu_index,
+                pid = request.pid,
+                inserted,
+                "Manual GPU process ignore override updated"
+            );
+            if let (Some(before), Some(after)) = (available_before, available_after) {
+                if before != after {
+                    server_state
+                        .event_bus
+                        .publish(SchedulerEvent::ManualGpuOverrideChanged {
+                            gpu_index: request.gpu_index,
+                            available: after,
+                        });
+                }
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "gpu_index": request.gpu_index,
+                    "pid": request.pid,
+                    "inserted": inserted,
+                    "available": available_after,
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": error.to_string()
+            })),
+        )
+            .into_response(),
+    }
+}
+
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn unignore_gpu_process(
+    State(server_state): State<ServerState>,
+    Json(request): Json<GpuProcessOverrideRequest>,
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
+
+    let mut state = server_state.scheduler.write().await;
+    let available_before = state.gpu_available(request.gpu_index);
+    let removed = state.unignore_gpu_process(request.gpu_index, request.pid);
+    let available_after = state.gpu_available(request.gpu_index);
+    drop(state);
+
+    if !removed {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!(
+                    "Ignore override for PID {} on GPU {} was not found",
+                    request.pid, request.gpu_index
+                )
+            })),
+        )
+            .into_response();
+    }
+
+    tracing::info!(
+        gpu_index = request.gpu_index,
+        pid = request.pid,
+        "Manual GPU process ignore override removed"
+    );
+    if let (Some(before), Some(after)) = (available_before, available_after) {
+        if before != after {
+            server_state
+                .event_bus
+                .publish(SchedulerEvent::ManualGpuOverrideChanged {
+                    gpu_index: request.gpu_index,
+                    available: after,
+                });
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "gpu_index": request.gpu_index,
+            "pid": request.pid,
+            "removed": true,
+            "available": available_after,
         })),
     )
         .into_response()

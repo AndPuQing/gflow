@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use super::gpu_allocation::GpuAllocationStrategy;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IgnoredGpuProcess {
+    pub gpu_index: u32,
+    pub pid: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuInfo {
     pub uuid: String,

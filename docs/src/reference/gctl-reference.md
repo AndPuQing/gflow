@@ -19,6 +19,32 @@ Show per-GPU status, including whether a GPU is restricted.
 gctl show-gpus
 ```
 
+### `gctl gpu-process ignore --gpu <index> --pid <pid>`
+
+Ignore a running GPU process when gflow evaluates whether a GPU is blocked by an unmanaged workload.
+
+This is a runtime-only override. `gflowd` restart or reload clears it automatically.
+
+```bash
+gctl gpu-process ignore --gpu 0 --pid 1234
+```
+
+### `gctl gpu-process unignore --gpu <index> --pid <pid>`
+
+Remove a runtime GPU-process ignore override.
+
+```bash
+gctl gpu-process unignore --gpu 0 --pid 1234
+```
+
+### `gctl gpu-process list`
+
+List active runtime GPU-process ignore overrides.
+
+```bash
+gctl gpu-process list
+```
+
 ### `gctl set-gpus <gpu_spec>`
 
 Restrict which GPUs the scheduler can allocate for **new** jobs.

@@ -30,6 +30,12 @@ pub enum Commands {
     /// Show current GPU configuration
     ShowGpus,
 
+    /// Manage runtime GPU process ignore overrides
+    GpuProcess {
+        #[command(subcommand)]
+        command: GpuProcessCommands,
+    },
+
     /// Set concurrency limit for a job group
     SetLimit {
         /// Job ID (any job in the group) or Group ID (UUID)
@@ -50,6 +56,32 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+}
+
+#[derive(Debug, Parser)]
+pub enum GpuProcessCommands {
+    /// Ignore a running GPU process for scheduling decisions
+    Ignore {
+        /// GPU index where the process is attached
+        #[arg(long)]
+        gpu: u32,
+        /// Process ID to ignore
+        #[arg(long)]
+        pid: u32,
+    },
+
+    /// Remove a previously-added ignore override
+    Unignore {
+        /// GPU index where the process is attached
+        #[arg(long)]
+        gpu: u32,
+        /// Process ID to stop ignoring
+        #[arg(long)]
+        pid: u32,
+    },
+
+    /// List active runtime ignore overrides
+    List,
 }
 
 #[derive(Debug, Parser)]

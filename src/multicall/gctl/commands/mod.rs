@@ -3,6 +3,7 @@ use clap::CommandFactory;
 use gflow::client::Client;
 use gflow::config::Config;
 
+pub mod gpu_process;
 pub mod reserve_cancel;
 pub mod reserve_create;
 pub mod reserve_get;
@@ -25,6 +26,17 @@ pub async fn handle_commands(
         cli::Commands::ShowGpus => {
             show_gpus::handle_show_gpus(client).await?;
         }
+        cli::Commands::GpuProcess { command } => match command {
+            cli::GpuProcessCommands::Ignore { gpu, pid } => {
+                gpu_process::handle_ignore_gpu_process(client, gpu, pid).await?;
+            }
+            cli::GpuProcessCommands::Unignore { gpu, pid } => {
+                gpu_process::handle_unignore_gpu_process(client, gpu, pid).await?;
+            }
+            cli::GpuProcessCommands::List => {
+                gpu_process::handle_list_gpu_processes(client).await?;
+            }
+        },
         cli::Commands::SetLimit {
             job_or_group_id,
             limit,

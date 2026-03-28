@@ -232,6 +232,11 @@ impl Scheduler {
         self.gpu_slots.len()
     }
 
+    /// Check whether a GPU slot with the given scheduler-visible index exists.
+    pub fn has_gpu_index(&self, index: u32) -> bool {
+        self.gpu_slots.values().any(|slot| slot.index == index)
+    }
+
     /// Set GPU restrictions
     pub fn set_allowed_gpu_indices(&mut self, indices: Option<Vec<u32>>) {
         self.allowed_gpu_indices = indices;

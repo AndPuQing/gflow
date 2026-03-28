@@ -6,6 +6,7 @@ pub async fn handle_show_gpus(client: &Client) -> Result<()> {
 
     for gpu in &info.gpus {
         let status = if gpu.available { "available" } else { "in_use" };
+        let mut annotations = Vec::new();
 
         let restricted = match &info.allowed_gpu_indices {
             None => false,
@@ -13,9 +14,16 @@ pub async fn handle_show_gpus(client: &Client) -> Result<()> {
         };
 
         if restricted {
-            println!("{}\t{}\trestricted", gpu.index, status);
-        } else {
+            annotations.push("restricted".to_string());
+        }
+        if let Some(reason) = &gpu.reason {
+            annotations.push(reason.clone());
+        }
+
+        if annotations.is_empty() {
             println!("{}\t{}", gpu.index, status);
+        } else {
+            println!("{}\t{}\t{}", gpu.index, status, annotations.join("\t"));
         }
     }
 
