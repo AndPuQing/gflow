@@ -9,7 +9,7 @@
         "@shikijs/engine-javascript": "^4.0.0",
         "@shikijs/langs": "^4.0.0",
         "@shikijs/themes": "^4.0.0",
-        "vitepress-mermaid-preview": "^0.1.1",
+        "vitepress-mermaid-preview": "^0.2.0",
       },
       "devDependencies": {
         "vitepress": "^2.0.0-alpha.15",
@@ -709,7 +709,7 @@
 
     "vitepress": ["vitepress@2.0.0-alpha.15", "https://mirrors.tencent.com/npm/vitepress/-/vitepress-2.0.0-alpha.15.tgz", { "dependencies": { "@docsearch/css": "^4.3.2", "@docsearch/js": "^4.3.2", "@iconify-json/simple-icons": "^1.2.59", "@shikijs/core": "^3.15.0", "@shikijs/transformers": "^3.15.0", "@shikijs/types": "^3.15.0", "@types/markdown-it": "^14.1.2", "@vitejs/plugin-vue": "^6.0.1", "@vue/devtools-api": "^8.0.5", "@vue/shared": "^3.5.24", "@vueuse/core": "^14.0.0", "@vueuse/integrations": "^14.0.0", "focus-trap": "^7.6.6", "mark.js": "8.11.1", "minisearch": "^7.2.0", "shiki": "^3.15.0", "vite": "^7.2.2", "vue": "^3.5.24" }, "peerDependencies": { "markdown-it-mathjax3": "^4", "oxc-minify": "*", "postcss": "^8" }, "optionalPeers": ["markdown-it-mathjax3", "oxc-minify", "postcss"], "bin": { "vitepress": "bin/vitepress.js" } }, "sha512-jhjSYd10Z6RZiKOa7jy0xMVf5NB5oSc/lS3bD/QoUc6V8PrvQR5JhC9104NEt6+oTGY/ftieVWxY9v7YI+1IjA=="],
 
-    "vitepress-mermaid-preview": ["vitepress-mermaid-preview@0.1.1", "https://mirrors.tencent.com/npm/vitepress-mermaid-preview/-/vitepress-mermaid-preview-0.1.1.tgz", { "dependencies": { "@flypeng/tool": "^5.7.2", "@vitejs/plugin-vue": "^6.0.0", "@zumer/snapdom": "^1.9.5", "markdown-it": "^14.1.0", "mermaid": "^11.9.0", "sass": "^1.89.2", "vite": "^7.0.5", "vue": "^3.5.17", "vue-tsc": "^3.0.1" } }, "sha512-aAUGWdjdLlDY2T+cMXmASt7TunrNs8IayaF8IyScW2RH3oSg5s6miyPhgIV58WQHDQ/SJNISrBFsTRbQZ1XqQw=="],
+    "vitepress-mermaid-preview": ["vitepress-mermaid-preview@0.2.0", "", { "dependencies": { "@flypeng/tool": "^5.7.2", "@vitejs/plugin-vue": "^6.0.0", "@zumer/snapdom": "^1.9.5", "markdown-it": "^14.1.0", "mermaid": "^11.9.0", "sass": "^1.89.2", "vite": "^7.0.5", "vue": "^3.5.17", "vue-tsc": "^3.0.1" } }, "sha512-dadMLtd36U1TeABbyW+6b9ppOAxCbEBNUXXzWAHUBm4vJe5fWWCJu60IPfnR4N+9ovqQ2HlpiSPRHCBEkwRsnQ=="],
 
     "vscode-jsonrpc": ["vscode-jsonrpc@8.2.0", "https://mirrors.tencent.com/npm/vscode-jsonrpc/-/vscode-jsonrpc-8.2.0.tgz", {}, "sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA=="],
 

@@ -13,6 +13,6 @@
         "@shikijs/engine-javascript": "^4.0.0",
         "@shikijs/langs": "^4.0.0",
         "@shikijs/themes": "^4.0.0",
-        "vitepress-mermaid-preview": "^0.1.1"
+        "vitepress-mermaid-preview": "^0.2.0"
     }
 }
