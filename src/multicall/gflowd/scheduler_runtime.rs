@@ -6,7 +6,7 @@ mod serialization;
 pub use event_loop::run_event_driven;
 
 use super::state_saver::StateSaverHandle;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use compact_str::CompactString;
 use gflow::core::executor::Executor;
 use gflow::core::gpu::{GPUSlot, GpuUuid};
@@ -646,8 +646,13 @@ impl SchedulerRuntime {
         &mut self,
         jobs: Vec<Job>,
     ) -> Result<(Vec<(u32, String, String)>, Vec<Job>, u32)> {
+        let batch_size = jobs.len();
+        if batch_size > 1000 {
+            bail!("Batch size exceeds maximum of 1000 jobs");
+        }
+
         let mut reserved_names = self.current_reserved_run_names();
-        let mut normalized_jobs = Vec::with_capacity(jobs.len());
+        let mut normalized_jobs = Vec::with_capacity(batch_size);
         for (next_job_id, mut job) in (self.scheduler.next_job_id()..).zip(jobs) {
             self.normalize_and_validate_project(&mut job)?;
             Self::validate_shared_job_requirements(&job)?;
