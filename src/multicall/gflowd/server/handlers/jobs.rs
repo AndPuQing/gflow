@@ -633,13 +633,19 @@ pub(in crate::multicall::gflowd::server) async fn get_job_log(
     // Check if job exists in memory
     if state.get_job(id).is_some() {
         match gflow::paths::get_log_file_path(id) {
-            Ok(path) => {
-                if path.exists() {
-                    (StatusCode::OK, Json(Some(path)))
-                } else {
-                    (StatusCode::NOT_FOUND, Json(None))
+            Ok(path) => match gflow::paths::get_data_dir() {
+                Ok(data_dir) => {
+                    let log_dir = data_dir.join("logs");
+                    if !path.starts_with(&log_dir) {
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+                    } else if path.exists() {
+                        (StatusCode::OK, Json(Some(path)))
+                    } else {
+                        (StatusCode::NOT_FOUND, Json(None))
+                    }
                 }
-            }
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(None)),
+            },
             Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(None)),
         }
     } else {
