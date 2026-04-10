@@ -1,0 +1,96 @@
+name: Bug report
+description: Report incorrect behavior, crashes, or regressions in gflow or runqd.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+
+        Please do not use this form for security vulnerabilities. Follow the private reporting process in `SECURITY.md` instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What broke?
+      placeholder: A concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reproducible sequence you can.
+      placeholder: |
+        1. Run `gflowd up`
+        2. Submit `gbatch --gpus 1 ...`
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What happened instead? Include error messages if you have them.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The affected gflow or runqd version.
+      placeholder: e.g. gflow 0.7.0 or runqd 0.7.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      description: How did you install the affected version?
+      options:
+        - cargo
+        - pip
+        - pipx
+        - uv tool
+        - TestPyPI
+        - source checkout
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the host details relevant to the issue.
+      placeholder: |
+        Linux distribution:
+        Kernel:
+        tmux version:
+        GPU model / NVIDIA driver:
+        Shell:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, config, or screenshots
+      description: Paste command output, job state, or snippets that help explain the failure.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues before opening this report.
+          required: true
+        - label: I can reproduce this on the latest published release or current `main` branch.
+          required: false

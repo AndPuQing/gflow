@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose an improvement to gflow, runqd, or the docs.
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What workflow is missing or painful today?
+      placeholder: Describe the use case and why the current behavior is not enough.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you want to see.
+      placeholder: Explain the desired command, behavior, or API.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other approaches did you try?
+      placeholder: Existing commands, scripts, or other scheduler behavior you evaluated.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Share examples, prior art, or constraints.
+      placeholder: Include sample commands, expected CLI output, or links to related issues.
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact area
+      options:
+        - label: CLI or job submission
+        - label: gflowd daemon or scheduling
+        - label: GPU management
+        - label: MCP integration
+        - label: Documentation
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I’m willing to work on this if the approach is accepted.
