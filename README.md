@@ -106,6 +106,16 @@ Most usage details live in the docs:
 - [User guide](https://runqd.com/user-guide/job-submission.html)
 - [Command reference](https://runqd.com/reference/quick-reference.html)
 
+## Star History
+
+<a href="https://www.star-history.com/#AndPuQing/gflow&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Contributing
 
 Please open an [Issue](https://github.com/AndPuQing/gflow/issues) or [Pull Request](https://github.com/AndPuQing/gflow/pulls).
