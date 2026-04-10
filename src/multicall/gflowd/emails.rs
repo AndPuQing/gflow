@@ -575,7 +575,7 @@ mod tests {
             timestamp: "2026-03-23T12:00:00Z".to_string(),
             scheduler: SchedulerInfoPayload {
                 host: "gpu-server-01".to_string(),
-                version: "0.4.14".to_string(),
+                version: "0.4.15".to_string(),
             },
             text: None,
             job: Some(JobPayload {
@@ -611,7 +611,7 @@ mod tests {
             timestamp: "2026-03-23T12:00:00Z".to_string(),
             scheduler: SchedulerInfoPayload {
                 host: "gpu-server-01".to_string(),
-                version: "0.4.14".to_string(),
+                version: "0.4.15".to_string(),
             },
             text: None,
             job: None,
@@ -633,7 +633,7 @@ mod tests {
             timestamp: "2026-03-23T12:00:00Z".to_string(),
             scheduler: SchedulerInfoPayload {
                 host: "gpu-server-01".to_string(),
-                version: "0.4.14".to_string(),
+                version: "0.4.15".to_string(),
             },
             text: None,
             job: None,
@@ -671,7 +671,7 @@ mod tests {
             timestamp: "2026-03-23T12:00:00Z".to_string(),
             scheduler: SchedulerInfoPayload {
                 host: "gpu-server-01".to_string(),
-                version: "0.4.14".to_string(),
+                version: "0.4.15".to_string(),
             },
             text: None,
             job: Some(JobPayload {
@@ -728,7 +728,7 @@ mod tests {
             timestamp: "2026-03-23T12:00:00Z".to_string(),
             scheduler: SchedulerInfoPayload {
                 host: "gpu-server-01".to_string(),
-                version: "0.4.14".to_string(),
+                version: "0.4.15".to_string(),
             },
             text: None,
             job: Some(JobPayload {
