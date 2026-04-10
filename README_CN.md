@@ -107,6 +107,16 @@ args = ["mcp", "serve"]
 - [用户指南](https://runqd.com/zh-CN/user-guide/job-submission.html)
 - [命令速查](https://runqd.com/zh-CN/reference/quick-reference.html)
 
+## Star History
+
+<a href="https://www.star-history.com/#AndPuQing/gflow&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AndPuQing/gflow&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## 贡献
 
 欢迎提交 [Issue](https://github.com/AndPuQing/gflow/issues) 或 [Pull Request](https://github.com/AndPuQing/gflow/pulls)。
