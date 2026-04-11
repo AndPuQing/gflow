@@ -115,6 +115,10 @@ Most usage details live in the docs:
  </picture>
 </a>
 
+## Contact Us
+
+For coordinating contributions and development, please use [Slack](https://join.slack.com/t/runqd/shared_invite/zt-3vddqdds0-zfMwbzCNizQFluWglMQi0w)
+
 ## Contributing
 
 Please open an [Issue](https://github.com/AndPuQing/gflow/issues) or [Pull Request](https://github.com/AndPuQing/gflow/pulls).
