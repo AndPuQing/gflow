@@ -14,7 +14,7 @@ on:
             baseline_name:
                 description: Criterion baseline name and artifact suffix
                 required: true
-                default: ubuntu-22.04-stable
+                default: ubuntu-24.04-stable
                 type: string
     schedule:
         - cron: "0 6 * * 1"
@@ -40,20 +40,20 @@ jobs:
               id: settings
               run: |
                   if [ "${{ github.event_name }}" = "schedule" ]; then
-                      mode="compare"
+                      requested_mode="compare"
                   else
-                      mode="${{ inputs.mode }}"
+                      requested_mode="${{ inputs.mode }}"
                   fi
 
                   baseline_name="${{ inputs.baseline_name }}"
                   if [ -z "${baseline_name}" ]; then
-                      baseline_name="ubuntu-22.04-stable"
+                      baseline_name="ubuntu-24.04-stable"
                   fi
 
-                  echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+                  echo "requested_mode=${requested_mode}" >> "${GITHUB_OUTPUT}"
                   echo "baseline_name=${baseline_name}" >> "${GITHUB_OUTPUT}"
                   echo "baseline_artifact=benchmark-baseline-${baseline_name}" >> "${GITHUB_OUTPUT}"
-                  echo "report_artifact=benchmark-report-${mode}-${baseline_name}-${GITHUB_RUN_ID}" >> "${GITHUB_OUTPUT}"
+                  echo "report_artifact=benchmark-report-compare-${baseline_name}-${GITHUB_RUN_ID}" >> "${GITHUB_OUTPUT}"
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
@@ -61,7 +61,8 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Download latest baseline artifact
-              if: steps.settings.outputs.mode == 'compare'
+              id: baseline
+              if: steps.settings.outputs.requested_mode == 'compare'
               env:
                   GH_TOKEN: ${{ github.token }}
                   ARTIFACT_NAME: ${{ steps.settings.outputs.baseline_artifact }}
@@ -70,19 +71,35 @@ jobs:
                   artifact_id="$(printf '%s' "${artifact_json}" | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts | map(select(.name == $name and (.expired | not))) | sort_by(.created_at) | reverse | .[0].id // empty')"
 
                   if [ -z "${artifact_id}" ]; then
-                      echo "No non-expired baseline artifact named ${ARTIFACT_NAME} was found." >&2
-                      exit 1
+                      echo "found=false" >> "${GITHUB_OUTPUT}"
+                      echo "No non-expired baseline artifact named ${ARTIFACT_NAME} was found; bootstrapping a fresh baseline instead."
+                      exit 0
                   fi
 
+                  echo "found=true" >> "${GITHUB_OUTPUT}"
                   gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > benchmark-baseline.zip
                   rm -rf .benchmark-baseline target/criterion
                   mkdir -p .benchmark-baseline target
                   unzip -q benchmark-baseline.zip -d .benchmark-baseline
                   cp -R .benchmark-baseline/criterion target/criterion
 
+            - name: Resolve benchmark mode
+              id: mode
+              run: |
+                  effective_mode="${{ steps.settings.outputs.requested_mode }}"
+                  bootstrap_message=""
+
+                  if [ "${effective_mode}" = "compare" ] && [ "${{ steps.baseline.outputs.found }}" != "true" ]; then
+                      effective_mode="baseline"
+                      bootstrap_message="No non-expired baseline artifact was available, so this run bootstrapped a fresh baseline."
+                  fi
+
+                  echo "effective_mode=${effective_mode}" >> "${GITHUB_OUTPUT}"
+                  echo "bootstrap_message=${bootstrap_message}" >> "${GITHUB_OUTPUT}"
+
             - name: Run benchmark regression suite
               run: |
-                  if [ "${{ steps.settings.outputs.mode }}" = "baseline" ]; then
+                  if [ "${{ steps.mode.outputs.effective_mode }}" = "baseline" ]; then
                       python3 scripts/benchmark_regression.py save-baseline \
                           --name "${{ steps.settings.outputs.baseline_name }}" \
                           --clean
@@ -92,7 +109,15 @@ jobs:
                   fi
 
             - name: Publish workflow summary
-              run: cat target/benchmark-regression-summary.md >> "${GITHUB_STEP_SUMMARY}"
+              run: |
+                  if [ -n "${{ steps.mode.outputs.bootstrap_message }}" ]; then
+                      {
+                          echo "> ${{ steps.mode.outputs.bootstrap_message }}"
+                          echo
+                      } >> "${GITHUB_STEP_SUMMARY}"
+                  fi
+
+                  cat target/benchmark-regression-summary.md >> "${GITHUB_STEP_SUMMARY}"
 
             - name: Prepare benchmark artifact bundle
               run: |
@@ -105,6 +130,6 @@ jobs:
             - name: Upload benchmark artifact
               uses: actions/upload-artifact@v7
               with:
-                  name: ${{ steps.settings.outputs.mode == 'baseline' && steps.settings.outputs.baseline_artifact || steps.settings.outputs.report_artifact }}
+                  name: ${{ steps.mode.outputs.effective_mode == 'baseline' && steps.settings.outputs.baseline_artifact || steps.settings.outputs.report_artifact }}
                   path: benchmark-artifact
                   retention-days: 30
