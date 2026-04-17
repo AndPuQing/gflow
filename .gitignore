@@ -12,3 +12,4 @@ docs/bun.lockb
 CLAUDE.md
 
 __pycache__/
+.codex
