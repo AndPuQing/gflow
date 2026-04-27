@@ -22,6 +22,16 @@ ginfo
 - 如果 `gflow` 不在 `PATH` 中，请改用绝对路径。
 - 如果想确认 MCP 子命令可用，可以运行 `gflow mcp serve --help`。
 
+## Agent 安全工作流
+
+优先使用只读工具和预览工具，再修改调度器状态：
+
+- 只读规划：`get_health`、`get_info`、`list_jobs`、`get_job`、`get_job_log`、`get_stats`、`list_reservations`、`get_queue_pressure`、`triage_job`。
+- Dry-run 预览：调用 `submit_jobs` 前先用 `preview_submit_jobs`，调用 `update_job` 前先用 `preview_update_job`。
+- 会修改状态的工具：`submit_jobs`、`update_job`、`redo_job`、`cancel_job`、`hold_job`、`release_job`。
+
+除非用户已经明确要求执行对应操作，agent 在调用任何会修改状态的工具前都应该先确认。排查失败任务时，先调用 `triage_job`，让回复包含任务状态、运行时间、GPU 分配、最近日志证据和重试建议。
+
 ## Claude Code
 
 推荐按用户级配置：
@@ -49,6 +59,8 @@ claude mcp get gflow
 
 - Use the `gflow` MCP server for queue, job, and log operations.
 - Prefer read operations before mutating scheduler state.
+- Use `preview_submit_jobs` or `preview_update_job` before creating or changing jobs.
+- Use `triage_job` before retrying failed or timed-out jobs.
 - Ask before submit, cancel, hold, release, or update unless the user already asked for it.
 - When a job fails, summarize the key log lines before proposing a retry.
 ```
@@ -87,6 +99,8 @@ args = ["mcp", "serve"]
 
 - Use the `gflow` MCP server for scheduler actions when available.
 - Prefer read tools before writes.
+- Preview submissions and updates before mutating scheduler state.
+- Use `triage_job` and `get_queue_pressure` when explaining failures or queue delays.
 - Confirm destructive job actions unless the user explicitly asked for them.
 - Include job id, requested GPUs, and recent log evidence when reporting failures.
 ```

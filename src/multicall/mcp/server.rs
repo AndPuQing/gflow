@@ -1,7 +1,11 @@
 use anyhow::Result;
 use clap_verbosity_flag::Verbosity;
+use compact_str::CompactString;
 use gflow::client::{UpdateJobRequest, UpdateJobResponse};
-use gflow::core::job::{DependencyMode, Job, JobBuilder, JobNotifications};
+use gflow::core::job::{
+    DependencyMode, GpuSharingMode, Job, JobBuilder, JobNotifications, JobState,
+};
+use gflow::core::reservation::ReservationStatus;
 use gflow::utils::{generate_param_combinations, parse_param_spec};
 use gflow::Client;
 use lettre::message::Mailbox;
@@ -15,7 +19,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -100,6 +104,16 @@ pub struct GetStatsRequest {
     pub user: Option<String>,
     /// Unix timestamp in seconds.
     pub since: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TriageJobRequest {
+    pub job_id: u32,
+    /// Defaults to the last 80 lines.
+    #[serde(alias = "tail_lines")]
+    pub last_lines: Option<usize>,
+    /// Defaults to the last 20000 bytes after slicing.
+    pub max_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -227,6 +241,87 @@ pub struct ListJobsOutput {
 pub struct ListReservationsOutput {
     pub reservations: Vec<Value>,
     pub count: usize,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct PreviewSubmitJobOutput {
+    pub dry_run: bool,
+    pub valid: bool,
+    pub input_count: usize,
+    pub expanded_count: usize,
+    pub jobs: Vec<PreviewSubmitJobResultOutput>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct PreviewSubmitJobResultOutput {
+    pub input_index: usize,
+    pub expanded_index: usize,
+    pub ok: bool,
+    pub job: Option<Value>,
+    pub error: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct PreviewUpdateJobOutput {
+    pub dry_run: bool,
+    pub ok: bool,
+    pub job_id: u32,
+    pub before: Option<Value>,
+    pub after: Option<Value>,
+    pub updated_fields: Vec<String>,
+    pub error: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct TriageJobOutput {
+    pub job_id: u32,
+    pub state: String,
+    pub reason: Option<String>,
+    pub requested_gpus: u32,
+    pub gpu_ids: Option<Vec<u32>>,
+    pub runtime_secs: Option<f64>,
+    pub wait_secs: Option<f64>,
+    pub exit_status: Option<i32>,
+    pub exit_status_note: String,
+    pub log_path: Option<String>,
+    pub log_excerpt: Option<String>,
+    pub retry_hints: Vec<String>,
+    pub job: Value,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct QueuePressureOutput {
+    pub generated_at: u64,
+    pub total_gpus: usize,
+    pub available_gpus: Vec<u32>,
+    pub unavailable_gpus: Vec<GpuAvailabilityOutput>,
+    pub running_jobs: usize,
+    pub queued_jobs: usize,
+    pub held_jobs: usize,
+    pub queued_requested_gpus: u32,
+    pub running_allocated_gpus: u32,
+    pub blocked_reasons: BTreeMap<String, usize>,
+    pub users: Vec<QueuePressureGroupOutput>,
+    pub projects: Vec<QueuePressureGroupOutput>,
+    pub reservations_total: usize,
+    pub reservations_active: usize,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct GpuAvailabilityOutput {
+    pub index: u32,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub struct QueuePressureGroupOutput {
+    pub name: String,
+    pub queued: usize,
+    pub running: usize,
+    pub requested_gpus: u32,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -491,6 +586,33 @@ impl GflowMcpServer {
     }
 
     #[tool(
+        description = "Summarize queue pressure and GPU availability for agent planning. Read-only.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<QueuePressureOutput>()
+    )]
+    async fn get_queue_pressure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = self.client().map_err(stringify_error)?;
+        let info = client.get_info().await.map_err(stringify_error)?;
+        let jobs = client
+            .list_jobs_with_query(
+                Some("Queued,Hold,Running".to_string()),
+                None,
+                None,
+                None,
+                None,
+                Some("asc".to_string()),
+            )
+            .await
+            .map_err(stringify_error)?;
+        let reservations = client
+            .list_reservations(None, None, false)
+            .await
+            .map_err(stringify_error)?;
+
+        let output = build_queue_pressure_output(info, jobs, reservations);
+        structured_response(output)
+    }
+
+    #[tool(
         description = "List GPU reservations from the local gflow daemon.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<ListReservationsOutput>()
     )]
@@ -508,7 +630,7 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Cancel a job through the local gflow daemon.",
+        description = "MUTATES scheduler state: cancel a job through the local gflow daemon. Caller should require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
     )]
     async fn cancel_job(
@@ -521,7 +643,7 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Put a queued job on hold through the local gflow daemon.",
+        description = "MUTATES scheduler state: put a queued job on hold through the local gflow daemon. Caller should require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
     )]
     async fn hold_job(
@@ -534,7 +656,7 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Release a held job through the local gflow daemon.",
+        description = "MUTATES scheduler state: release a held job through the local gflow daemon. Caller should require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
     )]
     async fn release_job(
@@ -547,7 +669,20 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Submit one or more jobs to the local gflow daemon using a simplified schema. Jobs are attempted sequentially and each result reports success or failure without aborting the whole request.",
+        description = "Preview one or more job submissions without creating jobs. Read-only dry run using the same simplified schema as submit_jobs.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<PreviewSubmitJobOutput>()
+    )]
+    async fn preview_submit_jobs(
+        &self,
+        Parameters(params): Parameters<SubmitJobsRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let input_count = params.jobs.len();
+        let output = preview_submit_jobs_output(params.jobs, input_count);
+        structured_response(output)
+    }
+
+    #[tool(
+        description = "MUTATES scheduler state: submit one or more jobs to the local gflow daemon using a simplified schema. Prefer preview_submit_jobs first and require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<SubmitJobsOutput>()
     )]
     async fn submit_jobs(
@@ -610,7 +745,28 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Update mutable job parameters on the local gflow daemon.",
+        description = "Preview mutable job parameter changes without updating scheduler state. Read-only dry run.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<PreviewUpdateJobOutput>()
+    )]
+    async fn preview_update_job(
+        &self,
+        Parameters(params): Parameters<UpdateJobToolRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = self.client().map_err(stringify_error)?;
+        let job_id = params.job_id;
+        let job = client
+            .get_job(job_id)
+            .await
+            .map_err(stringify_error)?
+            .ok_or_else(|| stringify_error(anyhow::anyhow!("Job {job_id} not found")))?;
+        let request =
+            build_update_request(params).map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
+        let output = preview_update_job_output(job, request);
+        structured_response(output)
+    }
+
+    #[tool(
+        description = "MUTATES scheduler state: update mutable job parameters on the local gflow daemon. Prefer preview_update_job first and require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<UpdateJobOutputSchema>()
     )]
     async fn update_job(
@@ -629,7 +785,29 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Resubmit a finished job with the same or overridden parameters, optionally cascading to dependency-cancelled child jobs.",
+        description = "Summarize why a job is queued or failed, including recent log evidence and retry hints. Read-only.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<TriageJobOutput>()
+    )]
+    async fn triage_job(
+        &self,
+        Parameters(params): Parameters<TriageJobRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = self.client().map_err(stringify_error)?;
+        let job = client
+            .get_job(params.job_id)
+            .await
+            .map_err(stringify_error)?
+            .ok_or_else(|| stringify_error(anyhow::anyhow!("Job {} not found", params.job_id)))?;
+        let (log_path, log_excerpt) = read_job_log_excerpt(&client, &job, &params)
+            .await
+            .map_err(stringify_error)?;
+        let output = build_triage_job_output(job, log_path, log_excerpt)
+            .map_err(|err| stringify_error(anyhow::anyhow!(err)))?;
+        structured_response(output)
+    }
+
+    #[tool(
+        description = "MUTATES scheduler state: resubmit a finished job with the same or overridden parameters, optionally cascading to dependency-cancelled child jobs. Prefer triage_job first and require explicit user confirmation.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<RedoJobOutput>()
     )]
     async fn redo_job(
@@ -679,7 +857,7 @@ impl GflowMcpServer {
 impl rmcp::ServerHandler for GflowMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Local-first gflow MCP server. Prefer read tools before mutating scheduler state."
+            "Local-first gflow MCP server. Prefer read-only tools and preview_* dry runs before mutating scheduler state. Tools marked MUTATES require explicit caller-side user confirmation."
                 .to_string(),
         )
     }
@@ -731,6 +909,519 @@ fn serialize_list_job(job: Job, detail: ListJobsDetailInput) -> Value {
 
 fn system_time_to_unix_secs(ts: SystemTime) -> Option<u64> {
     ts.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+fn preview_submit_jobs_output(
+    jobs: Vec<SubmitJobRequest>,
+    input_count: usize,
+) -> PreviewSubmitJobOutput {
+    let warnings = vec![
+        "dry run only validates MCP-side request shape; daemon-side dependency, cycle, and project policy checks still run at submission time".to_string(),
+    ];
+
+    let expanded_jobs = match expand_submit_job_requests(jobs) {
+        Ok(expanded_jobs) => expanded_jobs,
+        Err(error) => {
+            return PreviewSubmitJobOutput {
+                dry_run: true,
+                valid: false,
+                input_count,
+                expanded_count: 0,
+                jobs: vec![PreviewSubmitJobResultOutput {
+                    input_index: 0,
+                    expanded_index: 0,
+                    ok: false,
+                    job: None,
+                    error: Some(error),
+                    warnings: Vec::new(),
+                }],
+                warnings,
+            };
+        }
+    };
+
+    let mut results = Vec::with_capacity(expanded_jobs.len());
+    for (expanded_index, (input_index, params)) in expanded_jobs.into_iter().enumerate() {
+        match build_submit_job(params) {
+            Ok(job) => {
+                let job_warnings = preview_submit_warnings(&job);
+                results.push(PreviewSubmitJobResultOutput {
+                    input_index,
+                    expanded_index,
+                    ok: true,
+                    job: Some(serialize_job_value(&job)),
+                    error: None,
+                    warnings: job_warnings,
+                });
+            }
+            Err(error) => {
+                results.push(PreviewSubmitJobResultOutput {
+                    input_index,
+                    expanded_index,
+                    ok: false,
+                    job: None,
+                    error: Some(error),
+                    warnings: Vec::new(),
+                });
+            }
+        }
+    }
+
+    let valid = results.iter().all(|result| result.ok);
+    PreviewSubmitJobOutput {
+        dry_run: true,
+        valid,
+        input_count,
+        expanded_count: results.len(),
+        jobs: results,
+        warnings,
+    }
+}
+
+fn preview_submit_warnings(job: &Job) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if job.depends_on.is_some() || !job.depends_on_ids.is_empty() {
+        warnings.push(
+            "dependency existence and circular dependency checks require the daemon submit path"
+                .to_string(),
+        );
+    }
+    if job.project.is_some() {
+        warnings.push("project policy validation requires the daemon submit path".to_string());
+    }
+    warnings
+}
+
+fn preview_update_job_output(job: Job, request: UpdateJobRequest) -> PreviewUpdateJobOutput {
+    let before = serialize_job_value(&job);
+    let job_id = job.id;
+    let mut warnings = vec![
+        "dry run does not validate dependency existence or circular dependency changes".to_string(),
+    ];
+
+    if !matches!(job.state, JobState::Queued | JobState::Hold) {
+        return PreviewUpdateJobOutput {
+            dry_run: true,
+            ok: false,
+            job_id,
+            before: Some(before),
+            after: None,
+            updated_fields: Vec::new(),
+            error: Some(format!(
+                "Job {} is in state '{}' and cannot be updated. Only queued or held jobs can be updated.",
+                job_id, job.state
+            )),
+            warnings,
+        };
+    }
+
+    if job.gpu_sharing_mode == GpuSharingMode::Shared
+        && matches!(request.gpu_memory_limit_mb, Some(None))
+    {
+        return PreviewUpdateJobOutput {
+            dry_run: true,
+            ok: false,
+            job_id,
+            before: Some(before),
+            after: None,
+            updated_fields: Vec::new(),
+            error: Some(
+                "Shared jobs must keep a GPU memory limit (--gpu-memory / --max-gpu-mem)."
+                    .to_string(),
+            ),
+            warnings,
+        };
+    }
+
+    let (after_job, updated_fields) = apply_update_preview(job, request);
+    if !updated_fields
+        .iter()
+        .any(|field| matches!(field.as_str(), "depends_on_ids" | "dependency_mode"))
+    {
+        warnings.clear();
+    }
+
+    PreviewUpdateJobOutput {
+        dry_run: true,
+        ok: true,
+        job_id,
+        before: Some(before),
+        after: Some(serialize_job_value(&after_job)),
+        updated_fields,
+        error: None,
+        warnings,
+    }
+}
+
+fn apply_update_preview(mut job: Job, request: UpdateJobRequest) -> (Job, Vec<String>) {
+    let mut updated_fields = Vec::new();
+
+    if let Some(command) = request.command {
+        job.command = Some(CompactString::from(command));
+        updated_fields.push("command".to_string());
+    }
+    if let Some(script) = request.script {
+        job.script = Some(Box::new(script));
+        updated_fields.push("script".to_string());
+    }
+    if let Some(gpus) = request.gpus {
+        job.gpus = gpus;
+        updated_fields.push("gpus".to_string());
+    }
+    if let Some(conda_env) = request.conda_env {
+        job.conda_env = conda_env.map(CompactString::from);
+        updated_fields.push("conda_env".to_string());
+    }
+    if let Some(priority) = request.priority {
+        job.priority = priority;
+        updated_fields.push("priority".to_string());
+    }
+    if let Some(parameters) = request.parameters {
+        job.parameters = parameters
+            .into_iter()
+            .map(|(key, value)| (CompactString::from(key), CompactString::from(value)))
+            .collect();
+        updated_fields.push("parameters".to_string());
+    }
+    if let Some(time_limit) = request.time_limit {
+        job.time_limit = time_limit;
+        updated_fields.push("time_limit".to_string());
+    }
+    if let Some(memory_limit_mb) = request.memory_limit_mb {
+        job.memory_limit_mb = memory_limit_mb;
+        updated_fields.push("memory_limit_mb".to_string());
+    }
+    if let Some(gpu_memory_limit_mb) = request.gpu_memory_limit_mb {
+        job.gpu_memory_limit_mb = gpu_memory_limit_mb;
+        updated_fields.push("gpu_memory_limit_mb".to_string());
+    }
+    if let Some(depends_on_ids) = request.depends_on_ids {
+        job.depends_on_ids = depends_on_ids.into();
+        updated_fields.push("depends_on_ids".to_string());
+    }
+    if let Some(dependency_mode) = request.dependency_mode {
+        job.dependency_mode = dependency_mode;
+        updated_fields.push("dependency_mode".to_string());
+    }
+    if let Some(auto_cancel) = request.auto_cancel_on_dependency_failure {
+        job.auto_cancel_on_dependency_failure = auto_cancel;
+        updated_fields.push("auto_cancel_on_dependency_failure".to_string());
+    }
+    if let Some(max_concurrent) = request.max_concurrent {
+        job.max_concurrent = max_concurrent;
+        updated_fields.push("max_concurrent".to_string());
+    }
+    if let Some(max_retries) = request.max_retries {
+        job.max_retries = max_retries.unwrap_or(0);
+        updated_fields.push("max_retries".to_string());
+    }
+    if let Some(notifications) = request.notifications {
+        job.notifications = notifications;
+        updated_fields.push("notifications".to_string());
+    }
+
+    (job, updated_fields)
+}
+
+fn serialize_job_value(job: &Job) -> Value {
+    serde_json::to_value(job).unwrap_or_else(|err| {
+        json!({
+            "error": format!("Failed to serialize job: {}", err),
+        })
+    })
+}
+
+async fn read_job_log_excerpt(
+    client: &Client,
+    job: &Job,
+    params: &TriageJobRequest,
+) -> anyhow::Result<(Option<String>, Option<String>)> {
+    let Some(log_path) = client.get_job_log_path(params.job_id).await? else {
+        return Ok((None, None));
+    };
+
+    let raw = match fs::read_to_string(&log_path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Some(log_path), None));
+        }
+        Err(err) => {
+            anyhow::bail!("Failed to read log file '{}': {}", log_path, err);
+        }
+    };
+
+    let slice = TextSlice::Last(params.last_lines.unwrap_or(80));
+    let cleaned = slice_text(
+        clean_terminal_output(&raw),
+        slice,
+        Some(params.max_bytes.unwrap_or(20_000)),
+    );
+    let program_output = extract_likely_program_output(&cleaned, job);
+    let excerpt = if program_output.is_empty() {
+        cleaned
+    } else {
+        program_output
+    };
+
+    Ok((Some(log_path), Some(excerpt)))
+}
+
+fn build_triage_job_output(
+    job: Job,
+    log_path: Option<String>,
+    log_excerpt: Option<String>,
+) -> anyhow::Result<TriageJobOutput> {
+    let retry_hints = retry_hints_for_job(&job, log_excerpt.as_deref());
+    let output = TriageJobOutput {
+        job_id: job.id,
+        state: job.state.to_string(),
+        reason: job.reason.as_deref().map(ToString::to_string),
+        requested_gpus: job.gpus,
+        gpu_ids: job.gpu_ids.as_ref().map(|ids| ids.to_vec()),
+        runtime_secs: job_runtime_secs(&job),
+        wait_secs: job_wait_secs(&job),
+        exit_status: None,
+        exit_status_note: "gflow currently records terminal state but not the process exit code"
+            .to_string(),
+        log_path,
+        log_excerpt,
+        retry_hints,
+        job: serialize_job_value(&job),
+    };
+    Ok(output)
+}
+
+fn job_runtime_secs(job: &Job) -> Option<f64> {
+    let start = job.started_at?;
+    let end = job.finished_at.unwrap_or_else(SystemTime::now);
+    duration_between_secs(start, end)
+}
+
+fn job_wait_secs(job: &Job) -> Option<f64> {
+    let submitted = job.submitted_at?;
+    let end = job.started_at.unwrap_or_else(SystemTime::now);
+    duration_between_secs(submitted, end)
+}
+
+fn duration_between_secs(start: SystemTime, end: SystemTime) -> Option<f64> {
+    end.duration_since(start)
+        .ok()
+        .map(|duration| duration.as_secs_f64())
+}
+
+fn retry_hints_for_job(job: &Job, log_excerpt: Option<&str>) -> Vec<String> {
+    let mut hints = Vec::new();
+
+    match job.state {
+        JobState::Queued => match job.reason.as_deref().map(ToString::to_string) {
+            Some(reason) if reason.contains("Dependency") => hints.push(
+                "inspect dependency jobs before retrying or changing dependencies".to_string(),
+            ),
+            Some(reason) if reason.contains("Memory") => {
+                hints.push("lower memory request or wait for memory pressure to clear".to_string())
+            }
+            Some(reason) if reason.contains("Gpu") || reason.contains("Resources") => hints.push(
+                "check get_queue_pressure for GPU availability, reservations, and running jobs"
+                    .to_string(),
+            ),
+            _ => hints.push("check get_queue_pressure before changing the job".to_string()),
+        },
+        JobState::Failed | JobState::Timeout => {
+            hints.push("review the log excerpt before using redo_job".to_string());
+            if job.max_retries > 0 {
+                hints.push(format!(
+                    "job has max_retries={} configured; check whether automatic retries already ran",
+                    job.max_retries
+                ));
+            }
+        }
+        JobState::Cancelled => {
+            hints.push("confirm why the job was cancelled before resubmitting".to_string());
+        }
+        JobState::Hold => {
+            hints.push(
+                "release_job can make this job schedulable after user confirmation".to_string(),
+            );
+        }
+        JobState::Running => {
+            hints.push("job is still running; inspect logs instead of retrying".to_string());
+        }
+        JobState::Finished => {
+            hints.push("job finished successfully; retry is usually unnecessary".to_string());
+        }
+    }
+
+    if let Some(log) = log_excerpt {
+        let lower = log.to_ascii_lowercase();
+        if lower.contains("out of memory") || lower.contains("cuda oom") {
+            hints.push(
+                "log suggests OOM; consider requesting more memory or reducing workload"
+                    .to_string(),
+            );
+        }
+        if lower.contains("no space left") {
+            hints.push("log suggests disk pressure; free space before retrying".to_string());
+        }
+        if lower.contains("command not found") {
+            hints.push("log suggests environment or PATH setup failure".to_string());
+        }
+    }
+
+    hints.sort();
+    hints.dedup();
+    hints
+}
+
+#[derive(Debug, Default)]
+struct QueuePressureGroupAccumulator {
+    queued: usize,
+    running: usize,
+    requested_gpus: u32,
+}
+
+fn build_queue_pressure_output(
+    info: gflow::core::info::SchedulerInfo,
+    jobs: Vec<Job>,
+    reservations: Vec<gflow::core::reservation::GpuReservation>,
+) -> QueuePressureOutput {
+    let generated_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let available_gpus = info
+        .gpus
+        .iter()
+        .filter(|gpu| gpu.available)
+        .map(|gpu| gpu.index)
+        .collect::<Vec<_>>();
+    let unavailable_gpus = info
+        .gpus
+        .iter()
+        .filter(|gpu| !gpu.available)
+        .map(|gpu| GpuAvailabilityOutput {
+            index: gpu.index,
+            reason: gpu.reason.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let mut running_jobs = 0usize;
+    let mut queued_jobs = 0usize;
+    let mut held_jobs = 0usize;
+    let mut queued_requested_gpus = 0u32;
+    let mut running_allocated_gpus = 0u32;
+    let mut blocked_reasons = BTreeMap::new();
+    let mut users = BTreeMap::<String, QueuePressureGroupAccumulator>::new();
+    let mut projects = BTreeMap::<String, QueuePressureGroupAccumulator>::new();
+
+    for job in &jobs {
+        match job.state {
+            JobState::Running => {
+                running_jobs += 1;
+                running_allocated_gpus += job
+                    .gpu_ids
+                    .as_ref()
+                    .map(|ids| ids.len() as u32)
+                    .unwrap_or(job.gpus);
+                accumulate_queue_group(&mut users, job.submitted_by.as_ref(), job, false);
+                if let Some(project) = &job.project {
+                    accumulate_queue_group(&mut projects, project.as_ref(), job, false);
+                }
+            }
+            JobState::Queued => {
+                queued_jobs += 1;
+                queued_requested_gpus = queued_requested_gpus.saturating_add(job.gpus);
+                *blocked_reasons.entry(job_reason_label(job)).or_insert(0) += 1;
+                accumulate_queue_group(&mut users, job.submitted_by.as_ref(), job, true);
+                if let Some(project) = &job.project {
+                    accumulate_queue_group(&mut projects, project.as_ref(), job, true);
+                }
+            }
+            JobState::Hold => {
+                held_jobs += 1;
+                *blocked_reasons.entry(job_reason_label(job)).or_insert(0) += 1;
+                accumulate_queue_group(&mut users, job.submitted_by.as_ref(), job, true);
+                if let Some(project) = &job.project {
+                    accumulate_queue_group(&mut projects, project.as_ref(), job, true);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let now = SystemTime::now();
+    let reservations_active = reservations
+        .iter()
+        .filter(|reservation| {
+            reservation.status == ReservationStatus::Active || reservation.is_active(now)
+        })
+        .count();
+
+    QueuePressureOutput {
+        generated_at,
+        total_gpus: info.gpus.len(),
+        available_gpus,
+        unavailable_gpus,
+        running_jobs,
+        queued_jobs,
+        held_jobs,
+        queued_requested_gpus,
+        running_allocated_gpus,
+        blocked_reasons,
+        users: queue_group_outputs(users),
+        projects: queue_group_outputs(projects),
+        reservations_total: reservations.len(),
+        reservations_active,
+    }
+}
+
+fn accumulate_queue_group(
+    groups: &mut BTreeMap<String, QueuePressureGroupAccumulator>,
+    name: &str,
+    job: &Job,
+    queued: bool,
+) {
+    let group = groups.entry(name.to_string()).or_default();
+    if queued {
+        group.queued += 1;
+        group.requested_gpus = group.requested_gpus.saturating_add(job.gpus);
+    } else {
+        group.running += 1;
+    }
+}
+
+fn queue_group_outputs(
+    groups: BTreeMap<String, QueuePressureGroupAccumulator>,
+) -> Vec<QueuePressureGroupOutput> {
+    let mut outputs = groups
+        .into_iter()
+        .map(|(name, group)| QueuePressureGroupOutput {
+            name,
+            queued: group.queued,
+            running: group.running,
+            requested_gpus: group.requested_gpus,
+        })
+        .collect::<Vec<_>>();
+    outputs.sort_by(|left, right| {
+        right
+            .requested_gpus
+            .cmp(&left.requested_gpus)
+            .then_with(|| right.queued.cmp(&left.queued))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    outputs.truncate(10);
+    outputs
+}
+
+fn job_reason_label(job: &Job) -> String {
+    if let Some(reason) = job.reason.as_deref() {
+        return reason.to_string();
+    }
+
+    match job.state {
+        JobState::Hold => "JobHeldUser".to_string(),
+        JobState::Queued => "Resources".to_string(),
+        _ => "unknown".to_string(),
+    }
 }
 
 pub async fn run(config_path: Option<PathBuf>, verbosity: Verbosity) -> Result<()> {
@@ -1192,15 +1883,23 @@ fn is_wrapped_user_command_line(line: &str, job: &Job) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_submit_job, build_update_request, expand_submit_job_requests, resolve_list_jobs_page,
-        resolve_log_slice, serialize_list_job, slice_text, GetJobLogRequest, GflowMcpServer,
-        ListJobsDetailInput, ListJobsOrderInput, ListJobsOutput, ListJobsRequest, SubmitJobRequest,
-        TextSlice, UpdateJobToolRequest, DEFAULT_MCP_LIST_JOBS_LIMIT,
+        build_queue_pressure_output, build_submit_job, build_triage_job_output,
+        build_update_request, expand_submit_job_requests, preview_submit_jobs_output,
+        preview_update_job_output, resolve_list_jobs_page, resolve_log_slice, serialize_list_job,
+        slice_text, GetJobLogRequest, GflowMcpServer, ListJobsDetailInput, ListJobsOrderInput,
+        ListJobsOutput, ListJobsRequest, SubmitJobRequest, TextSlice, UpdateJobToolRequest,
+        DEFAULT_MCP_LIST_JOBS_LIMIT,
     };
+    use compact_str::CompactString;
+    use gflow::client::UpdateJobRequest;
+    use gflow::core::gpu_allocation::GpuAllocationStrategy;
+    use gflow::core::info::{GpuInfo, SchedulerInfo};
     use gflow::core::job::{JobBuilder, JobState, JobStateReason};
+    use gflow::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
     use schemars::schema_for;
     use serde_json::Value;
     use std::collections::HashMap;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn tool_schemas_are_exposed_for_object_outputs() {
@@ -1213,11 +1912,15 @@ mod tests {
             "get_job",
             "get_job_log",
             "get_stats",
+            "get_queue_pressure",
             "cancel_job",
             "hold_job",
             "release_job",
+            "preview_submit_jobs",
             "submit_jobs",
+            "preview_update_job",
             "update_job",
+            "triage_job",
             "redo_job",
         ] {
             let tool = tools
@@ -1265,6 +1968,209 @@ mod tests {
             err,
             "submit_job requires 'gpu_memory_limit_mb' when 'shared' is true"
         );
+    }
+
+    #[test]
+    fn preview_submit_jobs_expands_without_assigning_job_ids() {
+        let output = preview_submit_jobs_output(
+            vec![SubmitJobRequest {
+                command: Some("echo {lr}".to_string()),
+                script: None,
+                gpus: Some(1),
+                conda_env: None,
+                run_dir: None,
+                priority: None,
+                depends_on: None,
+                depends_on_ids: None,
+                dependency_mode: None,
+                auto_cancel_on_dependency_failure: None,
+                shared: None,
+                gpu_memory_limit_mb: None,
+                time_limit_secs: None,
+                memory_limit_mb: None,
+                submitted_by: Some("alice".to_string()),
+                param: Some(vec!["lr=0.1,0.2".to_string()]),
+                parameters: None,
+                run_name: None,
+                project: None,
+                max_concurrent: None,
+                max_retries: None,
+                auto_close_tmux: None,
+                notify_email: None,
+                notify_on: None,
+            }],
+            1,
+        );
+
+        assert!(output.dry_run);
+        assert!(output.valid);
+        assert_eq!(output.input_count, 1);
+        assert_eq!(output.expanded_count, 2);
+        assert_eq!(output.jobs.len(), 2);
+        for result in output.jobs {
+            assert!(result.ok);
+            assert_eq!(result.input_index, 0);
+            assert_eq!(result.job.unwrap()["id"], 0);
+        }
+    }
+
+    #[test]
+    fn preview_update_job_reports_before_after_without_mutating_original() {
+        let mut job = JobBuilder::new()
+            .command("echo old")
+            .submitted_by("alice")
+            .gpus(1)
+            .priority(10)
+            .build();
+        job.id = 7;
+        job.state = JobState::Queued;
+
+        let request = UpdateJobRequest {
+            command: Some("echo new".to_string()),
+            gpus: Some(2),
+            priority: Some(5),
+            memory_limit_mb: Some(Some(4096)),
+            ..Default::default()
+        };
+
+        let output = preview_update_job_output(job, request);
+
+        assert!(output.dry_run);
+        assert!(output.ok);
+        assert_eq!(output.job_id, 7);
+        assert_eq!(
+            output.updated_fields,
+            vec!["command", "gpus", "priority", "memory_limit_mb"]
+        );
+
+        let before = output.before.expect("before should be present");
+        let after = output.after.expect("after should be present");
+        assert_eq!(before["command"], "echo old");
+        assert_eq!(before["gpus"], 1);
+        assert_eq!(before["priority"], 10);
+        assert_eq!(after["command"], "echo new");
+        assert_eq!(after["gpus"], 2);
+        assert_eq!(after["priority"], 5);
+        assert_eq!(after["memory_limit_mb"], 4096);
+    }
+
+    #[test]
+    fn triage_job_includes_log_based_retry_hints_and_exit_status_note() {
+        let mut job = JobBuilder::new()
+            .command("python train.py")
+            .submitted_by("alice")
+            .gpus(1)
+            .max_retries(2)
+            .build();
+        job.id = 11;
+        job.state = JobState::Failed;
+        job.started_at = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(10));
+        job.finished_at = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(25));
+
+        let output = build_triage_job_output(
+            job,
+            Some("/tmp/gflow-11.log".to_string()),
+            Some("RuntimeError: CUDA OOM while allocating tensor".to_string()),
+        )
+        .expect("triage output should build");
+
+        assert_eq!(output.job_id, 11);
+        assert_eq!(output.state, "Failed");
+        assert_eq!(output.runtime_secs, Some(15.0));
+        assert_eq!(output.exit_status, None);
+        assert!(output
+            .exit_status_note
+            .contains("not the process exit code"));
+        assert_eq!(output.log_path.as_deref(), Some("/tmp/gflow-11.log"));
+        assert!(output
+            .retry_hints
+            .iter()
+            .any(|hint| hint.contains("log suggests OOM")));
+        assert!(output
+            .retry_hints
+            .iter()
+            .any(|hint| hint.contains("max_retries=2")));
+    }
+
+    #[test]
+    fn queue_pressure_summarizes_gpu_pressure_and_groups() {
+        let info = SchedulerInfo {
+            gpus: vec![
+                GpuInfo {
+                    uuid: "gpu-0".to_string(),
+                    index: 0,
+                    available: false,
+                    reason: Some("running gflow job".to_string()),
+                },
+                GpuInfo {
+                    uuid: "gpu-1".to_string(),
+                    index: 1,
+                    available: true,
+                    reason: None,
+                },
+            ],
+            allowed_gpu_indices: None,
+            gpu_allocation_strategy: GpuAllocationStrategy::Sequential,
+        };
+
+        let mut running = JobBuilder::new()
+            .command("python train.py")
+            .submitted_by("alice")
+            .project(Some("vision".to_string()))
+            .gpus(1)
+            .build();
+        running.id = 1;
+        running.state = JobState::Running;
+        running.gpu_ids = Some(vec![0].into());
+
+        let mut queued = JobBuilder::new()
+            .command("python eval.py")
+            .submitted_by("alice")
+            .project(Some("vision".to_string()))
+            .gpus(2)
+            .build();
+        queued.id = 2;
+        queued.state = JobState::Queued;
+        queued.reason = Some(Box::new(JobStateReason::WaitingForGpu));
+
+        let mut held = JobBuilder::new()
+            .command("echo held")
+            .submitted_by("bob")
+            .gpus(0)
+            .build();
+        held.id = 3;
+        held.state = JobState::Hold;
+
+        let reservation = GpuReservation {
+            id: 1,
+            user: CompactString::from("alice"),
+            gpu_spec: GpuSpec::Count(1),
+            start_time: SystemTime::now() - Duration::from_secs(60),
+            duration: Duration::from_secs(3600),
+            status: ReservationStatus::Active,
+            created_at: SystemTime::now() - Duration::from_secs(120),
+            cancelled_at: None,
+        };
+
+        let output =
+            build_queue_pressure_output(info, vec![running, queued, held], vec![reservation]);
+
+        assert_eq!(output.total_gpus, 2);
+        assert_eq!(output.available_gpus, vec![1]);
+        assert_eq!(output.unavailable_gpus.len(), 1);
+        assert_eq!(output.running_jobs, 1);
+        assert_eq!(output.queued_jobs, 1);
+        assert_eq!(output.held_jobs, 1);
+        assert_eq!(output.queued_requested_gpus, 2);
+        assert_eq!(output.running_allocated_gpus, 1);
+        assert_eq!(output.blocked_reasons.get("Resources"), Some(&1));
+        assert_eq!(output.blocked_reasons.get("JobHeldUser"), Some(&1));
+        assert_eq!(output.reservations_total, 1);
+        assert_eq!(output.reservations_active, 1);
+        assert_eq!(output.users[0].name, "alice");
+        assert_eq!(output.users[0].queued, 1);
+        assert_eq!(output.users[0].running, 1);
+        assert_eq!(output.projects[0].name, "vision");
     }
 
     #[test]

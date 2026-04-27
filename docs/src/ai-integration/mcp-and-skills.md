@@ -22,6 +22,16 @@ ginfo
 - If `gflow` is not on `PATH`, use an absolute path instead.
 - To confirm the MCP subcommand is available, run `gflow mcp serve --help`.
 
+## Agent-Safe Workflow
+
+Use read-only and preview tools before mutating scheduler state:
+
+- Read-only planning: `get_health`, `get_info`, `list_jobs`, `get_job`, `get_job_log`, `get_stats`, `list_reservations`, `get_queue_pressure`, `triage_job`.
+- Dry-run previews: `preview_submit_jobs` before `submit_jobs`, and `preview_update_job` before `update_job`.
+- Mutating tools: `submit_jobs`, `update_job`, `redo_job`, `cancel_job`, `hold_job`, `release_job`.
+
+Agents should ask for explicit confirmation before calling any mutating tool unless the user has already requested that exact action. For failures, call `triage_job` first so the response includes job state, runtime, GPU assignment, recent log evidence, and retry hints.
+
 ## Claude Code
 
 User-scope configuration is recommended:
@@ -49,6 +59,8 @@ Example `CLAUDE.md`:
 
 - Use the `gflow` MCP server for queue, job, and log operations.
 - Prefer read operations before mutating scheduler state.
+- Use `preview_submit_jobs` or `preview_update_job` before creating or changing jobs.
+- Use `triage_job` before retrying failed or timed-out jobs.
 - Ask before submit, cancel, hold, release, or update unless the user already asked for it.
 - When a job fails, summarize the key log lines before proposing a retry.
 ```
@@ -87,6 +99,8 @@ Example `AGENTS.md`:
 
 - Use the `gflow` MCP server for scheduler actions when available.
 - Prefer read tools before writes.
+- Preview submissions and updates before mutating scheduler state.
+- Use `triage_job` and `get_queue_pressure` when explaining failures or queue delays.
 - Confirm destructive job actions unless the user explicitly asked for them.
 - Include job id, requested GPUs, and recent log evidence when reporting failures.
 ```
