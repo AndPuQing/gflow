@@ -74,6 +74,16 @@ jobs:
                   BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
                   sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
 
+            - name: Install Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Install web dependencies
+              working-directory: web
+              run: bun install --frozen-lockfile
+
+            - name: Build web UI
+              run: bun run --cwd web build
+
             - name: Build wheels
               uses: PyO3/maturin-action@v1
               with:
@@ -106,6 +116,16 @@ jobs:
                   # Cargo.toml uses semver with pre-release tag
                   BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
                   sed -i "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
+
+            - name: Install Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Install web dependencies
+              working-directory: web
+              run: bun install --frozen-lockfile
+
+            - name: Build web UI
+              run: bun run --cwd web build
 
             - name: Build sdist
               uses: PyO3/maturin-action@v1

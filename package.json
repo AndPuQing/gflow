@@ -1,6 +1,9 @@
 {
     "type": "module",
     "scripts": {
+        "web:build": "bun run --cwd web build",
+        "web:dev": "bun run --cwd web dev",
+        "web:preview": "bun run --cwd web preview",
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",
         "docs:dev": "vitepress dev docs"

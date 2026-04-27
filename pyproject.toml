@@ -41,3 +41,6 @@ strip = true
 manifest-path = "Cargo.toml"
 # Module name for the package
 module-name = "runqd"
+# Include the generated frontend in source distributions so sdist installs do
+# not require Node/Bun during the Rust build.
+include = [{ path = "web/dist/**/*", format = "sdist" }]

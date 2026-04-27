@@ -8,6 +8,7 @@
 
 mod handlers;
 mod state;
+mod web_ui;
 
 pub(crate) use handlers::UpdateJobRequest;
 
@@ -134,6 +135,9 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
+        .route("/ui", get(web_ui::serve_index))
+        .route("/ui/", get(web_ui::serve_index))
+        .route("/ui/{*path}", get(web_ui::serve_asset))
         .route("/jobs", get(handlers::list_jobs).post(handlers::create_job))
         .route("/jobs/batch", post(handlers::create_jobs_batch))
         .route(
