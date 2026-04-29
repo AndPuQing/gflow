@@ -296,7 +296,8 @@ function JobsView({
                   <TableHead>Status</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>User</TableHead>
-                  <TableHead>GPUs</TableHead>
+                  <TableHead>GPU Request</TableHead>
+                  <TableHead>Assigned GPU IDs</TableHead>
                   <TableHead>Submitted</TableHead>
                 </TableRow>
               </TableHeader>
@@ -317,12 +318,13 @@ function JobsView({
                         </div>
                       </TableCell>
                       <TableCell>{job.submitted_by ?? "unknown"}</TableCell>
-                      <TableCell>{formatGpuRequest(job)}</TableCell>
+                      <TableCell>{formatGpuRequest(job.gpus)}</TableCell>
+                      <TableCell>{formatAssignedGpuIds(job)}</TableCell>
                       <TableCell>{formatTime(job.submitted_at)}</TableCell>
                     </TableRow>
                   ))
                 ) : (
-                  <EmptyRow columns={6} label="No jobs match the current filter" />
+                  <EmptyRow columns={7} label="No jobs match the current filter" />
                 )}
               </TableBody>
             </Table>
@@ -611,9 +613,15 @@ function LoadingState() {
   )
 }
 
-function formatGpuRequest(job: Job) {
-  const ids = Array.isArray(job.gpu_ids) ? ` · ${job.gpu_ids.join(",")}` : ""
-  return `${job.gpus ?? 0}${ids}`
+function formatGpuRequest(gpus?: number) {
+  const count = gpus ?? 0
+  return count === 1 ? "1 GPU" : `${count} GPUs`
+}
+
+function formatAssignedGpuIds(job: Job) {
+  if ((job.gpus ?? 0) === 0) return "none"
+  if (!Array.isArray(job.gpu_ids) || job.gpu_ids.length === 0) return "pending"
+  return job.gpu_ids.map((id) => `GPU ${id}`).join(", ")
 }
 
 function formatGpuSpec(value: unknown) {
