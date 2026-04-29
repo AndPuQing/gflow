@@ -1,6 +1,19 @@
-import { useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
+import {
+  type ColumnDef,
+  type ColumnFiltersState,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  type Row,
+  type SortingState,
+  type Table as TanStackTable,
+  useReactTable,
+} from "@tanstack/react-table"
 import {
   Activity,
+  ArrowDownAZ,
   Cpu,
   Gauge,
   HardDrive,
@@ -68,13 +81,23 @@ const stateTone: Record<string, string> = {
     "bg-orange-100 text-orange-800 ring-orange-200 dark:bg-orange-950 dark:text-orange-200",
 }
 
+type JobTableColumnId =
+  | "id"
+  | "state"
+  | "name"
+  | "user"
+  | "gpu_request"
+  | "gpu_assigned"
+  | "submitted"
+type GpuFilter = "all" | "requested" | "none" | "assigned" | "pending"
+type SortDirection = "asc" | "desc"
+
 function App() {
   const [result, setResult] = useState<ApiResult<DashboardData>>({
     data: null,
     error: null,
     loading: true,
   })
-  const [query, setQuery] = useState("")
 
   const load = async () => {
     setResult((current) => ({ ...current, loading: true, error: null }))
@@ -104,27 +127,6 @@ function App() {
       cancelled = true
     }
   }, [])
-
-  const filteredJobs = useMemo(() => {
-    const jobs = result.data?.jobs ?? []
-    const needle = query.trim().toLowerCase()
-    if (!needle) return jobs
-
-    return jobs.filter((job) => {
-      return [
-        job.id,
-        job.state,
-        job.command,
-        job.script,
-        job.run_name,
-        job.submitted_by,
-        job.project,
-        job.run_dir,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(needle))
-    })
-  }, [query, result.data?.jobs])
 
   const gpus = result.data?.info.gpus ?? []
 
@@ -165,7 +167,7 @@ function App() {
               </TabsList>
 
               <TabsContent value="jobs">
-                <JobsView jobs={filteredJobs} query={query} onQuery={setQuery} />
+                <JobsView jobs={result.data.jobs} />
               </TabsContent>
               <TabsContent value="gpus">
                 <GpuView
@@ -260,30 +262,194 @@ function MetricCard({
   )
 }
 
-function JobsView({
-  jobs,
-  query,
-  onQuery,
-}: {
-  jobs: Job[]
-  query: string
-  onQuery: (value: string) => void
-}) {
+function JobsView({ jobs }: { jobs: Job[] }) {
+  const [query, setQuery] = useState("")
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  const [sorting, setSorting] = useState<SortingState>([{ id: "id", desc: true }])
+
+  const states = useMemo(() => uniqueSorted(jobs.map((job) => job.state)), [jobs])
+  const users = useMemo(
+    () => uniqueSorted(jobs.map((job) => job.submitted_by ?? "unknown")),
+    [jobs],
+  )
+
+  const columns = useMemo<ColumnDef<Job>[]>(
+    () => [
+      {
+        accessorKey: "id",
+        header: "ID",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.id}</span>
+        ),
+        sortingFn: "basic",
+      },
+      {
+        accessorKey: "state",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge value={row.original.state} />,
+        filterFn: exactFilter,
+      },
+      {
+        id: "name",
+        accessorFn: jobName,
+        header: "Name",
+        cell: ({ row }) => (
+          <div className="max-w-[360px]">
+            <div className="truncate font-medium">{jobName(row.original)}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {jobContext(row.original)}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "user",
+        accessorFn: (job) => job.submitted_by ?? "unknown",
+        header: "User",
+        filterFn: exactFilter,
+      },
+      {
+        id: "gpu_request",
+        accessorFn: (job) => job.gpus ?? 0,
+        header: "GPU Request",
+        cell: ({ row }) => formatGpuRequest(row.original.gpus),
+        sortingFn: "basic",
+      },
+      {
+        id: "gpu_assigned",
+        accessorFn: (job) => assignedGpuSortValue(job),
+        header: "Assigned GPU IDs",
+        cell: ({ row }) => formatAssignedGpuIds(row.original),
+        filterFn: gpuStateFilter,
+      },
+      {
+        id: "submitted",
+        accessorFn: (job) => toDate(job.submitted_at)?.valueOf() ?? 0,
+        header: "Submitted",
+        cell: ({ row }) => formatTime(row.original.submitted_at),
+        sortingFn: "basic",
+      },
+    ],
+    [],
+  )
+
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: jobs,
+    columns,
+    state: {
+      columnFilters,
+      globalFilter: query,
+      sorting,
+    },
+    onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setQuery,
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    globalFilterFn: jobGlobalFilter,
+  })
+
+  const visibleRows = table.getRowModel().rows
+  const stateFilter = stringColumnFilter(table, "state")
+  const userFilter = stringColumnFilter(table, "user")
+  const gpuFilter = stringColumnFilter(table, "gpu_assigned") as GpuFilter
+  const activeSort = sorting[0]
+  const sortField = (activeSort?.id ?? "id") as JobTableColumnId
+  const sortDirection: SortDirection = activeSort?.desc === false ? "asc" : "desc"
+
+  const setColumnFilter = (columnId: JobTableColumnId, value: string) => {
+    table.getColumn(columnId)?.setFilterValue(value === "all" ? undefined : value)
+  }
+
+  const setSortField = (columnId: JobTableColumnId) => {
+    setSorting([{ id: columnId, desc: sortDirection === "desc" }])
+  }
+
+  const setSortDirection = (direction: SortDirection) => {
+    setSorting([{ id: sortField, desc: direction === "desc" }])
+  }
+
   return (
     <Card className="rounded-lg">
-      <CardHeader className="gap-3 sm:grid-cols-[1fr_auto]">
+      <CardHeader className="gap-3 xl:grid-cols-[1fr_auto]">
         <div>
           <CardTitle>Jobs</CardTitle>
-          <CardDescription>{jobs.length} visible from the latest page</CardDescription>
+          <CardDescription>
+            {visibleRows.length} of {jobs.length} visible from the latest page
+          </CardDescription>
         </div>
-        <CardAction className="relative w-full sm:w-72">
-          <ListFilter className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            placeholder="Filter jobs"
-            className="pl-8"
-          />
+        <CardAction className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-[220px_140px_160px_150px_150px_120px] xl:w-auto">
+          <div className="relative">
+            <ListFilter className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter jobs"
+              className="pl-8"
+            />
+          </div>
+          <SelectControl
+            ariaLabel="Filter by status"
+            value={stateFilter}
+            onChange={(value) => setColumnFilter("state", value)}
+          >
+            <option value="all">All states</option>
+            {states.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </SelectControl>
+          <SelectControl
+            ariaLabel="Filter by user"
+            value={userFilter}
+            onChange={(value) => setColumnFilter("user", value)}
+          >
+            <option value="all">All users</option>
+            {users.map((user) => (
+              <option key={user} value={user}>
+                {user}
+              </option>
+            ))}
+          </SelectControl>
+          <SelectControl
+            ariaLabel="Filter by GPU state"
+            value={gpuFilter}
+            onChange={(value) => setColumnFilter("gpu_assigned", value)}
+          >
+            <option value="all">All GPU states</option>
+            <option value="requested">GPU requested</option>
+            <option value="none">No GPU</option>
+            <option value="assigned">GPU assigned</option>
+            <option value="pending">GPU pending</option>
+          </SelectControl>
+          <div className="relative">
+            <ArrowDownAZ className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <SelectControl
+              ariaLabel="Sort jobs"
+              value={sortField}
+              onChange={(value) => setSortField(value as JobTableColumnId)}
+              className="pl-8"
+            >
+              <option value="id">Sort by ID</option>
+              <option value="submitted">Sort by submitted</option>
+              <option value="state">Sort by status</option>
+              <option value="name">Sort by name</option>
+              <option value="user">Sort by user</option>
+              <option value="gpu_request">Sort by GPU request</option>
+              <option value="gpu_assigned">Sort by GPU IDs</option>
+            </SelectControl>
+          </div>
+          <SelectControl
+            ariaLabel="Sort direction"
+            value={sortDirection}
+            onChange={(value) => setSortDirection(value as SortDirection)}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </SelectControl>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -291,36 +457,33 @@ function JobsView({
           <ScrollArea className="h-[520px]">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">ID</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>GPU Request</TableHead>
-                  <TableHead>Assigned GPU IDs</TableHead>
-                  <TableHead>Submitted</TableHead>
-                </TableRow>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={header.column.id === "id" ? "w-20" : undefined}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {jobs.length ? (
-                  jobs.map((job) => (
-                    <TableRow key={job.id}>
-                      <TableCell className="font-mono text-xs">{job.id}</TableCell>
-                      <TableCell>
-                        <StatusBadge value={job.state} />
-                      </TableCell>
-                      <TableCell className="max-w-[360px]">
-                        <div className="truncate font-medium">
-                          {job.run_name ?? job.command ?? job.script ?? "unnamed"}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {job.project ?? job.run_dir ?? ""}
-                        </div>
-                      </TableCell>
-                      <TableCell>{job.submitted_by ?? "unknown"}</TableCell>
-                      <TableCell>{formatGpuRequest(job.gpus)}</TableCell>
-                      <TableCell>{formatAssignedGpuIds(job)}</TableCell>
-                      <TableCell>{formatTime(job.submitted_at)}</TableCell>
+                {visibleRows.length ? (
+                  visibleRows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   ))
                 ) : (
@@ -561,6 +724,34 @@ function StatLine({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+function SelectControl({
+  ariaLabel,
+  value,
+  onChange,
+  children,
+  className,
+}: {
+  ariaLabel: string
+  value: string
+  onChange: (value: string) => void
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(
+        "h-8 w-full min-w-0 rounded-lg border border-input bg-background px-2.5 py-1 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 dark:bg-input/30",
+        className,
+      )}
+    >
+      {children}
+    </select>
+  )
+}
+
 function StatusBadge({ value }: { value: string }) {
   return (
     <Badge className={cn("ring-1", stateTone[value] ?? "bg-muted text-foreground")}>
@@ -622,6 +813,76 @@ function formatAssignedGpuIds(job: Job) {
   if ((job.gpus ?? 0) === 0) return "none"
   if (!Array.isArray(job.gpu_ids) || job.gpu_ids.length === 0) return "pending"
   return job.gpu_ids.map((id) => `GPU ${id}`).join(", ")
+}
+
+function jobName(job: Job) {
+  return job.run_name ?? job.command ?? job.script ?? "unnamed"
+}
+
+function jobContext(job: Job) {
+  return job.project ?? job.run_dir ?? ""
+}
+
+function assignedGpuSortValue(job: Job) {
+  return Array.isArray(job.gpu_ids) ? job.gpu_ids.join(",") : ""
+}
+
+function stringColumnFilter(table: TanStackTable<Job>, columnId: JobTableColumnId) {
+  const value = table.getColumn(columnId)?.getFilterValue()
+  return typeof value === "string" ? value : "all"
+}
+
+function exactFilter(row: Row<Job>, columnId: string, value: unknown) {
+  return String(row.getValue(columnId)) === String(value)
+}
+
+function gpuStateFilter(row: Row<Job>, _columnId: string, value: unknown) {
+  return matchesGpuFilter(row.original, value as GpuFilter)
+}
+
+function jobGlobalFilter(row: Row<Job>, _columnId: string, value: unknown) {
+  const needle = String(value ?? "").trim().toLowerCase()
+  if (!needle) return true
+
+  const job = row.original
+  return [
+    job.id,
+    job.state,
+    job.command,
+    job.script,
+    job.run_name,
+    job.submitted_by,
+    job.project,
+    job.run_dir,
+    formatGpuRequest(job.gpus),
+    formatAssignedGpuIds(job),
+  ]
+    .filter(Boolean)
+    .some((candidate) => String(candidate).toLowerCase().includes(needle))
+}
+
+function matchesGpuFilter(job: Job, filter: GpuFilter) {
+  const requested = (job.gpus ?? 0) > 0
+  const assigned = Array.isArray(job.gpu_ids) && job.gpu_ids.length > 0
+
+  switch (filter) {
+    case "requested":
+      return requested
+    case "none":
+      return !requested
+    case "assigned":
+      return requested && assigned
+    case "pending":
+      return requested && !assigned
+    case "all":
+      return true
+  }
+}
+
+function uniqueSorted(values: Array<string | undefined | null>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort(
+    (left, right) => left.localeCompare(right, undefined, { numeric: true }),
+  )
 }
 
 function formatGpuSpec(value: unknown) {
