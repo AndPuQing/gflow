@@ -86,8 +86,7 @@ type JobTableColumnId =
   | "state"
   | "name"
   | "user"
-  | "gpu_request"
-  | "gpu_assigned"
+  | "gpu"
   | "submitted"
 type GpuFilter = "all" | "requested" | "none" | "assigned" | "pending"
 type SortDirection = "asc" | "desc"
@@ -309,18 +308,12 @@ function JobsView({ jobs }: { jobs: Job[] }) {
         filterFn: exactFilter,
       },
       {
-        id: "gpu_request",
-        accessorFn: (job) => job.gpus ?? 0,
-        header: "GPU Request",
-        cell: ({ row }) => formatGpuRequest(row.original.gpus),
-        sortingFn: "basic",
-      },
-      {
-        id: "gpu_assigned",
-        accessorFn: (job) => assignedGpuSortValue(job),
-        header: "Assigned GPU IDs",
-        cell: ({ row }) => formatAssignedGpuIds(row.original),
+        id: "gpu",
+        accessorFn: (job) => gpuSortValue(job),
+        header: "GPU",
+        cell: ({ row }) => <GpuPill job={row.original} />,
         filterFn: gpuStateFilter,
+        sortingFn: "basic",
       },
       {
         id: "submitted",
@@ -354,7 +347,7 @@ function JobsView({ jobs }: { jobs: Job[] }) {
   const visibleRows = table.getRowModel().rows
   const stateFilter = stringColumnFilter(table, "state")
   const userFilter = stringColumnFilter(table, "user")
-  const gpuFilter = stringColumnFilter(table, "gpu_assigned") as GpuFilter
+  const gpuFilter = stringColumnFilter(table, "gpu") as GpuFilter
   const activeSort = sorting[0]
   const sortField = (activeSort?.id ?? "id") as JobTableColumnId
   const sortDirection: SortDirection = activeSort?.desc === false ? "asc" : "desc"
@@ -417,7 +410,7 @@ function JobsView({ jobs }: { jobs: Job[] }) {
           <SelectControl
             ariaLabel="Filter by GPU state"
             value={gpuFilter}
-            onChange={(value) => setColumnFilter("gpu_assigned", value)}
+            onChange={(value) => setColumnFilter("gpu", value)}
           >
             <option value="all">All GPU states</option>
             <option value="requested">GPU requested</option>
@@ -438,8 +431,7 @@ function JobsView({ jobs }: { jobs: Job[] }) {
               <option value="state">Sort by status</option>
               <option value="name">Sort by name</option>
               <option value="user">Sort by user</option>
-              <option value="gpu_request">Sort by GPU request</option>
-              <option value="gpu_assigned">Sort by GPU IDs</option>
+              <option value="gpu">Sort by GPU</option>
             </SelectControl>
           </div>
           <SelectControl
@@ -487,7 +479,7 @@ function JobsView({ jobs }: { jobs: Job[] }) {
                     </TableRow>
                   ))
                 ) : (
-                  <EmptyRow columns={7} label="No jobs match the current filter" />
+                  <EmptyRow columns={6} label="No jobs match the current filter" />
                 )}
               </TableBody>
             </Table>
@@ -760,6 +752,35 @@ function StatusBadge({ value }: { value: string }) {
   )
 }
 
+function GpuPill({ job }: { job: Job }) {
+  const requested = job.gpus ?? 0
+  const assignedIds = Array.isArray(job.gpu_ids) ? job.gpu_ids : []
+  const assigned = assignedIds.length > 0
+  const requestedGpu = requested > 0
+
+  return (
+    <Badge
+      className={cn(
+        "h-6 gap-1.5 rounded-full px-2.5 font-mono ring-1",
+        requestedGpu && assigned
+          ? "bg-emerald-100 text-emerald-900 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-100"
+          : requestedGpu
+            ? "bg-amber-100 text-amber-900 ring-amber-200 dark:bg-amber-950 dark:text-amber-100"
+            : "bg-muted text-muted-foreground ring-border",
+      )}
+    >
+      <span>{formatGpuRequest(requested)}</span>
+      <span className="opacity-70">
+        {requestedGpu
+          ? assigned
+            ? assignedIds.map((id) => `GPU ${id}`).join(", ")
+            : "pending"
+          : "none"}
+      </span>
+    </Badge>
+  )
+}
+
 function EmptyRow({ columns, label }: { columns: number; label: string }) {
   return (
     <TableRow>
@@ -823,8 +844,10 @@ function jobContext(job: Job) {
   return job.project ?? job.run_dir ?? ""
 }
 
-function assignedGpuSortValue(job: Job) {
-  return Array.isArray(job.gpu_ids) ? job.gpu_ids.join(",") : ""
+function gpuSortValue(job: Job) {
+  const requested = job.gpus ?? 0
+  const assigned = Array.isArray(job.gpu_ids) ? job.gpu_ids.join(",") : ""
+  return `${requested.toString().padStart(4, "0")}:${assigned}`
 }
 
 function stringColumnFilter(table: TanStackTable<Job>, columnId: JobTableColumnId) {
