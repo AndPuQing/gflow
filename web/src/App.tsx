@@ -14,13 +14,14 @@ import {
 import {
   Activity,
   ArrowDownAZ,
+  CheckCircle2,
   Cpu,
-  Gauge,
-  HardDrive,
   ListFilter,
   RefreshCw,
   Server,
   ShieldAlert,
+  Timer,
+  X,
 } from "lucide-react"
 
 import {
@@ -40,7 +41,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -79,7 +79,33 @@ const stateTone: Record<string, string> = {
     "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950 dark:text-amber-200",
   Timeout:
     "bg-orange-100 text-orange-800 ring-orange-200 dark:bg-orange-950 dark:text-orange-200",
+  Available:
+    "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200",
+  Busy: "bg-rose-100 text-rose-800 ring-rose-200 dark:bg-rose-950 dark:text-rose-200",
 }
+
+const metricTone = {
+  emerald:
+    "border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-950 dark:bg-emerald-950/25 dark:text-emerald-100",
+  sky: "border-sky-200 bg-sky-50/80 text-sky-950 dark:border-sky-950 dark:bg-sky-950/25 dark:text-sky-100",
+  amber:
+    "border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-950 dark:bg-amber-950/25 dark:text-amber-100",
+  zinc: "border-zinc-200 bg-zinc-50/80 text-zinc-950 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-100",
+} as const
+
+type MetricTone = keyof typeof metricTone
+
+const summaryTone = {
+  emerald:
+    "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  sky: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200",
+  amber:
+    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  rose: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200",
+  zinc: "border-zinc-200 bg-zinc-50 text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-200",
+} as const
+
+type SummaryTone = keyof typeof summaryTone
 
 type JobTableColumnId =
   | "id"
@@ -97,11 +123,14 @@ function App() {
     error: null,
     loading: true,
   })
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const load = async () => {
     setResult((current) => ({ ...current, loading: true, error: null }))
     try {
-      setResult({ data: await fetchDashboard(), error: null, loading: false })
+      const data = await fetchDashboard()
+      setResult({ data, error: null, loading: false })
+      setLastUpdated(new Date())
     } catch (error) {
       setResult({ data: null, error: unwrapError(error), loading: false })
     }
@@ -114,6 +143,7 @@ function App() {
       .then((data) => {
         if (!cancelled) {
           setResult({ data, error: null, loading: false })
+          setLastUpdated(new Date())
         }
       })
       .catch((error: unknown) => {
@@ -141,12 +171,30 @@ function App() {
             <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
               Scheduler Console
             </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="bg-background">
+                {gpus.length} GPUs
+              </Badge>
+              <Badge variant="outline" className="bg-background">
+                {result.data?.jobs.length ?? 0} jobs loaded
+              </Badge>
+              {lastUpdated ? (
+                <span className="text-xs text-muted-foreground">
+                  Updated {formatClock(lastUpdated)}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <Button onClick={() => void load()} disabled={result.loading} size="sm">
+          <Button
+            onClick={() => void load()}
+            disabled={result.loading}
+            size="sm"
+            className="w-fit"
+          >
             <RefreshCw
               className={cn("size-4", result.loading && "animate-spin")}
             />
-            Refresh
+            {result.loading ? "Refreshing" : "Refresh"}
           </Button>
         </header>
 
@@ -205,6 +253,10 @@ async function fetchDashboard(): Promise<DashboardData> {
 function Overview({ data }: { data: DashboardData }) {
   const available = data.info.gpus?.filter((gpu) => gpu.available).length ?? 0
   const total = data.info.gpus?.length ?? 0
+  const busy = Math.max(total - available, 0)
+  const completed = data.stats.completed_jobs
+  const problemJobs =
+    data.stats.failed_jobs + data.stats.cancelled_jobs + data.stats.timeout_jobs
 
   return (
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -212,25 +264,29 @@ function Overview({ data }: { data: DashboardData }) {
         icon={Activity}
         label="Running"
         value={data.stats.running_jobs}
-        detail={`${data.stats.queued_jobs} queued`}
+        detail={`${data.stats.queued_jobs} queued for scheduling`}
+        tone="emerald"
       />
       <MetricCard
-        icon={Gauge}
+        icon={CheckCircle2}
         label="Success"
         value={`${data.stats.success_rate.toFixed(1)}%`}
-        detail={`${data.stats.completed_jobs} completed`}
+        detail={`${completed} completed · ${problemJobs} need review`}
+        tone="sky"
       />
       <MetricCard
         icon={Cpu}
         label="GPU Slots"
         value={`${available}/${total}`}
-        detail={`${data.stats.peak_gpu_usage} peak request`}
+        detail={`${busy} busy · ${data.stats.peak_gpu_usage} peak request`}
+        tone="amber"
       />
       <MetricCard
-        icon={HardDrive}
+        icon={Timer}
         label="GPU Hours"
         value={data.stats.total_gpu_hours.toFixed(1)}
         detail={`${data.stats.jobs_with_gpus} GPU jobs`}
+        tone="zinc"
       />
     </section>
   )
@@ -241,22 +297,28 @@ function MetricCard({
   label,
   value,
   detail,
+  tone,
 }: {
   icon: typeof Activity
   label: string
   value: string | number
   detail: string
+  tone: MetricTone
 }) {
   return (
-    <Card className="rounded-lg">
-      <CardHeader>
-        <CardDescription className="flex items-center gap-2">
-          <Icon className="size-4" />
-          {label}
-        </CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
+    <Card className={cn("rounded-lg border shadow-sm", metricTone[tone])}>
+      <CardHeader className="gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardDescription className="font-medium text-current/70">
+            {label}
+          </CardDescription>
+          <span className="grid size-8 place-items-center rounded-lg bg-background/80 ring-1 ring-current/10">
+            <Icon className="size-4" />
+          </span>
+        </div>
+        <CardTitle className="font-mono text-3xl leading-none">{value}</CardTitle>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{detail}</CardContent>
+      <CardContent className="text-sm text-current/65">{detail}</CardContent>
     </Card>
   )
 }
@@ -351,6 +413,16 @@ function JobsView({ jobs }: { jobs: Job[] }) {
   const activeSort = sorting[0]
   const sortField = (activeSort?.id ?? "id") as JobTableColumnId
   const sortDirection: SortDirection = activeSort?.desc === false ? "asc" : "desc"
+  const runningJobs = jobs.filter((job) => job.state === "Running").length
+  const queuedJobs = jobs.filter((job) => job.state === "Queued").length
+  const gpuJobs = jobs.filter((job) => (job.gpus ?? 0) > 0).length
+  const hasControlsActive =
+    query.trim().length > 0 ||
+    stateFilter !== "all" ||
+    userFilter !== "all" ||
+    gpuFilter !== "all" ||
+    sortField !== "id" ||
+    sortDirection !== "desc"
 
   const setColumnFilter = (columnId: JobTableColumnId, value: string) => {
     table.getColumn(columnId)?.setFilterValue(value === "all" ? undefined : value)
@@ -364,16 +436,29 @@ function JobsView({ jobs }: { jobs: Job[] }) {
     setSorting([{ id: sortField, desc: direction === "desc" }])
   }
 
+  const resetControls = () => {
+    setQuery("")
+    setColumnFilters([])
+    setSorting([{ id: "id", desc: true }])
+  }
+
   return (
     <Card className="rounded-lg">
-      <CardHeader className="gap-3 xl:grid-cols-[1fr_auto]">
-        <div>
-          <CardTitle>Jobs</CardTitle>
-          <CardDescription>
-            {visibleRows.length} of {jobs.length} visible from the latest page
-          </CardDescription>
+      <CardHeader className="gap-4 border-b">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle>Jobs</CardTitle>
+            <CardDescription>
+              {visibleRows.length} of {jobs.length} visible from the latest page
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <SummaryPill label="Running" value={runningJobs} tone="emerald" />
+            <SummaryPill label="Queued" value={queuedJobs} tone="sky" />
+            <SummaryPill label="GPU jobs" value={gpuJobs} tone="amber" />
+          </div>
         </div>
-        <CardAction className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-[220px_140px_160px_150px_150px_120px] xl:w-auto">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.2fr)_140px_160px_150px_150px_120px_auto]">
           <div className="relative">
             <ListFilter className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
             <Input
@@ -442,7 +527,18 @@ function JobsView({ jobs }: { jobs: Job[] }) {
             <option value="desc">Descending</option>
             <option value="asc">Ascending</option>
           </SelectControl>
-        </CardAction>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={resetControls}
+            disabled={!hasControlsActive}
+            className="h-8 justify-start lg:justify-center"
+          >
+            <X className="size-4" />
+            Reset
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-hidden rounded-lg border">
@@ -454,7 +550,10 @@ function JobsView({ jobs }: { jobs: Job[] }) {
                     {headerGroup.headers.map((header) => (
                       <TableHead
                         key={header.id}
-                        className={header.column.id === "id" ? "w-20" : undefined}
+                        className={cn(
+                          "sticky top-0 z-10 bg-muted/95 backdrop-blur",
+                          header.column.id === "id" && "w-20",
+                        )}
                       >
                         {header.isPlaceholder
                           ? null
@@ -501,15 +600,32 @@ function GpuView({
   strategy?: string
   ignoredProcesses: IgnoredGpuProcess[]
 }) {
+  const allowedSet = allowed?.length ? new Set(allowed) : null
+  const availableCount = gpus.filter((gpu) => gpu.available).length
+  const blockedCount = allowedSet
+    ? gpus.filter((gpu) => !allowedSet.has(gpu.index)).length
+    : 0
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
       <Card className="rounded-lg">
-        <CardHeader>
-          <CardTitle>GPU Slots</CardTitle>
-          <CardDescription>
-            {strategy ?? "default"} allocation ·{" "}
-            {allowed?.length ? `allowed ${allowed.join(", ")}` : "all allowed"}
-          </CardDescription>
+        <CardHeader className="gap-3 border-b">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>GPU Slots</CardTitle>
+              <CardDescription>
+                {strategy ?? "default"} allocation ·{" "}
+                {allowed?.length ? `allowed ${allowed.join(", ")}` : "all allowed"}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <SummaryPill label="Available" value={availableCount} tone="emerald" />
+              <SummaryPill label="Busy" value={gpus.length - availableCount} tone="rose" />
+              {blockedCount > 0 ? (
+                <SummaryPill label="Blocked" value={blockedCount} tone="zinc" />
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {gpus.length ? (
@@ -523,7 +639,7 @@ function GpuView({
       </Card>
 
       <Card className="rounded-lg">
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Ignored Processes</CardTitle>
           <CardDescription>{ignoredProcesses.length} configured</CardDescription>
         </CardHeader>
@@ -611,28 +727,29 @@ function StatsView({ stats }: { stats: UsageStats }) {
     stats.queued_jobs,
     1,
   )
+  const jobMix = [
+    ["Completed", stats.completed_jobs, "bg-emerald-500"],
+    ["Failed", stats.failed_jobs, "bg-rose-500"],
+    ["Cancelled", stats.cancelled_jobs, "bg-amber-500"],
+    ["Timeout", stats.timeout_jobs, "bg-orange-500"],
+    ["Running", stats.running_jobs, "bg-sky-500"],
+    ["Queued", stats.queued_jobs, "bg-zinc-500"],
+  ] as const
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
       <Card className="rounded-lg">
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Job Mix</CardTitle>
           <CardDescription>{stats.total_jobs} jobs included</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {[
-            ["Completed", stats.completed_jobs],
-            ["Failed", stats.failed_jobs],
-            ["Cancelled", stats.cancelled_jobs],
-            ["Timeout", stats.timeout_jobs],
-            ["Running", stats.running_jobs],
-            ["Queued", stats.queued_jobs],
-          ].map(([label, value]) => (
+          {jobMix.map(([label, value, color]) => (
             <div key={label} className="grid grid-cols-[100px_1fr_48px] items-center gap-3">
               <div className="text-sm text-muted-foreground">{label}</div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-foreground"
+                  className={cn("h-full rounded-full", color)}
                   style={{ width: `${(Number(value) / maxCount) * 100}%` }}
                 />
               </div>
@@ -643,7 +760,7 @@ function StatsView({ stats }: { stats: UsageStats }) {
       </Card>
 
       <Card className="rounded-lg">
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Runtime</CardTitle>
           <CardDescription>Aggregate timing</CardDescription>
         </CardHeader>
@@ -659,7 +776,7 @@ function StatsView({ stats }: { stats: UsageStats }) {
       </Card>
 
       <Card className="rounded-lg lg:col-span-2">
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Top Runtime Jobs</CardTitle>
           <CardDescription>{stats.top_jobs.length} longest completed runs</CardDescription>
         </CardHeader>
@@ -700,6 +817,28 @@ function StatLine({ label, value }: { label: string; value: string | number }) {
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="font-mono text-sm">{value}</span>
     </div>
+  )
+}
+
+function SummaryPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string | number
+  tone: SummaryTone
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-7 items-center gap-2 rounded-full border px-2.5 text-xs font-medium",
+        summaryTone[tone],
+      )}
+    >
+      <span className="text-current/70">{label}</span>
+      <span className="font-mono text-sm leading-none">{value}</span>
+    </span>
   )
 }
 
@@ -998,6 +1137,14 @@ function formatTime(value?: ApiTime | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+function formatClock(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(value)
 }
 
 function formatDuration(value?: ApiDuration | null) {
