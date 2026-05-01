@@ -513,20 +513,7 @@ function GpuView({
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {gpus.length ? (
-            gpus.map((gpu) => (
-              <div key={gpu.uuid} className="rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium">GPU {gpu.index}</div>
-                  <StatusBadge value={gpu.available ? "Available" : "Busy"} />
-                </div>
-                <div className="mt-2 truncate font-mono text-xs text-muted-foreground">
-                  {gpu.uuid}
-                </div>
-                {gpu.reason ? (
-                  <div className="mt-2 text-xs text-muted-foreground">{gpu.reason}</div>
-                ) : null}
-              </div>
-            ))
+            <GpuSlotCapsule gpus={gpus} allowed={allowed} />
           ) : (
             <div className="rounded-lg border p-4 text-sm text-muted-foreground">
               No GPU slots reported
@@ -758,26 +745,107 @@ function GpuPill({ job }: { job: Job }) {
   const assigned = assignedIds.length > 0
   const requestedGpu = requested > 0
 
-  return (
-    <Badge
-      className={cn(
-        "h-6 gap-1.5 rounded-full px-2.5 font-mono ring-1",
-        requestedGpu && assigned
-          ? "bg-emerald-100 text-emerald-900 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-100"
-          : requestedGpu
-            ? "bg-amber-100 text-amber-900 ring-amber-200 dark:bg-amber-950 dark:text-amber-100"
-            : "bg-muted text-muted-foreground ring-border",
-      )}
-    >
-      <span>{formatGpuRequest(requested)}</span>
-      <span className="opacity-70">
-        {requestedGpu
-          ? assigned
-            ? assignedIds.map((id) => `GPU ${id}`).join(", ")
-            : "pending"
-          : "none"}
+  if (!requestedGpu) {
+    return (
+      <span className="inline-flex h-7 items-center rounded-full border bg-muted px-2.5 font-mono text-xs text-muted-foreground">
+        No GPU
       </span>
-    </Badge>
+    )
+  }
+
+  const pendingCount = Math.max(requested - assignedIds.length, assigned ? 0 : requested)
+  const segments = [
+    ...assignedIds.map((id) => ({ key: `gpu-${id}`, label: String(id), state: "assigned" })),
+    ...Array.from({ length: pendingCount }, (_, index) => ({
+      key: `pending-${index}`,
+      label: "…",
+      state: "pending",
+    })),
+  ]
+
+  return (
+    <span
+      className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border bg-background p-0.5 align-middle font-mono text-xs shadow-sm"
+      title={formatAssignedGpuIds(job)}
+      aria-label={`${formatGpuRequest(requested)} ${formatAssignedGpuIds(job)}`}
+    >
+      <span className="px-1.5 text-muted-foreground">{requested}</span>
+      <span className="flex min-w-0 overflow-hidden rounded-full ring-1 ring-border">
+        {segments.map((segment) => (
+          <span
+            key={segment.key}
+            className={cn(
+              "grid h-5 min-w-6 place-items-center border-r px-1.5 text-[10px] leading-none last:border-r-0",
+              segment.state === "assigned"
+                ? "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+                : "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100",
+            )}
+          >
+            {segment.label}
+          </span>
+        ))}
+      </span>
+    </span>
+  )
+}
+
+function GpuSlotCapsule({
+  gpus,
+  allowed,
+}: {
+  gpus: GpuInfo[]
+  allowed?: number[] | null
+}) {
+  const orderedGpus = [...gpus].sort((left, right) => left.index - right.index)
+  const allowedSet = allowed?.length ? new Set(allowed) : null
+
+  return (
+    <div className="col-span-full space-y-3">
+      <div className="overflow-x-auto pb-1">
+        <div
+          className="flex min-w-full overflow-hidden rounded-full border bg-border shadow-sm"
+          role="list"
+          aria-label="GPU slot availability"
+        >
+          {orderedGpus.map((gpu) => {
+            const allowedGpu = allowedSet ? allowedSet.has(gpu.index) : true
+            return (
+              <div
+                key={gpu.uuid}
+                role="listitem"
+                title={`${gpu.uuid}${gpu.reason ? ` · ${gpu.reason}` : ""}`}
+                className={cn(
+                  "flex min-h-16 min-w-24 flex-1 flex-col items-center justify-center gap-1 border-r px-3 text-center last:border-r-0",
+                  gpu.available
+                    ? "border-emerald-200 bg-emerald-100 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+                    : "border-rose-200 bg-rose-100 text-rose-950 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100",
+                  !allowedGpu && "opacity-45 grayscale",
+                )}
+              >
+                <span className="font-mono text-sm font-semibold">GPU {gpu.index}</span>
+                <span className="text-[11px] uppercase tracking-wide opacity-75">
+                  {allowedGpu ? (gpu.available ? "Available" : "Busy") : "Blocked"}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {orderedGpus.map((gpu) => (
+          <div key={gpu.uuid} className="rounded-lg border px-3 py-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">GPU {gpu.index}</span>
+              <StatusBadge value={gpu.available ? "Available" : "Busy"} />
+            </div>
+            <div className="mt-1 truncate font-mono text-muted-foreground">{gpu.uuid}</div>
+            {gpu.reason ? (
+              <div className="mt-1 text-muted-foreground">{gpu.reason}</div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
