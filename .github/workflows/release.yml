@@ -22,7 +22,7 @@ jobs:
             version: ${{ steps.extract_version.outputs.version }}
             upload_url: ${{ steps.create_release.outputs.upload_url }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 

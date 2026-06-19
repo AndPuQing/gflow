@@ -21,7 +21,7 @@ jobs:
             version: ${{ steps.version.outputs.version }}
             artifact_suffix: ${{ steps.version.outputs.artifact_suffix }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 
@@ -64,7 +64,7 @@ jobs:
                     - runner: ubuntu-22.04
                       target: aarch64
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Set nightly version
               run: |
@@ -107,7 +107,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Set nightly version
               run: |
