@@ -39,7 +39,10 @@ pub fn prepare_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
             .unwrap()
             .as_secs();
         let archived_name = format!("{job_id}.log.old.{timestamp}");
-        let archived_path = log_path.parent().unwrap().join(&archived_name);
+        let archived_path = log_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(&archived_name);
 
         if let Err(error) = std::fs::rename(&log_path, &archived_path) {
             tracing::warn!(

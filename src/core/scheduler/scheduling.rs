@@ -141,7 +141,9 @@ impl Scheduler {
         // Allocate resources for runnable jobs
         let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
-            let idx = (job_id - 1) as usize;
+            let Some(idx) = job_id.checked_sub(1).map(|x| x as usize) else {
+                continue;
+            };
 
             // First, do immutable checks using only runtime (hot data)
             let (

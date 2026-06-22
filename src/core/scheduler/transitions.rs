@@ -82,7 +82,9 @@ impl Scheduler {
     }
 
     pub(super) fn set_dependency_runtime(&mut self, job_id: u32, next: DependencyRuntime) {
-        let idx = (job_id - 1) as usize;
+        let Some(idx) = job_id.checked_sub(1).map(|x| x as usize) else {
+            return;
+        };
         if let Some(slot) = self.dependency_runtimes.get_mut(idx) {
             let ready_epoch = slot.ready_epoch;
             *slot = next;
@@ -384,7 +386,10 @@ impl Scheduler {
 
     pub fn submit_job(&mut self, job: Job) -> (u32, String) {
         let job_id = self.next_job_id;
-        self.next_job_id += 1;
+        self.next_job_id = self
+            .next_job_id
+            .checked_add(1)
+            .expect("next_job_id overflowed: too many jobs submitted");
 
         let submitted_at = std::time::SystemTime::now();
 

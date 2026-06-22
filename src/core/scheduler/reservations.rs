@@ -52,7 +52,9 @@ impl Scheduler {
 
         // Create reservation
         let id = self.next_reservation_id;
-        self.next_reservation_id += 1;
+        self.next_reservation_id = self.next_reservation_id.checked_add(1).ok_or_else(|| {
+            anyhow::anyhow!("next_reservation_id overflowed: too many reservations created")
+        })?;
 
         let reservation = GpuReservation {
             id,
