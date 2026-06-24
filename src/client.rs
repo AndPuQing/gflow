@@ -818,3 +818,835 @@ pub async fn get_job_or_warn(client: &Client, job_id: u32) -> anyhow::Result<Opt
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::core::gpu_allocation::GpuAllocationStrategy;
+    use crate::core::job::JobBuilder;
+    use crate::core::reservation::GpuSpec;
+    use compact_str::CompactString;
+    use std::time::SystemTime;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Build a `Client` pointed at the given mock server.
+    fn client_for(server: &MockServer) -> Client {
+        let mut config = Config::default();
+        config.daemon.host = "127.0.0.1".to_string();
+        config.daemon.port = server.address().port();
+        Client::build(&config).expect("failed to build client")
+    }
+
+    /// A minimal job JSON the daemon would return for a queued job.
+    fn job_json(id: u32, state: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "state": state,
+            "script": null,
+            "command": "echo hello",
+            "gpus": 1,
+            "conda_env": null,
+            "run_dir": ".",
+            "priority": 10,
+            "depends_on": null,
+            "depends_on_ids": [],
+            "dependency_mode": null,
+            "auto_cancel_on_dependency_failure": true,
+            "task_id": null,
+            "time_limit": null,
+            "memory_limit_mb": null,
+            "submitted_by": "tester",
+            "redone_from": null,
+            "auto_close_tmux": false,
+            "parameters": {},
+            "group_id": null,
+            "max_concurrent": null,
+            "run_name": null,
+            "gpu_ids": null,
+            "submitted_at": null,
+            "started_at": null,
+            "finished_at": null,
+            "reason": null
+        })
+    }
+
+    // ── list_jobs ──────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_jobs_returns_vec_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(vec![job_json(1, "Queued"), job_json(2, "Running")]),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let jobs = client.list_jobs().await.expect("should list jobs");
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].id, 1);
+        assert_eq!(jobs[1].id, 2);
+    }
+
+    #[tokio::test]
+    async fn list_jobs_propagates_connection_error_with_friendly_message() {
+        let mut config = Config::default();
+        config.daemon.host = "127.0.0.1".to_string();
+        // Use a port that is almost certainly closed.
+        config.daemon.port = 1;
+        let client = Client::build(&config).expect("failed to build client");
+
+        let err = client.list_jobs().await.unwrap_err();
+        assert!(err.to_string().contains("Could not connect to gflowd"));
+    }
+
+    // ── list_jobs_with_query ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_jobs_with_query_accepts_paginated_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs"))
+            .and(query_param("state", "Running"))
+            .and(query_param("limit", "10"))
+            .and(query_param("offset", "5"))
+            .and(query_param("order", "desc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "jobs": [job_json(7, "Running")],
+                "total": 42,
+                "limit": 10,
+                "offset": 5,
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let jobs = client
+            .list_jobs_with_query(
+                Some("Running".into()),
+                None,
+                Some(10),
+                Some(5),
+                None,
+                Some("desc".into()),
+            )
+            .await
+            .expect("should list jobs");
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, 7);
+    }
+
+    #[tokio::test]
+    async fn list_jobs_with_query_falls_back_to_plain_vec() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![job_json(1, "Queued")]))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let jobs = client
+            .list_jobs_with_query(None, None, None, None, None, None)
+            .await
+            .expect("should list jobs");
+
+        assert_eq!(jobs.len(), 1);
+    }
+
+    // ── get_job ────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_job_returns_some_when_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/3"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(job_json(3, "Queued")))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = client.get_job(3).await.expect("request should succeed");
+        assert!(job.is_some());
+        assert_eq!(job.unwrap().id, 3);
+    }
+
+    #[tokio::test]
+    async fn get_job_returns_none_on_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/99"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = client.get_job(99).await.expect("request should succeed");
+        assert!(job.is_none());
+    }
+
+    // ── add_job / add_jobs ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_job_returns_submit_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 42,
+                "run_name": "gjob-42"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = JobBuilder::new()
+            .command("echo hi")
+            .submitted_by("tester")
+            .build();
+        let resp = client.add_job(job).await.expect("should add job");
+        assert_eq!(resp.id, 42);
+        assert_eq!(resp.run_name, "gjob-42");
+    }
+
+    #[tokio::test]
+    async fn add_job_surfaces_server_error_message() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "project required"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = JobBuilder::new()
+            .command("echo hi")
+            .submitted_by("tester")
+            .build();
+        let err = client.add_job(job).await.unwrap_err();
+        assert!(err.to_string().contains("project required"));
+    }
+
+    #[tokio::test]
+    async fn add_jobs_returns_empty_vec_for_empty_input() {
+        let server = MockServer::start().await;
+        let client = client_for(&server);
+        let resp = client.add_jobs(vec![]).await.expect("should succeed");
+        assert!(resp.is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_jobs_returns_responses_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![
+                serde_json::json!({"id": 1, "run_name": "gjob-1"}),
+                serde_json::json!({"id": 2, "run_name": "gjob-2"}),
+            ]))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let jobs = vec![
+            JobBuilder::new()
+                .command("echo a")
+                .submitted_by("tester")
+                .build(),
+            JobBuilder::new()
+                .command("echo b")
+                .submitted_by("tester")
+                .build(),
+        ];
+        let resp = client.add_jobs(jobs).await.expect("should add jobs");
+        assert_eq!(resp.len(), 2);
+        assert_eq!(resp[0].id, 1);
+        assert_eq!(resp[1].id, 2);
+    }
+
+    // ── job action endpoints (finish/fail/cancel/hold/release) ─────────────
+
+    #[tokio::test]
+    async fn job_actions_succeed_on_2xx() {
+        let server = MockServer::start().await;
+
+        for (suffix, _action) in [
+            ("finish", "finish job"),
+            ("fail", "fail job"),
+            ("cancel", "cancel job"),
+            ("hold", "hold job"),
+            ("release", "release job"),
+        ] {
+            Mock::given(method("POST"))
+                .and(path(format!("/jobs/5/{suffix}")))
+                .respond_with(ResponseTemplate::new(200))
+                .mount(&server)
+                .await;
+        }
+
+        let client = client_for(&server);
+        client.finish_job(5).await.expect("finish should succeed");
+        client.fail_job(5).await.expect("fail should succeed");
+        client.cancel_job(5).await.expect("cancel should succeed");
+        client.hold_job(5).await.expect("hold should succeed");
+        client.release_job(5).await.expect("release should succeed");
+    }
+
+    #[tokio::test]
+    async fn job_action_surfaces_error_on_4xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs/5/cancel"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "job is not running"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = client.cancel_job(5).await.unwrap_err();
+        assert!(err.to_string().contains("job is not running"));
+    }
+
+    // ── update_job ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn update_job_returns_response_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/jobs/7"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "job": job_json(7, "Queued"),
+                "updated_fields": ["priority", "gpus"]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let request = UpdateJobRequest {
+            priority: Some(5),
+            gpus: Some(2),
+            ..Default::default()
+        };
+        let resp = client
+            .update_job(7, request)
+            .await
+            .expect("should update job");
+        assert_eq!(resp.job.id, 7);
+        assert_eq!(resp.updated_fields, vec!["priority", "gpus"]);
+    }
+
+    #[tokio::test]
+    async fn update_job_surfaces_error_on_4xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/jobs/7"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "invalid update"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = client
+            .update_job(7, UpdateJobRequest::default())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid update"));
+    }
+
+    // ── get_job_log_path ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_job_log_path_returns_path_on_200() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/3/log"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!("/tmp/gflow-3.log")),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let path = client
+            .get_job_log_path(3)
+            .await
+            .expect("request should succeed");
+        assert_eq!(path, Some("/tmp/gflow-3.log".to_string()));
+    }
+
+    #[tokio::test]
+    async fn get_job_log_path_returns_none_on_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/3/log"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let path = client
+            .get_job_log_path(3)
+            .await
+            .expect("request should succeed");
+        assert_eq!(path, None);
+    }
+
+    #[tokio::test]
+    async fn get_job_log_path_errors_on_500() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/3/log"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("internal error"))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = client.get_job_log_path(3).await.unwrap_err();
+        assert!(err.to_string().contains("500"));
+    }
+
+    // ── get_stats / get_info / get_health / get_health_with_pid ────────────
+
+    #[tokio::test]
+    async fn get_stats_returns_usage_stats() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/stats"))
+            .and(query_param("user", "alice"))
+            .and(query_param("since", "1000"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "user": "alice",
+                "since": 1000,
+                "total_jobs": 10,
+                "completed_jobs": 8,
+                "failed_jobs": 1,
+                "cancelled_jobs": 1,
+                "timeout_jobs": 0,
+                "running_jobs": 0,
+                "queued_jobs": 0,
+                "avg_wait_secs": 5.0,
+                "avg_runtime_secs": 100.0,
+                "total_gpu_hours": 1.5,
+                "jobs_with_gpus": 10,
+                "avg_gpus_per_job": 1.0,
+                "peak_gpu_usage": 1,
+                "success_rate": 0.8,
+                "top_jobs": []
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let stats = client
+            .get_stats(Some("alice"), Some(1000))
+            .await
+            .expect("should get stats");
+        assert_eq!(stats.total_jobs, 10);
+        assert_eq!(stats.success_rate, 0.8);
+    }
+
+    #[tokio::test]
+    async fn get_info_returns_scheduler_info() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/info"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "gpus": [
+                    {"uuid": "gpu-0", "index": 0, "available": true},
+                    {"uuid": "gpu-1", "index": 1, "available": false, "reason": "busy"}
+                ],
+                "allowed_gpu_indices": null,
+                "gpu_allocation_strategy": "sequential"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let info = client.get_info().await.expect("should get info");
+        assert_eq!(info.gpus.len(), 2);
+        assert!(info.gpus[0].available);
+        assert!(!info.gpus[1].available);
+        assert_eq!(
+            info.gpu_allocation_strategy,
+            GpuAllocationStrategy::Sequential
+        );
+    }
+
+    #[tokio::test]
+    async fn get_health_returns_status_code() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/health"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let status = client.get_health().await.expect("should get health");
+        assert!(status.is_success());
+    }
+
+    #[tokio::test]
+    async fn get_health_with_pid_returns_pid_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/health"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"pid": 12345})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let pid = client
+            .get_health_with_pid()
+            .await
+            .expect("should get health");
+        assert_eq!(pid, Some(12345));
+    }
+
+    #[tokio::test]
+    async fn get_health_with_pid_returns_none_on_error_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/health"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let pid = client
+            .get_health_with_pid()
+            .await
+            .expect("request should succeed");
+        assert_eq!(pid, None);
+    }
+
+    // ── resolve_dependency ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn resolve_dependency_returns_job_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/resolve-dependency"))
+            .and(query_param("username", "alice"))
+            .and(query_param("shorthand", "last"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"job_id": 17})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job_id = client
+            .resolve_dependency("alice", "last")
+            .await
+            .expect("should resolve dependency");
+        assert_eq!(job_id, 17);
+    }
+
+    #[tokio::test]
+    async fn resolve_dependency_surfaces_error_on_4xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/resolve-dependency"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": "no jobs found for user"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = client
+            .resolve_dependency("alice", "last")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("no jobs found for user"));
+    }
+
+    // ── GPU process management ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_ignored_gpu_processes_returns_vec() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/gpu-processes"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![
+                serde_json::json!({"gpu_index": 0, "pid": 1234}),
+                serde_json::json!({"gpu_index": 1, "pid": 5678}),
+            ]))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let processes = client
+            .list_ignored_gpu_processes()
+            .await
+            .expect("should list processes");
+        assert_eq!(processes.len(), 2);
+        assert_eq!(processes[0].pid, 1234);
+    }
+
+    #[tokio::test]
+    async fn ignore_gpu_process_succeeds_on_2xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/gpu-processes/ignore"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .ignore_gpu_process(0, 1234)
+            .await
+            .expect("should ignore");
+    }
+
+    #[tokio::test]
+    async fn unignore_gpu_process_succeeds_on_2xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/gpu-processes/unignore"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .unignore_gpu_process(0, 1234)
+            .await
+            .expect("should unignore");
+    }
+
+    // ── set_allowed_gpus ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn set_allowed_gpus_succeeds_on_2xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/gpus"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .set_allowed_gpus(Some(vec![0, 1]))
+            .await
+            .expect("should set gpus");
+    }
+
+    // ── set_group_max_concurrency ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn set_group_max_concurrency_returns_updated_count() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/groups/abc-123/max-concurrency"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"updated_jobs": 3})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let count = client
+            .set_group_max_concurrency("abc-123", 2)
+            .await
+            .expect("should set concurrency");
+        assert_eq!(count, 3);
+    }
+
+    // ── reservations ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_reservation_returns_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/reservations"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"reservation_id": 9})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let id = client
+            .create_reservation("alice".into(), GpuSpec::Count(2), SystemTime::now(), 3600)
+            .await
+            .expect("should create reservation");
+        assert_eq!(id, 9);
+    }
+
+    #[tokio::test]
+    async fn list_reservations_returns_vec() {
+        let server = MockServer::start().await;
+        let reservation_json = serde_json::json!({
+            "id": 1,
+            "user": "alice",
+            "gpu_spec": {"count": 2},
+            "start_time": {"secs_since_epoch": 0, "nanos_since_epoch": 0},
+            "duration": {"secs": 3600, "nanos": 0},
+            "status": "Active",
+            "created_at": {"secs_since_epoch": 0, "nanos_since_epoch": 0},
+            "cancelled_at": null
+        });
+        Mock::given(method("GET"))
+            .and(path("/reservations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![reservation_json]))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let reservations = client
+            .list_reservations(None, None, false)
+            .await
+            .expect("should list reservations");
+        assert_eq!(reservations.len(), 1);
+        assert_eq!(reservations[0].id, 1);
+        assert_eq!(reservations[0].user, CompactString::from("alice"));
+    }
+
+    #[tokio::test]
+    async fn get_reservation_returns_some_when_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/reservations/5"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 5,
+                "user": "bob",
+                "gpu_spec": {"indices": [0, 1]},
+                "start_time": {"secs_since_epoch": 0, "nanos_since_epoch": 0},
+                "duration": {"secs": 1800, "nanos": 0},
+                "status": "Pending",
+                "created_at": {"secs_since_epoch": 0, "nanos_since_epoch": 0},
+                "cancelled_at": null
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let reservation = client
+            .get_reservation(5)
+            .await
+            .expect("request should succeed");
+        assert!(reservation.is_some());
+        let r = reservation.unwrap();
+        assert_eq!(r.id, 5);
+        assert_eq!(r.gpu_spec, GpuSpec::Indices(vec![0, 1]));
+    }
+
+    #[tokio::test]
+    async fn get_reservation_returns_none_on_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/reservations/99"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let reservation = client
+            .get_reservation(99)
+            .await
+            .expect("request should succeed");
+        assert!(reservation.is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_reservation_succeeds_on_2xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/reservations/3"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .cancel_reservation(3)
+            .await
+            .expect("should cancel reservation");
+    }
+
+    #[tokio::test]
+    async fn cancel_reservation_surfaces_error_on_4xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/reservations/3"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": "reservation not found"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let err = client.cancel_reservation(3).await.unwrap_err();
+        assert!(err.to_string().contains("reservation not found"));
+    }
+
+    // ── get_job_or_warn ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_job_or_warn_returns_job_when_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(job_json(1, "Queued")))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = get_job_or_warn(&client, 1)
+            .await
+            .expect("request should succeed");
+        assert!(job.is_some());
+    }
+
+    #[tokio::test]
+    async fn get_job_or_warn_returns_none_when_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs/99"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = get_job_or_warn(&client, 99)
+            .await
+            .expect("request should succeed");
+        assert!(job.is_none());
+    }
+
+    // ── error message extraction ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn error_message_falls_back_to_raw_body_when_not_json() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("disk full"))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let job = JobBuilder::new()
+            .command("echo hi")
+            .submitted_by("tester")
+            .build();
+        let err = client.add_job(job).await.unwrap_err();
+        assert!(err.to_string().contains("disk full"));
+    }
+}

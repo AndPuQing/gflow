@@ -138,6 +138,7 @@ nvml-wrapper = "0.12.0"
 tower = "0.5"
 criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.5"
+wiremock = "0.6"
 
 [[bench]]
 name = "scheduler_bench"
