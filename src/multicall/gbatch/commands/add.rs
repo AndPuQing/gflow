@@ -17,10 +17,10 @@ fn validate_project(job: &mut Job, config: &gflow::config::Config) -> Result<()>
 }
 
 /// Resolve project from CLI args and script args (CLI takes precedence)
-fn resolve_project(args: &cli::AddArgs, script_args: &Option<cli::AddArgs>) -> Option<String> {
+fn resolve_project(args: &cli::AddArgs, script_args: Option<&cli::AddArgs>) -> Option<String> {
     args.project
         .clone()
-        .or_else(|| script_args.as_ref().and_then(|s| s.project.clone()))
+        .or_else(|| script_args.and_then(|s| s.project.clone()))
 }
 
 fn default_per_job_notification_events() -> Vec<String> {
@@ -204,13 +204,8 @@ pub(crate) async fn handle_add(
         if add_args.dry_run {
             println!("Would submit {} batch job(s):", param_combinations.len());
             for (idx, params) in param_combinations.iter().enumerate() {
-                let job = build_job_with_params(
-                    &add_args,
-                    params.clone(),
-                    &client,
-                    stdin_content.as_ref(),
-                )
-                .await?;
+                let job = build_job_with_params(&add_args, params, &client, stdin_content.as_ref())
+                    .await?;
 
                 // Show preview
                 let mut cmd = if let Some(c) = &job.command {
@@ -229,7 +224,7 @@ pub(crate) async fn handle_add(
 
         // Build all jobs first
         let mut jobs = Vec::with_capacity(param_combinations.len());
-        for params in param_combinations {
+        for params in &param_combinations {
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Validate project
@@ -291,13 +286,8 @@ pub(crate) async fn handle_add(
         if add_args.dry_run {
             println!("Would submit {} batch job(s):", param_combinations.len());
             for (idx, params) in param_combinations.iter().enumerate() {
-                let job = build_job_with_params(
-                    &add_args,
-                    params.clone(),
-                    &client,
-                    stdin_content.as_ref(),
-                )
-                .await?;
+                let job = build_job_with_params(&add_args, params, &client, stdin_content.as_ref())
+                    .await?;
 
                 // Show preview
                 let mut cmd = if let Some(c) = &job.command {
@@ -316,7 +306,7 @@ pub(crate) async fn handle_add(
 
         // Build all jobs first
         let mut jobs = Vec::with_capacity(param_combinations.len());
-        for params in param_combinations {
+        for params in &param_combinations {
             let mut job =
                 build_job_with_params(&add_args, params, &client, stdin_content.as_ref()).await?;
             // Validate project
@@ -512,9 +502,9 @@ async fn build_job(
     } else if let Some(ref deps_any) = args.depends_on_any {
         let ids = parse_dependency_list(deps_any, client).await?;
         (ids, Some(gflow::core::job::DependencyMode::Any))
-    } else if let Some(ref dep) = args.depends_on {
+    } else if args.depends_on.is_some() {
         // Legacy single dependency
-        let dep_id = resolve_dependency(Some(dep.clone()), client).await?;
+        let dep_id = resolve_dependency(args.depends_on.as_deref(), client).await?;
         if let Some(id) = dep_id {
             (vec![id], Some(gflow::core::job::DependencyMode::All))
         } else {
@@ -524,16 +514,14 @@ async fn build_job(
         (vec![], None)
     };
 
-    builder = builder.depends_on_ids(depends_on_ids.clone());
+    if depends_on_ids.len() == 1 {
+        builder = builder.depends_on(Some(depends_on_ids[0]));
+    }
+    builder = builder.depends_on_ids(depends_on_ids);
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
     builder = builder.max_retries(args.max_retries.unwrap_or(0));
     builder = builder.notifications(JobNotifications::default());
-
-    // For backward compatibility, also set depends_on if there's exactly one dependency
-    if depends_on_ids.len() == 1 {
-        builder = builder.depends_on(Some(depends_on_ids[0]));
-    }
 
     if let Some(content) = stdin_content {
         // Stdin mode - save content to a temporary script file
@@ -544,7 +532,7 @@ async fn build_job(
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.project(resolve_project(args, &Some(script_args.clone())));
+        builder = builder.project(resolve_project(args, Some(&script_args)));
         builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
@@ -641,7 +629,7 @@ async fn build_job(
             // Auto-detect conda environment if not specified
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
-            builder = builder.project(resolve_project(args, &None));
+            builder = builder.project(resolve_project(args, None));
             builder = builder.notifications(resolve_job_notifications(args, None)?);
 
             builder = builder.time_limit(time_limit);
@@ -660,7 +648,7 @@ async fn build_job(
 
 async fn build_job_with_params(
     args: &cli::AddArgs,
-    parameters: HashMap<String, String>,
+    parameters: &HashMap<String, String>,
     client: &Client,
     stdin_content: Option<&String>,
 ) -> Result<Job> {
@@ -669,7 +657,6 @@ async fn build_job_with_params(
     builder = builder.run_dir(run_dir);
     // Parameters are for array-like submissions but without task_id
     builder = builder.task_id(None);
-    builder = builder.parameters(parameters.clone());
 
     // Get the username of the submitter
     let username = gflow::platform::get_current_username();
@@ -677,12 +664,14 @@ async fn build_job_with_params(
 
     // Apply name template if provided, otherwise use custom name if provided
     let run_name = if let Some(ref template) = args.name_template {
-        Some(substitute_template(template, &parameters))
+        Some(substitute_template(template, parameters))
     } else {
         args.name.clone()
     };
 
     builder = builder.run_name(run_name);
+    // Move parameters into the builder (after template substitution is done)
+    builder = builder.parameters(parameters.clone());
 
     // Parse time limit if provided
     let time_limit = if let Some(time_str) = &args.time {
@@ -711,9 +700,9 @@ async fn build_job_with_params(
     } else if let Some(ref deps_any) = args.depends_on_any {
         let ids = parse_dependency_list(deps_any, client).await?;
         (ids, Some(gflow::core::job::DependencyMode::Any))
-    } else if let Some(ref dep) = args.depends_on {
+    } else if args.depends_on.is_some() {
         // Legacy single dependency
-        let dep_id = resolve_dependency(Some(dep.clone()), client).await?;
+        let dep_id = resolve_dependency(args.depends_on.as_deref(), client).await?;
         if let Some(id) = dep_id {
             (vec![id], Some(gflow::core::job::DependencyMode::All))
         } else {
@@ -723,16 +712,14 @@ async fn build_job_with_params(
         (vec![], None)
     };
 
-    builder = builder.depends_on_ids(depends_on_ids.clone());
+    if depends_on_ids.len() == 1 {
+        builder = builder.depends_on(Some(depends_on_ids[0]));
+    }
+    builder = builder.depends_on_ids(depends_on_ids);
     builder = builder.dependency_mode(dependency_mode);
     builder = builder.auto_cancel_on_dependency_failure(!args.no_auto_cancel);
     builder = builder.max_retries(args.max_retries.unwrap_or(0));
     builder = builder.notifications(JobNotifications::default());
-
-    // For backward compatibility, also set depends_on if there's exactly one dependency
-    if depends_on_ids.len() == 1 {
-        builder = builder.depends_on(Some(depends_on_ids[0]));
-    }
 
     if let Some(content) = stdin_content {
         // Stdin mode - save content to a temporary script file
@@ -743,7 +730,7 @@ async fn build_job_with_params(
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.shared(args.shared || script_args.shared);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
-        builder = builder.project(resolve_project(args, &Some(script_args.clone())));
+        builder = builder.project(resolve_project(args, Some(&script_args)));
         builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
         builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
 
@@ -840,7 +827,7 @@ async fn build_job_with_params(
             // Auto-detect conda environment if not specified
             let conda_env = args.conda_env.clone().or_else(detect_current_conda_env);
             builder = builder.conda_env(conda_env);
-            builder = builder.project(resolve_project(args, &None));
+            builder = builder.project(resolve_project(args, None));
             builder = builder.notifications(resolve_job_notifications(args, None)?);
 
             builder = builder.time_limit(time_limit);
@@ -943,7 +930,7 @@ fn make_absolute_path(path: PathBuf) -> Result<PathBuf> {
     }
 }
 
-async fn resolve_dependency(depends_on: Option<String>, client: &Client) -> Result<Option<u32>> {
+async fn resolve_dependency(depends_on: Option<&str>, client: &Client) -> Result<Option<u32>> {
     match depends_on {
         None => Ok(None),
         Some(raw) => {
