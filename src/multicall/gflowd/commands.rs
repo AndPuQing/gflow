@@ -155,8 +155,11 @@ pub async fn handle_commands(
             status::handle_status(config_path).await?;
         }
         Commands::Completion { shell } => {
-            let mut cmd = super::cli::GFlowd::command();
-            let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "gflowd");
+            crate::multicall::completion::handle_completion(
+                shell,
+                super::cli::GFlowd::command(),
+                "gflowd",
+            )?;
         }
     }
 

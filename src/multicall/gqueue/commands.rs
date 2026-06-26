@@ -1,11 +1,14 @@
 use anyhow::Result;
-use gflow::client::Client;
+use std::path::PathBuf;
 
 pub mod list;
 use list::ListOptions;
 
-pub async fn handle_commands(config: &gflow::Config, args: &super::cli::ListArgs) -> Result<()> {
-    let client = Client::build(config)?;
+pub async fn handle_commands(
+    config_path: &Option<PathBuf>,
+    args: &super::cli::ListArgs,
+) -> Result<()> {
+    let client = gflow::create_client(config_path)?;
 
     let options = ListOptions {
         user: args.user.clone(),

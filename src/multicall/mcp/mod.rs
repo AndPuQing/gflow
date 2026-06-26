@@ -14,8 +14,11 @@ pub async fn run(argv: Vec<OsString>) -> Result<()> {
                 server::run(args.config, args.verbosity).await?;
             }
             cli::Commands::Completion { shell } => {
-                let mut cmd = cli::GMcpCli::command();
-                let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "mcp");
+                crate::multicall::completion::handle_completion(
+                    shell,
+                    cli::GMcpCli::command(),
+                    "mcp",
+                )?;
             }
         }
         return Ok(());

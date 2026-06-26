@@ -62,8 +62,7 @@ async fn existing_daemon_state(
         return Ok(ExistingDaemonState::NotPresent);
     }
 
-    let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
-    let client = gflow::Client::build(&config)?;
+    let client = gflow::create_client_or_default(config_path)?;
 
     Ok(match client.get_health().await {
         Ok(status) if status.is_success() => ExistingDaemonState::Healthy,

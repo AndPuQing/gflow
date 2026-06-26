@@ -3,7 +3,6 @@ mod commands;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use gflow::config::load_config;
 use std::ffi::OsString;
 
 pub async fn run(argv: Vec<OsString>) -> Result<()> {
@@ -12,15 +11,17 @@ pub async fn run(argv: Vec<OsString>) -> Result<()> {
     if let Some(command) = args.command {
         match command {
             cli::Commands::Completion { shell } => {
-                let mut cmd = cli::GQueue::command();
-                let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "gqueue");
+                crate::multicall::completion::handle_completion(
+                    shell,
+                    cli::GQueue::command(),
+                    "gqueue",
+                )?;
                 return Ok(());
             }
         }
     }
 
-    let config = load_config(args.config.as_ref())?;
-    commands::handle_commands(&config, &args.list_args).await?;
+    commands::handle_commands(&args.config, &args.list_args).await?;
 
     Ok(())
 }

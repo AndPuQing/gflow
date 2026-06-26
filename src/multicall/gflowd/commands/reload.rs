@@ -15,8 +15,7 @@ pub async fn handle_reload(
     super::validate_daemon_startup_config(config_path, &start_options)?;
 
     // Load config to get daemon URL
-    let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
-    let client = gflow::Client::build(&config)?;
+    let client = gflow::create_client_or_default(config_path)?;
 
     // 1. Check if daemon is running
     let pid = get_daemon_pid().await?;

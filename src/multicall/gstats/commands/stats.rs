@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::TimeZone;
-use gflow::client::{Client, UsageStats};
+use gflow::client::UsageStats;
 use gflow::utils::parse_since_time;
 use owo_colors::OwoColorize;
 use std::time::Duration;
@@ -12,8 +12,7 @@ pub async fn handle_stats(
     since: Option<&str>,
     output: &str,
 ) -> Result<()> {
-    let config = gflow::config::load_config(config_path.as_ref())?;
-    let client = Client::build(&config)?;
+    let client = gflow::create_client(config_path)?;
 
     let since_ts: Option<i64> = since.map(parse_since_time).transpose()?;
 

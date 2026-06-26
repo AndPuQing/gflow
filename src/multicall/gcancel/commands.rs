@@ -1,11 +1,15 @@
 use super::cli::CancelCommand;
+use std::path::PathBuf;
 
 pub mod cancel;
 pub mod fail;
 pub mod finish;
 
-pub async fn handle_commands(config: &gflow::Config, command: CancelCommand) -> anyhow::Result<()> {
-    let client = gflow::Client::build(config)?;
+pub async fn handle_commands(
+    config_path: &Option<PathBuf>,
+    command: CancelCommand,
+) -> anyhow::Result<()> {
+    let client = gflow::create_client(config_path)?;
 
     match command {
         CancelCommand::Cancel { ids, dry_run } => {

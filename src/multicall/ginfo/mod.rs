@@ -15,8 +15,11 @@ pub async fn run(argv: Vec<OsString>) -> Result<()> {
     if let Some(command) = args.command {
         match command {
             cli::Commands::Completion { shell } => {
-                let mut cmd = cli::GInfoCli::command();
-                let _ = crate::multicall::completion::generate_to_stdout(shell, &mut cmd, "ginfo");
+                crate::multicall::completion::handle_completion(
+                    shell,
+                    cli::GInfoCli::command(),
+                    "ginfo",
+                )?;
                 return Ok(());
             }
         }

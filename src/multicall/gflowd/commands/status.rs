@@ -10,8 +10,7 @@ pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<(
         return Ok(());
     }
 
-    let config = gflow::config::load_config(config_path.as_ref()).unwrap_or_default();
-    let client = gflow::Client::build(&config)?;
+    let client = gflow::create_client_or_default(config_path)?;
 
     match client.get_health().await {
         Ok(health) => {

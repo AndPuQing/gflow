@@ -2,12 +2,7 @@ use anyhow::Result;
 use gflow::client::Client;
 
 pub async fn handle_info(config_path: &Option<std::path::PathBuf>) -> Result<()> {
-    let client = if let Some(path) = config_path {
-        gflow::create_client(&Some(path.clone()))?
-    } else {
-        let config = gflow::config::load_config(None).unwrap_or_default();
-        Client::build(&config)?
-    };
+    let client = gflow::create_client_or_default(config_path)?;
 
     let (info, jobs) = fetch_info_and_jobs(&client).await?;
     print_gpu_allocation(&info, &jobs);
