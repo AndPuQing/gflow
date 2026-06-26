@@ -37,7 +37,7 @@ jobs:
               uses: PyO3/maturin-action@v1
               with:
                   target: ${{ matrix.platform.target }}
-                  args: --release --out dist
+                  args: --profile minimal-size --out dist
                   sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
                   manylinux: auto
               env:
