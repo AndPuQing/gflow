@@ -132,7 +132,7 @@ anyhow = "1.0.95"
 vergen-gix = { version = "10.0.0", features = ["build", "cargo"] }
 
 [dev-dependencies]
-mockall = "0.14.0"
+mockall = "0.15.0"
 tempfile = "3.16.0"
 nvml-wrapper = "0.12.0"
 tower = "0.5"
