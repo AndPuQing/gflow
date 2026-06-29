@@ -33,8 +33,11 @@ jobs:
 
     test:
         name: Test Suite
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.os }}
         timeout-minutes: 30
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-14]
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7

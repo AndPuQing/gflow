@@ -101,6 +101,50 @@ jobs:
                   name: wheels-linux-${{ matrix.platform.target }}-${{ needs.check.outputs.artifact_suffix }}
                   path: dist
 
+    macos:
+        needs: check
+        if: needs.check.outputs.should_build == 'true'
+        runs-on: ${{ matrix.platform.runner }}
+        timeout-minutes: 60
+        strategy:
+            matrix:
+                platform:
+                    - runner: macos-14
+                      target: aarch64-apple-darwin
+                    - runner: macos-13
+                      target: x86_64-apple-darwin
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Set nightly version
+              run: |
+                  sed -i '' 's/^version = ".*"/version = "${{ needs.check.outputs.version }}"/' pyproject.toml
+                  BASE_VERSION=$(echo "${{ needs.check.outputs.version }}" | sed 's/\.dev/-dev./')
+                  sed -i '' "s/^version = \".*\"/version = \"${BASE_VERSION}\"/" Cargo.toml
+
+            - name: Install Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Install web dependencies
+              working-directory: web
+              run: bun install --frozen-lockfile
+
+            - name: Build web UI
+              run: bun run --cwd web build
+
+            - name: Build wheels
+              uses: PyO3/maturin-action@v1
+              with:
+                  target: ${{ matrix.platform.target }}
+                  args: --release --out dist
+                  sccache: true
+
+            - name: Upload wheels
+              uses: actions/upload-artifact@v7
+              with:
+                  name: wheels-macos-${{ matrix.platform.runner }}-${{ needs.check.outputs.artifact_suffix }}
+                  path: dist
+
     sdist:
         needs: check
         if: needs.check.outputs.should_build == 'true'
@@ -143,7 +187,7 @@ jobs:
         name: Publish to TestPyPI
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [check, linux, sdist]
+        needs: [check, linux, macos, sdist]
         if: needs.check.outputs.should_build == 'true'
         environment:
             name: testpypi

@@ -19,6 +19,7 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Rust",
     "Topic :: System :: Distributed Computing",
     "Topic :: System :: Monitoring",
