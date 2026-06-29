@@ -98,6 +98,9 @@ pub struct Scheduler {
     /// Strategy for selecting which available GPU indices to assign to a job.
     #[serde(skip)]
     pub(crate) gpu_allocation_strategy: GpuAllocationStrategy,
+    /// When true, GPU memory and host memory share a single pool (e.g. Apple Silicon unified memory).
+    #[serde(skip)]
+    pub(crate) unified_memory: bool,
     /// Index of job IDs by username for fast dependency resolution
     /// Maps username -> sorted list of job IDs (ascending order)
     #[serde(skip)]
@@ -818,6 +821,131 @@ mod tests {
                 .and_then(|j| j.reason.map(|r| *r)),
             Some(JobStateReason::WaitingForMemory)
         );
+    }
+
+    #[test]
+    fn test_unified_memory_combines_host_and_gpu_memory() {
+        let mut scheduler = SchedulerBuilder::new()
+            .with_executor(Box::new(MockExecutor {
+                executions: Arc::new(Mutex::new(Vec::new())),
+                should_fail: false,
+            }))
+            .with_state_path(PathBuf::from("/tmp/test.json"))
+            .with_total_memory_mb(64 * 1024)
+            .with_unified_memory(true)
+            .build();
+
+        // Simulate an Apple Silicon GPU slot (no per-GPU VRAM total → skip per-GPU check).
+        scheduler.gpu_slots.insert(
+            "apple-gpu-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        // Job requesting 30G host + 30G GPU memory on a 64G unified-memory machine.
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .memory_limit_mb(Some(30 * 1024))
+            .gpu_memory_limit_mb(Some(30 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+        scheduler.prepare_jobs_for_execution();
+
+        assert_eq!(
+            scheduler.get_job(job_id).map(|j| j.state),
+            Some(JobState::Running),
+        );
+        // 30G + 30G = 60G deducted from the single 64G pool.
+        assert_eq!(scheduler.available_memory_mb, 64 * 1024 - 60 * 1024);
+    }
+
+    #[test]
+    fn test_unified_memory_blocks_when_combined_exceeds_total() {
+        let mut scheduler = SchedulerBuilder::new()
+            .with_executor(Box::new(MockExecutor {
+                executions: Arc::new(Mutex::new(Vec::new())),
+                should_fail: false,
+            }))
+            .with_state_path(PathBuf::from("/tmp/test.json"))
+            .with_total_memory_mb(32 * 1024)
+            .with_unified_memory(true)
+            .build();
+
+        scheduler.gpu_slots.insert(
+            "apple-gpu-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        // 20G host + 20G GPU = 40G > 32G total → should block.
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .memory_limit_mb(Some(20 * 1024))
+            .gpu_memory_limit_mb(Some(20 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert!(prepared.is_empty());
+        assert_eq!(
+            scheduler.get_job(job_id).and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForMemory),
+        );
+    }
+
+    #[test]
+    fn test_unified_memory_returns_gpu_memory_on_failure() {
+        let mut scheduler = SchedulerBuilder::new()
+            .with_executor(Box::new(MockExecutor {
+                executions: Arc::new(Mutex::new(Vec::new())),
+                should_fail: false,
+            }))
+            .with_state_path(PathBuf::from("/tmp/test.json"))
+            .with_total_memory_mb(64 * 1024)
+            .with_unified_memory(true)
+            .build();
+
+        scheduler.gpu_slots.insert(
+            "apple-gpu-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .gpus(1)
+            .shared(true)
+            .memory_limit_mb(Some(10 * 1024))
+            .gpu_memory_limit_mb(Some(20 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+        scheduler.prepare_jobs_for_execution();
+
+        assert_eq!(scheduler.available_memory_mb, 64 * 1024 - 30 * 1024);
+
+        // Simulate execution failure → memory should be fully returned.
+        scheduler.fail_job(job_id);
+        scheduler.refresh_available_memory();
+        assert_eq!(scheduler.available_memory_mb, 64 * 1024);
     }
 
     #[test]

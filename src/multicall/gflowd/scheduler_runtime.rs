@@ -77,7 +77,22 @@ impl SchedulerRuntime {
                     "Failed to initialize NVML: {}. Running without GPU support.",
                     e
                 );
-                (None, HashMap::new())
+                if is_apple_silicon() {
+                    tracing::info!("Apple Silicon detected; creating synthetic GPU slot with unified memory.");
+                    let mut slots = HashMap::new();
+                    slots.insert(
+                        "apple-gpu-0".to_string(),
+                        GPUSlot {
+                            index: 0,
+                            available: true,
+                            total_memory_mb: None,
+                            reason: None,
+                        },
+                    );
+                    (None, slots)
+                } else {
+                    (None, HashMap::new())
+                }
             }
         };
 
@@ -111,6 +126,7 @@ impl SchedulerRuntime {
         };
 
         let total_memory_mb = Self::get_total_system_memory_mb();
+        let unified_memory = is_apple_silicon() && nvml.is_none();
 
         // Store executor in Arc for lock-free access during job execution
         let executor_arc: Arc<dyn Executor> = Arc::from(executor);
@@ -128,6 +144,7 @@ impl SchedulerRuntime {
             .with_total_memory_mb(total_memory_mb)
             .with_allowed_gpu_indices(validated_gpu_indices)
             .with_gpu_allocation_strategy(gpu_allocation_strategy)
+            .with_unified_memory(unified_memory)
             .build();
 
         let mut runtime = Self {
@@ -206,8 +223,21 @@ impl SchedulerRuntime {
             }
         }
 
+        // macOS: use sysctl to read hw.memsize (bytes)
+        if cfg!(target_os = "macos") {
+            if let Ok(output) =
+                std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output()
+            {
+                if let Ok(s) = std::str::from_utf8(&output.stdout) {
+                    if let Ok(bytes) = s.trim().parse::<u64>() {
+                        return bytes / (1024 * 1024);
+                    }
+                }
+            }
+        }
+
         // Fallback: assume 16GB if we can't read system memory
-        tracing::warn!("Could not read system memory from /proc/meminfo, assuming 16GB");
+        tracing::warn!("Could not read system memory, assuming 16GB");
         16 * 1024
     }
 
@@ -348,4 +378,9 @@ impl SchedulerRuntime {
         }
         gpu_slots
     }
+}
+
+/// Returns true when running on Apple Silicon (macOS + aarch64).
+fn is_apple_silicon() -> bool {
+    cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64"
 }

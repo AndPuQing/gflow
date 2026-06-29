@@ -8,6 +8,7 @@ pub struct SchedulerBuilder {
     total_memory_mb: u64,
     allowed_gpu_indices: Option<Vec<u32>>,
     gpu_allocation_strategy: GpuAllocationStrategy,
+    unified_memory: bool,
 }
 
 impl SchedulerBuilder {
@@ -19,6 +20,7 @@ impl SchedulerBuilder {
             total_memory_mb: 16 * 1024,
             allowed_gpu_indices: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
+            unified_memory: false,
         }
     }
 
@@ -52,6 +54,11 @@ impl SchedulerBuilder {
         self
     }
 
+    pub fn with_unified_memory(mut self, unified: bool) -> Self {
+        self.unified_memory = unified;
+        self
+    }
+
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
@@ -65,6 +72,7 @@ impl SchedulerBuilder {
             next_job_id: 1,
             allowed_gpu_indices: self.allowed_gpu_indices,
             gpu_allocation_strategy: self.gpu_allocation_strategy,
+            unified_memory: self.unified_memory,
             user_jobs_index: HashMap::new(),
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),

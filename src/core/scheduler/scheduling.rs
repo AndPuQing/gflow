@@ -18,13 +18,41 @@ impl Scheduler {
         }
     }
 
+    /// Compute the effective host-memory footprint of a running job.
+    ///
+    /// In unified-memory mode (e.g. Apple Silicon), `gpu_memory_limit_mb` draws
+    /// from the same physical pool as `memory_limit_mb`, so we combine them.
+    /// In split-memory mode (NVIDIA), they are tracked separately and only
+    /// `memory_limit_mb` counts against the host pool.
+    fn effective_host_memory_mb(
+        unified_memory: bool,
+        memory_limit_mb: Option<u64>,
+        gpu_memory_limit_mb: Option<u64>,
+        gpus: u32,
+    ) -> u64 {
+        let base = memory_limit_mb.unwrap_or(0);
+        if unified_memory {
+            base + gpu_memory_limit_mb.unwrap_or(0) * gpus as u64
+        } else {
+            base
+        }
+    }
+
     /// Refresh available memory by calculating memory used by running jobs
     pub fn refresh_available_memory(&mut self) {
+        let unified = self.unified_memory;
         let memory_used: u64 = self
             .job_runtimes
             .iter()
             .filter(|rt| rt.state == JobState::Running)
-            .filter_map(|rt| rt.memory_limit_mb)
+            .map(|rt| {
+                Self::effective_host_memory_mb(
+                    unified,
+                    rt.memory_limit_mb,
+                    rt.gpu_memory_limit_mb,
+                    rt.gpus,
+                )
+            })
             .sum();
 
         self.available_memory_mb = self.total_memory_mb.saturating_sub(memory_used);
@@ -156,7 +184,12 @@ impl Scheduler {
                 gpu_sharing_mode,
                 requested_gpu_memory_mb,
             ) = if let Some(rt) = self.job_runtimes.get(idx) {
-                let required_memory = rt.memory_limit_mb.unwrap_or(0);
+                let required_memory = Self::effective_host_memory_mb(
+                    self.unified_memory,
+                    rt.memory_limit_mb,
+                    rt.gpu_memory_limit_mb,
+                    rt.gpus,
+                );
                 let has_enough_memory = required_memory <= available_memory;
 
                 // Access spec only for submitted_by (needed for reservation check)
@@ -401,9 +434,15 @@ impl Scheduler {
         for (job_id, result) in results {
             if result.is_err() {
                 let Some((had_gpus, required_memory)) = (|| {
+                    let unified = self.unified_memory;
                     let rt = self.get_job_runtime_mut(*job_id)?;
                     let had_gpus = rt.gpu_ids.take().is_some();
-                    let required_memory = rt.memory_limit_mb.unwrap_or(0);
+                    let required_memory = Self::effective_host_memory_mb(
+                        unified,
+                        rt.memory_limit_mb,
+                        rt.gpu_memory_limit_mb,
+                        rt.gpus,
+                    );
                     Some((had_gpus, required_memory))
                 })() else {
                     continue;
