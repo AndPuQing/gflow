@@ -78,7 +78,9 @@ impl SchedulerRuntime {
                     e
                 );
                 if is_apple_silicon() {
-                    tracing::info!("Apple Silicon detected; creating synthetic GPU slot with unified memory.");
+                    tracing::info!(
+                        "Apple Silicon detected; creating synthetic GPU slot with unified memory."
+                    );
                     let mut slots = HashMap::new();
                     slots.insert(
                         "apple-gpu-0".to_string(),
@@ -225,8 +227,9 @@ impl SchedulerRuntime {
 
         // macOS: use sysctl to read hw.memsize (bytes)
         if cfg!(target_os = "macos") {
-            if let Ok(output) =
-                std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output()
+            if let Ok(output) = std::process::Command::new("sysctl")
+                .args(["-n", "hw.memsize"])
+                .output()
             {
                 if let Ok(s) = std::str::from_utf8(&output.stdout) {
                     if let Ok(bytes) = s.trim().parse::<u64>() {
