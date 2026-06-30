@@ -659,7 +659,8 @@ async fn enters_journal_mode_and_does_not_overwrite_state_on_migration_failure()
     let journal_path = dir.path().join("state.journal.jsonl");
     let journal = std::fs::read_to_string(&journal_path).unwrap();
     assert!(journal.contains("\"kind\":\"snapshot\""));
-    assert!(journal.contains("\"jobs\""));
+    assert!(journal.contains("\"job_specs\""));
+    assert!(journal.contains("\"job_runtimes\""));
 
     // Sanity: scheduler is still usable for read paths (no panic on info).
     let _info = runtime.info();

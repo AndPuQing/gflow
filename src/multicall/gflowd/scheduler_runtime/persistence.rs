@@ -256,10 +256,15 @@ impl SchedulerRuntime {
             }
         }
 
+        // Serialize the split spec/runtime vectors directly (no clone) instead of
+        // materializing a legacy `Vec<Job>`. The deserializer accepts both the
+        // split format and the legacy `jobs` array, so this stays backward
+        // compatible with journals written by older versions.
         #[derive(serde::Serialize)]
         struct SchedulerSnapshot<'a> {
             version: u32,
-            jobs: Vec<Job>,
+            job_specs: &'a [gflow::core::job::JobSpec],
+            job_runtimes: &'a [gflow::core::job::JobRuntime],
             state_path: &'a std::path::PathBuf,
             next_job_id: u32,
             allowed_gpu_indices: Option<&'a Vec<u32>>,
@@ -284,7 +289,8 @@ impl SchedulerRuntime {
             kind: "snapshot",
             scheduler: SchedulerSnapshot {
                 version: self.scheduler.version,
-                jobs: self.scheduler.jobs_as_vec(),
+                job_specs: self.scheduler.job_specs(),
+                job_runtimes: self.scheduler.job_runtimes(),
                 state_path: self.scheduler.state_path(),
                 next_job_id: self.scheduler.next_job_id(),
                 allowed_gpu_indices: self.scheduler.allowed_gpu_indices(),
