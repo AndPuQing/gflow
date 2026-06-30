@@ -698,6 +698,11 @@ fn bench_job_counts_by_state(c: &mut Criterion) {
             }
         }
 
+        // The benchmark mutates `rt.state` directly (bypassing
+        // `transition_job_state`), so rebuild the indices to keep
+        // `state_jobs_index` consistent with the runtimes above.
+        scheduler.rebuild_user_jobs_index();
+
         group.bench_with_input(
             BenchmarkId::new("jobs", size),
             &scheduler,

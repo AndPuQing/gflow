@@ -590,11 +590,10 @@ impl Scheduler {
 
     /// Get count of jobs by state for monitoring
     pub fn get_job_counts_by_state(&self) -> std::collections::HashMap<JobState, usize> {
-        let mut counts = std::collections::HashMap::new();
-        for rt in &self.job_runtimes {
-            *counts.entry(rt.state).or_insert(0) += 1;
-        }
-        counts
+        self.state_jobs_index
+            .iter()
+            .map(|(&state, ids)| (state, ids.len()))
+            .collect()
     }
 
     /// Get all jobs submitted by a specific user using the index for O(n) performance
