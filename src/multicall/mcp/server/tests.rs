@@ -19,8 +19,7 @@ use std::time::{Duration, SystemTime};
 
 #[test]
 fn tool_schemas_are_exposed_for_object_outputs() {
-    let server = GflowMcpServer::new(None);
-    let tools = server.tool_router.list_all();
+    let tools = GflowMcpServer::tool_router().list_all();
 
     for tool_name in [
         "get_info",
@@ -413,8 +412,7 @@ fn update_job_rejects_notify_on_without_notify_email() {
 
 #[test]
 fn list_outputs_expose_object_schemas() {
-    let server = GflowMcpServer::new(None);
-    let tools = server.tool_router.list_all();
+    let tools = GflowMcpServer::tool_router().list_all();
 
     for tool_name in ["list_jobs", "list_reservations"] {
         let tool = tools

@@ -14,7 +14,7 @@ use clap_verbosity_flag::Verbosity;
 use gflow::client::UpdateJobResponse;
 use gflow::Client;
 use rmcp::{
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    handler::server::wrapper::Parameters,
     model::{CallToolResult, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
     transport::stdio,
@@ -37,16 +37,12 @@ use update::*;
 #[derive(Clone)]
 struct GflowMcpServer {
     config_path: Option<PathBuf>,
-    tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl GflowMcpServer {
     fn new(config_path: Option<PathBuf>) -> Self {
-        Self {
-            config_path,
-            tool_router: Self::tool_router(),
-        }
+        Self { config_path }
     }
 
     #[tool(
