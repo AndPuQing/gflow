@@ -59,6 +59,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Included examples of time limit usage in various scenarios
 - Added troubleshooting guide for timeout-related issues
 
+## [0.4.17] - 2026-07-24
+
+### Added
+- Added native macOS wheels for Apple Silicon (`aarch64`) and Intel (`x86_64`)
+  to the PyPI and nightly build matrices, with macOS included in the Rust test
+  matrix.
+- Added automatic Apple Silicon detection. On macOS `aarch64`, gflow exposes a
+  synthetic GPU slot and accounts host and GPU memory requests against the same
+  unified-memory pool.
+
+### Changed
+- Journal snapshots now serialize the scheduler's split job specification and
+  runtime vectors directly, reducing snapshot allocation and serialization
+  overhead. Existing snapshots using the legacy `jobs` array remain readable.
+- Scheduler state counts now use the maintained state index instead of scanning
+  every job.
+- Upgraded the MCP server to rmcp v2 and migrated its tool router while keeping
+  the existing gflow tool names, inputs, and output schemas.
+- Upgraded `compact_str` to 0.10, `mockall` to 0.15, TypeScript to 7, and the
+  `astral-sh/setup-uv` action to 8.3.2.
+
+### Compatibility
+- This is a backward-compatible patch release: CLI commands, HTTP endpoints,
+  MCP tools, and configuration formats are unchanged.
+- Existing state and journal files do not require migration. Legacy scheduler
+  snapshots are converted by the existing compatibility reader.
+
+### Known Limitations
+- Apple Silicon is represented as one logical GPU slot because per-device VRAM
+  is not exposed through NVML; memory scheduling therefore uses total system
+  unified memory and the limits declared on each job.
+- The macOS wheel and Apple Silicon paths are new in this release and must pass
+  the release candidate's macOS CI jobs before the release is tagged.
+
 ## [0.3.12] - Previous Release
 
 ### Features
