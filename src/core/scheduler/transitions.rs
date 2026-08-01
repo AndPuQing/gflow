@@ -566,6 +566,7 @@ impl Scheduler {
             match next {
                 JobState::Queued => self.refresh_job_readiness(job_id),
                 JobState::Finished | JobState::Failed | JobState::Cancelled | JobState::Timeout => {
+                    self.credit_fair_share_usage(job_id);
                     if propagate_terminal_state {
                         self.propagate_terminal_state_to_dependents(job_id, next);
                     }
@@ -584,6 +585,49 @@ impl Scheduler {
         reason: Option<JobStateReason>,
     ) -> Option<bool> {
         self.transition_job_state_internal(job_id, next, reason, true)
+    }
+
+    /// Credit a terminal job's GPU-time to its submitter's fair-share usage.
+    ///
+    /// Called when a job reaches a terminal state. Jobs that never ran (no
+    /// `started_at`) or requested no GPUs contribute nothing. The existing
+    /// accumulated usage is decayed forward to `now` before adding the new
+    /// GPU-seconds (`gpus * runtime`).
+    fn credit_fair_share_usage(&mut self, job_id: u32) {
+        let now = current_unix_secs();
+        let half_life = self.fair_share_half_life_secs;
+
+        let (user, gpu_seconds) = match self.get_job_parts(job_id) {
+            Some((spec, rt)) => {
+                if rt.gpus == 0 {
+                    return;
+                }
+                let Some(started) = rt.started_at else {
+                    return; // never ran -> no GPU-time to credit
+                };
+                let finished = rt.finished_at.unwrap_or_else(std::time::SystemTime::now);
+                let secs = finished
+                    .duration_since(started)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                if secs <= 0.0 {
+                    return;
+                }
+                (spec.submitted_by.clone(), rt.gpus as f64 * secs)
+            }
+            None => return,
+        };
+
+        let entry = self
+            .fair_share_usage
+            .entry(user)
+            .or_insert_with(|| FairShareUsage {
+                usage: 0.0,
+                last_update: now,
+            });
+        entry.usage = entry.decayed_to(now, half_life) + gpu_seconds;
+        entry.last_update = now;
     }
 
     pub fn finish_job(&mut self, job_id: u32) -> Option<(bool, Option<String>)> {

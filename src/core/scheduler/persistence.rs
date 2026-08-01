@@ -71,6 +71,8 @@ struct SchedulerSerde {
     pub(crate) allowed_gpu_indices: Option<Vec<u32>>,
     pub reservations: Vec<GpuReservation>,
     pub next_reservation_id: u32,
+    #[serde(default)]
+    pub(crate) fair_share_usage: HashMap<CompactString, FairShareUsage>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +97,7 @@ impl Default for SchedulerSerde {
             allowed_gpu_indices: None,
             reservations: Vec::new(),
             next_reservation_id: 1,
+            fair_share_usage: HashMap::new(),
         }
     }
 }
@@ -121,6 +124,9 @@ impl Default for Scheduler {
             dependency_runtimes: Vec::new(),
             ready_heap: std::collections::BinaryHeap::new(),
             group_running_count: HashMap::new(),
+            fair_share_usage: HashMap::new(),
+            fair_share_enabled: true,
+            fair_share_half_life_secs: crate::core::scheduler::DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
             reservations: Vec::new(),
             next_reservation_id: 1,
         }
@@ -201,6 +207,9 @@ impl<'de> Deserialize<'de> for Scheduler {
             dependency_runtimes: Vec::new(),
             ready_heap: std::collections::BinaryHeap::new(),
             group_running_count: HashMap::new(),
+            fair_share_usage: persisted.fair_share_usage,
+            fair_share_enabled: true,
+            fair_share_half_life_secs: crate::core::scheduler::DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
             reservations: persisted.reservations,
             next_reservation_id: persisted.next_reservation_id,
         };
@@ -224,6 +233,7 @@ impl Scheduler {
         self.allowed_gpu_indices = loaded.allowed_gpu_indices;
         self.reservations = std::mem::take(&mut loaded.reservations);
         self.next_reservation_id = loaded.next_reservation_id;
+        self.fair_share_usage = std::mem::take(&mut loaded.fair_share_usage);
 
         self.state_path = state_path;
     }

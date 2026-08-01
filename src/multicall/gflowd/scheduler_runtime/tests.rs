@@ -32,6 +32,7 @@ fn list_ignored_gpu_processes_is_sorted() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -79,6 +80,7 @@ async fn rejects_whitespace_project_when_project_is_required() {
             known_projects: vec![],
             require_project: true,
         },
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -110,6 +112,7 @@ async fn batch_project_validation_is_all_or_nothing() {
             known_projects: vec!["alpha".to_string()],
             require_project: true,
         },
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -140,6 +143,7 @@ async fn rejects_shared_job_without_gpu_memory_limit() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -168,6 +172,7 @@ async fn normalizes_custom_run_name_for_tmux_targets() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -193,6 +198,7 @@ async fn prefixes_custom_run_names_with_job_id_to_avoid_collisions() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -223,6 +229,7 @@ async fn batch_submit_assigns_unique_default_run_names() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -257,6 +264,7 @@ async fn batch_submit_assigns_unique_custom_run_names() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -293,6 +301,7 @@ async fn rejects_updating_shared_job_to_clear_gpu_memory_limit() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -342,6 +351,7 @@ async fn updates_job_notifications() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -400,6 +410,7 @@ async fn fail_job_creates_retry_attempt_and_retargets_queued_dependents() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -448,6 +459,7 @@ async fn explicit_fail_job_does_not_spawn_retry_attempt() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -476,6 +488,7 @@ async fn manual_redo_lineage_does_not_consume_automatic_retry_budget() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -514,6 +527,7 @@ async fn sibling_manual_redos_do_not_share_automatic_retry_budget() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -564,6 +578,7 @@ async fn timeout_does_not_spawn_retry_attempt() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -638,6 +653,7 @@ async fn enters_journal_mode_and_does_not_overwrite_state_on_migration_failure()
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 
@@ -735,6 +751,7 @@ async fn prefers_newer_journal_snapshot_and_truncates_after_state_save() {
         None,
         gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
         gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
     )
     .unwrap();
 

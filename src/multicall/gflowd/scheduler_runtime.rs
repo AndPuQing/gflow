@@ -65,6 +65,7 @@ impl SchedulerRuntime {
         allowed_gpu_indices: Option<Vec<u32>>,
         gpu_allocation_strategy: gflow::core::gpu_allocation::GpuAllocationStrategy,
         projects_config: gflow::config::ProjectsConfig,
+        fair_share: gflow::config::FairShareConfig,
     ) -> anyhow::Result<Self> {
         // Try to initialize NVML, but continue without it if it fails
         let (nvml, gpu_slots) = match Nvml::init() {
@@ -147,6 +148,7 @@ impl SchedulerRuntime {
             .with_allowed_gpu_indices(validated_gpu_indices)
             .with_gpu_allocation_strategy(gpu_allocation_strategy)
             .with_unified_memory(unified_memory)
+            .with_fair_share(fair_share.enabled, fair_share.half_life_secs as f64)
             .build();
 
         let mut runtime = Self {

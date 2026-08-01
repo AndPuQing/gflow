@@ -40,6 +40,10 @@ pub struct DaemonConfig {
     #[serde(default = "default_gpu_poll_interval_secs")]
     #[serde(skip_serializing_if = "is_default_gpu_poll_interval_secs")]
     pub gpu_poll_interval_secs: u64,
+    /// Fair-share scheduling settings.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "FairShareConfig::is_default")]
+    pub fair_share: FairShareConfig,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -104,6 +108,50 @@ impl ProjectsConfig {
     fn is_default(value: &Self) -> bool {
         value.known_projects.is_empty() && !value.require_project
     }
+}
+
+/// Fair-share scheduling: reorder jobs within the same priority band so that
+/// users who have consumed less GPU-time recently are scheduled first.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FairShareConfig {
+    /// Whether fair-share reordering influences scheduling (default: true).
+    /// Accounting of historical usage happens regardless of this flag.
+    #[serde(default = "default_fair_share_enabled")]
+    pub enabled: bool,
+    /// Half-life (in seconds) for the exponential decay of historical GPU-time
+    /// usage (default: 7 days). Smaller values make scheduling react faster to
+    /// recent usage; larger values smooth fairness over a longer window.
+    #[serde(default = "default_fair_share_half_life_secs")]
+    #[serde(skip_serializing_if = "is_default_fair_share_half_life_secs")]
+    pub half_life_secs: u64,
+}
+
+impl Default for FairShareConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_fair_share_enabled(),
+            half_life_secs: default_fair_share_half_life_secs(),
+        }
+    }
+}
+
+impl FairShareConfig {
+    fn is_default(value: &Self) -> bool {
+        value.enabled == default_fair_share_enabled()
+            && value.half_life_secs == default_fair_share_half_life_secs()
+    }
+}
+
+fn default_fair_share_enabled() -> bool {
+    true
+}
+
+fn default_fair_share_half_life_secs() -> u64 {
+    7 * 24 * 3600
+}
+
+fn is_default_fair_share_half_life_secs(v: &u64) -> bool {
+    *v == default_fair_share_half_life_secs()
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -206,6 +254,7 @@ impl Default for DaemonConfig {
             gpus: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             gpu_poll_interval_secs: default_gpu_poll_interval_secs(),
+            fair_share: FairShareConfig::default(),
         }
     }
 }
@@ -291,6 +340,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.daemon.gpu_poll_interval_secs, 3);
+    }
+
+    #[test]
+    fn fair_share_defaults_are_sane() {
+        let fs = FairShareConfig::default();
+        assert!(fs.enabled);
+        assert_eq!(fs.half_life_secs, 7 * 24 * 3600);
+    }
+
+    #[test]
+    fn environment_source_applies_fair_share_settings() {
+        let mut env = config::Map::new();
+        env.insert(
+            "GFLOW_DAEMON__FAIR_SHARE__ENABLED".to_string(),
+            "false".to_string(),
+        );
+        env.insert(
+            "GFLOW_DAEMON__FAIR_SHARE__HALF_LIFE_SECS".to_string(),
+            "3600".to_string(),
+        );
+
+        let config = config::Config::builder()
+            .add_source(environment_source(Some(env)))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert!(!config.daemon.fair_share.enabled);
+        assert_eq!(config.daemon.fair_share.half_life_secs, 3600);
     }
 
     #[test]

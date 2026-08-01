@@ -139,6 +139,40 @@ For GPU poll interval:
 3. Config file (`daemon.gpu_poll_interval_secs = ...`)
 4. Default: `10`
 
+#### Fair-Share Scheduling
+
+On a shared workstation, fair-share scheduling reorders queued jobs so that
+users who have consumed less GPU-time recently are scheduled sooner. It only
+reorders jobs **within the same priority band** — a higher `priority` always
+wins — and never overrides hard limits (group concurrency caps, reservations,
+memory/GPU availability).
+
+Historical usage is tracked per user as GPU-seconds (`gpus × runtime`) and
+decays exponentially with a configurable half-life, so recent usage matters
+more than old usage. Usage accounting is persisted across daemon restarts.
+
+Config file:
+
+```toml
+[daemon.fair_share]
+enabled = true        # default: true
+half_life_secs = 604800 # default: 7 days
+```
+
+- `enabled`: whether fair-share reordering influences scheduling. Usage is
+  accounted regardless, so enabling it later already has history available.
+- `half_life_secs`: decay half-life for historical usage. Smaller values react
+  faster to recent usage; larger values smooth fairness over a longer window.
+
+Environment variables (override config):
+
+```bash
+GFLOW_DAEMON__FAIR_SHARE__ENABLED=false
+GFLOW_DAEMON__FAIR_SHARE__HALF_LIFE_SECS=86400
+```
+
+With a single user, fair-share has no observable effect.
+
 ## Timezone
 
 Configure timezone for displaying and parsing reservation times.
