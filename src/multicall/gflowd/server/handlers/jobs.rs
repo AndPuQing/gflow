@@ -653,6 +653,152 @@ pub(in crate::multicall::gflowd::server) async fn get_job_log(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub(in crate::multicall::gflowd::server) struct JobLogContentQuery {
+    /// Maximum number of trailing lines to return.
+    tail: Option<usize>,
+    /// Maximum number of trailing bytes read from the file.
+    max_bytes: Option<usize>,
+}
+
+#[derive(serde::Serialize)]
+pub(in crate::multicall::gflowd::server) struct JobLogContent {
+    job_id: u32,
+    path: String,
+    /// Total size of the log file in bytes.
+    size: u64,
+    /// Whether the content was truncated (by bytes or by lines).
+    truncated: bool,
+    content: String,
+}
+
+const DEFAULT_LOG_MAX_BYTES: usize = 256 * 1024;
+const MAX_LOG_MAX_BYTES: usize = 4 * 1024 * 1024;
+const DEFAULT_LOG_TAIL_LINES: usize = 1000;
+const MAX_LOG_TAIL_LINES: usize = 20_000;
+
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn get_job_log_content(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+    axum::extract::Query(params): axum::extract::Query<JobLogContentQuery>,
+) -> Response {
+    let state = server_state.scheduler.read().await;
+
+    // Check if job exists in memory
+    if state.get_job(id).is_none() {
+        return (StatusCode::NOT_FOUND, Json(None::<()>)).into_response();
+    }
+
+    let path = match gflow::paths::get_log_file_path(id) {
+        Ok(path) => path,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(None::<()>)).into_response(),
+    };
+
+    // Never serve files outside the log directory
+    let data_dir = match gflow::paths::get_data_dir() {
+        Ok(data_dir) => data_dir,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(None::<()>)).into_response(),
+    };
+    if !path.starts_with(data_dir.join("logs")) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(None::<()>)).into_response();
+    }
+    if !path.exists() {
+        return (StatusCode::NOT_FOUND, Json(None::<()>)).into_response();
+    }
+
+    let max_bytes = params
+        .max_bytes
+        .unwrap_or(DEFAULT_LOG_MAX_BYTES)
+        .clamp(1, MAX_LOG_MAX_BYTES);
+    let tail_lines = params
+        .tail
+        .unwrap_or(DEFAULT_LOG_TAIL_LINES)
+        .clamp(1, MAX_LOG_TAIL_LINES);
+
+    match read_log_tail(&path, max_bytes, tail_lines).await {
+        Ok((size, view)) => (
+            StatusCode::OK,
+            Json(Some(JobLogContent {
+                job_id: id,
+                path: path.display().to_string(),
+                size,
+                truncated: view.truncated,
+                content: view.content,
+            })),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::warn!(job_id = id, %error, "Failed to read job log");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None::<()>)).into_response()
+        }
+    }
+}
+
+/// A tail view of a log file.
+#[derive(Debug, PartialEq)]
+struct LogView {
+    content: String,
+    truncated: bool,
+}
+
+/// Read up to the last `max_bytes` of the file and keep the last `tail_lines`
+/// lines of that slice.
+async fn read_log_tail(
+    path: &std::path::Path,
+    max_bytes: usize,
+    tail_lines: usize,
+) -> anyhow::Result<(u64, LogView)> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let mut file = tokio::fs::File::open(path).await?;
+    let size = file.metadata().await?.len();
+
+    let read_bytes = (size as usize).min(max_bytes);
+    let started_mid_file = (size as usize) > read_bytes;
+    if started_mid_file {
+        file.seek(std::io::SeekFrom::End(-(read_bytes as i64)))
+            .await?;
+    }
+
+    let mut buffer = Vec::with_capacity(read_bytes);
+    file.read_to_end(&mut buffer).await?;
+
+    let raw = String::from_utf8_lossy(&buffer);
+    let view = extract_log_view(&raw, started_mid_file, tail_lines);
+    Ok((size, view))
+}
+
+/// Reduce a (possibly partial) log slice to its trailing lines.
+///
+/// When `started_mid_file` is set, the first line is likely partial and is
+/// dropped so callers never see a cut-off line.
+fn extract_log_view(raw: &str, started_mid_file: bool, tail_lines: usize) -> LogView {
+    let text = if started_mid_file {
+        raw.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
+    } else {
+        raw
+    };
+
+    let total_lines = text.lines().count();
+    if total_lines <= tail_lines {
+        return LogView {
+            content: text.to_string(),
+            truncated: started_mid_file,
+        };
+    }
+
+    let content = text
+        .lines()
+        .skip(total_lines - tail_lines)
+        .collect::<Vec<_>>()
+        .join("\n");
+    LogView {
+        content,
+        truncated: true,
+    }
+}
+
 #[axum::debug_handler]
 pub(in crate::multicall::gflowd::server) async fn fail_job(
     State(server_state): State<ServerState>,
@@ -1213,4 +1359,68 @@ pub(in crate::multicall::gflowd::server) async fn set_group_max_concurrency(
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_log_view_keeps_full_text_when_under_limit() {
+        let view = extract_log_view("line1\nline2\n", false, 10);
+        assert_eq!(view.content, "line1\nline2\n");
+        assert!(!view.truncated);
+    }
+
+    #[test]
+    fn extract_log_view_keeps_only_trailing_lines() {
+        let raw = "a\nb\nc\nd\n";
+        let view = extract_log_view(raw, false, 2);
+        assert_eq!(view.content, "c\nd");
+        assert!(view.truncated);
+    }
+
+    #[test]
+    fn extract_log_view_drops_partial_first_line_when_started_mid_file() {
+        let raw = "partial-line\nc\nd\n";
+        let view = extract_log_view(raw, true, 10);
+        assert_eq!(view.content, "c\nd\n");
+        assert!(view.truncated);
+    }
+
+    #[test]
+    fn extract_log_view_marks_truncation_even_when_lines_fit() {
+        let raw = "partial\nc\nd\n";
+        let view = extract_log_view(raw, true, 100);
+        assert!(view.truncated);
+    }
+
+    #[tokio::test]
+    async fn read_log_tail_reads_entire_small_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("1.log");
+        std::fs::write(&path, "hello\nworld\n").unwrap();
+
+        let (size, view) = read_log_tail(&path, 1024, 100).await.unwrap();
+        assert_eq!(size, 12);
+        assert_eq!(view.content, "hello\nworld\n");
+        assert!(!view.truncated);
+    }
+
+    #[tokio::test]
+    async fn read_log_tail_caps_bytes_and_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("2.log");
+        let lines: Vec<String> = (0..100).map(|i| format!("line-{i:03}")).collect();
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        // Byte cap cuts the file; line cap keeps only the last 5 lines.
+        let (size, view) = read_log_tail(&path, 64, 5).await.unwrap();
+        assert!(size > 64);
+        assert!(view.truncated);
+        assert_eq!(
+            view.content,
+            "line-095\nline-096\nline-097\nline-098\nline-099"
+        );
+    }
 }

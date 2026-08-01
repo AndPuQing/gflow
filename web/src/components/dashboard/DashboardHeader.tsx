@@ -1,0 +1,82 @@
+import { RefreshCw, Server } from "lucide-react"
+
+import type { ConnectionStatus } from "@/hooks/useDashboard"
+import { formatClock } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+
+const connectionBadge: Record<ConnectionStatus, { label: string; className: string }> = {
+  live: {
+    label: "Live",
+    className:
+      "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  },
+  polling: {
+    label: "Polling",
+    className:
+      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  },
+  connecting: {
+    label: "Connecting",
+    className: "bg-muted text-muted-foreground",
+  },
+}
+
+export function DashboardHeader({
+  gpuCount,
+  jobCount,
+  lastUpdated,
+  connection,
+  refreshing,
+  onRefresh,
+}: {
+  gpuCount: number
+  jobCount: number
+  lastUpdated: Date | null
+  connection: ConnectionStatus
+  refreshing: boolean
+  onRefresh: () => void
+}) {
+  const badge = connectionBadge[connection]
+
+  return (
+    <header className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Server className="size-4" />
+          <span>runqd</span>
+        </div>
+        <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
+          Scheduler Console
+        </h1>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="bg-background">
+            {gpuCount} GPUs
+          </Badge>
+          <Badge variant="outline" className="bg-background">
+            {jobCount} jobs loaded
+          </Badge>
+          <Badge variant="outline" className={cn("gap-1.5", badge.className)}>
+            <span
+              className={cn(
+                "size-1.5 rounded-full bg-current",
+                connection === "live" && "animate-pulse",
+              )}
+            />
+            {badge.label}
+          </Badge>
+          {lastUpdated ? (
+            <span className="text-xs text-muted-foreground">
+              Updated {formatClock(lastUpdated)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <Button onClick={onRefresh} disabled={refreshing} size="sm" className="w-fit">
+        <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
+        {refreshing ? "Refreshing" : "Refresh"}
+      </Button>
+    </header>
+  )
+}

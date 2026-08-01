@@ -15,6 +15,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/info': 'http://127.0.0.1:59000',
+      '/events': 'http://127.0.0.1:59000',
       '/jobs': 'http://127.0.0.1:59000',
       '/stats': 'http://127.0.0.1:59000',
       '/reservations': 'http://127.0.0.1:59000',

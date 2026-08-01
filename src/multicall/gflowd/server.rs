@@ -154,6 +154,8 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/{id}/hold", post(handlers::hold_job))
         .route("/jobs/{id}/release", post(handlers::release_job))
         .route("/jobs/{id}/log", get(handlers::get_job_log))
+        .route("/jobs/{id}/log/content", get(handlers::get_job_log_content))
+        .route("/events", get(handlers::events_stream))
         .route("/info", get(handlers::info))
         .route("/health", get(handlers::get_health))
         .route("/gpus", post(handlers::set_allowed_gpus))

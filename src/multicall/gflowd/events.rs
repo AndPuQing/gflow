@@ -10,7 +10,8 @@ use tokio::sync::broadcast;
 use tracing::Span;
 
 /// Events that can occur in the scheduler
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 #[allow(dead_code)] // Some variants/fields are reserved for future use
 pub enum SchedulerEvent {
     /// A job's state has changed
@@ -215,5 +216,25 @@ mod tests {
         let bus = EventBus::new(100);
         // Publishing without subscribers should not panic
         bus.publish(SchedulerEvent::JobSubmitted { job_id: 1 });
+    }
+
+    #[test]
+    fn test_event_serializes_with_snake_case_type_tag() {
+        // The /events SSE stream relies on this wire format.
+        let json = serde_json::to_value(SchedulerEvent::JobStateChanged {
+            job_id: 7,
+            old_state: JobState::Queued,
+            new_state: JobState::Running,
+            reason: None,
+        })
+        .unwrap();
+
+        assert_eq!(json["type"], "job_state_changed");
+        assert_eq!(json["job_id"], 7);
+        assert_eq!(json["old_state"], "Queued");
+        assert_eq!(json["new_state"], "Running");
+
+        let json = serde_json::to_value(SchedulerEvent::DaemonStarted).unwrap();
+        assert_eq!(json["type"], "daemon_started");
     }
 }

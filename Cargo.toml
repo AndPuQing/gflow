@@ -62,6 +62,7 @@ tokio = { version = "1.43.0", default-features = false, features = [
     "signal",
     "io-util"
 ] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 clap = { version = "4.5.28", features = ["cargo", "derive"] }
 clap_complete = "4.5.44"
 tracing = "0.1.40"
