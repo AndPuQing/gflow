@@ -76,6 +76,14 @@ export type IgnoredGpuProcess = {
   pid: number
 }
 
+export type JobLogContent = {
+  job_id: number
+  path: string
+  size: number
+  truncated: boolean
+  content: string
+}
+
 export type ApiTime =
   | string
   | number
@@ -103,6 +111,10 @@ export async function fetchJson<T>(path: string): Promise<T> {
   }
 
   return response.json() as Promise<T>
+}
+
+export function fetchJobLogContent(jobId: number, tail = 1000): Promise<JobLogContent> {
+  return fetchJson<JobLogContent>(`/jobs/${jobId}/log/content?tail=${tail}`)
 }
 
 export function unwrapError(error: unknown): string {
