@@ -139,6 +139,37 @@ GPU 轮询间隔优先级（从高到低）：
 3. 配置文件（`daemon.gpu_poll_interval_secs = ...`）
 4. 默认：`10`
 
+#### 公平调度（Fair-Share）
+
+在共享工作站上，公平调度会重新排列排队中的作业，让近期消耗 GPU 时间更少的
+用户优先被调度。它只在**相同优先级带内**重排——`priority` 更高的作业永远优先——
+并且不会突破硬性限制（组并发上限、reservations、内存 / GPU 可用性）。
+
+历史用量按用户以 GPU-秒（`gpus × runtime`）累计，并按可配置的半衰期指数衰减，
+因此近期用量比久远用量权重更高。用量统计会持久化，重启守护进程后依然保留。
+
+配置文件：
+
+```toml
+[daemon.fair_share]
+enabled = true        # 默认：true
+half_life_secs = 604800 # 默认：7 天
+```
+
+- `enabled`：公平重排是否影响调度。无论开关与否都会记账，因此之后再用
+  开启时已经积累了历史数据。
+- `half_life_secs`：历史用量的衰减半衰期。值越小对近期用量反应越快，
+  值越大则在更长的窗口内平滑公平性。
+
+环境变量（覆盖配置）：
+
+```bash
+GFLOW_DAEMON__FAIR_SHARE__ENABLED=false
+GFLOW_DAEMON__FAIR_SHARE__HALF_LIFE_SECS=86400
+```
+
+单用户场景下，公平调度没有可观察的效果。
+
 ## 时区
 
 配置预约时间的显示和解析时区。

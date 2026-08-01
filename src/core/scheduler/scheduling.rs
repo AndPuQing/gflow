@@ -166,6 +166,20 @@ impl Scheduler {
             runnable_jobs.push(entry.job_id);
         }
 
+        // Apply fair-share reordering. The ready heap orders jobs by static keys
+        // (priority, time bonus, FIFO) captured at enqueue time; fair-share is
+        // dynamic, so after draining the heap we recompute each user's current
+        // factor and re-sort the feasible set. This only reorders jobs within a
+        // priority band — hard constraints (group concurrency limits,
+        // reservations, memory/GPU availability) are still enforced per job below.
+        if self.fair_share_enabled {
+            let factors = self.fair_share_factors(current_unix_secs());
+            runnable_jobs.sort_by(|&a, &b| {
+                self.fair_share_sort_key(b, &factors)
+                    .cmp(&self.fair_share_sort_key(a, &factors))
+            });
+        }
+
         // Allocate resources for runnable jobs
         let mut available_memory = self.available_memory_mb;
         for job_id in runnable_jobs {
@@ -398,6 +412,80 @@ impl Scheduler {
             .into_iter()
             .filter_map(|id| self.get_job(id))
             .collect()
+    }
+
+    /// Compute a fair-share factor in `(0, 1]` for each user, combining decayed
+    /// historical usage with live usage from currently running jobs. A higher
+    /// factor means the user is more underserved and should be scheduled sooner.
+    ///
+    /// The factor is `2^(-level)` where `level = (usage / total_usage) * N` and
+    /// `N` is the number of users with usage: a user at exactly their fair share
+    /// (1/N of total) has level 1 (factor 0.5), an idle user approaches 1, and a
+    /// resource hog approaches 0. With no recorded usage every user maps to 1.0,
+    /// which falls back to the existing ordering. Users absent from the returned
+    /// map (brand-new users) should be treated as factor 1.0 by callers.
+    pub(super) fn fair_share_factors(&self, now: i64) -> HashMap<CompactString, f64> {
+        let half_life = self.fair_share_half_life_secs;
+
+        // Effective usage = decayed historical credit + live running usage.
+        let mut effective: HashMap<CompactString, f64> = HashMap::new();
+        for (user, usage) in &self.fair_share_usage {
+            let decayed = usage.decayed_to(now, half_life);
+            if decayed > 0.0 {
+                *effective.entry(user.clone()).or_insert(0.0) += decayed;
+            }
+        }
+
+        for (idx, rt) in self.job_runtimes.iter().enumerate() {
+            if rt.state != JobState::Running || rt.gpus == 0 {
+                continue;
+            }
+            let Some(started) = rt.started_at else {
+                continue;
+            };
+            let Some(spec) = self.job_specs.get(idx) else {
+                continue;
+            };
+            let started_unix = started
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(now);
+            let elapsed = (now - started_unix).max(0) as f64;
+            *effective.entry(spec.submitted_by.clone()).or_insert(0.0) += rt.gpus as f64 * elapsed;
+        }
+
+        let total: f64 = effective.values().sum();
+        let n = effective.len();
+        effective
+            .into_iter()
+            .map(|(user, usage)| {
+                let factor = if total <= f64::EPSILON || n == 0 {
+                    1.0
+                } else {
+                    let level = (usage / total) * n as f64;
+                    2.0_f64.powf(-level)
+                };
+                (user, factor)
+            })
+            .collect()
+    }
+
+    /// Composite ordering key for fair-share scheduling: priority band first,
+    /// then fair-share factor (higher = more underserved), then the existing
+    /// time bonus and FIFO tie-breakers. The factor is quantized to an integer
+    /// so the key stays `Ord` without a float-ordering dependency.
+    fn fair_share_sort_key(
+        &self,
+        job_id: u32,
+        factors: &HashMap<CompactString, f64>,
+    ) -> (u8, u64, u32, std::cmp::Reverse<u32>) {
+        let Some((spec, rt)) = self.get_job_parts(job_id) else {
+            return (0, 0, 0, std::cmp::Reverse(job_id));
+        };
+        let factor = factors.get(&spec.submitted_by).copied().unwrap_or(1.0);
+        let factor_q = (factor.clamp(0.0, 1.0) * 1_000_000_000.0) as u64;
+        let time_bonus = Self::calculate_time_bonus(&rt.time_limit);
+        (rt.priority, factor_q, time_bonus, std::cmp::Reverse(job_id))
     }
 
     /// Phase 2: Execute jobs (call executor - can be done WITHOUT holding lock)

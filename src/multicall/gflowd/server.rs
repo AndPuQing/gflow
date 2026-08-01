@@ -59,6 +59,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         allowed_gpus,
         gpu_allocation_strategy,
         config.projects.clone(),
+        config.daemon.fair_share.clone(),
     )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
 

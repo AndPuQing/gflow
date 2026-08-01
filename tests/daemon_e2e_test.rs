@@ -205,6 +205,7 @@ impl TestSandbox {
                 gpus: None,
                 gpu_allocation_strategy: Default::default(),
                 gpu_poll_interval_secs: 10,
+                fair_share: Default::default(),
             },
             ..Default::default()
         }

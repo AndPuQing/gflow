@@ -730,6 +730,7 @@ mod tests {
             None,
             gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
             gflow::config::ProjectsConfig::default(),
+            gflow::config::FairShareConfig::default(),
         )
         .unwrap();
 

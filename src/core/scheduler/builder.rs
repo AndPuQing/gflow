@@ -9,6 +9,8 @@ pub struct SchedulerBuilder {
     allowed_gpu_indices: Option<Vec<u32>>,
     gpu_allocation_strategy: GpuAllocationStrategy,
     unified_memory: bool,
+    fair_share_enabled: bool,
+    fair_share_half_life_secs: f64,
 }
 
 impl SchedulerBuilder {
@@ -21,6 +23,8 @@ impl SchedulerBuilder {
             allowed_gpu_indices: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             unified_memory: false,
+            fair_share_enabled: true,
+            fair_share_half_life_secs: DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
         }
     }
 
@@ -59,6 +63,17 @@ impl SchedulerBuilder {
         self
     }
 
+    /// Configure fair-share scheduling.
+    ///
+    /// `enabled` controls whether historical usage reorders jobs within a
+    /// priority band; `half_life_secs` is the exponential decay half-life for
+    /// usage accounting.
+    pub fn with_fair_share(mut self, enabled: bool, half_life_secs: f64) -> Self {
+        self.fair_share_enabled = enabled;
+        self.fair_share_half_life_secs = half_life_secs;
+        self
+    }
+
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
@@ -80,6 +95,9 @@ impl SchedulerBuilder {
             dependency_runtimes: Vec::new(),
             ready_heap: std::collections::BinaryHeap::new(),
             group_running_count: HashMap::new(),
+            fair_share_usage: HashMap::new(),
+            fair_share_enabled: self.fair_share_enabled,
+            fair_share_half_life_secs: self.fair_share_half_life_secs,
             reservations: Vec::new(),
             next_reservation_id: 1,
         }

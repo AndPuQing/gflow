@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Fair-Share Scheduling**: reorder queued jobs so users with less recent GPU-time usage are scheduled first
+  - Slurm-style exponentially decayed per-user GPU-time accounting (`gpus × runtime`), persisted across restarts
+  - Reorders only within the same priority band; never overrides group concurrency limits, reservations, or resource availability
+  - Live usage from running jobs is counted so long-running jobs lower their owner's share immediately
+  - New `[daemon.fair_share]` config: `enabled` (default `true`) and `half_life_secs` (default 7 days), also settable via `GFLOW_DAEMON__FAIR_SHARE__*` env vars
+
 - **Job Time Limits**: Comprehensive support for setting maximum runtime for jobs
   - New `--time` / `-t` parameter for `gbatch` command
   - Support for multiple time formats: `HH:MM:SS`, `MM:SS`, and `MM` (minutes)

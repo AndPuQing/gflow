@@ -29,6 +29,18 @@ mod transitions;
 
 pub use builder::SchedulerBuilder;
 
+/// Default fair-share usage half-life: 7 days (in seconds), matching Slurm's
+/// `PriorityDecayHalfLife` default.
+pub(crate) const DEFAULT_FAIR_SHARE_HALF_LIFE_SECS: f64 = 7.0 * 24.0 * 3600.0;
+
+/// Current wall-clock time as Unix seconds (for fair-share decay accounting).
+pub(crate) fn current_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DependencyRuntime {
     pub total: u32,
@@ -67,6 +79,37 @@ impl Ord for ReadyEntry {
 impl PartialOrd for ReadyEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+/// Decayed historical GPU-time usage for a single user, used for fair-share
+/// scheduling. `usage` holds GPU-seconds already decayed as of `last_update`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct FairShareUsage {
+    /// Decayed cumulative GPU-seconds (gpus * runtime) credited to this user.
+    pub usage: f64,
+    /// Unix timestamp (seconds) at which `usage` was last decayed/updated.
+    pub last_update: i64,
+}
+
+impl Default for FairShareUsage {
+    fn default() -> Self {
+        Self {
+            usage: 0.0,
+            last_update: 0,
+        }
+    }
+}
+
+impl FairShareUsage {
+    /// Return the stored usage decayed forward to `now` using an exponential
+    /// half-life: `usage * 2^(-dt / half_life_secs)`.
+    pub(crate) fn decayed_to(&self, now: i64, half_life_secs: f64) -> f64 {
+        if half_life_secs <= 0.0 {
+            return 0.0;
+        }
+        let dt = (now - self.last_update).max(0) as f64;
+        self.usage * 2.0_f64.powf(-dt / half_life_secs)
     }
 }
 
@@ -127,6 +170,17 @@ pub struct Scheduler {
     /// Maps group_id -> count of running jobs in that group
     #[serde(skip)]
     pub(crate) group_running_count: HashMap<uuid::Uuid, usize>,
+    /// Per-user decayed historical GPU-time usage for fair-share scheduling.
+    /// Maps username -> FairShareUsage. Persisted so fairness survives restarts
+    /// and independent of job-history retention.
+    #[serde(default)]
+    pub(crate) fair_share_usage: HashMap<CompactString, FairShareUsage>,
+    /// Whether fair-share reordering influences scheduling (runtime config).
+    #[serde(skip)]
+    pub(crate) fair_share_enabled: bool,
+    /// Half-life (seconds) for fair-share usage decay (runtime config).
+    #[serde(skip)]
+    pub(crate) fair_share_half_life_secs: f64,
     /// GPU reservations
     pub reservations: Vec<GpuReservation>,
     /// Next reservation ID
@@ -532,6 +586,213 @@ mod tests {
         assert_eq!(prepared_after_finish.len(), 1);
         assert_eq!(prepared_after_finish[0].id, exclusive_job_id);
         assert_eq!(scheduler.get_job(exclusive_job_id).unwrap().reason, None);
+    }
+
+    // ===== Fair-share scheduling tests =====
+
+    fn create_single_gpu_scheduler() -> Scheduler {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+        scheduler
+    }
+
+    fn gpu_job(username: &str, priority: u8) -> Job {
+        JobBuilder::new()
+            .submitted_by(username.to_string())
+            .run_dir("/tmp")
+            .gpus(1)
+            .priority(priority)
+            .build()
+    }
+
+    #[test]
+    fn test_fair_share_schedules_lower_usage_user_first() {
+        let mut scheduler = create_single_gpu_scheduler();
+        let now = current_unix_secs();
+        scheduler.fair_share_usage.insert(
+            "alice".into(),
+            FairShareUsage {
+                usage: 1_000_000.0,
+                last_update: now,
+            },
+        );
+
+        // Alice submits first, so FIFO alone would favor her.
+        let (alice_id, _) = scheduler.submit_job(gpu_job("alice", 0));
+        let (bob_id, _) = scheduler.submit_job(gpu_job("bob", 0));
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            prepared[0].id, bob_id,
+            "underserved user should win the only GPU"
+        );
+        assert_eq!(
+            scheduler.get_job(alice_id).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+    }
+
+    #[test]
+    fn test_fair_share_priority_band_dominates_usage() {
+        let mut scheduler = create_single_gpu_scheduler();
+        let now = current_unix_secs();
+        scheduler.fair_share_usage.insert(
+            "alice".into(),
+            FairShareUsage {
+                usage: 1_000_000.0,
+                last_update: now,
+            },
+        );
+
+        // Bob is underserved but low priority; Alice is a heavy user but high priority.
+        let (bob_id, _) = scheduler.submit_job(gpu_job("bob", 0));
+        let (alice_id, _) = scheduler.submit_job(gpu_job("alice", 10));
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            prepared[0].id, alice_id,
+            "priority band must dominate fair-share"
+        );
+        assert_eq!(
+            scheduler.get_job(bob_id).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+    }
+
+    #[test]
+    fn test_fair_share_disabled_falls_back_to_fifo() {
+        let mut scheduler = create_single_gpu_scheduler();
+        scheduler.fair_share_enabled = false;
+        let now = current_unix_secs();
+        scheduler.fair_share_usage.insert(
+            "alice".into(),
+            FairShareUsage {
+                usage: 1_000_000.0,
+                last_update: now,
+            },
+        );
+
+        let (alice_id, _) = scheduler.submit_job(gpu_job("alice", 0));
+        let (_bob_id, _) = scheduler.submit_job(gpu_job("bob", 0));
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            prepared[0].id, alice_id,
+            "disabled fair-share keeps FIFO order"
+        );
+    }
+
+    #[test]
+    fn test_fair_share_factors_rank_underserved_higher() {
+        let mut scheduler = create_test_scheduler();
+        let now = current_unix_secs();
+        scheduler.fair_share_usage.insert(
+            "alice".into(),
+            FairShareUsage {
+                usage: 3000.0,
+                last_update: now,
+            },
+        );
+        scheduler.fair_share_usage.insert(
+            "bob".into(),
+            FairShareUsage {
+                usage: 1000.0,
+                last_update: now,
+            },
+        );
+
+        let factors = scheduler.fair_share_factors(now);
+        let alice = factors.get("alice").copied().unwrap();
+        let bob = factors.get("bob").copied().unwrap();
+        assert!(
+            bob > alice,
+            "lower usage => higher factor (bob {bob} > alice {alice})"
+        );
+        // Bob is below his fair share (> 0.5), Alice is above hers (< 0.5).
+        assert!(bob > 0.5);
+        assert!(alice < 0.5);
+    }
+
+    #[test]
+    fn test_fair_share_usage_decays_with_half_life() {
+        let usage = FairShareUsage {
+            usage: 1000.0,
+            last_update: 0,
+        };
+        let half_life = 3600.0;
+        assert!((usage.decayed_to(0, half_life) - 1000.0).abs() < 1e-9);
+        assert!((usage.decayed_to(3600, half_life) - 500.0).abs() < 1e-9);
+        assert!((usage.decayed_to(7200, half_life) - 250.0).abs() < 1e-9);
+        // Time going backwards must not increase usage.
+        assert!((usage.decayed_to(-100, half_life) - 1000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_terminal_job_credits_fair_share_usage() {
+        let mut scheduler = create_single_gpu_scheduler();
+        let (job_id, _) = scheduler.submit_job(gpu_job("alice", 0));
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+
+        // Backdate the start so the credited GPU-time is deterministic.
+        scheduler.job_runtimes[(job_id - 1) as usize].started_at =
+            Some(std::time::SystemTime::now() - std::time::Duration::from_secs(100));
+
+        scheduler.finish_job(job_id);
+
+        let usage = scheduler.fair_share_usage.get("alice").copied().unwrap();
+        // 1 GPU * ~100s runtime.
+        assert!(
+            (99.0..=101.0).contains(&usage.usage),
+            "expected ~100 GPU-seconds, got {}",
+            usage.usage
+        );
+    }
+
+    #[test]
+    fn test_cancelled_queued_job_credits_no_usage() {
+        let mut scheduler = create_test_scheduler();
+        let (job_id, _) = scheduler.submit_job(gpu_job("alice", 0));
+
+        // Cancel while still queued (never ran).
+        scheduler.cancel_job(job_id, None);
+
+        assert!(!scheduler.fair_share_usage.contains_key("alice"));
+    }
+
+    #[test]
+    fn test_fair_share_usage_persists_through_serde_roundtrip() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.fair_share_usage.insert(
+            "alice".into(),
+            FairShareUsage {
+                usage: 1234.5,
+                last_update: 42,
+            },
+        );
+
+        let json = serde_json::to_string(&scheduler).unwrap();
+        let restored: Scheduler = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            restored.fair_share_usage.get("alice").copied(),
+            Some(FairShareUsage {
+                usage: 1234.5,
+                last_update: 42,
+            })
+        );
     }
 
     #[test]
