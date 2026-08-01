@@ -659,3 +659,253 @@ async fn health_reports_recovery_mode_for_corrupt_state() {
 
     sandbox.stop_daemon();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn events_endpoint_streams_live_scheduler_events() {
+    let Some(mut sandbox) = TestSandbox::new() else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    gflow::tls::ensure_rustls_provider_installed();
+    let response = reqwest::get(format!("{}/events", sandbox.base_url()))
+        .await
+        .expect("events endpoint should respond");
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "unexpected content type: {content_type}"
+    );
+
+    let mut response = response;
+    let mut received = String::new();
+
+    // The stream opens with an initial "connected" event.
+    let first_chunk = tokio::time::timeout(Duration::from_secs(10), response.chunk())
+        .await
+        .expect("should receive the initial SSE chunk")
+        .expect("stream should not error")
+        .expect("stream should not end");
+    received.push_str(&String::from_utf8_lossy(&first_chunk));
+    assert!(
+        received.contains("connected"),
+        "initial chunk should announce connection, got: {received}"
+    );
+
+    // Submitting a job must produce a live event on the open stream.
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("daemon-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo sse-marker")
+        .auto_close_tmux(true)
+        .build();
+    client.add_job(job).await.unwrap();
+
+    let saw_job_event = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .expect("stream should not error")
+                .expect("stream should stay open");
+            received.push_str(&String::from_utf8_lossy(&chunk));
+            if received.contains("job_submitted") {
+                break;
+            }
+        }
+    })
+    .await
+    .is_ok();
+
+    assert!(
+        saw_job_event,
+        "expected a job_submitted event on the SSE stream, got: {received}"
+    );
+
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn job_log_content_endpoint_serves_captured_output() {
+    let Some(mut sandbox) = TestSandbox::new() else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("daemon-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo log-content-marker")
+        .auto_close_tmux(true)
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "log-content-marker",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    gflow::tls::ensure_rustls_provider_installed();
+    let log_response = reqwest::get(format!(
+        "{}/jobs/{}/log/content",
+        sandbox.base_url(),
+        response.id
+    ))
+    .await
+    .unwrap();
+    assert_eq!(log_response.status(), StatusCode::OK);
+    let body: Value = log_response.json().await.unwrap();
+    assert_eq!(body["job_id"], response.id);
+    assert!(
+        body["content"]
+            .as_str()
+            .unwrap()
+            .contains("log-content-marker"),
+        "log content should contain the job output, got: {body}"
+    );
+
+    // Unknown jobs get a 404.
+    let missing = reqwest::get(format!(
+        "{}/jobs/{}/log/content",
+        sandbox.base_url(),
+        u32::MAX
+    ))
+    .await
+    .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn log_content_and_events_endpoints_serve_dashboard() {
+    let Some(mut sandbox) = TestSandbox::new() else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    gflow::tls::ensure_rustls_provider_installed();
+    let http = reqwest::Client::new();
+    let base = sandbox.base_url();
+
+    // The SSE endpoint must open a text/event-stream before any job exists.
+    let events_stream = http
+        .get(format!("{base}/events"))
+        .header(reqwest::header::ACCEPT, "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(events_stream.status(), StatusCode::OK);
+    let content_type = events_stream
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "unexpected /events content-type: {content_type}"
+    );
+    let mut events_stream = events_stream;
+
+    // Submit a job that produces log output.
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("daemon-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo log-content-probe && sleep 1 && echo log-content-done")
+        .auto_close_tmux(true)
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    // The log content endpoint serves captured output as JSON.
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "log-content-probe",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    let log_url = format!("{base}/jobs/{}/log/content", response.id);
+    let mut payload = Value::Null;
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        let body = http.get(&log_url).send().await.unwrap();
+        if body.status() == StatusCode::OK {
+            payload = body.json().await.unwrap();
+            if payload["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("log-content-probe"))
+            {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(payload["job_id"].as_u64(), Some(response.id as u64));
+    assert!(payload["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("log-content-probe")));
+
+    // tail=1 narrows the response to a single line.
+    let tail_body: Value = http
+        .get(format!("{log_url}?tail=1"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(tail_body["content"].as_str().unwrap().lines().count(), 1);
+
+    // Unknown jobs yield 404.
+    assert_eq!(
+        http.get(format!("{base}/jobs/4294967295/log/content"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    // The SSE stream opened at the start must have received the job events.
+    let mut received = String::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while tokio::time::Instant::now() < deadline && !received.contains("\"type\":\"job_") {
+        match tokio::time::timeout(Duration::from_secs(5), events_stream.chunk()).await {
+            Ok(Ok(Some(chunk))) => received.push_str(&String::from_utf8_lossy(&chunk)),
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => panic!("SSE stream error: {error}"),
+            Err(_) => continue, // keep-alive window elapsed; keep waiting
+        }
+    }
+    assert!(
+        received.contains("\"type\":\"job_"),
+        "no job events received on /events; got: {received}"
+    );
+
+    sandbox.stop_daemon();
+}
