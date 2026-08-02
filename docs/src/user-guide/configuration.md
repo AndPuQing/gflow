@@ -222,6 +222,53 @@ gqueue --project ml-research
 gqueue --format JOBID,NAME,PROJECT,ST,TIME
 ```
 
+## Resource Quotas
+
+Quotas cap how much of the machine one user or project can occupy, so a single
+heavy user cannot starve everyone else on a shared workstation. Limits apply
+to two subjects — users (`submitted_by`) and projects (`--project`) — and a job
+must satisfy **both** its user quota and its project quota.
+
+```toml
+[quota]
+# Fallback limits for every user / project not listed below.
+# Omit a field (or the whole table) to leave that dimension unlimited.
+default_user = { max_running_jobs = 4, max_running_gpus = 2, max_queued_jobs = 50 }
+default_project = { max_running_gpus = 6 }
+
+[quota.users]
+alice = { max_running_gpus = 4 }
+
+[quota.projects]
+cv-team = { max_running_gpus = 8, max_queued_jobs = 100 }
+```
+
+Limit fields (all optional; unset = unlimited):
+
+- `max_running_jobs`: maximum concurrently running jobs.
+- `max_running_gpus`: maximum concurrently allocated GPUs. A job that would
+  push usage over the cap waits; a job requesting more GPUs than the cap will
+  never start, so size caps with that in mind.
+- `max_queued_jobs`: maximum pending (queued/held) jobs, enforced **at
+  submission** — submissions over the cap are rejected rather than queued.
+
+Named entries are merged over the matching default field-by-field: `alice`
+above keeps `default_user.max_running_jobs = 4` and `max_queued_jobs = 50`
+while overriding `max_running_gpus` to 4.
+
+When a running job hits a `max_running_*` cap, the job stays queued with reason
+`Quota` (visible via `gqueue`) and starts automatically when usage drops.
+
+Runtime overrides (persist across daemon restarts, take precedence over the
+config file):
+
+```bash
+gctl quota list                                   # usage vs. limits
+gctl quota set --user alice --max-running-gpus 4
+gctl quota set --default-user --max-queued-jobs 50
+gctl quota remove --user alice                    # fall back to gflow.toml
+```
+
 ## Notifications
 
 Use [Notifications](./notifications) when you need webhook or email delivery for job and system events.

@@ -20,6 +20,8 @@ mod access;
 mod builder;
 #[path = "scheduler/persistence.rs"]
 mod persistence;
+#[path = "scheduler/quotas.rs"]
+mod quotas;
 #[path = "scheduler/reservations.rs"]
 mod reservations;
 #[path = "scheduler/scheduling.rs"]
@@ -170,11 +172,22 @@ pub struct Scheduler {
     /// Maps group_id -> count of running jobs in that group
     #[serde(skip)]
     pub(crate) group_running_count: HashMap<uuid::Uuid, usize>,
+    /// Per-user / per-project running usage for O(1) quota checks.
+    #[serde(skip)]
+    pub(crate) quota_usage: crate::core::quota::QuotaUsageIndex,
     /// Per-user decayed historical GPU-time usage for fair-share scheduling.
     /// Maps username -> FairShareUsage. Persisted so fairness survives restarts
     /// and independent of job-history retention.
     #[serde(default)]
     pub(crate) fair_share_usage: HashMap<CompactString, FairShareUsage>,
+    /// Quota baseline loaded from `gflow.toml` (runtime config, not persisted).
+    #[serde(skip)]
+    pub(crate) quota_baseline: crate::config::QuotaConfig,
+    /// Runtime quota overrides set via `gctl quota`. Persisted so they survive
+    /// restarts; merged over `quota_baseline` field-wise.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "crate::config::QuotaConfig::is_empty")]
+    pub(crate) quota_overrides: crate::config::QuotaConfig,
     /// Whether fair-share reordering influences scheduling (runtime config).
     #[serde(skip)]
     pub(crate) fair_share_enabled: bool,
@@ -929,6 +942,302 @@ mod tests {
             .state_jobs_index
             .get(&JobState::Finished)
             .is_some_and(|v| v.contains(&job_id)));
+    }
+
+    fn quota_test_scheduler() -> Scheduler {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+        scheduler.gpu_slots.insert(
+            "GPU-1".to_string(),
+            GPUSlot {
+                index: 1,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        );
+        scheduler
+    }
+
+    #[test]
+    fn test_quota_max_running_jobs_gates_scheduling() {
+        let mut scheduler = quota_test_scheduler();
+        scheduler.set_quota_baseline(crate::config::QuotaConfig {
+            default_user: crate::config::QuotaLimits {
+                max_running_jobs: Some(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let (job_a, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+        let (job_b, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_a);
+        assert_eq!(
+            scheduler.get_job(job_b).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+        assert!(matches!(
+            scheduler.get_job(job_b).and_then(|j| j.reason).map(|r| *r),
+            Some(JobStateReason::WaitingForQuota)
+        ));
+        assert_eq!(scheduler.quota_user_usage("alice").jobs, 1);
+
+        // Another user is not affected by alice's quota.
+        let (job_c, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("bob")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_c);
+
+        // Finishing alice's job releases the quota slot for job_b.
+        scheduler.finish_job(job_a).unwrap();
+        assert_eq!(scheduler.quota_user_usage("alice").jobs, 0);
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_b);
+    }
+
+    #[test]
+    fn test_quota_max_running_gpus_counts_requested_gpus() {
+        let mut scheduler = quota_test_scheduler();
+        scheduler.set_quota_baseline(crate::config::QuotaConfig {
+            users: [(
+                "alice".to_string(),
+                crate::config::QuotaLimits {
+                    max_running_gpus: Some(1),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+
+        let (job_a, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+        let (job_b, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_a);
+        assert_eq!(scheduler.quota_user_usage("alice").gpus, 1);
+        assert_eq!(
+            scheduler.get_job(job_b).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+    }
+
+    #[test]
+    fn test_quota_project_limits_apply_across_users() {
+        let mut scheduler = quota_test_scheduler();
+        scheduler.set_quota_baseline(crate::config::QuotaConfig {
+            projects: [(
+                "cv-team".to_string(),
+                crate::config::QuotaLimits {
+                    max_running_jobs: Some(1),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+
+        let (job_a, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .project(Some("cv-team".to_string()))
+                .build(),
+        );
+        let (job_b, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("bob")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .project(Some("cv-team".to_string()))
+                .build(),
+        );
+        // Jobs without a project are not subject to project quotas.
+        let (job_c, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("bob")
+                .run_dir("/tmp")
+                .gpus(1)
+                .shared(true)
+                .build(),
+        );
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 2);
+        let prepared_ids: Vec<u32> = prepared.iter().map(|j| j.id).collect();
+        assert!(prepared_ids.contains(&job_a));
+        assert!(prepared_ids.contains(&job_c));
+        assert_eq!(
+            scheduler.get_job(job_b).map(|j| j.state),
+            Some(JobState::Queued)
+        );
+        assert_eq!(scheduler.quota_project_usage("cv-team").jobs, 1);
+    }
+
+    #[test]
+    fn test_quota_usage_index_rebuilt_from_state() {
+        let mut scheduler = quota_test_scheduler();
+        let (job_a, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .gpus(2)
+                .shared(true)
+                .project(Some("cv-team".to_string()))
+                .build(),
+        );
+        scheduler.prepare_jobs_for_execution();
+        assert_eq!(scheduler.quota_user_usage("alice").gpus, 2);
+
+        // Simulate a daemon restart: indexes are rebuilt from persisted jobs.
+        scheduler.rebuild_user_jobs_index();
+        assert_eq!(scheduler.quota_user_usage("alice").jobs, 1);
+        assert_eq!(scheduler.quota_user_usage("alice").gpus, 2);
+        assert_eq!(scheduler.quota_project_usage("cv-team").jobs, 1);
+
+        scheduler.finish_job(job_a).unwrap();
+        assert_eq!(scheduler.quota_user_usage("alice").jobs, 0);
+        assert_eq!(scheduler.quota_project_usage("cv-team").gpus, 0);
+    }
+
+    #[test]
+    fn test_quota_overrides_persist_through_serde_roundtrip() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.set_quota_baseline(crate::config::QuotaConfig {
+            default_user: crate::config::QuotaLimits {
+                max_running_jobs: Some(4),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(scheduler.merge_quota_override(
+            crate::core::quota::QuotaScope::User,
+            Some("alice"),
+            &crate::config::QuotaLimits {
+                max_running_gpus: Some(8),
+                ..Default::default()
+            }
+        ));
+        // Merging empty limits changes nothing.
+        assert!(!scheduler.merge_quota_override(
+            crate::core::quota::QuotaScope::User,
+            Some("alice"),
+            &crate::config::QuotaLimits::default()
+        ));
+
+        let json = serde_json::to_string(&scheduler).unwrap();
+        let restored: Scheduler = serde_json::from_str(&json).unwrap();
+
+        // Overrides survive; the baseline is runtime config and is not persisted.
+        assert_eq!(
+            restored.quota_overrides().users.get("alice"),
+            Some(&crate::config::QuotaLimits {
+                max_running_gpus: Some(8),
+                ..Default::default()
+            })
+        );
+        assert!(restored.quota_baseline.is_empty());
+
+        // Removing the override clears it.
+        let mut restored = restored;
+        assert!(restored.remove_quota_override(crate::core::quota::QuotaScope::User, Some("alice")));
+        assert!(restored.quota_overrides().is_empty());
+    }
+
+    #[test]
+    fn test_check_queue_quota_counts_pending_and_bias() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.set_quota_baseline(crate::config::QuotaConfig {
+            default_user: crate::config::QuotaLimits {
+                max_queued_jobs: Some(2),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .build(),
+        );
+        scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .build(),
+        );
+
+        let no_bias = HashMap::new();
+        let violation = scheduler.check_queue_quota("alice", None, &no_bias, &no_bias);
+        assert!(violation.is_some());
+        assert!(violation.unwrap().contains("2/2"));
+
+        // Other users are unaffected.
+        assert!(scheduler
+            .check_queue_quota("bob", None, &no_bias, &no_bias)
+            .is_none());
+
+        // Batch bias counts jobs accepted earlier in the same batch.
+        let mut bias = HashMap::new();
+        bias.insert(CompactString::from("carol"), 2);
+        assert!(scheduler
+            .check_queue_quota("carol", None, &bias, &no_bias)
+            .is_some());
     }
 
     #[test]

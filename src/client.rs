@@ -660,6 +660,77 @@ impl Client {
         Ok(updated_jobs)
     }
 
+    /// List quota subjects with effective limits and current usage.
+    pub async fn list_quotas(&self) -> anyhow::Result<serde_json::Value> {
+        let response = self
+            .client
+            .get(format!("{}/quotas", self.base_url))
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to list quotas: {}", error_msg));
+        }
+
+        response
+            .json()
+            .await
+            .context("Failed to parse quota response")
+    }
+
+    /// Merge a runtime quota override (persisted by the daemon).
+    pub async fn set_quota(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+        limits: crate::config::QuotaLimits,
+    ) -> anyhow::Result<()> {
+        let request_body = serde_json::json!({
+            "scope": scope,
+            "name": name,
+            "limits": limits,
+        });
+
+        let response = self
+            .client
+            .put(format!("{}/quotas", self.base_url))
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to set quota: {}", error_msg));
+        }
+
+        Ok(())
+    }
+
+    /// Remove a runtime quota override entry.
+    pub async fn remove_quota(&self, scope: &str, name: Option<&str>) -> anyhow::Result<()> {
+        let mut url = format!("{}/quotas?scope={}", self.base_url, scope);
+        if let Some(name) = name {
+            url.push_str(&format!("&name={}", name));
+        }
+
+        let response = self
+            .client
+            .delete(url)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!("Failed to remove quota: {}", error_msg));
+        }
+
+        Ok(())
+    }
+
     /// Create a GPU reservation
     pub async fn create_reservation(
         &self,
@@ -828,7 +899,7 @@ mod tests {
     use crate::core::reservation::GpuSpec;
     use compact_str::CompactString;
     use std::time::SystemTime;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     /// Build a `Client` pointed at the given mock server.
@@ -1466,6 +1537,73 @@ mod tests {
             .await
             .expect("should set concurrency");
         assert_eq!(count, 3);
+    }
+
+    // ── quotas ─────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_quotas_returns_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/quotas"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "quotas": [],
+                "overrides": {},
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let body = client.list_quotas().await.expect("should list quotas");
+        assert_eq!(body["quotas"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn set_quota_sends_scope_name_and_limits() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/quotas"))
+            .and(body_json(serde_json::json!({
+                "scope": "user",
+                "name": "alice",
+                "limits": {"max_running_gpus": 4},
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .set_quota(
+                "user",
+                Some("alice"),
+                crate::config::QuotaLimits {
+                    max_running_gpus: Some(4),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("should set quota");
+    }
+
+    #[tokio::test]
+    async fn remove_quota_sends_query_params() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/quotas"))
+            .and(query_param("scope", "user"))
+            .and(query_param("name", "alice"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"removed": true})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        client
+            .remove_quota("user", Some("alice"))
+            .await
+            .expect("should remove quota");
     }
 
     // ── reservations ───────────────────────────────────────────────────────

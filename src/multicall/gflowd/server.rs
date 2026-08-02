@@ -62,6 +62,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         config.daemon.fair_share.clone(),
     )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
+    scheduler_runtime.set_quota_baseline(config.quota.clone());
 
     let scheduler = Arc::new(tokio::sync::RwLock::new(scheduler_runtime));
     let scheduler_clone = Arc::clone(&scheduler);
@@ -179,6 +180,12 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
             get(handlers::get_reservation).delete(handlers::cancel_reservation),
         )
         .route("/stats", get(handlers::get_stats))
+        .route(
+            "/quotas",
+            get(handlers::list_quotas)
+                .put(handlers::set_quota)
+                .delete(handlers::delete_quota),
+        )
         .route("/metrics", get(handlers::get_metrics))
         .route("/debug/state", get(handlers::debug_state))
         .route("/debug/jobs/{id}", get(handlers::debug_job))

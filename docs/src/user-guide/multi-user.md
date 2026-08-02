@@ -65,6 +65,24 @@ gbatch --project ml-research python train.py
 
 This makes `gqueue --project ...`, `gstats`, and notifications more useful.
 
+### Cap Usage with Quotas
+
+To keep one user or team from starving everyone else, configure per-user /
+per-project quotas:
+
+```toml
+[quota]
+default_user = { max_running_jobs = 4, max_running_gpus = 2, max_queued_jobs = 50 }
+
+[quota.projects]
+cv-team = { max_running_gpus = 8 }
+```
+
+Jobs over a running limit stay queued (reason `Quota`) and start when usage
+drops; submissions over `max_queued_jobs` are rejected. Adjust at runtime with
+`gctl quota set --user alice --max-running-gpus 4` and inspect with
+`gctl quota list`. See [Configuration](./configuration.md#resource-quotas).
+
 ### Coordinate Scarce GPUs
 
 Use runtime restrictions and reservations when you need to protect capacity:
@@ -120,6 +138,7 @@ gqueue --project ml-research
 ### Respect Shared Capacity Rules
 
 - If administrators configured required projects, always pass `--project`.
+- If administrators configured quotas, jobs over a running limit stay queued with reason `Quota`, and submissions over the queue-depth limit are rejected.
 - If GPUs are reserved for another user or restricted with `gctl set-gpus`, your job may remain queued until capacity is available.
 - Ask an administrator before using reservation commands for team-wide scheduling changes.
 

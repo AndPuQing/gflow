@@ -113,3 +113,32 @@ gctl reserve get <reservation_id>
 ```bash
 gctl reserve cancel <reservation_id>
 ```
+
+### `gctl quota list`
+
+查看配额对象（用户 / 项目）的有效上限与当前用量（运行作业数、占用 GPU 数、排队数）。
+
+```bash
+gctl quota list
+```
+
+### `gctl quota set`
+
+设置（合并）运行时配额上限。用 `--user`、`--project`、`--default-user` 或
+`--default-project` 选择唯一一个对象，并至少提供一个上限参数。覆盖值持久化在
+daemon 状态中，优先于 `gflow.toml` 的 `[quota]` 配置。
+
+```bash
+gctl quota set --user alice --max-running-gpus 4 --max-queued-jobs 50
+gctl quota set --project cv-team --max-running-gpus 8
+gctl quota set --default-user --max-running-jobs 4
+```
+
+### `gctl quota remove`
+
+删除运行时配额覆盖，使该对象回退到 `gflow.toml` 基线。
+
+```bash
+gctl quota remove --user alice
+gctl quota remove --default-user
+```

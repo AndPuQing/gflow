@@ -17,6 +17,26 @@ impl SchedulerRuntime {
         Ok(())
     }
 
+    /// Enforce queue-depth quotas (`max_queued_jobs`) at submission time.
+    /// Running/GPU quotas are enforced by the scheduling loop instead, where
+    /// exceeding them means waiting in the queue rather than rejection.
+    fn check_queue_quota(
+        &self,
+        job: &Job,
+        user_pending_bias: &HashMap<CompactString, usize>,
+        project_pending_bias: &HashMap<CompactString, usize>,
+    ) -> Result<()> {
+        if let Some(reason) = self.scheduler.check_queue_quota(
+            &job.submitted_by,
+            job.project.as_deref(),
+            user_pending_bias,
+            project_pending_bias,
+        ) {
+            bail!("{reason}");
+        }
+        Ok(())
+    }
+
     fn current_reserved_run_names(&self) -> HashSet<String> {
         let mut reserved_names: HashSet<String> = self
             .scheduler
@@ -90,6 +110,7 @@ impl SchedulerRuntime {
     pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
         self.normalize_and_validate_project(&mut job)?;
         Self::validate_shared_job_requirements(&job)?;
+        self.check_queue_quota(&job, &HashMap::new(), &HashMap::new())?;
         let mut reserved_names = self.current_reserved_run_names();
         self.prepare_run_name(&mut job, self.scheduler.next_job_id(), &mut reserved_names);
         let (job_id, run_name) = self.scheduler.submit_job(job);
@@ -115,9 +136,20 @@ impl SchedulerRuntime {
 
         let mut reserved_names = self.current_reserved_run_names();
         let mut normalized_jobs = Vec::with_capacity(batch_size);
+        // Queue-depth quotas must account for jobs accepted earlier in this
+        // same batch, which are not indexed until `scheduler.submit_job` runs.
+        let mut user_pending_bias: HashMap<CompactString, usize> = HashMap::new();
+        let mut project_pending_bias: HashMap<CompactString, usize> = HashMap::new();
         for (next_job_id, mut job) in (self.scheduler.next_job_id()..).zip(jobs) {
             self.normalize_and_validate_project(&mut job)?;
             Self::validate_shared_job_requirements(&job)?;
+            self.check_queue_quota(&job, &user_pending_bias, &project_pending_bias)?;
+            *user_pending_bias
+                .entry(job.submitted_by.clone())
+                .or_default() += 1;
+            if let Some(ref project) = job.project {
+                *project_pending_bias.entry(project.clone()).or_default() += 1;
+            }
             self.prepare_run_name(&mut job, next_job_id, &mut reserved_names);
             normalized_jobs.push(job);
         }

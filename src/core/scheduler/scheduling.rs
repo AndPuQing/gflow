@@ -191,6 +191,7 @@ impl Scheduler {
             let (
                 has_enough_memory,
                 within_group_limit,
+                within_quota,
                 respects_reservations,
                 required_memory,
                 job_user,
@@ -243,9 +244,22 @@ impl Scheduler {
                     true // Not part of a group
                 };
 
+                // Check per-user / per-project quotas using O(1) usage indexes
+                let job_project = self.job_specs.get(idx).and_then(|s| s.project.clone());
+                let within_quota = self.within_quota(&job_user, job_project.as_deref(), rt.gpus);
+                if !within_quota {
+                    tracing::debug!(
+                        "Job {} waiting: user/project quota reached (user: {}, project: {:?})",
+                        rt.id,
+                        job_user,
+                        job_project
+                    );
+                }
+
                 (
                     has_enough_memory,
                     within_group_limit,
+                    within_quota,
                     respects_reservations,
                     required_memory,
                     job_user,
@@ -258,7 +272,7 @@ impl Scheduler {
             };
 
             // Now allocate resources if all checks pass
-            if has_enough_memory && within_group_limit && respects_reservations {
+            if has_enough_memory && within_group_limit && within_quota && respects_reservations {
                 // Filter out GPUs that are reserved by other users
                 let mut usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
                 self.reorder_usable_gpus(job_id, &mut usable_gpus);
@@ -392,6 +406,9 @@ impl Scheduler {
                 }
             } else if !within_group_limit {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
+                self.enqueue_if_ready(job_id);
+            } else if !within_quota {
+                self.set_job_reason(job_id, Some(JobStateReason::WaitingForQuota));
                 self.enqueue_if_ready(job_id);
             } else if !respects_reservations {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
@@ -618,6 +635,7 @@ impl Scheduler {
         self.dependency_runtimes = vec![DependencyRuntime::default(); self.job_specs.len()];
         self.ready_heap.clear();
         self.group_running_count.clear();
+        self.quota_usage.clear();
 
         self.check_invariant();
 
@@ -649,6 +667,9 @@ impl Scheduler {
                 if let Some(group_id) = rt.group_id {
                     *self.group_running_count.entry(group_id).or_insert(0) += 1;
                 }
+                // Rebuild quota usage index.
+                self.quota_usage
+                    .record_running(&spec.submitted_by, spec.project.as_ref(), rt.gpus);
             }
         }
 
