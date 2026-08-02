@@ -50,6 +50,12 @@ pub enum Commands {
         command: ReserveCommands,
     },
 
+    /// Manage per-user / per-project resource quotas
+    Quota {
+        #[command(subcommand)]
+        command: QuotaCommands,
+    },
+
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for
@@ -82,6 +88,55 @@ pub enum GpuProcessCommands {
 
     /// List active runtime ignore overrides
     List,
+}
+
+#[derive(Debug, Parser)]
+pub enum QuotaCommands {
+    /// Show quota subjects with effective limits and current usage
+    List,
+
+    /// Set (merge) runtime quota limits; persisted across daemon restarts.
+    /// Select exactly one subject: --user, --project, --default-user or
+    /// --default-project. Provide at least one --max-* flag.
+    Set {
+        /// Username
+        #[arg(long, group = "subject")]
+        user: Option<String>,
+        /// Project code
+        #[arg(long, group = "subject")]
+        project: Option<String>,
+        /// Apply to the fallback limits for all users
+        #[arg(long, group = "subject")]
+        default_user: bool,
+        /// Apply to the fallback limits for all projects
+        #[arg(long, group = "subject")]
+        default_project: bool,
+        /// Max concurrently running jobs
+        #[arg(long)]
+        max_running_jobs: Option<usize>,
+        /// Max concurrently allocated GPUs
+        #[arg(long)]
+        max_running_gpus: Option<u32>,
+        /// Max pending jobs (enforced at submission)
+        #[arg(long)]
+        max_queued_jobs: Option<usize>,
+    },
+
+    /// Remove a runtime quota override (falls back to gflow.toml baseline)
+    Remove {
+        /// Username
+        #[arg(long, group = "subject")]
+        user: Option<String>,
+        /// Project code
+        #[arg(long, group = "subject")]
+        project: Option<String>,
+        /// Reset the fallback limits for all users
+        #[arg(long, group = "subject")]
+        default_user: bool,
+        /// Reset the fallback limits for all projects
+        #[arg(long, group = "subject")]
+        default_project: bool,
+    },
 }
 
 #[derive(Debug, Parser)]

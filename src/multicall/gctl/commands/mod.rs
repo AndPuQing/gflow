@@ -4,6 +4,7 @@ use gflow::client::Client;
 use gflow::config::Config;
 
 pub mod gpu_process;
+pub mod quota;
 pub mod reserve_cancel;
 pub mod reserve_create;
 pub mod reserve_get;
@@ -96,6 +97,41 @@ pub async fn handle_commands(
             }
             cli::ReserveCommands::Cancel { id } => {
                 reserve_cancel::handle_reserve_cancel(client, id).await?;
+            }
+        },
+        cli::Commands::Quota { command } => match command {
+            cli::QuotaCommands::List => {
+                quota::handle_quota_list(client).await?;
+            }
+            cli::QuotaCommands::Set {
+                user,
+                project,
+                default_user,
+                default_project,
+                max_running_jobs,
+                max_running_gpus,
+                max_queued_jobs,
+            } => {
+                quota::handle_quota_set(
+                    client,
+                    user,
+                    project,
+                    default_user,
+                    default_project,
+                    max_running_jobs,
+                    max_running_gpus,
+                    max_queued_jobs,
+                )
+                .await?;
+            }
+            cli::QuotaCommands::Remove {
+                user,
+                project,
+                default_user,
+                default_project,
+            } => {
+                quota::handle_quota_remove(client, user, project, default_user, default_project)
+                    .await?;
             }
         },
         cli::Commands::Completion { shell } => {

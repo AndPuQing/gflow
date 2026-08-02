@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-User / Per-Project Resource Quotas**: cap how much of a shared machine one user or project can occupy
+  - New `[quota]` config with `default_user` / `default_project` fallbacks plus per-name `[quota.users]` / `[quota.projects]` tables; named entries merge over defaults field-by-field
+  - Limits: `max_running_jobs` and `max_running_gpus` (enforced in the scheduling loop — over-limit jobs stay queued with reason `Quota`) and `max_queued_jobs` (enforced at submission — over-limit submissions are rejected)
+  - A job must satisfy both its user quota and its project quota; jobs without a project have no project quota
+  - Runtime management: `gctl quota list` / `gctl quota set` / `gctl quota remove`, backed by new `GET/PUT/DELETE /quotas` HTTP endpoints; overrides persist in daemon state and take precedence over `gflow.toml`
+
 - **Fair-Share Scheduling**: reorder queued jobs so users with less recent GPU-time usage are scheduled first
   - Slurm-style exponentially decayed per-user GPU-time accounting (`gpus × runtime`), persisted across restarts
   - Reorders only within the same priority band; never overrides group concurrency limits, reservations, or resource availability

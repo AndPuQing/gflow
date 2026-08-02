@@ -9,6 +9,7 @@ pub(super) use jobs::{
     set_group_max_concurrency, unignore_gpu_process, update_job,
 };
 pub(super) use metrics::get_metrics;
+pub(super) use quotas::{delete_quota, list_quotas, set_quota};
 pub(super) use reservations::{
     cancel_reservation, create_reservation, get_reservation, list_reservations,
 };
@@ -18,5 +19,6 @@ mod debug;
 mod events;
 mod jobs;
 mod metrics;
+mod quotas;
 mod reservations;
 mod stats;

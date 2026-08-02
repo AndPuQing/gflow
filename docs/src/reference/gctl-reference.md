@@ -113,3 +113,35 @@ Cancel a reservation.
 ```bash
 gctl reserve cancel <reservation_id>
 ```
+
+### `gctl quota list`
+
+Show quota subjects (users / projects) with effective limits and current
+usage (running jobs, running GPUs, queued jobs).
+
+```bash
+gctl quota list
+```
+
+### `gctl quota set`
+
+Set (merge) runtime quota limits. Select exactly one subject with `--user`,
+`--project`, `--default-user` or `--default-project`, and provide at least one
+limit flag. Overrides are persisted in the daemon state and take precedence
+over the `[quota]` section in `gflow.toml`.
+
+```bash
+gctl quota set --user alice --max-running-gpus 4 --max-queued-jobs 50
+gctl quota set --project cv-team --max-running-gpus 8
+gctl quota set --default-user --max-running-jobs 4
+```
+
+### `gctl quota remove`
+
+Remove a runtime quota override so the subject falls back to the `gflow.toml`
+baseline.
+
+```bash
+gctl quota remove --user alice
+gctl quota remove --default-user
+```

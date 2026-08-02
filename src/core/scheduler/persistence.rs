@@ -73,6 +73,8 @@ struct SchedulerSerde {
     pub next_reservation_id: u32,
     #[serde(default)]
     pub(crate) fair_share_usage: HashMap<CompactString, FairShareUsage>,
+    #[serde(default)]
+    pub(crate) quota_overrides: crate::config::QuotaConfig,
 }
 
 #[derive(Deserialize)]
@@ -81,7 +83,7 @@ struct SchedulerSeqV2(u32, Vec<Job>, PathBuf, u32, Option<Vec<u32>>);
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum SchedulerPersisted {
-    Current(SchedulerSerde),
+    Current(Box<SchedulerSerde>),
     SeqV2(SchedulerSeqV2),
 }
 
@@ -98,6 +100,7 @@ impl Default for SchedulerSerde {
             reservations: Vec::new(),
             next_reservation_id: 1,
             fair_share_usage: HashMap::new(),
+            quota_overrides: crate::config::QuotaConfig::default(),
         }
     }
 }
@@ -127,6 +130,9 @@ impl Default for Scheduler {
             fair_share_usage: HashMap::new(),
             fair_share_enabled: true,
             fair_share_half_life_secs: crate::core::scheduler::DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
+            quota_baseline: crate::config::QuotaConfig::default(),
+            quota_overrides: crate::config::QuotaConfig::default(),
+            quota_usage: crate::core::quota::QuotaUsageIndex::default(),
             reservations: Vec::new(),
             next_reservation_id: 1,
         }
@@ -141,7 +147,7 @@ impl<'de> Deserialize<'de> for Scheduler {
         use serde::de::Error;
 
         let persisted = match SchedulerPersisted::deserialize(deserializer)? {
-            SchedulerPersisted::Current(persisted) => persisted,
+            SchedulerPersisted::Current(persisted) => *persisted,
             SchedulerPersisted::SeqV2(SchedulerSeqV2(
                 version,
                 jobs,
@@ -210,6 +216,9 @@ impl<'de> Deserialize<'de> for Scheduler {
             fair_share_usage: persisted.fair_share_usage,
             fair_share_enabled: true,
             fair_share_half_life_secs: crate::core::scheduler::DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
+            quota_baseline: crate::config::QuotaConfig::default(),
+            quota_overrides: persisted.quota_overrides,
+            quota_usage: crate::core::quota::QuotaUsageIndex::default(),
             reservations: persisted.reservations,
             next_reservation_id: persisted.next_reservation_id,
         };
@@ -234,6 +243,7 @@ impl Scheduler {
         self.reservations = std::mem::take(&mut loaded.reservations);
         self.next_reservation_id = loaded.next_reservation_id;
         self.fair_share_usage = std::mem::take(&mut loaded.fair_share_usage);
+        self.quota_overrides = std::mem::take(&mut loaded.quota_overrides);
 
         self.state_path = state_path;
     }

@@ -21,6 +21,10 @@ pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "ProjectsConfig::is_default")]
     pub projects: ProjectsConfig,
+    /// Per-user / per-project resource quotas
+    #[serde(default)]
+    #[serde(skip_serializing_if = "QuotaConfig::is_empty")]
+    pub quota: QuotaConfig,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -107,6 +111,118 @@ pub struct ProjectsConfig {
 impl ProjectsConfig {
     fn is_default(value: &Self) -> bool {
         value.known_projects.is_empty() && !value.require_project
+    }
+}
+
+/// Resource limits for a single quota subject (a user, a project, or one of
+/// the two defaults). `None` fields mean "unlimited"; when both a default and
+/// a named entry apply, fields are merged with the named entry winning.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuotaLimits {
+    /// Maximum number of concurrently running jobs.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_running_jobs: Option<usize>,
+    /// Maximum number of concurrently allocated GPUs.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_running_gpus: Option<u32>,
+    /// Maximum number of pending (queued/held) jobs; enforced at submission.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_queued_jobs: Option<usize>,
+}
+
+impl QuotaLimits {
+    pub fn is_empty(&self) -> bool {
+        self.max_running_jobs.is_none()
+            && self.max_running_gpus.is_none()
+            && self.max_queued_jobs.is_none()
+    }
+
+    /// Field-wise merge: `Some` fields in `other` override `self`.
+    pub fn merged_with(&self, other: &QuotaLimits) -> QuotaLimits {
+        QuotaLimits {
+            max_running_jobs: other.max_running_jobs.or(self.max_running_jobs),
+            max_running_gpus: other.max_running_gpus.or(self.max_running_gpus),
+            max_queued_jobs: other.max_queued_jobs.or(self.max_queued_jobs),
+        }
+    }
+}
+
+/// Per-user / per-project resource quotas.
+///
+/// Configured via the `[quota]` section in `gflow.toml`. Runtime overrides set
+/// through `gctl quota` are persisted in the daemon state and take precedence
+/// over the file-based baseline (merged field-wise).
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+pub struct QuotaConfig {
+    /// Limits applied to every user, unless overridden in `users`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "QuotaLimits::is_empty")]
+    pub default_user: QuotaLimits,
+    /// Limits applied to every project, unless overridden in `projects`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "QuotaLimits::is_empty")]
+    pub default_project: QuotaLimits,
+    /// Per-user limits, keyed by username.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub users: HashMap<String, QuotaLimits>,
+    /// Per-project limits, keyed by project code.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub projects: HashMap<String, QuotaLimits>,
+}
+
+impl QuotaConfig {
+    pub fn is_empty(&self) -> bool {
+        self.default_user.is_empty()
+            && self.default_project.is_empty()
+            && self.users.is_empty()
+            && self.projects.is_empty()
+    }
+
+    /// Field-wise merge: entries/fields set in `other` override `self`.
+    pub fn merged_with(&self, other: &QuotaConfig) -> QuotaConfig {
+        let mut users = self.users.clone();
+        for (name, limits) in &other.users {
+            users
+                .entry(name.clone())
+                .and_modify(|existing| *existing = existing.merged_with(limits))
+                .or_insert_with(|| limits.clone());
+        }
+        let mut projects = self.projects.clone();
+        for (name, limits) in &other.projects {
+            projects
+                .entry(name.clone())
+                .and_modify(|existing| *existing = existing.merged_with(limits))
+                .or_insert_with(|| limits.clone());
+        }
+        QuotaConfig {
+            default_user: self.default_user.merged_with(&other.default_user),
+            default_project: self.default_project.merged_with(&other.default_project),
+            users,
+            projects,
+        }
+    }
+
+    /// Effective limits for a user: `default_user` merged with `users[user]`.
+    pub fn user_limits(&self, user: &str) -> QuotaLimits {
+        match self.users.get(user) {
+            Some(limits) => self.default_user.merged_with(limits),
+            None => self.default_user.clone(),
+        }
+    }
+
+    /// Effective limits for a project: `default_project` merged with
+    /// `projects[project]`. Jobs without a project have no project quota.
+    pub fn project_limits(&self, project: Option<&str>) -> Option<QuotaLimits> {
+        let project = project?;
+        Some(match self.projects.get(project) {
+            Some(limits) => self.default_project.merged_with(limits),
+            None => self.default_project.clone(),
+        })
     }
 }
 
@@ -259,6 +375,84 @@ impl Default for DaemonConfig {
     }
 }
 
+#[test]
+fn quota_config_merges_fields_and_entries() {
+    let baseline = QuotaConfig {
+        default_user: QuotaLimits {
+            max_running_jobs: Some(4),
+            max_running_gpus: Some(2),
+            max_queued_jobs: None,
+        },
+        users: [(
+            "alice".to_string(),
+            QuotaLimits {
+                max_running_gpus: Some(4),
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    let overrides = QuotaConfig {
+        default_user: QuotaLimits {
+            max_queued_jobs: Some(50),
+            ..Default::default()
+        },
+        users: [
+            (
+                "alice".to_string(),
+                QuotaLimits {
+                    max_running_jobs: Some(1),
+                    ..Default::default()
+                },
+            ),
+            (
+                "bob".to_string(),
+                QuotaLimits {
+                    max_running_gpus: Some(8),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+
+    let merged = baseline.merged_with(&overrides);
+
+    // default_user: override adds max_queued_jobs, keeps baseline fields.
+    assert_eq!(
+        merged.default_user,
+        QuotaLimits {
+            max_running_jobs: Some(4),
+            max_running_gpus: Some(2),
+            max_queued_jobs: Some(50),
+        }
+    );
+    // alice: baseline entry merged with override entry.
+    assert_eq!(
+        merged.user_limits("alice"),
+        QuotaLimits {
+            max_running_jobs: Some(1),
+            max_running_gpus: Some(4),
+            max_queued_jobs: Some(50),
+        }
+    );
+    // bob: override-only entry plus merged defaults.
+    assert_eq!(
+        merged.user_limits("bob"),
+        QuotaLimits {
+            max_running_jobs: Some(4),
+            max_running_gpus: Some(8),
+            max_queued_jobs: Some(50),
+        }
+    );
+    // Unknown user falls back to merged defaults.
+    assert_eq!(merged.user_limits("carol").max_running_gpus, Some(2));
+}
+
 pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config, config::ConfigError> {
     let mut config_vec = vec![];
 
@@ -370,6 +564,50 @@ mod tests {
 
         assert!(!config.daemon.fair_share.enabled);
         assert_eq!(config.daemon.fair_share.half_life_secs, 3600);
+    }
+
+    #[test]
+    fn quota_toml_section_parses() {
+        let config = config::Config::builder()
+            .add_source(config::File::from_str(
+                r#"
+[quota]
+default_user = { max_running_jobs = 4, max_running_gpus = 2, max_queued_jobs = 50 }
+default_project = { max_running_gpus = 6 }
+
+[quota.users]
+alice = { max_running_gpus = 4 }
+
+[quota.projects]
+cv-team = { max_running_gpus = 8, max_queued_jobs = 100 }
+"#,
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(config.quota.default_user.max_running_jobs, Some(4));
+        assert_eq!(config.quota.default_project.max_running_gpus, Some(6));
+        assert_eq!(
+            config.quota.user_limits("alice"),
+            QuotaLimits {
+                max_running_jobs: Some(4),
+                max_running_gpus: Some(4),
+                max_queued_jobs: Some(50),
+            }
+        );
+        assert_eq!(
+            config.quota.project_limits(Some("cv-team")),
+            Some(QuotaLimits {
+                max_running_jobs: None,
+                max_running_gpus: Some(8),
+                max_queued_jobs: Some(100),
+            })
+        );
+        // Jobs without a project have no project quota.
+        assert_eq!(config.quota.project_limits(None), None);
     }
 
     #[test]

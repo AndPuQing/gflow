@@ -560,6 +560,7 @@ impl Scheduler {
 
         if transitioned {
             self.update_group_running_count(group_id, old_state, next);
+            self.update_quota_running_usage(job_id, old_state, next);
             self.update_state_jobs_index(job_id, old_state, next);
             self.bump_ready_epoch(job_id);
 
@@ -585,6 +586,37 @@ impl Scheduler {
         reason: Option<JobStateReason>,
     ) -> Option<bool> {
         self.transition_job_state_internal(job_id, next, reason, true)
+    }
+
+    /// Maintain the per-user / per-project running usage index used for O(1)
+    /// quota checks in the scheduling loop. Mirrors `update_group_running_count`.
+    fn update_quota_running_usage(
+        &mut self,
+        job_id: u32,
+        old_state: JobState,
+        new_state: JobState,
+    ) {
+        let entering_running = new_state == JobState::Running && old_state != JobState::Running;
+        let leaving_running = old_state == JobState::Running && new_state != JobState::Running;
+
+        if !entering_running && !leaving_running {
+            return;
+        }
+
+        let Some((spec, rt)) = self.get_job_parts(job_id) else {
+            return;
+        };
+        let user = spec.submitted_by.clone();
+        let project = spec.project.clone();
+        let gpus = rt.gpus;
+
+        if entering_running {
+            self.quota_usage
+                .record_running(&user, project.as_ref(), gpus);
+        } else {
+            self.quota_usage
+                .release_running(&user, project.as_ref(), gpus);
+        }
     }
 
     /// Credit a terminal job's GPU-time to its submitter's fair-share usage.

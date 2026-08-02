@@ -265,6 +265,50 @@ impl SchedulerRuntime {
         self.mark_dirty();
     }
 
+    // ===== Quota methods =====
+
+    /// Set the file-based quota baseline (from `gflow.toml`).
+    pub fn set_quota_baseline(&mut self, quota: gflow::config::QuotaConfig) {
+        self.scheduler.set_quota_baseline(quota);
+    }
+
+    /// Snapshot of quota subjects with effective limits and current usage.
+    pub fn quota_status(&self) -> Vec<gflow::core::quota::QuotaStatusEntry> {
+        self.scheduler.quota_status()
+    }
+
+    /// Persisted runtime overrides (for diagnostics / listing).
+    pub fn quota_overrides(&self) -> gflow::config::QuotaConfig {
+        self.scheduler.quota_overrides().clone()
+    }
+
+    /// Merge a runtime quota override; persists via mark_dirty.
+    pub fn merge_quota_override(
+        &mut self,
+        scope: gflow::core::quota::QuotaScope,
+        name: Option<&str>,
+        limits: &gflow::config::QuotaLimits,
+    ) -> bool {
+        let changed = self.scheduler.merge_quota_override(scope, name, limits);
+        if changed {
+            self.mark_dirty();
+        }
+        changed
+    }
+
+    /// Remove a runtime quota override; persists via mark_dirty.
+    pub fn remove_quota_override(
+        &mut self,
+        scope: gflow::core::quota::QuotaScope,
+        name: Option<&str>,
+    ) -> bool {
+        let changed = self.scheduler.remove_quota_override(scope, name);
+        if changed {
+            self.mark_dirty();
+        }
+        changed
+    }
+
     pub fn gpu_available(&self, gpu_index: u32) -> Option<bool> {
         self.scheduler
             .info()

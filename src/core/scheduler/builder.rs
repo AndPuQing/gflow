@@ -11,6 +11,7 @@ pub struct SchedulerBuilder {
     unified_memory: bool,
     fair_share_enabled: bool,
     fair_share_half_life_secs: f64,
+    quota_baseline: crate::config::QuotaConfig,
 }
 
 impl SchedulerBuilder {
@@ -25,6 +26,7 @@ impl SchedulerBuilder {
             unified_memory: false,
             fair_share_enabled: true,
             fair_share_half_life_secs: DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
+            quota_baseline: crate::config::QuotaConfig::default(),
         }
     }
 
@@ -74,6 +76,12 @@ impl SchedulerBuilder {
         self
     }
 
+    /// Configure the quota baseline (from the `[quota]` section in `gflow.toml`).
+    pub fn with_quota_baseline(mut self, quota: crate::config::QuotaConfig) -> Self {
+        self.quota_baseline = quota;
+        self
+    }
+
     pub fn build(self) -> Scheduler {
         Scheduler {
             version: crate::core::migrations::CURRENT_VERSION,
@@ -95,9 +103,12 @@ impl SchedulerBuilder {
             dependency_runtimes: Vec::new(),
             ready_heap: std::collections::BinaryHeap::new(),
             group_running_count: HashMap::new(),
+            quota_usage: crate::core::quota::QuotaUsageIndex::default(),
             fair_share_usage: HashMap::new(),
             fair_share_enabled: self.fair_share_enabled,
             fair_share_half_life_secs: self.fair_share_half_life_secs,
+            quota_baseline: self.quota_baseline,
+            quota_overrides: crate::config::QuotaConfig::default(),
             reservations: Vec::new(),
             next_reservation_id: 1,
         }
