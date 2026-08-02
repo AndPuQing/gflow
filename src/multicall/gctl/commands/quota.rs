@@ -33,8 +33,8 @@ pub async fn handle_quota_list(client: &Client) -> Result<()> {
     }
 
     println!(
-        "{:<14} {:<16} {:>8} {:>8} {:>7}  LIMITS",
-        "SCOPE", "NAME", "RUNNING", "GPUS", "QUEUED"
+        "{:<15} {:<16} {:>9} {:>9} {:>9}",
+        "SCOPE", "NAME", "JOBS", "GPUS", "QUEUED"
     );
     for entry in quotas {
         let scope = entry.get("scope").and_then(|v| v.as_str()).unwrap_or("?");
@@ -52,32 +52,58 @@ pub async fn handle_quota_list(client: &Client) -> Result<()> {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let mut limits: Vec<String> = Vec::new();
-        if let Some(limits_obj) = entry.get("limits") {
-            for (key, label) in [
-                ("max_running_jobs", "jobs"),
-                ("max_running_gpus", "gpus"),
-                ("max_queued_jobs", "queued"),
-            ] {
-                if let Some(value) = limits_obj.get(key).and_then(|v| v.as_u64()) {
-                    limits.push(format!("{label}<={value}"));
-                }
-            }
-        }
-        let limits_str = if limits.is_empty() {
-            "-".to_string()
+        let limits = entry.get("limits");
+        let max_jobs = limit_value(limits, "max_running_jobs");
+        let max_gpus = limit_value(limits, "max_running_gpus");
+        let max_queued = limit_value(limits, "max_queued_jobs");
+
+        // Fallback rows (default_user / default_project) describe limits that
+        // apply to everyone, so there is no single usage number to show —
+        // render the bare limit. Named subjects render `used/limit`.
+        let is_default = matches!(scope, "default_user" | "default_project");
+        let (jobs_col, gpus_col, queued_col) = if is_default {
+            (
+                fmt_limit(max_jobs),
+                fmt_limit(max_gpus),
+                fmt_limit(max_queued),
+            )
         } else {
-            limits.join(" ")
+            (
+                fmt_usage(running_jobs, max_jobs),
+                fmt_usage(running_gpus, max_gpus),
+                fmt_usage(queued_jobs, max_queued),
+            )
         };
 
-        let display_name = if name.is_empty() { "-" } else { name };
+        let display_name = if name.is_empty() { "*" } else { name };
         println!(
-            "{:<14} {:<16} {:>8} {:>8} {:>7}  {}",
-            scope, display_name, running_jobs, running_gpus, queued_jobs, limits_str
+            "{:<15} {:<16} {:>9} {:>9} {:>9}",
+            scope, display_name, jobs_col, gpus_col, queued_col
         );
     }
 
+    println!();
+    println!("Cells are used/limit; `-` means unlimited. Fallback rows show the limit only.");
+
     Ok(())
+}
+
+/// Extract a numeric limit field, or `None` when unset (unlimited).
+fn limit_value(limits: Option<&serde_json::Value>, key: &str) -> Option<u64> {
+    limits.and_then(|l| l.get(key)).and_then(|v| v.as_u64())
+}
+
+/// Render a limit value: the number, or `-` when unlimited.
+fn fmt_limit(limit: Option<u64>) -> String {
+    match limit {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    }
+}
+
+/// Render a `used/limit` cell, e.g. `3/4` or `0/-` (unlimited).
+fn fmt_usage(used: u64, limit: Option<u64>) -> String {
+    format!("{}/{}", used, fmt_limit(limit))
 }
 
 #[allow(clippy::too_many_arguments)]
