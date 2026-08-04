@@ -135,6 +135,42 @@ Notes:
 - OpenCode local MCP uses `type: "local"` and a command array.
 - If `gflow` is not on `PATH`, change `command` to an absolute-path array.
 
+## pi
+
+`pi` (pi coding agent) does **not** support MCP natively — it is a deliberate design decision ("No MCP. Build CLI tools with READMEs (see Skills), or build an extension that adds MCP support."). The gflow MCP server is healthy and works with standard MCP clients (Claude Code, Codex, OpenCode, Cursor, Claude Desktop), but a `pi` process will never connect to it.
+
+For `pi`, use the **`gflow-ops` skill** instead. It follows the [Agent Skills standard](https://agentskills.io/specification) that `pi` loads on demand, and covers the same operations as the MCP tools (health checks, job inspection, log reads, submit/update/hold/release/cancel).
+
+The skill ships in the repository at `skills/gflow-ops/`. Install it into `pi` with any of these:
+
+```bash
+# Global (all projects)
+mkdir -p ~/.pi/agent/skills
+cp -r skills/gflow-ops ~/.pi/agent/skills/
+
+# Project-scoped (after trusting the project)
+mkdir -p .pi/skills
+cp -r skills/gflow-ops .pi/skills/
+```
+
+Or reference the repo directly from `~/.pi/settings.json` (or a project `.pi/settings.json`):
+
+```json
+{
+  "skills": ["/path/to/gflow/skills/gflow-ops"]
+}
+```
+
+Verify the skill is visible by asking pi to list its available skills:
+
+```bash
+pi -p "List the names of all skills available to you."
+```
+
+In an interactive session the skill also registers as the `/skill:gflow-ops` command.
+
+When the skill is loaded, `pi` can use `gflow` CLI commands (`gflowd status`, `gqueue`, `ginfo`, `gjob`, `gbatch`, `gcancel`) directly; the skill's `SKILL.md` documents the recommended inspection-first workflow.
+
 ## FAQ
 
 ### MCP is already added, but the agent cannot see the gflow tools
@@ -153,6 +189,10 @@ Common causes:
 - `gflow` is not on the `PATH` seen by the agent process.
 - The local config points to the wrong daemon address or port.
 - If you start `gflow mcp serve` directly in a shell, it will wait for stdio traffic from an MCP client.
+
+### Why can't I use MCP in pi?
+
+`pi` does not support MCP natively (see the [pi section](#pi) above). Use the `gflow-ops` skill or the `gflow` CLI instead.
 
 ## See Also
 

@@ -96,6 +96,17 @@ args = ["mcp", "serve"]
 
 If `gflow` is not on your `PATH`, replace it with the absolute binary path.
 
+### Using gflow with pi
+
+`pi` (pi coding agent) does not support MCP natively. Use the `gflow-ops` skill instead — it ships at `skills/gflow-ops/` and covers the same operations as the MCP tools. Install it into `pi` with:
+
+```bash
+mkdir -p ~/.pi/agent/skills
+cp -r skills/gflow-ops ~/.pi/agent/skills/
+```
+
+See [Agents, MCP, and Skills](docs/src/ai-integration/mcp-and-skills.md) for details.
+
 ## Documentation
 
 Most usage details live in the docs:

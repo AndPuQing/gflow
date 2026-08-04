@@ -98,6 +98,17 @@ args = ["mcp", "serve"]
 
 如果 `gflow` 不在 `PATH` 中，请改成二进制的绝对路径。
 
+### 在 pi 中使用 gflow
+
+`pi`（pi coding agent）原生不支持 MCP。请改用 `gflow-ops` skill——它位于 `skills/gflow-ops/`，覆盖与 MCP 工具相同的操作。安装到 `pi`：
+
+```bash
+mkdir -p ~/.pi/agent/skills
+cp -r skills/gflow-ops ~/.pi/agent/skills/
+```
+
+详见 [AI Agent、MCP 与 Skill](docs/src/zh-CN/ai-integration/mcp-and-skills.md)。
+
 ## 文档
 
 更完整的内容见文档站：
