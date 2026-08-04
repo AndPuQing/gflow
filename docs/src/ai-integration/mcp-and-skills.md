@@ -137,9 +137,35 @@ Notes:
 
 ## pi
 
-`pi` (pi coding agent) does **not** support MCP natively — it is a deliberate design decision ("No MCP. Build CLI tools with READMEs (see Skills), or build an extension that adds MCP support."). The gflow MCP server is healthy and works with standard MCP clients (Claude Code, Codex, OpenCode, Cursor, Claude Desktop), but a `pi` process will never connect to it.
+`pi` (pi coding agent) does not support MCP natively, but the community extension [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) adds it. It exposes a single proxy `mcp` tool instead of loading every server's tool definitions into context, so it also keeps the context window small.
 
-For `pi`, use the **`gflow-ops` skill** instead. It follows the [Agent Skills standard](https://agentskills.io/specification) that `pi` loads on demand, and covers the same operations as the MCP tools (health checks, job inspection, log reads, submit/update/hold/release/cancel).
+Install the extension:
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+Restart `pi` after installing. Then add the gflow server to a standard MCP config file (`.mcp.json` in the project, or `~/.config/mcp/mcp.json` globally):
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+If `gflow` is not on `PATH`, use its absolute path in `command`. Servers are lazy — they start only when you first call one of their tools. Inside `pi`, search and call gflow tools through the proxy:
+
+```
+mcp({ search: "job" })
+mcp({ tool: "gflow_get_health", args: {} })
+```
+
+Alternatively, install the `gflow-ops` skill (see below) for a documentation-driven CLI workflow. The skill follows the [Agent Skills standard](https://agentskills.io/specification) and covers the same operations as the MCP tools.
 
 The skill ships in the repository at `skills/gflow-ops/`. Install it into `pi` with any of these:
 
@@ -192,7 +218,7 @@ Common causes:
 
 ### Why can't I use MCP in pi?
 
-`pi` does not support MCP natively (see the [pi section](#pi) above). Use the `gflow-ops` skill or the `gflow` CLI instead.
+`pi` does not support MCP natively, but the [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) extension adds it (see the [pi section](#pi) above). If you prefer not to use the extension, the `gflow-ops` skill or the `gflow` CLI work too.
 
 ## See Also
 

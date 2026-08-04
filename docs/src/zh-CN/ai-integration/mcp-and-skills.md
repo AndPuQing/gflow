@@ -137,9 +137,35 @@ opencode mcp list
 
 ## pi
 
-`pi`（pi coding agent）**不支持** MCP——这是它的设计决定（"No MCP. Build CLI tools with READMEs (see Skills), or build an extension that adds MCP support."）。gflow 的 MCP 服务器本身是健康的，标准 MCP 客户端（Claude Code、Codex、OpenCode、Cursor、Claude Desktop）都能正常连接，但 `pi` 进程不会连接 MCP。
+`pi`（pi coding agent）原生不支持 MCP，但社区扩展 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 可以补上。它只暴露一个代理 `mcp` 工具，而不是把所有 server 的工具定义全部塞进上下文，因此也很省 token。
 
-在 `pi` 中使用 **`gflow-ops` skill** 来替代。它遵循 `pi` 按需加载的 [Agent Skills 标准](https://agentskills.io/specification)，覆盖与 MCP 工具相同的操作（健康检查、任务查看、日志读取、提交/更新/挂起/释放/取消）。
+安装扩展：
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+安装后重启 `pi`。然后把 gflow server 写进标准 MCP 配置文件（项目里的 `.mcp.json`，或全局 `~/.config/mcp/mcp.json`）：
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+如果 `gflow` 不在 `PATH` 中，`command` 用绝对路径。server 是懒加载的——第一次调用某个工具时才会启动。在 `pi` 里通过代理搜索并调用 gflow 工具：
+
+```
+mcp({ search: "job" })
+mcp({ tool: "gflow_get_health", args: {} })
+```
+
+也可以安装 `gflow-ops` skill（见下文）走文档驱动的 CLI 工作流。该 skill 遵循 `pi` 按需加载的 [Agent Skills 标准](https://agentskills.io/specification)，覆盖与 MCP 工具相同的操作。
 
 skill 位于仓库的 `skills/gflow-ops/` 目录。用以下任一方式安装到 `pi`：
 
@@ -192,7 +218,7 @@ gflow mcp serve --help
 
 ### 为什么在 pi 里用不了 MCP？
 
-`pi` 原生不支持 MCP（见上文 [pi 小节](#pi)）。请改用 `gflow-ops` skill 或 `gflow` CLI。
+`pi` 原生不支持 MCP，但 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 扩展可以补上（见上文 [pi 小节](#pi)）。如果不想用扩展，也可以改用 `gflow-ops` skill 或 `gflow` CLI。
 
 ## 另见
 

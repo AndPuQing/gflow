@@ -100,7 +100,24 @@ args = ["mcp", "serve"]
 
 ### 在 pi 中使用 gflow
 
-`pi`（pi coding agent）原生不支持 MCP。请改用 `gflow-ops` skill——它位于 `skills/gflow-ops/`，覆盖与 MCP 工具相同的操作。安装到 `pi`：
+`pi`（pi coding agent）原生不支持 MCP，但 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 扩展可以补上。安装后把 gflow 写进标准 MCP 配置：
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+也可以安装 `gflow-ops` skill（位于 `skills/gflow-ops/`）走 CLI 工作流：
 
 ```bash
 mkdir -p ~/.pi/agent/skills

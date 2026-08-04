@@ -427,6 +427,47 @@ fn list_outputs_expose_object_schemas() {
 }
 
 #[test]
+fn output_schemas_contain_no_boolean_schemas() {
+    // The MCP TypeScript SDK rejects tool output schemas whose property values
+    // are not objects (`AssertObjectSchema` in `ToolSchema`). schemars emits
+    // boolean schemas (`true`) for `serde_json::Value` fields, which made the
+    // whole tool list unloadable for strict clients like pi-mcp-adapter.
+    // `schema_for` sanitizes these away; verify no boolean schema survives.
+    fn collect_bools(value: &Value, path: &str, out: &mut Vec<String>) {
+        match value {
+            Value::Bool(_) => out.push(path.to_string()),
+            Value::Object(map) => {
+                for (key, val) in map {
+                    collect_bools(val, &format!("{path}.{key}"), out);
+                }
+            }
+            Value::Array(items) => {
+                for (index, val) in items.iter().enumerate() {
+                    collect_bools(val, &format!("{path}[{index}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let tools = GflowMcpServer::tool_router().list_all();
+    let mut offending = Vec::new();
+    for tool in &tools {
+        if let Some(schema) = &tool.output_schema {
+            collect_bools(
+                &Value::Object(schema.as_ref().clone()),
+                &tool.name,
+                &mut offending,
+            );
+        }
+    }
+    assert!(
+        offending.is_empty(),
+        "output schemas contain boolean schemas rejected by strict MCP clients: {offending:?}"
+    );
+}
+
+#[test]
 fn list_jobs_defaults_to_recent_first_paging() {
     let resolved = resolve_list_jobs_page(&ListJobsRequest {
         state: None,

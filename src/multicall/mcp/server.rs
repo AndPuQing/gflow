@@ -20,9 +20,11 @@ use rmcp::{
     transport::stdio,
     ServiceExt,
 };
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use helpers::*;
@@ -33,6 +35,38 @@ use schemas::*;
 use submit::*;
 use triage::*;
 use update::*;
+
+/// Generate a JSON Schema for `T` that is safe for strict MCP clients.
+///
+/// The MCP TypeScript SDK validates tool `outputSchema` with zod and requires
+/// every top-level `properties` value to be an object (`typeof v === 'object'`,
+/// see `AssertObjectSchema` in the SDK). `schemars` emits boolean schemas
+/// (`true` / `false`) for `serde_json::Value` fields, and strict clients such
+/// as the MCP SDK's `ToolSchema` reject the whole tool list because of them.
+/// Replace boolean schemas with their object equivalents (`true` -> `{}`,
+/// `false` -> `{"not": {}}`), which are semantically identical.
+fn sanitize_schema(value: &Value) -> Value {
+    match value {
+        Value::Bool(true) => Value::Object(Map::new()),
+        Value::Bool(false) => json!({ "not": {} }),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, val)| (key.clone(), sanitize_schema(val)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(sanitize_schema).collect()),
+        other => other.clone(),
+    }
+}
+
+fn schema_for<T: JsonSchema + 'static>() -> Arc<Map<String, Value>> {
+    let raw = rmcp::handler::server::tool::schema_for_type::<T>();
+    let mut sanitized = Map::new();
+    for (key, val) in raw.iter() {
+        sanitized.insert(key.clone(), sanitize_schema(val));
+    }
+    Arc::new(sanitized)
+}
 
 #[derive(Clone)]
 struct GflowMcpServer {
@@ -47,7 +81,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Read scheduler and GPU status from the local gflow daemon.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<SchedulerInfoOutput>()
+        output_schema = schema_for::<SchedulerInfoOutput>()
     )]
     async fn get_info(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
@@ -57,7 +91,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Check whether the local gflow daemon is running and responsive.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<HealthOutput>()
+        output_schema = schema_for::<HealthOutput>()
     )]
     async fn get_health(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
@@ -76,7 +110,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "List jobs from the local gflow daemon. Defaults to recent jobs first.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ListJobsOutput>()
+        output_schema = schema_for::<ListJobsOutput>()
     )]
     async fn list_jobs(
         &self,
@@ -122,7 +156,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Get a single job by ID.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ArbitraryObjectSchema>()
+        output_schema = schema_for::<ArbitraryObjectSchema>()
     )]
     async fn get_job(
         &self,
@@ -139,7 +173,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Read the local log file for a job.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<JobLogOutput>()
+        output_schema = schema_for::<JobLogOutput>()
     )]
     async fn get_job_log(
         &self,
@@ -184,7 +218,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Read usage statistics from the local gflow daemon.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<UsageStatsOutput>()
+        output_schema = schema_for::<UsageStatsOutput>()
     )]
     async fn get_stats(
         &self,
@@ -200,7 +234,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Summarize queue pressure and GPU availability for agent planning. Read-only.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<QueuePressureOutput>()
+        output_schema = schema_for::<QueuePressureOutput>()
     )]
     async fn get_queue_pressure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
@@ -227,7 +261,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "List GPU reservations from the local gflow daemon.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ListReservationsOutput>()
+        output_schema = schema_for::<ListReservationsOutput>()
     )]
     async fn list_reservations(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
@@ -244,7 +278,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: cancel a job through the local gflow daemon. Caller should require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
+        output_schema = schema_for::<JobActionOutput>()
     )]
     async fn cancel_job(
         &self,
@@ -257,7 +291,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: put a queued job on hold through the local gflow daemon. Caller should require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
+        output_schema = schema_for::<JobActionOutput>()
     )]
     async fn hold_job(
         &self,
@@ -270,7 +304,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: release a held job through the local gflow daemon. Caller should require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<JobActionOutput>()
+        output_schema = schema_for::<JobActionOutput>()
     )]
     async fn release_job(
         &self,
@@ -283,7 +317,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Preview one or more job submissions without creating jobs. Read-only dry run using the same simplified schema as submit_jobs.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<PreviewSubmitJobOutput>()
+        output_schema = schema_for::<PreviewSubmitJobOutput>()
     )]
     async fn preview_submit_jobs(
         &self,
@@ -296,7 +330,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: submit one or more jobs to the local gflow daemon using a simplified schema. Prefer preview_submit_jobs first and require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<SubmitJobsOutput>()
+        output_schema = schema_for::<SubmitJobsOutput>()
     )]
     async fn submit_jobs(
         &self,
@@ -359,7 +393,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Preview mutable job parameter changes without updating scheduler state. Read-only dry run.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<PreviewUpdateJobOutput>()
+        output_schema = schema_for::<PreviewUpdateJobOutput>()
     )]
     async fn preview_update_job(
         &self,
@@ -380,7 +414,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: update mutable job parameters on the local gflow daemon. Prefer preview_update_job first and require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<UpdateJobOutputSchema>()
+        output_schema = schema_for::<UpdateJobOutputSchema>()
     )]
     async fn update_job(
         &self,
@@ -399,7 +433,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "Summarize why a job is queued or failed, including recent log evidence and retry hints. Read-only.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TriageJobOutput>()
+        output_schema = schema_for::<TriageJobOutput>()
     )]
     async fn triage_job(
         &self,
@@ -421,7 +455,7 @@ impl GflowMcpServer {
 
     #[tool(
         description = "MUTATES scheduler state: resubmit a finished job with the same or overridden parameters, optionally cascading to dependency-cancelled child jobs. Prefer triage_job first and require explicit user confirmation.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<RedoJobOutput>()
+        output_schema = schema_for::<RedoJobOutput>()
     )]
     async fn redo_job(
         &self,

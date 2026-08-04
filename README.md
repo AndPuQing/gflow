@@ -98,7 +98,24 @@ If `gflow` is not on your `PATH`, replace it with the absolute binary path.
 
 ### Using gflow with pi
 
-`pi` (pi coding agent) does not support MCP natively. Use the `gflow-ops` skill instead — it ships at `skills/gflow-ops/` and covers the same operations as the MCP tools. Install it into `pi` with:
+`pi` (pi coding agent) does not support MCP natively, but the [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) extension adds it. Install it and add gflow to a standard MCP config:
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Alternatively, install the `gflow-ops` skill (ships at `skills/gflow-ops/`) for a CLI workflow:
 
 ```bash
 mkdir -p ~/.pi/agent/skills
