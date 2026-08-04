@@ -98,34 +98,6 @@ args = ["mcp", "serve"]
 
 如果 `gflow` 不在 `PATH` 中，请改成二进制的绝对路径。
 
-### 在 pi 中使用 gflow
-
-`pi`（pi coding agent）原生不支持 MCP，但 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 扩展可以补上。安装后把 gflow 写进标准 MCP 配置：
-
-```bash
-pi install npm:pi-mcp-adapter
-```
-
-```json
-{
-  "mcpServers": {
-    "gflow": {
-      "command": "gflow",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-也可以安装 `gflow-ops` skill（位于 `skills/gflow-ops/`）走 CLI 工作流：
-
-```bash
-mkdir -p ~/.pi/agent/skills
-cp -r skills/gflow-ops ~/.pi/agent/skills/
-```
-
-详见 [AI Agent、MCP 与 Skill](docs/src/zh-CN/ai-integration/mcp-and-skills.md)。
-
 ## 文档
 
 更完整的内容见文档站：
