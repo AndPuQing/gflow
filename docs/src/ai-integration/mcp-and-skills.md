@@ -135,6 +135,68 @@ Notes:
 - OpenCode local MCP uses `type: "local"` and a command array.
 - If `gflow` is not on `PATH`, change `command` to an absolute-path array.
 
+## pi
+
+`pi` (pi coding agent) does not support MCP natively, but the community extension [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) adds it. It exposes a single proxy `mcp` tool instead of loading every server's tool definitions into context, so it also keeps the context window small.
+
+Install the extension:
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+Restart `pi` after installing. Then add the gflow server to a standard MCP config file (`.mcp.json` in the project, or `~/.config/mcp/mcp.json` globally):
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+If `gflow` is not on `PATH`, use its absolute path in `command`. Servers are lazy — they start only when you first call one of their tools. Inside `pi`, search and call gflow tools through the proxy:
+
+```
+mcp({ search: "job" })
+mcp({ tool: "gflow_get_health", args: {} })
+```
+
+Alternatively, install the `gflow-ops` skill (see below) for a documentation-driven CLI workflow. The skill follows the [Agent Skills standard](https://agentskills.io/specification) and covers the same operations as the MCP tools.
+
+The skill ships in the repository at `skills/gflow-ops/`. Install it into `pi` with any of these:
+
+```bash
+# Global (all projects)
+mkdir -p ~/.pi/agent/skills
+cp -r skills/gflow-ops ~/.pi/agent/skills/
+
+# Project-scoped (after trusting the project)
+mkdir -p .pi/skills
+cp -r skills/gflow-ops .pi/skills/
+```
+
+Or reference the repo directly from `~/.pi/settings.json` (or a project `.pi/settings.json`):
+
+```json
+{
+  "skills": ["/path/to/gflow/skills/gflow-ops"]
+}
+```
+
+Verify the skill is visible by asking pi to list its available skills:
+
+```bash
+pi -p "List the names of all skills available to you."
+```
+
+In an interactive session the skill also registers as the `/skill:gflow-ops` command.
+
+When the skill is loaded, `pi` can use `gflow` CLI commands (`gflowd status`, `gqueue`, `ginfo`, `gjob`, `gbatch`, `gcancel`) directly; the skill's `SKILL.md` documents the recommended inspection-first workflow.
+
 ## FAQ
 
 ### MCP is already added, but the agent cannot see the gflow tools
@@ -153,6 +215,10 @@ Common causes:
 - `gflow` is not on the `PATH` seen by the agent process.
 - The local config points to the wrong daemon address or port.
 - If you start `gflow mcp serve` directly in a shell, it will wait for stdio traffic from an MCP client.
+
+### Why can't I use MCP in pi?
+
+`pi` does not support MCP natively, but the [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) extension adds it (see the [pi section](#pi) above). If you prefer not to use the extension, the `gflow-ops` skill or the `gflow` CLI work too.
 
 ## See Also
 

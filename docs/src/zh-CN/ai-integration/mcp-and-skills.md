@@ -135,6 +135,68 @@ opencode mcp list
 - OpenCode 的本地 MCP 使用 `type: "local"` 和命令数组。
 - 如果 `gflow` 不在 `PATH` 中，把 `command` 改成绝对路径数组。
 
+## pi
+
+`pi`（pi coding agent）原生不支持 MCP，但社区扩展 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 可以补上。它只暴露一个代理 `mcp` 工具，而不是把所有 server 的工具定义全部塞进上下文，因此也很省 token。
+
+安装扩展：
+
+```bash
+pi install npm:pi-mcp-adapter
+```
+
+安装后重启 `pi`。然后把 gflow server 写进标准 MCP 配置文件（项目里的 `.mcp.json`，或全局 `~/.config/mcp/mcp.json`）：
+
+```json
+{
+  "mcpServers": {
+    "gflow": {
+      "command": "gflow",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+如果 `gflow` 不在 `PATH` 中，`command` 用绝对路径。server 是懒加载的——第一次调用某个工具时才会启动。在 `pi` 里通过代理搜索并调用 gflow 工具：
+
+```
+mcp({ search: "job" })
+mcp({ tool: "gflow_get_health", args: {} })
+```
+
+也可以安装 `gflow-ops` skill（见下文）走文档驱动的 CLI 工作流。该 skill 遵循 `pi` 按需加载的 [Agent Skills 标准](https://agentskills.io/specification)，覆盖与 MCP 工具相同的操作。
+
+skill 位于仓库的 `skills/gflow-ops/` 目录。用以下任一方式安装到 `pi`：
+
+```bash
+# 全局（所有项目）
+mkdir -p ~/.pi/agent/skills
+cp -r skills/gflow-ops ~/.pi/agent/skills/
+
+# 项目级（信任项目后）
+mkdir -p .pi/skills
+cp -r skills/gflow-ops .pi/skills/
+```
+
+或者在 `~/.pi/settings.json`（或项目 `.pi/settings.json`）里直接引用仓库目录：
+
+```json
+{
+  "skills": ["/path/to/gflow/skills/gflow-ops"]
+}
+```
+
+验证 skill 是否可见，让 pi 列出它的可用 skill：
+
+```bash
+pi -p "List the names of all skills available to you."
+```
+
+交互式会话中，该 skill 也会注册为 `/skill:gflow-ops` 命令。
+
+skill 加载后，`pi` 可以直接使用 `gflow` CLI 命令（`gflowd status`、`gqueue`、`ginfo`、`gjob`、`gbatch`、`gcancel`）；`SKILL.md` 里记录了推荐的“先检查、再操作”工作流。
+
 ## 常见问题
 
 ### 已经加了 MCP，但 agent 看不到 gflow 工具
@@ -153,6 +215,10 @@ gflow mcp serve --help
 - agent 启动时的 `PATH` 里没有 `gflow`。
 - 本地配置文件指向了错误的守护进程地址或端口。
 - 如果你直接在 shell 里启动 `gflow mcp serve`，它会等待来自 MCP 客户端的 stdio 通信。
+
+### 为什么在 pi 里用不了 MCP？
+
+`pi` 原生不支持 MCP，但 [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) 扩展可以补上（见上文 [pi 小节](#pi)）。如果不想用扩展，也可以改用 `gflow-ops` skill 或 `gflow` CLI。
 
 ## 另见
 
