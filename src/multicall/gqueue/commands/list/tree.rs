@@ -1,4 +1,4 @@
-use super::display::format_job_cell;
+use super::display::{format_job_cell, ExecutorDisplay};
 use std::collections::{HashMap, HashSet};
 use tabled::{builder::Builder, settings::style::Style};
 
@@ -32,6 +32,7 @@ pub(super) enum JobNodeChild {
 struct RenderContext<'a> {
     headers: &'a [&'a str],
     tmux_sessions: &'a HashSet<String>,
+    executor: ExecutorDisplay,
 }
 
 #[derive(Clone, Copy)]
@@ -224,6 +225,7 @@ pub(super) fn display_jobs_tree(
     jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) {
     if jobs.is_empty() {
         println!("No jobs to display.");
@@ -248,6 +250,7 @@ pub(super) fn display_jobs_tree(
     let ctx = RenderContext {
         headers: &headers,
         tmux_sessions,
+        executor,
     };
 
     // Collect all tree rows
@@ -308,7 +311,7 @@ fn collect_tree_rows(
                 // Add tree prefix to JOBID column
                 format!("{}{}{}", prefix, tree_prefix, job.id)
             } else {
-                format_job_cell(job, header, ctx.tmux_sessions)
+                format_job_cell(job, header, ctx.tmux_sessions, ctx.executor)
             }
         })
         .collect();

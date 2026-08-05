@@ -25,4 +25,7 @@ pub struct SchedulerInfo {
     pub allowed_gpu_indices: Option<Vec<u32>>,
     /// Strategy used when allocating GPUs for new jobs.
     pub gpu_allocation_strategy: GpuAllocationStrategy,
+    /// Job executor backend: "process" (default) or "tmux".
+    #[serde(default)]
+    pub executor: String,
 }

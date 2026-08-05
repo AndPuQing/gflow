@@ -1,19 +1,37 @@
 use std::path::PathBuf;
 
+/// Honor the XDG base directory environment variables on every platform.
+///
+/// The `dirs` crate only consults them on Linux; on macOS it always returns
+/// `~/Library/...` paths. Explicitly preferring `XDG_*` when set keeps gflow's
+/// config/data/runtime locations deterministic across platforms (e.g. in
+/// tests or container-style environments) without changing defaults for users
+/// who don't set them.
+fn xdg_dir(env_key: &str) -> Option<PathBuf> {
+    let value = std::env::var_os(env_key)?;
+    if value.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(value))
+}
+
 pub fn get_config_dir() -> anyhow::Result<PathBuf> {
-    dirs::config_dir()
+    xdg_dir("XDG_CONFIG_HOME")
+        .or_else(dirs::config_dir)
         .ok_or_else(|| anyhow::anyhow!("Failed to get config directory"))
         .map(|p| p.join("gflow"))
 }
 
 pub fn get_data_dir() -> anyhow::Result<PathBuf> {
-    dirs::data_dir()
+    xdg_dir("XDG_DATA_HOME")
+        .or_else(dirs::data_dir)
         .ok_or_else(|| anyhow::anyhow!("Failed to get data directory"))
         .map(|p| p.join("gflow"))
 }
 
 pub fn get_runtime_dir() -> anyhow::Result<PathBuf> {
-    dirs::runtime_dir()
+    xdg_dir("XDG_RUNTIME_DIR")
+        .or_else(dirs::runtime_dir)
         .or_else(dirs::cache_dir)
         .ok_or_else(|| anyhow::anyhow!("Failed to get runtime or cache directory"))
         .map(|p| p.join("gflow"))

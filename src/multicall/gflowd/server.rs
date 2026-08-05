@@ -13,7 +13,7 @@ mod web_ui;
 pub(crate) use handlers::UpdateJobRequest;
 
 use super::events::EventBus;
-use super::executor::TmuxExecutor;
+use super::executor::{ProcessExecutor, TmuxExecutor};
 use super::scheduler_runtime;
 use super::state_saver::StateSaverHandle;
 use axum::{
@@ -24,6 +24,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use gflow::config::ExecutorType;
+use gflow::core::executor::Executor;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,8 +47,15 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     }
     let gpu_poll_interval = Duration::from_secs(gpu_poll_interval_secs);
 
-    // Inject TmuxExecutor
-    let executor = Box::new(TmuxExecutor);
+    // Inject the configured job executor (default: process; tmux opt-in)
+    let executor: Box<dyn Executor> = match config.executor.r#type {
+        ExecutorType::Process => Box::new(ProcessExecutor::new()),
+        ExecutorType::Tmux => Box::new(TmuxExecutor),
+    };
+    tracing::info!(
+        executor_type = ?config.executor.r#type,
+        "Configured job executor"
+    );
 
     // Create state saver channel before initializing SchedulerRuntime
     let (state_tx, state_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -63,6 +72,9 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
     scheduler_runtime.set_quota_baseline(config.quota.clone());
+
+    // Keep an executor handle for graceful shutdown (terminates managed jobs).
+    let shutdown_executor = scheduler_runtime.executor();
 
     let scheduler = Arc::new(tokio::sync::RwLock::new(scheduler_runtime));
     let scheduler_clone = Arc::clone(&scheduler);
@@ -232,8 +244,10 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
 
     tracing::info!(%addr, reuse_port = true, "Listening for HTTP requests");
 
-    // Create shutdown signal handler with state saver for graceful shutdown
-    let shutdown_signal = create_shutdown_signal(state_saver_handle);
+    // Create shutdown signal handler with state saver for graceful shutdown.
+    // The executor handle lets the daemon terminate managed job processes
+    // (process executor) before exiting.
+    let shutdown_signal = create_shutdown_signal(state_saver_handle, shutdown_executor);
 
     // Start Axum server with graceful shutdown
     axum::serve(listener, app)
@@ -275,13 +289,15 @@ async fn request_tracing_middleware(req: Request, next: Next) -> Response {
     .await
 }
 
-async fn create_shutdown_signal(state_saver: StateSaverHandle) {
+async fn create_shutdown_signal(state_saver: StateSaverHandle, executor: Arc<dyn Executor>) {
     use tokio::signal::unix::{signal, SignalKind};
 
     let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
     let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
     let mut sigusr2 =
         signal(SignalKind::user_defined2()).expect("Failed to register SIGUSR2 handler");
+    // SIGHUP is delivered when the hosting tmux session is killed (`gflowd down`).
+    let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
 
     tokio::select! {
         _ = sigterm.recv() => {
@@ -293,6 +309,9 @@ async fn create_shutdown_signal(state_saver: StateSaverHandle) {
         _ = sigusr2.recv() => {
             tracing::info!(signal = "SIGUSR2", reload = true, "Initiating graceful shutdown");
         }
+        _ = sighup.recv() => {
+            tracing::info!(signal = "SIGHUP", "Initiating graceful shutdown");
+        }
     }
 
     // Save state before exiting
@@ -302,4 +321,8 @@ async fn create_shutdown_signal(state_saver: StateSaverHandle) {
     } else {
         tracing::info!("State saved successfully");
     }
+
+    // Terminate managed job processes (process executor).
+    tracing::info!("Terminating managed job processes");
+    executor.shutdown();
 }

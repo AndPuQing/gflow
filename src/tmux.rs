@@ -140,6 +140,18 @@ pub fn is_session_exist(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the tmux binary is installed and can be invoked.
+///
+/// When false, `gflowd up` falls back to hosting the daemon as a detached
+/// process (no tmux required for job execution).
+pub fn tmux_available() -> bool {
+    std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Get all existing tmux session names in a single call
 /// This is much more efficient than checking each session individually
 pub fn get_all_session_names() -> std::collections::HashSet<String> {

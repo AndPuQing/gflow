@@ -210,6 +210,7 @@ fn triage_job_includes_log_based_retry_hints_and_exit_status_note() {
 #[test]
 fn queue_pressure_summarizes_gpu_pressure_and_groups() {
     let info = SchedulerInfo {
+        executor: String::new(),
         gpus: vec![
             GpuInfo {
                 uuid: "gpu-0".to_string(),

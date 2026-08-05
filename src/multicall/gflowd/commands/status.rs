@@ -2,11 +2,42 @@ use anyhow::Result;
 use gflow::tmux::is_session_exist;
 
 pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<()> {
+    // Direct (pidfile) mode first.
+    if let Some(pid) = super::read_daemon_pidfile() {
+        if !super::process_alive(pid) {
+            super::remove_daemon_pidfile();
+            println!("Status: Not running");
+            println!("The gflowd daemon is not running.");
+            return Ok(());
+        }
+
+        let client = gflow::create_client_or_default(config_path)?;
+
+        match client.get_health().await {
+            Ok(health) if health.is_success() => {
+                println!("Status: Running");
+                println!(
+                    "The gflowd daemon is running as a direct process (PID {}).",
+                    pid
+                );
+            }
+            Ok(_) => {
+                println!("Status: Unhealthy");
+                eprintln!("The gflowd daemon responded to the health check but is not healthy.");
+            }
+            Err(e) => {
+                println!("Status: Not Running");
+                eprintln!("Failed to connect to gflowd daemon: {e}");
+            }
+        }
+        return Ok(());
+    }
+
     let session_exists = is_session_exist(super::TMUX_SESSION_NAME);
 
     if !session_exists {
         println!("Status: Not running");
-        println!("The gflowd daemon is not running (tmux session not found).");
+        println!("The gflowd daemon is not running.");
         return Ok(());
     }
 

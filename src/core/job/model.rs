@@ -224,6 +224,11 @@ pub struct Job {
     pub finished_at: Option<SystemTime>,  // When the job finished or failed
     #[serde(default)]
     pub reason: Option<Box<JobStateReason>>, // Reason for cancellation/failure
+    /// Transient liveness hint set by the daemon for Running jobs (whether the
+    /// underlying process/session is alive). Display-only; never persisted.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alive: Option<bool>,
     // Append-only for backward compatibility with legacy msgpack array layout.
     #[serde(default)]
     #[serde(skip_serializing_if = "JobNotifications::is_empty")]
@@ -496,6 +501,7 @@ impl JobBuilder {
             started_at: None,
             finished_at: None,
             reason: None,
+            alive: None,
         }
     }
 }
@@ -536,6 +542,7 @@ impl Default for Job {
             started_at: None,
             finished_at: None,
             reason: None,
+            alive: None,
         }
     }
 }
@@ -581,6 +588,7 @@ impl Job {
             started_at: runtime.started_at,
             finished_at: runtime.finished_at,
             reason: runtime.reason,
+            alive: None,
         }
     }
 

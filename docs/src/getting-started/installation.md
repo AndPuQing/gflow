@@ -9,20 +9,20 @@ The Python package name is `runqd`. It provides `gflowd`, `gbatch`, `gqueue`, `g
 ## Prerequisites
 
 - **Operating System**: Linux
-- **tmux**: Required
+- **tmux**: Optional (only needed for `gflowd up`/attach workflows and the legacy tmux executor; job execution itself runs as plain child processes by default)
 - **NVIDIA GPU / drivers**: Only required for GPU scheduling
 
 ### Installing Prerequisites
 
 ::: code-group
 ```bash [Ubuntu/Debian]
-# Install tmux
+# tmux is optional; install it only if you want tmux-hosted daemon / attach support
 sudo apt-get update
 sudo apt-get install tmux
 ```
 
 ```bash [Fedora/RHEL]
-# Install tmux
+# tmux is optional; install it only if you want tmux-hosted daemon / attach support
 sudo dnf install tmux
 ```
 :::
@@ -123,14 +123,33 @@ If the commands work and `gflowd --version` prints a version, the install is com
 
 ## Run Checks
 
-### 1. Check tmux
+### 1. Check the daemon (no tmux required)
+
+Job execution no longer requires tmux: the daemon spawns each job as a detached
+child process group and redirects its output to `logs/<job_id>.log`.
+`gflowd up` hosts the daemon in tmux when available, and falls back to a direct
+detached process otherwise.
+
+```bash
+# Optional: create a default config
+gflowd init
+
+# Start the daemon
+gflowd up
+
+# Check status
+gflowd status
+```
+
+### 2. Check tmux (only if you use tmux features)
+
 ```bash
 tmux new-session -d -s test
 tmux has-session -t test && echo "tmux ok"
 tmux kill-session -t test
 ```
 
-### 2. Check the daemon and GPU detection (optional)
+### 3. Check the daemon and GPU detection (optional)
 
 If you have NVIDIA GPUs, you can verify detection:
 

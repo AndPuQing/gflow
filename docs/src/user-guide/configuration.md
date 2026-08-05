@@ -198,6 +198,24 @@ Precedence (highest → lowest):
 2. Config file (`timezone = "..."`)
 3. Default: local system timezone
 
+## Job Executor
+
+Choose how job payloads are executed.
+
+```toml
+[executor]
+type = "process" # or "tmux"
+```
+
+- **`process`** (default, no tmux required): each job runs as a detached child
+  process group (`setsid`), with stdout/stderr redirected to
+  `logs/<job_id>.log`. Cancellation SIGTERMs the whole process group and
+  escalates to SIGKILL after a grace period; zombie detection uses real
+  process liveness.
+- **`tmux`** (legacy): each job runs in a detached tmux session with
+  terminal key injection. Enables interactive inspection via `gjob attach`
+  and `gjob close-sessions`.
+
 ## Project Tracking
 
 Use project settings to standardize job ownership metadata across teams.

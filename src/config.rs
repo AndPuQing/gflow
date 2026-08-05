@@ -25,6 +25,10 @@ pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "QuotaConfig::is_empty")]
     pub quota: QuotaConfig,
+    /// Job executor configuration
+    #[serde(default)]
+    #[serde(skip_serializing_if = "ExecutorConfig::is_default")]
+    pub executor: ExecutorConfig,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -223,6 +227,41 @@ impl QuotaConfig {
             Some(limits) => self.default_project.merged_with(limits),
             None => self.default_project.clone(),
         })
+    }
+}
+
+/// Job execution backend.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ExecutorType {
+    /// Spawn a detached child process group (setsid) with stdio redirected to
+    /// the job log file. The default; requires no tmux.
+    #[default]
+    Process,
+    /// Legacy tmux session + terminal key injection. Enables `gjob attach`
+    /// and `gjob close-sessions` for running jobs.
+    Tmux,
+}
+
+/// Job executor settings, configured via the `[executor]` table in `gflow.toml`.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ExecutorConfig {
+    /// Which executor to use for job execution: "process" (default) or "tmux".
+    #[serde(default)]
+    pub r#type: ExecutorType,
+}
+
+impl Default for ExecutorConfig {
+    fn default() -> Self {
+        Self {
+            r#type: ExecutorType::Process,
+        }
+    }
+}
+
+impl ExecutorConfig {
+    fn is_default(value: &Self) -> bool {
+        value.r#type == ExecutorType::Process
     }
 }
 
@@ -626,6 +665,42 @@ cv-team = { max_running_gpus = 8, max_queued_jobs = 100 }
             .unwrap_err();
 
         assert!(error.to_string().contains("invalid type"));
+    }
+
+    #[test]
+    fn executor_defaults_to_process() {
+        assert_eq!(ExecutorConfig::default().r#type, ExecutorType::Process);
+    }
+
+    #[test]
+    fn executor_toml_section_parses_process_and_tmux() {
+        let config = config::Config::builder()
+            .add_source(config::File::from_str(
+                r#"
+[executor]
+type = "tmux"
+"#,
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+        assert_eq!(config.executor.r#type, ExecutorType::Tmux);
+
+        let config = config::Config::builder()
+            .add_source(config::File::from_str(
+                r#"
+[executor]
+type = "process"
+"#,
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+        assert_eq!(config.executor.r#type, ExecutorType::Process);
     }
 
     #[test]

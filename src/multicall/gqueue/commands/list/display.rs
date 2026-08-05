@@ -3,10 +3,22 @@ use owo_colors::OwoColorize;
 use std::collections::HashSet;
 use tabled::{builder::Builder, settings::style::Style};
 
+/// How the job-name liveness indicator should be rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExecutorDisplay {
+    /// Legacy tmux executor: show a green ○ when the job's tmux session is
+    /// alive (queried client-side).
+    TmuxSessions,
+    /// Process executor: show a green ○ when the daemon reports the process
+    /// alive; no indicator otherwise.
+    ProcessLiveness,
+}
+
 pub(super) fn display_jobs_table(
     jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) {
     if jobs.is_empty() {
         println!("No jobs to display.");
@@ -28,7 +40,7 @@ pub(super) fn display_jobs_table(
     for job in jobs {
         let row: Vec<String> = headers
             .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions))
+            .map(|header| format_job_cell(job, header, tmux_sessions, executor))
             .collect();
         builder.push_record(row);
     }
@@ -44,6 +56,7 @@ fn display_jobs_table_refs(
     jobs: &[&gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) {
     if jobs.is_empty() {
         println!("No jobs to display.");
@@ -65,7 +78,7 @@ fn display_jobs_table_refs(
     for job in jobs {
         let row: Vec<String> = headers
             .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions))
+            .map(|header| format_job_cell(job, header, tmux_sessions, executor))
             .collect();
         builder.push_record(row);
     }
@@ -80,6 +93,7 @@ pub(super) fn display_grouped_jobs(
     jobs: &[gflow::core::job::Job],
     format: Option<&str>,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) {
     use gflow::core::job::JobState;
 
@@ -108,7 +122,7 @@ pub(super) fn display_grouped_jobs(
 
             println!("{} ({})", state, state_jobs.len());
             println!("{}", "─".repeat(60));
-            display_jobs_table_refs(state_jobs, format, tmux_sessions);
+            display_jobs_table_refs(state_jobs, format, tmux_sessions, executor);
         }
     }
 }
@@ -166,10 +180,11 @@ pub(super) fn format_job_cell(
     job: &gflow::core::job::Job,
     header: &str,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) -> String {
     match header {
         "JOBID" => job.id.to_string(),
-        "NAME" => format_job_name_with_session_status(job, tmux_sessions),
+        "NAME" => format_job_name_with_session_status(job, tmux_sessions, executor),
         "ST" => colorize_state(&job.state),
         "NODES" => job.gpus.to_string(),
         "MEMORY" => job
@@ -199,18 +214,101 @@ pub(super) fn format_job_cell(
     }
 }
 
-/// Formats the job name with a visual indicator for tmux session status
+/// Formats the job name with a visual liveness indicator.
+///
+/// - tmux executor: green ○ when the job's tmux session is alive.
+/// - process executor: green ○ when the daemon reports the process alive;
+///   nothing when the process is gone (the zombie monitor handles it).
 fn format_job_name_with_session_status(
     job: &gflow::core::job::Job,
     tmux_sessions: &HashSet<String>,
+    executor: ExecutorDisplay,
 ) -> String {
     let Some(name) = &job.run_name else {
         return "-".to_string();
     };
 
-    if tmux_sessions.contains(name.as_str()) {
-        format!("{} {}", name, "○".green())
-    } else {
-        name.to_string()
+    match executor {
+        ExecutorDisplay::TmuxSessions => {
+            if tmux_sessions.contains(name.as_str()) {
+                format!("{} {}", name, "○".green())
+            } else {
+                name.to_string()
+            }
+        }
+        ExecutorDisplay::ProcessLiveness => {
+            if job.alive == Some(true) {
+                format!("{} {}", name, "○".green())
+            } else {
+                name.to_string()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::job::{Job, JobState};
+    use std::path::PathBuf;
+
+    fn running_job(name: &str) -> Job {
+        Job {
+            id: 1,
+            run_name: Some(name.into()),
+            state: JobState::Running,
+            run_dir: PathBuf::from("/tmp"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn tmux_mode_shows_circle_only_for_live_sessions() {
+        let mut sessions = HashSet::new();
+        sessions.insert("gjob-1".to_string());
+
+        let alive = running_job("gjob-1");
+        let dead = running_job("gjob-2");
+
+        let name =
+            format_job_name_with_session_status(&alive, &sessions, ExecutorDisplay::TmuxSessions);
+        assert!(
+            name.contains("○"),
+            "live session should show a circle: {name}"
+        );
+
+        let name =
+            format_job_name_with_session_status(&dead, &sessions, ExecutorDisplay::TmuxSessions);
+        assert_eq!(name, "gjob-2");
+    }
+
+    #[test]
+    fn process_mode_uses_daemon_liveness_hint() {
+        let sessions = HashSet::new();
+
+        let mut alive = running_job("gjob-1");
+        alive.alive = Some(true);
+        let mut dead = running_job("gjob-2");
+        dead.alive = Some(false);
+        let unknown = running_job("gjob-3");
+
+        let name = format_job_name_with_session_status(
+            &alive,
+            &sessions,
+            ExecutorDisplay::ProcessLiveness,
+        );
+        assert!(name.contains("○"), "alive process should show ○: {name}");
+
+        // Dead / unknown processes show no indicator at all.
+        let name =
+            format_job_name_with_session_status(&dead, &sessions, ExecutorDisplay::ProcessLiveness);
+        assert_eq!(name, "gjob-2");
+
+        let name = format_job_name_with_session_status(
+            &unknown,
+            &sessions,
+            ExecutorDisplay::ProcessLiveness,
+        );
+        assert_eq!(name, "gjob-3", "no hint -> no indicator");
     }
 }

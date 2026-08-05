@@ -18,7 +18,6 @@ use gflow::core::gpu::{GPUSlot, GpuUuid};
 use gflow::core::info::IgnoredGpuProcess;
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
-use gflow::tmux::disable_pipe_pane_for_job;
 use nvml_wrapper::Nvml;
 use std::{
     collections::{HashMap, HashSet},
@@ -176,6 +175,12 @@ impl SchedulerRuntime {
         self.state_writable
     }
 
+    /// Handle to the configured job executor (used by cancel/zombie paths and
+    /// daemon shutdown).
+    pub fn executor(&self) -> Arc<dyn Executor> {
+        Arc::clone(&self.executor)
+    }
+
     pub fn journal_writable(&self) -> bool {
         self.journal_writable
     }
@@ -253,7 +258,18 @@ impl SchedulerRuntime {
     }
 
     pub fn info(&self) -> gflow::core::info::SchedulerInfo {
-        self.scheduler.info()
+        let mut info = self.scheduler.info();
+        info.executor = self.executor.kind().to_string();
+        info
+    }
+
+    /// Annotate a materialized job with a transient liveness hint (whether its
+    /// underlying process/session is still alive). Only meaningful for Running
+    /// jobs; the hint is display-only and never persisted.
+    pub fn annotate_liveness(&self, job: &mut Job) {
+        if job.state == JobState::Running {
+            job.alive = Some(self.executor.is_running(job.id, job.run_name.as_deref()));
+        }
     }
 
     pub fn gpu_slots_count(&self) -> usize {
