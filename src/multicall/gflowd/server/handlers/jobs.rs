@@ -333,6 +333,12 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
         }
     }
 
+    // Attach a transient liveness hint (process/session alive) for Running
+    // jobs so clients can render an executor-appropriate indicator.
+    for job in &mut jobs {
+        state.annotate_liveness(job);
+    }
+
     (StatusCode::OK, Json(jobs))
 }
 
@@ -561,7 +567,11 @@ pub(in crate::multicall::gflowd::server) async fn get_job(
     Path(id): Path<u32>,
 ) -> Result<Json<Job>, StatusCode> {
     let state = server_state.scheduler.read().await;
-    state.get_job(id).map(Json).ok_or(StatusCode::NOT_FOUND)
+    let Some(mut job) = state.get_job(id) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    state.annotate_liveness(&mut job);
+    Ok(Json(job))
 }
 
 #[axum::debug_handler]

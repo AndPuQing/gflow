@@ -14,6 +14,13 @@ pub trait Executor: Send + Sync {
     /// Start executing a job. Must return quickly (spawn, not wait).
     fn execute(&self, job: &Job) -> Result<()>;
 
+    /// Backend identifier, e.g. `"process"` or `"tmux"`. Exposed via the
+    /// daemon's `/info` endpoint so clients can render mode-appropriate
+    /// liveness indicators.
+    fn kind(&self) -> &'static str {
+        "unknown"
+    }
+
     /// Terminate a running job (used by cancel / timeout / shutdown paths).
     ///
     /// `run_name` is the job's session/run name (only meaningful for tmux).

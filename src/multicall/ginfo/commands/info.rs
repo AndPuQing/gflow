@@ -125,6 +125,7 @@ mod tests {
     #[test]
     fn test_print_gpu_allocation() {
         let info = gflow::core::info::SchedulerInfo {
+            executor: String::new(),
             gpus: vec![
                 gflow::core::info::GpuInfo {
                     index: 0,

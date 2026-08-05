@@ -1119,6 +1119,13 @@ async fn process_executor_runs_job_without_tmux() {
         Some(response.run_name.as_str())
     );
 
+    // A Running process-executor job must be reported as alive, and the daemon
+    // must advertise the process backend via /info (gqueue renders its liveness
+    // indicator from these).
+    assert_eq!(running_job.alive, Some(true), "running job should be alive");
+    let info = client.get_info().await.unwrap();
+    assert_eq!(info.executor, "process");
+
     // The process executor must not create a tmux session for the job.
     assert!(!is_session_exist(&response.run_name));
 
@@ -1268,6 +1275,7 @@ async fn executor_type_config_selects_backend() {
             .build();
         let response = client.add_job(job).await.unwrap();
 
+        assert_eq!(client.get_info().await.unwrap().executor, "tmux");
         wait_for_tmux_session(&response.run_name, true, Duration::from_secs(10)).await;
         wait_for_job_state(
             &client,

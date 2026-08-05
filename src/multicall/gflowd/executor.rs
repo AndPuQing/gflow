@@ -91,6 +91,10 @@ fn detach_with_setsid() -> Result<(), std::io::Error> {
 }
 
 impl Executor for ProcessExecutor {
+    fn kind(&self) -> &'static str {
+        "process"
+    }
+
     fn execute(&self, job: &Job) -> Result<()> {
         let wrapped_command = Self::build_wrapped_command(job)?;
 
@@ -287,6 +291,10 @@ impl TmuxExecutor {
 }
 
 impl Executor for TmuxExecutor {
+    fn kind(&self) -> &'static str {
+        "tmux"
+    }
+
     fn execute(&self, job: &Job) -> Result<()> {
         if let Some(session_name) = job.run_name.as_ref() {
             let session = gflow::tmux::TmuxSession::create(session_name.to_string())?;

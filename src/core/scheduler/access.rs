@@ -224,6 +224,7 @@ impl Scheduler {
             gpus,
             allowed_gpu_indices: self.allowed_gpu_indices.clone(),
             gpu_allocation_strategy: self.gpu_allocation_strategy,
+            executor: String::new(), // filled in by the runtime with the real backend
         }
     }
 
