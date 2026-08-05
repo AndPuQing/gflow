@@ -11,6 +11,35 @@ pub mod up;
 
 pub static TMUX_SESSION_NAME: &str = "gflow_server";
 
+/// Path of the pidfile used when the daemon is hosted without tmux.
+pub fn daemon_pidfile_path() -> anyhow::Result<std::path::PathBuf> {
+    Ok(gflow::paths::get_runtime_dir()?.join("gflowd.pid"))
+}
+
+pub fn read_daemon_pidfile() -> Option<u32> {
+    let content = std::fs::read_to_string(daemon_pidfile_path().ok()?).ok()?;
+    content.trim().parse().ok()
+}
+
+pub fn write_daemon_pidfile(pid: u32) -> anyhow::Result<()> {
+    let path = daemon_pidfile_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, pid.to_string())?;
+    Ok(())
+}
+
+pub fn remove_daemon_pidfile() {
+    if let Ok(path) = daemon_pidfile_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+pub fn process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
 #[derive(Debug, Clone)]
 pub struct DaemonStartOptions<'a> {
     pub gpus: Option<&'a str>,
@@ -48,25 +77,22 @@ pub fn validate_daemon_startup_config(
     Ok(())
 }
 
-/// Build a shell command that always starts daemon from the currently running `gflow` binary.
-/// This avoids accidentally picking a stale `gflow`/`gflowd` from PATH.
-pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> {
-    let gflow_path = std::env::current_exe().context("failed to resolve current gflow binary")?;
-    let exe = shell_escape::escape(gflow_path.to_string_lossy());
+/// Build argv for the daemon process (used both by the tmux-hosted shell
+/// command and by the direct (no-tmux) spawn).
+pub fn daemon_start_args(options: &DaemonStartOptions<'_>) -> Result<Vec<String>> {
+    let mut args = vec!["__multicall".to_string(), "gflowd".to_string()];
 
-    let mut command = format!("{exe} __multicall gflowd");
     if options.verbosity.is_present() {
         if let Some(flag) = daemon_verbosity_flag(options.verbosity) {
-            command.push(' ');
-            command.push_str(flag);
+            args.push(flag.to_string());
         }
     } else {
         // Keep existing behavior for plain `gflowd up`: start daemon with debug logs.
-        command.push_str(" -vvv");
+        args.push("-vvv".to_string());
     }
     if let Some(gpu_spec) = options.gpus {
-        let escaped = shell_escape::escape(gpu_spec.into());
-        command.push_str(&format!(" --gpus-internal {escaped}"));
+        args.push("--gpus-internal".to_string());
+        args.push(gpu_spec.to_string());
     }
     if let Some(strategy) = options.gpu_allocation_strategy {
         strategy
@@ -77,8 +103,8 @@ pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> 
                     strategy
                 )
             })?;
-        let escaped = shell_escape::escape(strategy.into());
-        command.push_str(&format!(" --gpu-allocation-strategy-internal {escaped}"));
+        args.push("--gpu-allocation-strategy-internal".to_string());
+        args.push(strategy.to_string());
     }
     if let Some(gpu_poll_interval_secs) = options.gpu_poll_interval_secs {
         if gpu_poll_interval_secs == 0 {
@@ -87,12 +113,24 @@ pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> 
                 gpu_poll_interval_secs
             ));
         }
-        command.push_str(&format!(
-            " --gpu-poll-interval-secs-internal {}",
-            gpu_poll_interval_secs
-        ));
+        args.push("--gpu-poll-interval-secs-internal".to_string());
+        args.push(gpu_poll_interval_secs.to_string());
     }
 
+    Ok(args)
+}
+
+/// Build a shell command that always starts daemon from the currently running `gflow` binary.
+/// This avoids accidentally picking a stale `gflow`/`gflowd` from PATH.
+pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> {
+    let gflow_path = std::env::current_exe().context("failed to resolve current gflow binary")?;
+    let exe = shell_escape::escape(gflow_path.to_string_lossy());
+
+    let mut command = format!("{exe}");
+    for arg in daemon_start_args(options)? {
+        command.push(' ');
+        command.push_str(&shell_escape::escape(arg.into()));
+    }
     Ok(command)
 }
 

@@ -173,92 +173,71 @@ impl SchedulerRuntime {
     }
 
     pub async fn finish_job(&mut self, job_id: u32) -> bool {
-        if let Some((should_close_tmux, run_name)) = self.scheduler.finish_job(job_id) {
+        let finished = self.scheduler.finish_job(job_id).is_some();
+        if finished {
             self.mark_dirty();
-
-            if let Some(name) = run_name {
-                if should_close_tmux {
-                    // Close tmux session if auto_close is enabled (this also disables pipe-pane)
-                    tracing::info!("Auto-closing tmux session '{}' for job {}", name, job_id);
-                    if let Err(e) = gflow::tmux::kill_session(&name) {
-                        tracing::warn!("Failed to auto-close tmux session '{}': {}", name, e);
-                    }
-                } else {
-                    // Disable pipe-pane to prevent process leaks (keep session alive for user inspection)
-                    disable_pipe_pane_for_job(job_id, &name, false);
-                }
+            // Fetch the job *after* the transition so the executor sees the
+            // terminal state (tmux: auto-close the session on Finished).
+            if let Some(job) = self.scheduler.get_job(job_id) {
+                self.executor.cleanup(&job);
             }
-
-            true
-        } else {
-            false
         }
+        finished
     }
 
     pub async fn fail_job(&mut self, job_id: u32) -> Option<Option<u32>> {
-        // Get run_name before modifying state (needed for PipePane cleanup)
-        let run_name = self
-            .scheduler
-            .get_job(job_id)
-            .and_then(|j| j.run_name.clone());
-
         let result = self.finalize_job_with_retry(job_id, JobState::Failed).await;
         if result.is_some() {
-            // Disable PipePane to prevent process leaks (keep session alive for user inspection)
-            if let Some(name) = run_name {
-                disable_pipe_pane_for_job(job_id, &name, false);
+            if let Some(job) = self.scheduler.get_job(job_id) {
+                self.executor.cleanup(&job);
             }
         }
         result
     }
 
     pub async fn explicit_fail_job(&mut self, job_id: u32) -> bool {
-        let run_name = self
-            .scheduler
-            .get_job(job_id)
-            .and_then(|j| j.run_name.clone());
-
         let result = self.scheduler.fail_job(job_id);
         if result {
             self.mark_dirty();
-            if let Some(name) = run_name {
-                disable_pipe_pane_for_job(job_id, &name, false);
+            if let Some(job) = self.scheduler.get_job(job_id) {
+                self.executor.cleanup(&job);
             }
         }
         result
     }
 
     pub async fn timeout_job(&mut self, job_id: u32) -> Option<Option<u32>> {
-        let run_name = self
-            .scheduler
-            .get_job(job_id)
-            .and_then(|j| j.run_name.clone());
-
         let result = self
             .finalize_job_with_retry(job_id, JobState::Timeout)
             .await;
         if result.is_some() {
-            if let Some(name) = run_name {
-                disable_pipe_pane_for_job(job_id, &name, false);
+            if let Some(job) = self.scheduler.get_job(job_id) {
+                self.executor.cleanup(&job);
             }
         }
         result
     }
 
     pub async fn cancel_job(&mut self, job_id: u32) -> bool {
-        if let Some((was_running, run_name)) = self.scheduler.cancel_job(job_id, None) {
+        if let Some((was_running, _run_name)) = self.scheduler.cancel_job(job_id, None) {
             self.mark_dirty();
 
-            // If the job was running, send Ctrl-C to gracefully interrupt it, then disable PipePane
+            // If the job was running, terminate its execution (process executor:
+            // SIGTERM the process group; tmux: send Ctrl-C), then clean up.
             if was_running {
-                if let Some(name) = run_name {
-                    if let Err(e) = gflow::tmux::send_ctrl_c(&name) {
-                        tracing::error!("Failed to send C-c to tmux session {}: {}", name, e);
-                    }
+                let job = self.scheduler.get_job(job_id);
+                if let Err(e) = self.executor.terminate(
+                    job_id,
+                    job.as_ref().and_then(|j| j.run_name.as_deref()),
+                ) {
+                    tracing::error!(job_id, error = %e, "Failed to terminate job on cancel");
+                }
 
-                    // Wait a moment for graceful shutdown, then disable PipePane
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                    disable_pipe_pane_for_job(job_id, &name, false);
+                // Wait a moment for graceful shutdown, then run executor
+                // cleanup (tmux: stop pipe-pane; process: no-op).
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if let Some(job) = job {
+                    self.executor.cleanup(&job);
                 }
             }
             true

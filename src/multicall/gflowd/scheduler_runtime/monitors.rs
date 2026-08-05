@@ -1,6 +1,5 @@
 use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
-use gflow::tmux::disable_pipe_pane_for_job;
 use std::sync::Arc;
 
 const ZOMBIE_STARTUP_GRACE_PERIOD: Duration = Duration::from_secs(30);
@@ -55,17 +54,19 @@ pub(super) async fn gpu_monitor_task(
     }
 }
 
-/// Zombie monitor task - checks tmux sessions every 10s
+/// Zombie monitor task - probes job liveness through the configured executor
+/// (process executor: real process liveness; tmux: session existence) every 10s.
 pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
 
     loop {
         interval.tick().await;
 
-        // Collect running jobs (with read lock)
-        let running_jobs = {
+        // Collect running jobs and the executor handle (with read lock)
+        let (running_jobs, executor) = {
             let state_guard = state.read().await;
-            state_guard
+            let executor = state_guard.executor();
+            let jobs = state_guard
                 .job_runtimes()
                 .iter()
                 .filter(|rt| rt.state == JobState::Running)
@@ -76,7 +77,8 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
                         .and_then(|spec| spec.run_name.clone());
                     (rt.id, run_name, rt.started_at)
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (jobs, executor)
         };
 
         if running_jobs.is_empty() {
@@ -87,19 +89,14 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
         // started during snapshot construction don't look like future starts.
         let now = std::time::SystemTime::now();
 
-        // Get all tmux sessions in a single batch call (no lock held)
-        let existing_sessions = gflow::tmux::get_all_session_names();
-
-        // Check which jobs are zombies
+        // Check which jobs are zombies (no lock held)
         for (job_id, run_name, started_at) in running_jobs {
-            if let Some(rn) = run_name {
-                if !should_check_missing_session_as_zombie(started_at, now) {
-                    continue;
-                }
-                if !existing_sessions.contains(rn.as_str()) {
-                    tracing::warn!(job_id, run_name = %rn, "Found zombie job");
-                    event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
-                }
+            if !should_check_missing_session_as_zombie(started_at, now) {
+                continue;
+            }
+            if !executor.is_running(job_id, run_name.as_deref()) {
+                tracing::warn!(job_id, run_name = ?run_name, "Found zombie job");
+                event_bus.publish(SchedulerEvent::ZombieJobDetected { job_id });
             }
         }
     }
@@ -119,16 +116,9 @@ pub(super) async fn zombie_handler_task(
                 let SchedulerEvent::ZombieJobDetected { job_id } = event.event else {
                     continue;
                 };
-                // Get run_name before acquiring write lock
-                let run_name = {
-                    let state_guard = state.read().await;
-                    state_guard
-                        .scheduler
-                        .get_job_spec(job_id)
-                        .and_then(|spec| spec.run_name.clone())
-                };
 
-                // Update job state (write lock)
+                // Update job state (write lock); executor cleanup runs inside
+                // fail_job (tmux: stop pipe-pane; process: no-op).
                 let result = {
                     let mut state_guard = state.write().await;
                     state_guard.fail_job(job_id).await
@@ -137,12 +127,6 @@ pub(super) async fn zombie_handler_task(
                     event_bus.publish(SchedulerEvent::JobSubmitted { job_id: new_job_id });
                 } else if result.is_some() {
                     tracing::info!(job_id, "Marked zombie job as failed");
-                }
-
-                // Disable PipePane if session still exists (no lock held)
-                // This handles the case where the session was manually killed but PipePane might still be active
-                if let Some(rn) = run_name {
-                    disable_pipe_pane_for_job(job_id, &rn, true);
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
@@ -216,11 +200,11 @@ pub(super) async fn timeout_handler_task(
                 let SchedulerEvent::JobTimedOut { job_id, run_name } = event.event else {
                     continue;
                 };
-                // Send Ctrl-C to terminate the job (no lock held)
-                if let Some(rn) = &run_name {
-                    if let Err(e) = gflow::tmux::send_ctrl_c(rn) {
-                        tracing::error!(job_id, error = %e, "Failed to send Ctrl-C to timed-out job");
-                    }
+                // Terminate the job's execution (no lock held): process executor
+                // SIGTERMs the process group, tmux sends Ctrl-C.
+                let executor = { state.read().await.executor() };
+                if let Err(e) = executor.terminate(job_id, run_name.as_deref()) {
+                    tracing::error!(job_id, error = %e, "Failed to terminate timed-out job");
                 }
 
                 // Update job state (write lock)

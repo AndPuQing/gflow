@@ -18,7 +18,6 @@ use gflow::core::gpu::{GPUSlot, GpuUuid};
 use gflow::core::info::IgnoredGpuProcess;
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
-use gflow::tmux::disable_pipe_pane_for_job;
 use nvml_wrapper::Nvml;
 use std::{
     collections::{HashMap, HashSet},
@@ -174,6 +173,12 @@ impl SchedulerRuntime {
 
     pub fn state_writable(&self) -> bool {
         self.state_writable
+    }
+
+    /// Handle to the configured job executor (used by cancel/zombie paths and
+    /// daemon shutdown).
+    pub fn executor(&self) -> Arc<dyn Executor> {
+        Arc::clone(&self.executor)
     }
 
     pub fn journal_writable(&self) -> bool {

@@ -195,6 +195,21 @@ gctl reserve create --user alice --gpus 2 --start "2026-02-01 14:00" --duration 
 2. 配置文件（`timezone = "..."`）
 3. 默认：本地系统时区
 
+## 作业执行器
+
+选择作业负载的执行方式。
+
+```toml
+[executor]
+type = "process" # 或 "tmux"
+```
+
+- **`process`**（默认，无需 tmux）：每个作业作为独立子进程组（`setsid`）运行，
+  stdout/stderr 重定向到 `logs/<job_id>.log`。取消作业时对整个进程组发送
+  SIGTERM，宽限期后升级为 SIGKILL；僵尸检测基于真实进程活性。
+- **`tmux`**（旧版）：每个作业在独立的 tmux session 中运行，通过终端按键注入
+  命令。支持 `gjob attach` 和 `gjob close-sessions` 交互式检查。
+
 ## 项目追踪
 
 使用项目配置可以为多团队统一任务归属元数据。

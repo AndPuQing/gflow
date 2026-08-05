@@ -130,20 +130,58 @@ struct TestSandbox {
     tmux_env_keys: Vec<&'static str>,
     bootstrap_session: String,
     daemon_started: bool,
+    /// Host the daemon as a direct child process instead of `gflowd up` tmux.
+    direct_daemon: bool,
+    /// Whether the tmux global environment was seeded for the job executor.
+    tmux_seeded: bool,
+    daemon_child: Option<std::process::Child>,
+}
+
+/// Constructor options for a test sandbox.
+struct SandboxOpts {
+    /// Require a working tmux (probe) and host the daemon via `gflowd up`.
+    tmux_hosted: bool,
+    /// Job executor configured in gflow.toml.
+    executor: &'static str,
 }
 
 impl TestSandbox {
+    /// Default sandbox: tmux-hosted daemon, process executor (the default).
     fn new() -> Option<Self> {
+        Self::with_opts(SandboxOpts {
+            tmux_hosted: true,
+            executor: "process",
+        })
+    }
+
+    /// Sandbox with an explicit `[executor] type` (e.g. "tmux").
+    fn with_executor(executor: &'static str) -> Option<Self> {
+        Self::with_opts(SandboxOpts {
+            tmux_hosted: true,
+            executor,
+        })
+    }
+
+    /// Sandbox that hosts the daemon directly as a child process — no tmux
+    /// required anywhere in the job execution path.
+    fn new_direct(executor: &'static str) -> Option<Self> {
+        Self::with_opts(SandboxOpts {
+            tmux_hosted: false,
+            executor,
+        })
+    }
+
+    fn with_opts(opts: SandboxOpts) -> Option<Self> {
         let guard = daemon_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        if !tmux_usable() {
+        if (opts.tmux_hosted || opts.executor == "tmux") && !tmux_usable() {
             eprintln!("Skipping daemon E2E test: tmux not usable");
             return None;
         }
 
-        if stale_gflowd_session_present() {
+        if opts.tmux_hosted && stale_gflowd_session_present() {
             eprintln!(
                 "Skipping daemon E2E test: tmux session '{}' already exists",
                 DAEMON_SESSION
@@ -165,10 +203,13 @@ impl TestSandbox {
         std::fs::create_dir_all(data_home.join("gflow")).unwrap();
 
         let port = pick_unused_port();
-        let config = format!("[daemon]\nhost = \"127.0.0.1\"\nport = {port}\n");
+        let config = format!(
+            "[daemon]\nhost = \"127.0.0.1\"\nport = {port}\n\n[executor]\ntype = \"{}\"\n",
+            opts.executor
+        );
         std::fs::write(config_home.join("gflow/gflow.toml"), config).unwrap();
 
-        let sandbox = Self {
+        let mut sandbox = Self {
             _guard: guard,
             _tempdir: tempdir,
             root,
@@ -187,9 +228,19 @@ impl TestSandbox {
             ],
             bootstrap_session: unique_tmux_session_name("gflow-e2e-bootstrap"),
             daemon_started: false,
+            direct_daemon: !opts.tmux_hosted,
+            tmux_seeded: false,
+            daemon_child: None,
         };
 
-        sandbox.seed_tmux_environment();
+        // The tmux job executor needs the tmux server's global environment to
+        // point at the sandbox config dirs (job sessions inherit it). This is
+        // required for both hosting modes; the process executor needs nothing.
+        if opts.tmux_hosted || opts.executor == "tmux" {
+            sandbox.seed_tmux_environment();
+            sandbox.tmux_seeded = true;
+        }
+
         Some(sandbox)
     }
 
@@ -285,9 +336,30 @@ impl TestSandbox {
     }
 
     fn start_daemon(&mut self) {
-        let result = self.run_gflow(["gflowd", "up"]);
-        result.assert_success("gflowd up");
+        if self.direct_daemon {
+            self.start_daemon_direct();
+        } else {
+            let result = self.run_gflow(["gflowd", "up"]);
+            result.assert_success("gflowd up");
+        }
         self.daemon_started = true;
+    }
+
+    fn start_daemon_direct(&mut self) {
+        let mut command = Command::new(gflow_bin());
+        command
+            .current_dir(&self.work_dir)
+            .env("HOME", &self.root)
+            .env("PATH", path_env())
+            .env("XDG_CONFIG_HOME", &self.config_home)
+            .env("XDG_DATA_HOME", &self.data_home)
+            .env("XDG_RUNTIME_DIR", &self.runtime_dir)
+            .env("GFLOW_DISABLE_DEV_AUTO", "1")
+            .args(["__multicall", "gflowd", "-vvv"]);
+        let child = command
+            .spawn()
+            .expect("failed to spawn gflowd daemon directly");
+        self.daemon_child = Some(child);
     }
 
     fn stop_daemon(&mut self) {
@@ -295,7 +367,30 @@ impl TestSandbox {
             return;
         }
 
-        let _ = self.run_gflow(["gflowd", "down"]);
+        if self.direct_daemon {
+            if let Some(mut child) = self.daemon_child.take() {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+                }
+                let mut exited = false;
+                for _ in 0..100 {
+                    match child.try_wait().unwrap() {
+                        Some(_) => {
+                            exited = true;
+                            break;
+                        }
+                        None => std::thread::sleep(Duration::from_millis(100)),
+                    }
+                }
+                if !exited {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        } else {
+            let _ = self.run_gflow(["gflowd", "down"]);
+        }
         self.daemon_started = false;
     }
 }
@@ -304,16 +399,25 @@ impl Drop for TestSandbox {
     fn drop(&mut self) {
         self.stop_daemon();
 
+        if !self.tmux_seeded {
+            return;
+        }
+
         let sessions = get_all_session_names();
         for session in sessions {
-            if session == DAEMON_SESSION
-                || session == self.bootstrap_session
+            // Only kill sessions this sandbox may own: the bootstrap session,
+            // reload-created sessions, and (for tmux-hosted sandboxes only) the
+            // gflow_server daemon session it created via `gflowd up`. Never kill
+            // a pre-existing/foreign gflow_server session.
+            let is_own = session == self.bootstrap_session
                 || session.starts_with("gflow_server_new_")
-            {
-                let _ = Command::new("tmux")
-                    .args(["kill-session", "-t", &session])
-                    .output();
+                || (!self.direct_daemon && session == DAEMON_SESSION);
+            if !is_own {
+                continue;
             }
+            let _ = Command::new("tmux")
+                .args(["kill-session", "-t", &session])
+                .output();
         }
 
         for key in &self.tmux_env_keys {
@@ -506,7 +610,7 @@ async fn daemon_lifecycle_reload_and_health_endpoint() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tmux_job_execution_writes_logs_and_auto_closes_session() {
-    let Some(mut sandbox) = TestSandbox::new() else {
+    let Some(mut sandbox) = TestSandbox::with_executor("tmux") else {
         return;
     };
 
@@ -562,7 +666,7 @@ async fn tmux_job_execution_writes_logs_and_auto_closes_session() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn custom_run_name_is_normalized_and_job_still_executes() {
-    let Some(mut sandbox) = TestSandbox::new() else {
+    let Some(mut sandbox) = TestSandbox::with_executor("tmux") else {
         return;
     };
 
@@ -908,5 +1012,296 @@ async fn log_content_and_events_endpoints_serve_dashboard() {
         "no job events received on /events; got: {received}"
     );
 
+    sandbox.stop_daemon();
+}
+
+// ── process-executor helpers ────────────────────────────────────────────────
+
+/// Find the pid of the `bash -c "… gcancel --finish <job_id> …"` wrapper for a
+/// process-executor job by scanning /proc command lines.
+fn find_job_wrapper_pid(job_id: u32) -> Option<u32> {
+    let needle = format!("gcancel --finish {job_id}");
+    let entries = std::fs::read_dir("/proc").ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Ok(pid) = name.to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        if String::from_utf8_lossy(&cmdline).contains(&needle) {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+/// All pids whose process group id equals `pgid` (from /proc/<pid>/stat).
+fn processes_in_group(pgid: u32) -> Vec<u32> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Ok(pid) = name.to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        // stat layout: pid (comm) state ppid pgrp session ...
+        let after_paren = stat.rsplit(')').next().unwrap_or("");
+        let fields: Vec<&str> = after_paren.split_whitespace().collect();
+        if fields.len() > 2 && fields[2].parse::<u32>().ok() == Some(pgid) {
+            found.push(pid);
+        }
+    }
+    found
+}
+
+async fn wait_for_wrapper_pid(job_id: u32, timeout: Duration) -> u32 {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if let Some(pid) = find_job_wrapper_pid(job_id) {
+            return pid;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("timed out waiting for wrapper process of job {job_id}");
+}
+
+async fn wait_for_process_group_gone(pgid: u32, timeout: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if processes_in_group(pgid).is_empty() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!(
+        "timed out waiting for process group {pgid} to be gone; still alive: {:?}",
+        processes_in_group(pgid)
+    );
+}
+
+// ── process-executor e2e tests ──────────────────────────────────────────────
+
+/// Acceptance: a fully tmux-free environment can run submit → schedule → run →
+/// log → finish. The daemon is hosted directly (no tmux) and the job runs as a
+/// plain child process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn process_executor_runs_job_without_tmux() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("proc-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo process-started && sleep 1 && echo process-finished")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    let running_job = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert_eq!(
+        running_job.run_name.as_deref(),
+        Some(response.run_name.as_str())
+    );
+
+    // The process executor must not create a tmux session for the job.
+    assert!(!is_session_exist(&response.run_name));
+
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "process-started",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    let finished_job = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(finished_job.state, JobState::Finished);
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "process-finished",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    sandbox.stop_daemon();
+}
+
+/// Acceptance: cancelling a job reliably terminates the whole process tree
+/// (SIGTERM to the process group, escalating to SIGKILL).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn process_executor_cancel_terminates_process_tree() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    // Two sleepers in the same process group (background + foreground).
+    let job = JobBuilder::new()
+        .submitted_by("proc-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("sleep 300 & sleep 300")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+
+    let wrapper_pid = wait_for_wrapper_pid(response.id, Duration::from_secs(10)).await;
+    // The wrapper is a session leader, so its pgid == its pid, and it has at
+    // least the two sleepers as group members.
+    assert!(
+        processes_in_group(wrapper_pid).len() >= 3,
+        "expected bash + 2 sleepers in the process group, got {:?}",
+        processes_in_group(wrapper_pid)
+    );
+
+    client.cancel_job(response.id).await.unwrap();
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Cancelled,
+        Duration::from_secs(15),
+    )
+    .await;
+
+    // The entire process tree must be gone.
+    wait_for_process_group_gone(wrapper_pid, Duration::from_secs(15)).await;
+
+    sandbox.stop_daemon();
+}
+
+/// Zombie detection is based on real process liveness: if the process dies
+/// without reporting (here: SIGKILLed externally), the zombie monitor marks
+/// the job failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn process_executor_detects_zombie_when_process_dies_without_reporting() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("proc-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("sleep 300")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+
+    // SIGKILL the whole process group so the wrapper's `gcancel` never runs.
+    let wrapper_pid = wait_for_wrapper_pid(response.id, Duration::from_secs(10)).await;
+    unsafe {
+        libc::kill(-(wrapper_pid as libc::pid_t), libc::SIGKILL);
+    }
+    wait_for_process_group_gone(wrapper_pid, Duration::from_secs(10)).await;
+
+    // The zombie monitor runs every 10s with a 30s startup grace period.
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Failed,
+        Duration::from_secs(75),
+    )
+    .await;
+
+    sandbox.stop_daemon();
+}
+
+/// Acceptance: `[executor] type` switches between backends. The tmux backend
+/// creates a job session; the process backend (default) creates none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn executor_type_config_selects_backend() {
+    // tmux backend: job gets a tmux session (daemon hosted directly, but the
+    // tmux server environment is seeded so job sessions resolve the sandbox
+    // config).
+    {
+        let Some(mut sandbox) = TestSandbox::new_direct("tmux") else {
+            return;
+        };
+        sandbox.start_daemon();
+        wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15))
+            .await;
+
+        let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+        let job = JobBuilder::new()
+            .submitted_by("cfg-e2e")
+            .run_dir(&sandbox.work_dir)
+            .command("echo tmux-backend")
+            .auto_close_tmux(true)
+            .build();
+        let response = client.add_job(job).await.unwrap();
+
+        wait_for_tmux_session(&response.run_name, true, Duration::from_secs(10)).await;
+        wait_for_job_state(
+            &client,
+            response.id,
+            JobState::Finished,
+            Duration::from_secs(20),
+        )
+        .await;
+        wait_for_tmux_session(&response.run_name, false, Duration::from_secs(10)).await;
+        sandbox.stop_daemon();
+    }
+
+    // process backend: no tmux session is ever created.
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("cfg-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo process-backend")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert!(!is_session_exist(&response.run_name));
     sandbox.stop_daemon();
 }

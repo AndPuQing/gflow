@@ -9,20 +9,20 @@ Python 包名是 `runqd`。安装后会提供 `gflowd`、`gbatch`、`gqueue`、`
 ## 前置要求
 
 - **操作系统**：Linux
-- **tmux**：必需
+- **tmux**：可选（仅 `gflowd up`/attach 流程和旧版 tmux 执行器需要；默认的作业执行直接使用子进程，不依赖 tmux）
 - **NVIDIA GPU / 驱动**：仅在需要 GPU 调度时必需
 
 ### 安装前置要求
 
 ::: code-group
 ```bash [Ubuntu/Debian]
-# 安装 tmux
+# tmux 可选；仅当需要 tmux 托管 daemon / attach 支持时安装
 sudo apt-get update
 sudo apt-get install tmux
 ```
 
 ```bash [Fedora/RHEL]
-# 安装 tmux
+# tmux 可选；仅当需要 tmux 托管 daemon / attach 支持时安装
 sudo dnf install tmux
 ```
 :::
@@ -123,14 +123,32 @@ gflowd --version
 
 ## 运行检查
 
-### 1. 检查 tmux
+### 1. 检查守护进程（无需 tmux）
+
+作业执行不再依赖 tmux：daemon 会把每个作业作为独立的子进程组（`setsid`）
+启动，并将输出重定向到 `logs/<job_id>.log`。`gflowd up` 在可用时会用 tmux
+托管 daemon，否则回退为直接以独立进程方式启动。
+
+```bash
+# 可选：生成默认配置
+gflowd init
+
+# 启动守护进程
+gflowd up
+
+# 查看状态
+gflowd status
+```
+
+### 2. 检查 tmux（仅在使用 tmux 功能时需要）
+
 ```bash
 tmux new-session -d -s test
 tmux has-session -t test && echo "tmux ok"
 tmux kill-session -t test
 ```
 
-### 2. 检查守护进程和 GPU（可选）
+### 3. 检查守护进程和 GPU（可选）
 
 如果有 NVIDIA GPU，可以顺手验证是否被检测到：
 
