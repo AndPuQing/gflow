@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cancellation SIGTERMs the whole process group and escalates to SIGKILL after a grace period; zombie detection uses real process liveness instead of tmux-session existence
   - `generate_wrapped_command` key-escaping (`\`, `"`, `$`, backtick) is only kept for tmux mode; the process path spawns `bash -c` directly
   - `gflowd up` falls back to hosting the daemon as a detached process (pidfile-tracked) when tmux is unavailable; `gflowd down` / `gflowd status` handle both modes
-  - `gqueue`'s job-name liveness indicator is executor-aware: tmux mode keeps the session-alive ○, process mode shows ○/● from a daemon-reported per-job liveness hint (new `alive` field on the jobs API; daemon `/info` advertises the executor backend)
+  - `gqueue`'s job-name liveness indicator is executor-aware: tmux mode keeps the session-alive ○, process mode shows ○ from a daemon-reported per-job liveness hint (new `alive` field on the jobs API; daemon `/info` advertises the executor backend)
 - **Per-User / Per-Project Resource Quotas**: cap how much of a shared machine one user or project can occupy
   - New `[quota]` config with `default_user` / `default_project` fallbacks plus per-name `[quota.users]` / `[quota.projects]` tables; named entries merge over defaults field-by-field
   - Limits: `max_running_jobs` and `max_running_gpus` (enforced in the scheduling loop — over-limit jobs stay queued with reason `Quota`) and `max_queued_jobs` (enforced at submission — over-limit submissions are rejected)

@@ -9,8 +9,8 @@ pub(super) enum ExecutorDisplay {
     /// Legacy tmux executor: show a green ○ when the job's tmux session is
     /// alive (queried client-side).
     TmuxSessions,
-    /// Process executor: show a green ○ / red ● from the daemon's per-job
-    /// liveness hint (`job.alive`).
+    /// Process executor: show a green ○ when the daemon reports the process
+    /// alive; no indicator otherwise.
     ProcessLiveness,
 }
 
@@ -217,9 +217,8 @@ pub(super) fn format_job_cell(
 /// Formats the job name with a visual liveness indicator.
 ///
 /// - tmux executor: green ○ when the job's tmux session is alive.
-/// - process executor: green ○ when the daemon reports the process alive,
-///   red ● when a Running job's process is gone (zombie, not yet reaped by
-///   the zombie monitor).
+/// - process executor: green ○ when the daemon reports the process alive;
+///   nothing when the process is gone (the zombie monitor handles it).
 fn format_job_name_with_session_status(
     job: &gflow::core::job::Job,
     tmux_sessions: &HashSet<String>,
@@ -237,11 +236,13 @@ fn format_job_name_with_session_status(
                 name.to_string()
             }
         }
-        ExecutorDisplay::ProcessLiveness => match job.alive {
-            Some(true) => format!("{} {}", name, "○".green()),
-            Some(false) => format!("{} {}", name, "●".red()),
-            None => name.to_string(),
-        },
+        ExecutorDisplay::ProcessLiveness => {
+            if job.alive == Some(true) {
+                format!("{} {}", name, "○".green())
+            } else {
+                name.to_string()
+            }
+        }
     }
 }
 
@@ -297,12 +298,13 @@ mod tests {
         );
         assert!(name.contains("○"), "alive process should show ○: {name}");
 
+        // Dead / unknown processes show no indicator at all.
         let name = format_job_name_with_session_status(
             &dead,
             &sessions,
             ExecutorDisplay::ProcessLiveness,
         );
-        assert!(name.contains("●"), "dead process should show ●: {name}");
+        assert_eq!(name, "gjob-2");
 
         let name = format_job_name_with_session_status(
             &unknown,
