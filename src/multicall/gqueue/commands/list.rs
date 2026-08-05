@@ -198,11 +198,26 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
     match output_format {
         OutputFormat::Table => {
             if options.group {
-                display_grouped_jobs(&jobs_vec, options.format.as_deref(), &tmux_sessions, executor_display);
+                display_grouped_jobs(
+                    &jobs_vec,
+                    options.format.as_deref(),
+                    &tmux_sessions,
+                    executor_display,
+                );
             } else if options.tree {
-                display_jobs_tree(&jobs_vec, options.format.as_deref(), &tmux_sessions, executor_display);
+                display_jobs_tree(
+                    &jobs_vec,
+                    options.format.as_deref(),
+                    &tmux_sessions,
+                    executor_display,
+                );
             } else {
-                display_jobs_table(&jobs_vec, options.format.as_deref(), &tmux_sessions, executor_display);
+                display_jobs_table(
+                    &jobs_vec,
+                    options.format.as_deref(),
+                    &tmux_sessions,
+                    executor_display,
+                );
             }
         }
         OutputFormat::Json => output_json(&jobs_vec)?,

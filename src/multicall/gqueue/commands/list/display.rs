@@ -270,14 +270,15 @@ mod tests {
         let alive = running_job("gjob-1");
         let dead = running_job("gjob-2");
 
-        let name = format_job_name_with_session_status(
-            &alive,
-            &sessions,
-            ExecutorDisplay::TmuxSessions,
+        let name =
+            format_job_name_with_session_status(&alive, &sessions, ExecutorDisplay::TmuxSessions);
+        assert!(
+            name.contains("○"),
+            "live session should show a circle: {name}"
         );
-        assert!(name.contains("○"), "live session should show a circle: {name}");
 
-        let name = format_job_name_with_session_status(&dead, &sessions, ExecutorDisplay::TmuxSessions);
+        let name =
+            format_job_name_with_session_status(&dead, &sessions, ExecutorDisplay::TmuxSessions);
         assert_eq!(name, "gjob-2");
     }
 
@@ -299,11 +300,8 @@ mod tests {
         assert!(name.contains("○"), "alive process should show ○: {name}");
 
         // Dead / unknown processes show no indicator at all.
-        let name = format_job_name_with_session_status(
-            &dead,
-            &sessions,
-            ExecutorDisplay::ProcessLiveness,
-        );
+        let name =
+            format_job_name_with_session_status(&dead, &sessions, ExecutorDisplay::ProcessLiveness);
         assert_eq!(name, "gjob-2");
 
         let name = format_job_name_with_session_status(

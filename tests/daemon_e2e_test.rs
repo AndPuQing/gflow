@@ -1018,47 +1018,35 @@ async fn log_content_and_events_endpoints_serve_dashboard() {
 // ── process-executor helpers ────────────────────────────────────────────────
 
 /// Find the pid of the `bash -c "… gcancel --finish <job_id> …"` wrapper for a
-/// process-executor job by scanning /proc command lines.
+/// process-executor job. Uses `pgrep -f` (matches the full command line) so it
+/// works on both Linux and macOS.
 fn find_job_wrapper_pid(job_id: u32) -> Option<u32> {
     let needle = format!("gcancel --finish {job_id}");
-    let entries = std::fs::read_dir("/proc").ok()?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Ok(pid) = name.to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
-            continue;
-        };
-        if String::from_utf8_lossy(&cmdline).contains(&needle) {
-            return Some(pid);
-        }
+    let output = Command::new("pgrep").args(["-f", &needle]).output().ok()?;
+    if !output.status.success() {
+        return None;
     }
-    None
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .next()
 }
 
-/// All pids whose process group id equals `pgid` (from /proc/<pid>/stat).
+/// All pids whose process group id equals `pgid` (via `pgrep -g`).
 fn processes_in_group(pgid: u32) -> Vec<u32> {
-    let mut found = Vec::new();
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return found;
+    let Ok(output) = Command::new("pgrep")
+        .args(["-g", &pgid.to_string()])
+        .output()
+    else {
+        return Vec::new();
     };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Ok(pid) = name.to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
-            continue;
-        };
-        // stat layout: pid (comm) state ppid pgrp session ...
-        let after_paren = stat.rsplit(')').next().unwrap_or("");
-        let fields: Vec<&str> = after_paren.split_whitespace().collect();
-        if fields.len() > 2 && fields[2].parse::<u32>().ok() == Some(pgid) {
-            found.push(pid);
-        }
+    if !output.status.success() {
+        return Vec::new();
     }
-    found
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
 }
 
 async fn wait_for_wrapper_pid(job_id: u32, timeout: Duration) -> u32 {
@@ -1263,8 +1251,7 @@ async fn executor_type_config_selects_backend() {
             return;
         };
         sandbox.start_daemon();
-        wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15))
-            .await;
+        wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
 
         let client = gflow::Client::build(&sandbox.client_config()).unwrap();
         let job = JobBuilder::new()

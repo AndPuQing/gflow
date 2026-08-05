@@ -226,10 +226,10 @@ impl SchedulerRuntime {
             // SIGTERM the process group; tmux: send Ctrl-C), then clean up.
             if was_running {
                 let job = self.scheduler.get_job(job_id);
-                if let Err(e) = self.executor.terminate(
-                    job_id,
-                    job.as_ref().and_then(|j| j.run_name.as_deref()),
-                ) {
+                if let Err(e) = self
+                    .executor
+                    .terminate(job_id, job.as_ref().and_then(|j| j.run_name.as_deref()))
+                {
                     tracing::error!(job_id, error = %e, "Failed to terminate job on cancel");
                 }
 

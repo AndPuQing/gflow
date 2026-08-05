@@ -180,8 +180,12 @@ impl Executor for ProcessExecutor {
         let rc = unsafe { libc::kill(-pid, libc::SIGTERM) };
         if rc != 0 {
             let err = std::io::Error::last_os_error();
-            if err.raw_os_error() == Some(libc::ESRCH) {
-                return Ok(()); // already gone
+            // ESRCH: the group is already gone. EPERM: on some platforms
+            // (macOS) signalling a dead or foreign process group returns EPERM
+            // instead of ESRCH; either way there is nothing we own left to
+            // terminate (and we must not touch a reused pid's group).
+            if matches!(err.raw_os_error(), Some(libc::ESRCH) | Some(libc::EPERM)) {
+                return Ok(());
             }
             return Err(err.into());
         }
@@ -486,130 +490,128 @@ mod tests {
     #[test]
     fn test_process_executor_tracks_and_terminates_process_group() {
         with_isolated_data_dir(|| {
-        let executor = ProcessExecutor::new();
-        let job = job_with_command(9001, "sleep 30");
+            let executor = ProcessExecutor::new();
+            let job = job_with_command(9001, "sleep 30");
 
-        executor.execute(&job).unwrap();
-        assert!(executor.is_running(9001, None));
+            executor.execute(&job).unwrap();
+            assert!(executor.is_running(9001, None));
 
-        // The child must be a session leader so its pid == pgid.
-        let pid = executor
-            .processes
-            .lock()
-            .unwrap()
-            .get(&9001)
-            .unwrap()
-            .pid;
-        let pgid = unsafe { libc::getpgid(pid) };
-        assert_eq!(pgid, pid, "child should be its own process group leader");
+            // The child must be a session leader so its pid == pgid.
+            let pid = executor.processes.lock().unwrap().get(&9001).unwrap().pid;
+            let pgid = unsafe { libc::getpgid(pid) };
+            assert_eq!(pgid, pid, "child should be its own process group leader");
 
-        executor.terminate(9001, None).unwrap();
+            executor.terminate(9001, None).unwrap();
 
-        // Wait for the reaper to reap the child and drop the registry entry
-        // (the definitive "process is gone" signal).
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if !executor.processes.lock().unwrap().contains_key(&9001) {
-                break;
+            // Wait for the reaper to reap the child and drop the registry entry
+            // (the definitive "process is gone" signal).
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if !executor.processes.lock().unwrap().contains_key(&9001) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(
-            !executor.processes.lock().unwrap().contains_key(&9001),
-            "registry entry should be removed after the child exits"
-        );
-        assert!(!executor.is_running(9001, None));
+            assert!(
+                !executor.processes.lock().unwrap().contains_key(&9001),
+                "registry entry should be removed after the child exits"
+            );
+            assert!(!executor.is_running(9001, None));
         })
     }
 
     #[test]
     fn test_process_executor_sigkill_after_grace() {
         with_isolated_data_dir(|| {
-        let executor = ProcessExecutor::new();
-        // `trap '' TERM` makes the process ignore SIGTERM, forcing SIGKILL.
-        // `echo READY` after the trap guarantees the trap is installed before
-        // the test sends SIGTERM (otherwise the signal could arrive first).
-        let job = job_with_command(9002, "trap '' TERM; echo READY; sleep 30");
-        executor.execute(&job).unwrap();
+            let executor = ProcessExecutor::new();
+            // `trap '' TERM` makes the process ignore SIGTERM, forcing SIGKILL.
+            // `echo READY` after the trap guarantees the trap is installed before
+            // the test sends SIGTERM (otherwise the signal could arrive first).
+            let job = job_with_command(9002, "trap '' TERM; echo READY; sleep 30");
+            executor.execute(&job).unwrap();
 
-        let log_path = gflow::paths::get_log_file_path(9002).unwrap();
-        let ready_deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            if std::fs::read_to_string(&log_path)
-                .map(|content| content.contains("READY"))
-                .unwrap_or(false)
-            {
-                break;
+            let log_path = gflow::paths::get_log_file_path(9002).unwrap();
+            let ready_deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                if std::fs::read_to_string(&log_path)
+                    .map(|content| content.contains("READY"))
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < ready_deadline,
+                    "job never became ready (trap not installed)"
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(executor.is_running(9002, None));
+
+            executor.terminate(9002, None).unwrap();
+
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            while std::time::Instant::now() < deadline {
+                if !executor.is_running(9002, None) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
             assert!(
-                std::time::Instant::now() < ready_deadline,
-                "job never became ready (trap not installed)"
+                !executor.is_running(9002, None),
+                "process ignoring SIGTERM should be SIGKILLed after the grace period"
             );
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(executor.is_running(9002, None));
-
-        executor.terminate(9002, None).unwrap();
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(15);
-        while std::time::Instant::now() < deadline {
-            if !executor.is_running(9002, None) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(
-            !executor.is_running(9002, None),
-            "process ignoring SIGTERM should be SIGKILLed after the grace period"
-        );
         })
     }
 
     #[test]
     fn test_process_executor_terminate_is_idempotent() {
         with_isolated_data_dir(|| {
-        let executor = ProcessExecutor::new();
-        let job = job_with_command(9003, "sleep 30");
-        executor.execute(&job).unwrap();
-        executor.terminate(9003, None).unwrap();
+            let executor = ProcessExecutor::new();
+            let job = job_with_command(9003, "sleep 30");
+            executor.execute(&job).unwrap();
+            executor.terminate(9003, None).unwrap();
 
-        // Second terminate on the same job: registry entry may be gone or the
-        // group may already be dead; either way it must not error.
-        executor.terminate(9003, None).unwrap();
-        executor.terminate(9003, None).unwrap();
-        executor.terminate(99999, None).unwrap(); // unknown job
+            // Second terminate on the same job: registry entry may be gone or the
+            // group may already be dead; either way it must not error.
+            executor.terminate(9003, None).unwrap();
+            executor.terminate(9003, None).unwrap();
+            executor.terminate(99999, None).unwrap(); // unknown job
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if !executor.is_running(9003, None) {
-                break;
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if !executor.is_running(9003, None) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(!executor.is_running(9003, None));
+            assert!(!executor.is_running(9003, None));
         })
     }
 
     #[test]
     fn test_process_executor_shutdown_kills_all() {
         with_isolated_data_dir(|| {
-        let executor = ProcessExecutor::new();
-        executor.execute(&job_with_command(9101, "sleep 30")).unwrap();
-        executor.execute(&job_with_command(9102, "sleep 30")).unwrap();
-        assert!(executor.is_running(9101, None));
-        assert!(executor.is_running(9102, None));
+            let executor = ProcessExecutor::new();
+            executor
+                .execute(&job_with_command(9101, "sleep 30"))
+                .unwrap();
+            executor
+                .execute(&job_with_command(9102, "sleep 30"))
+                .unwrap();
+            assert!(executor.is_running(9101, None));
+            assert!(executor.is_running(9102, None));
 
-        executor.shutdown();
+            executor.shutdown();
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
-            if !executor.is_running(9101, None) && !executor.is_running(9102, None) {
-                break;
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if !executor.is_running(9101, None) && !executor.is_running(9102, None) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(!executor.is_running(9101, None));
-        assert!(!executor.is_running(9102, None));
+            assert!(!executor.is_running(9101, None));
+            assert!(!executor.is_running(9102, None));
         })
     }
 }
