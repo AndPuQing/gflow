@@ -518,6 +518,7 @@ pub(crate) async fn build_payloads(
         }
         SchedulerEvent::ManualGpuOverrideChanged { .. } => vec![],
         SchedulerEvent::MemoryAvailabilityChanged { .. }
+        | SchedulerEvent::JobExecutionFinished { .. }
         | SchedulerEvent::ZombieJobDetected { .. }
         | SchedulerEvent::PeriodicHealthCheck => vec![],
 

@@ -26,6 +26,30 @@ pub async fn handle_reload(
         .collect();
     old_pids.insert(pid);
 
+    // Persist the latest scheduler snapshot before the replacement daemon
+    // loads state. SIGUSR2 is a reload handoff, so the old daemon leaves
+    // durable job runners alive while it flushes and exits.
+    println!("Preparing old daemon for reload...");
+    tracing::info!("Signaling old daemon (PID {}) to save state and exit", pid);
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGUSR2);
+    }
+
+    let mut exited = false;
+    for i in 0..30 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if !is_process_running(pid) {
+            tracing::info!("Old daemon has saved state and exited");
+            exited = true;
+            break;
+        }
+        if i == 29 {
+            tracing::warn!(
+                "Old daemon did not exit within 3 seconds; continuing with the replacement"
+            );
+        }
+    }
+
     // 2. Start new daemon instance in temporary tmux session
     println!("Starting new daemon instance...");
     tracing::info!("Starting new daemon instance...");
@@ -108,31 +132,11 @@ pub async fn handle_reload(
         );
     }
 
-    // 6. Signal old process to shutdown (SIGUSR2)
+    // 6. The old daemon was handed off before the replacement started. The
+    // replacement has now been health-checked and can take the standard name.
     println!("Switching to new daemon...");
-    tracing::info!("Signaling old daemon (PID {}) to shutdown", pid);
-    unsafe {
-        libc::kill(pid as libc::pid_t, libc::SIGUSR2);
-    }
 
-    // 7. Wait for old process to exit
-    let mut exited = false;
-    for i in 0..30 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        if !is_process_running(pid) {
-            tracing::info!("Old daemon has exited");
-            exited = true;
-            break;
-        }
-        if i == 29 {
-            tracing::warn!(
-                "Old daemon did not exit within 3 seconds. \
-                 New daemon is running, but old process may need manual cleanup."
-            );
-        }
-    }
-
-    // 8. Rename new tmux session to standard name
+    // 7. Rename new tmux session to standard name
     // Try to rename first. If it fails because the target name exists, kill the old session and retry.
     let rename_result = Tmux::with_command(
         RenameSession::new()

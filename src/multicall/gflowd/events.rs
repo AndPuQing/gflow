@@ -53,7 +53,14 @@ pub enum SchedulerEvent {
         run_name: Option<String>,
     },
 
-    /// A zombie job was detected (tmux session disappeared)
+    /// A job's durable runner recorded a payload exit result.
+    JobExecutionFinished {
+        job_id: u32,
+        exit_code: Option<i32>,
+        signal: Option<i32>,
+    },
+
+    /// A zombie job was detected (runner/session disappeared without a result)
     ZombieJobDetected { job_id: u32 },
 
     /// Periodic health check trigger
@@ -80,6 +87,7 @@ impl SchedulerEvent {
             Self::ManualGpuOverrideChanged { .. } => "manual_gpu_override_changed",
             Self::MemoryAvailabilityChanged { .. } => "memory_availability_changed",
             Self::JobTimedOut { .. } => "job_timed_out",
+            Self::JobExecutionFinished { .. } => "job_execution_finished",
             Self::ZombieJobDetected { .. } => "zombie_job_detected",
             Self::PeriodicHealthCheck => "periodic_health_check",
             Self::ReservationCreated { .. } => "reservation_created",

@@ -9,6 +9,14 @@ pub async fn run_event_driven(
     event_bus: Arc<EventBus>,
     gpu_poll_interval: Duration,
 ) {
+    // Re-adopt execution entities before the first scheduling cycle. This is
+    // intentionally done after state loading but before new queued work is
+    // started, so resources from recovered Running jobs remain accounted for.
+    let recovery_outcomes = {
+        let mut state_guard = shared_state.write().await;
+        state_guard.recover_running_jobs().await
+    };
+
     // Spawn all event handlers and monitors
     let handles = vec![
         // Scheduler trigger handler with debouncing
@@ -76,6 +84,23 @@ pub async fn run_event_driven(
                 .instrument(tracing::info_span!("metrics_updater_task")),
         ),
     ];
+
+    for outcome in recovery_outcomes {
+        event_bus.publish(SchedulerEvent::JobCompleted {
+            job_id: outcome.job_id,
+            final_state: outcome.final_state,
+            gpu_ids: outcome.gpu_ids,
+            memory_mb: outcome.memory_mb,
+        });
+        if let Some(job_id) = outcome.retry_job_id {
+            event_bus.publish(SchedulerEvent::JobSubmitted { job_id });
+        }
+    }
+
+    // Do not rely on the broadcast delivery race at startup to schedule retry
+    // jobs. Run one scheduling pass directly after recovery; subsequent state
+    // changes continue to use the event-driven trigger.
+    trigger_scheduling(&shared_state, &event_bus).await;
 
     // Wait for all handlers (they run forever)
     for handle in handles {
@@ -162,6 +187,15 @@ async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<EventBus>) {
         #[cfg(feature = "metrics")]
         gflow::metrics::observe_scheduler_latency("trigger_scheduling", started_at.elapsed());
         return;
+    }
+
+    // Persist the Running transition before spawning any external runner. The
+    // periodic saver still batches ordinary mutations, but a crash in the
+    // handoff window must not leave a durable runner with no corresponding job
+    // state for the next daemon to adopt.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.save_state_if_dirty().await;
     }
 
     tracing::info!(

@@ -13,7 +13,7 @@ pub use event_loop::run_event_driven;
 use super::state_saver::StateSaverHandle;
 use anyhow::{bail, Context, Result};
 use compact_str::CompactString;
-use gflow::core::executor::Executor;
+use gflow::core::executor::{ExecutionResult, ExecutionStatus, Executor};
 use gflow::core::gpu::{GPUSlot, GpuUuid};
 use gflow::core::info::IgnoredGpuProcess;
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
@@ -28,6 +28,16 @@ use std::{
 use tokio::sync::RwLock;
 
 pub type SharedState = Arc<RwLock<SchedulerRuntime>>;
+
+/// State transitions produced while the daemon re-adopts jobs during startup.
+#[derive(Debug, Clone)]
+pub(crate) struct RecoveryOutcome {
+    pub job_id: u32,
+    pub final_state: JobState,
+    pub gpu_ids: Option<gflow::core::job::GpuIds>,
+    pub memory_mb: Option<u64>,
+    pub retry_job_id: Option<u32>,
+}
 
 /// Wrapper to make Arc<dyn Executor> compatible with Box<dyn Executor>
 struct ArcExecutorWrapper(Arc<dyn Executor>);
