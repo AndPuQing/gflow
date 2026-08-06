@@ -84,3 +84,19 @@ pub fn prepare_log_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
 pub fn get_daemon_log_file_path() -> anyhow::Result<PathBuf> {
     Ok(get_log_dir()?.join("daemon.log"))
 }
+
+/// Directory containing durable execution metadata for process-backed jobs.
+///
+/// This is deliberately separate from scheduler state: the runner remains a
+/// valid source of truth while the daemon is offline.
+pub fn get_runner_dir() -> anyhow::Result<PathBuf> {
+    Ok(get_data_dir()?.join("runners"))
+}
+
+pub fn get_runner_metadata_path(job_id: u32) -> anyhow::Result<PathBuf> {
+    Ok(get_runner_dir()?.join(format!("{job_id}.json")))
+}
+
+pub fn get_runner_result_path(job_id: u32) -> anyhow::Result<PathBuf> {
+    Ok(get_runner_dir()?.join(format!("{job_id}.result.json")))
+}

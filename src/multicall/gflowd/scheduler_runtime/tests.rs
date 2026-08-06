@@ -12,6 +12,24 @@ impl Executor for NoopExecutor {
     }
 }
 
+struct CompletedExecutor {
+    result: ExecutionResult,
+}
+
+impl Executor for CompletedExecutor {
+    fn execute(&self, _job: &Job) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn execution_status(&self, job_id: u32, _run_name: Option<&str>) -> ExecutionStatus {
+        if self.result.job_id == job_id {
+            ExecutionStatus::Finished(self.result)
+        } else {
+            ExecutionStatus::Missing
+        }
+    }
+}
+
 #[test]
 fn formats_gpu_process_reasons() {
     assert_eq!(
@@ -22,6 +40,40 @@ fn formats_gpu_process_reasons() {
         format_unmanaged_process_reason(&[222, 333]),
         "unmanaged(pid=222,333)"
     );
+}
+
+#[tokio::test]
+async fn recovers_finished_running_job_from_executor_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut runtime = SchedulerRuntime::with_state_path(
+        Box::new(CompletedExecutor {
+            result: ExecutionResult {
+                job_id: 1,
+                exit_code: Some(0),
+                signal: None,
+            },
+        }),
+        dir.path().to_path_buf(),
+        None,
+        gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+        gflow::config::ProjectsConfig::default(),
+        gflow::config::FairShareConfig::default(),
+    )
+    .unwrap();
+
+    let job = Job::builder()
+        .command("echo recovered")
+        .submitted_by("recovery-test")
+        .build();
+    let (job_id, _, _) = runtime.submit_job(job).await.unwrap();
+    runtime.scheduler.prepare_jobs_for_execution();
+
+    let outcomes = runtime.recover_running_jobs().await;
+    assert_eq!(job_id, 1);
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].job_id, job_id);
+    assert_eq!(outcomes[0].final_state, JobState::Finished);
+    assert_eq!(runtime.get_job(job_id).unwrap().state, JobState::Finished);
 }
 
 #[test]

@@ -1017,19 +1017,11 @@ async fn log_content_and_events_endpoints_serve_dashboard() {
 
 // ── process-executor helpers ────────────────────────────────────────────────
 
-/// Find the pid of the `bash -c "… gcancel --finish <job_id> …"` wrapper for a
-/// process-executor job. Uses `pgrep -f` (matches the full command line) so it
-/// works on both Linux and macOS.
-fn find_job_wrapper_pid(job_id: u32) -> Option<u32> {
-    let needle = format!("gcancel --finish {job_id}");
-    let output = Command::new("pgrep").args(["-f", &needle]).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
-        .next()
+/// Read the durable runner pid recorded for a process-executor job.
+fn find_job_runner_pid(data_dir: &Path, job_id: u32) -> Option<u32> {
+    let metadata_path = data_dir.join("runners").join(format!("{job_id}.json"));
+    let metadata: Value = serde_json::from_slice(&std::fs::read(metadata_path).ok()?).ok()?;
+    metadata["pid"].as_u64().map(|pid| pid as u32)
 }
 
 /// All pids whose process group id equals `pgid` (via `pgrep -g`).
@@ -1049,15 +1041,15 @@ fn processes_in_group(pgid: u32) -> Vec<u32> {
         .collect()
 }
 
-async fn wait_for_wrapper_pid(job_id: u32, timeout: Duration) -> u32 {
+async fn wait_for_runner_pid(data_dir: &Path, job_id: u32, timeout: Duration) -> u32 {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Some(pid) = find_job_wrapper_pid(job_id) {
+        if let Some(pid) = find_job_runner_pid(data_dir, job_id) {
             return pid;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("timed out waiting for wrapper process of job {job_id}");
+    panic!("timed out waiting for runner process of job {job_id}");
 }
 
 async fn wait_for_process_group_gone(pgid: u32, timeout: Duration) {
@@ -1142,6 +1134,123 @@ async fn process_executor_runs_job_without_tmux() {
     sandbox.stop_daemon();
 }
 
+/// A reload handoff must preserve live runners and collect results written
+/// while the daemon is offline. This exercises the durable runner metadata
+/// rather than the old in-memory ProcessExecutor registry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn process_executor_re_adopts_after_daemon_handoff() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let live_job = client
+        .add_job(
+            JobBuilder::new()
+                .submitted_by("re-adopt-e2e")
+                .run_dir(&sandbox.work_dir)
+                .command("sleep 8")
+                .build(),
+        )
+        .await
+        .unwrap();
+    let offline_job = client
+        .add_job(
+            JobBuilder::new()
+                .submitted_by("re-adopt-e2e")
+                .run_dir(&sandbox.work_dir)
+                .command("sleep 1")
+                .build(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_job_state(
+        &client,
+        live_job.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+    wait_for_job_state(
+        &client,
+        offline_job.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+
+    let old_pid = sandbox
+        .daemon_child
+        .as_ref()
+        .expect("direct daemon child")
+        .id();
+    unsafe {
+        libc::kill(old_pid as libc::pid_t, libc::SIGUSR2);
+    }
+
+    let mut old_child = sandbox.daemon_child.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if old_child.try_wait().unwrap().is_some() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "old daemon did not exit on reload handoff"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    sandbox.daemon_started = false;
+
+    // The short runner should finish after the old daemon has exited, before
+    // the replacement starts.
+    let result_path = sandbox
+        .data_dir()
+        .join("runners")
+        .join(format!("{}.result.json", offline_job.id));
+    let result_deadline = Instant::now() + Duration::from_secs(10);
+    while !result_path.exists() {
+        assert!(
+            Instant::now() < result_deadline,
+            "offline runner did not persist its result"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    sandbox.start_daemon_direct();
+    sandbox.daemon_started = true;
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let adopted = wait_for_job_state(
+        &client,
+        live_job.id,
+        JobState::Running,
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(adopted.state, JobState::Running);
+
+    wait_for_job_state(
+        &client,
+        offline_job.id,
+        JobState::Finished,
+        Duration::from_secs(15),
+    )
+    .await;
+    wait_for_job_state(
+        &client,
+        live_job.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+
+    sandbox.stop_daemon();
+}
+
 /// Acceptance: cancelling a job reliably terminates the whole process tree
 /// (SIGTERM to the process group, escalating to SIGKILL).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1169,8 +1278,9 @@ async fn process_executor_cancel_terminates_process_tree() {
     )
     .await;
 
-    let wrapper_pid = wait_for_wrapper_pid(response.id, Duration::from_secs(10)).await;
-    // The wrapper is a session leader, so its pgid == its pid, and it has at
+    let wrapper_pid =
+        wait_for_runner_pid(&sandbox.data_dir(), response.id, Duration::from_secs(10)).await;
+    // The runner is a session leader, so its pgid == its pid, and it has at
     // least the two sleepers as group members.
     assert!(
         processes_in_group(wrapper_pid).len() >= 3,
@@ -1220,8 +1330,9 @@ async fn process_executor_detects_zombie_when_process_dies_without_reporting() {
     )
     .await;
 
-    // SIGKILL the whole process group so the wrapper's `gcancel` never runs.
-    let wrapper_pid = wait_for_wrapper_pid(response.id, Duration::from_secs(10)).await;
+    // SIGKILL the whole process group so the runner cannot record a result.
+    let wrapper_pid =
+        wait_for_runner_pid(&sandbox.data_dir(), response.id, Duration::from_secs(10)).await;
     unsafe {
         libc::kill(-(wrapper_pid as libc::pid_t), libc::SIGKILL);
     }

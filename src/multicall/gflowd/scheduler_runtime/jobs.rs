@@ -1,6 +1,94 @@
 use super::*;
 
 impl SchedulerRuntime {
+    /// Re-adopt persisted Running jobs before scheduling starts. A live runner
+    /// remains Running; a durable result is finalized immediately; a missing
+    /// runner/result is treated as an execution failure so resources cannot be
+    /// stranded forever after daemon downtime.
+    pub(crate) async fn recover_running_jobs(&mut self) -> Vec<RecoveryOutcome> {
+        let running_jobs: Vec<Job> = self
+            .jobs()
+            .into_iter()
+            .filter(|job| job.state == JobState::Running)
+            .collect();
+        let mut outcomes = Vec::new();
+
+        for job in running_jobs {
+            let status = self
+                .executor
+                .execution_status(job.id, job.run_name.as_deref());
+            match status {
+                ExecutionStatus::Running => {
+                    tracing::info!(job_id = job.id, "Re-adopted running job runner");
+                }
+                ExecutionStatus::Finished(result) => {
+                    tracing::info!(
+                        job_id = job.id,
+                        exit_code = ?result.exit_code,
+                        signal = ?result.signal,
+                        "Recovered completed job runner result"
+                    );
+                    if let Some(outcome) = self.finalize_recovered_job(job, result).await {
+                        outcomes.push(outcome);
+                    }
+                }
+                ExecutionStatus::Missing => {
+                    tracing::warn!(
+                        job_id = job.id,
+                        "Running job has no live runner or durable result; marking it failed"
+                    );
+                    let job_id = job.id;
+                    if let Some(outcome) = self
+                        .finalize_recovered_job(
+                            job,
+                            ExecutionResult {
+                                job_id,
+                                exit_code: None,
+                                signal: None,
+                            },
+                        )
+                        .await
+                    {
+                        outcomes.push(outcome);
+                    }
+                }
+            }
+        }
+
+        outcomes
+    }
+
+    async fn finalize_recovered_job(
+        &mut self,
+        job: Job,
+        result: ExecutionResult,
+    ) -> Option<RecoveryOutcome> {
+        let gpu_ids = job.gpu_ids.clone();
+        let memory_mb = job.memory_limit_mb;
+
+        if result.succeeded() {
+            if self.finish_job(job.id).await {
+                return Some(RecoveryOutcome {
+                    job_id: job.id,
+                    final_state: JobState::Finished,
+                    gpu_ids,
+                    memory_mb,
+                    retry_job_id: None,
+                });
+            }
+            return None;
+        }
+
+        let retry_job_id = self.fail_job(job.id).await?;
+        Some(RecoveryOutcome {
+            job_id: job.id,
+            final_state: JobState::Failed,
+            gpu_ids,
+            memory_mb,
+            retry_job_id,
+        })
+    }
+
     fn normalize_and_validate_project(&self, job: &mut Job) -> Result<()> {
         let normalized =
             gflow::utils::validate_project_policy(job.project.as_deref(), &self.projects_config)?;

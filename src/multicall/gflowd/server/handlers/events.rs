@@ -93,6 +93,15 @@ fn event_payload(event: &SchedulerEvent) -> Option<(&'static str, serde_json::Va
         JobTimedOut { job_id, run_name } => {
             serde_json::json!({ "job_id": job_id, "run_name": run_name })
         }
+        JobExecutionFinished {
+            job_id,
+            exit_code,
+            signal,
+        } => serde_json::json!({
+            "job_id": job_id,
+            "exit_code": exit_code,
+            "signal": signal,
+        }),
         ZombieJobDetected { job_id } => serde_json::json!({ "job_id": job_id }),
         PeriodicHealthCheck => return None,
         ReservationCreated { reservation_id } => {

@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
-use gflow::core::executor::Executor;
+use gflow::core::executor::{ExecutionResult, ExecutionStatus, Executor};
 use gflow::core::job::{Job, JobState};
 use gflow::utils::substitute_parameters;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -11,23 +13,42 @@ use std::time::{Duration, Instant};
 /// How long to wait for a SIGTERM'd process group to exit before escalating
 /// to SIGKILL.
 const TERMINATE_GRACE: Duration = Duration::from_secs(5);
+const RUNNER_METADATA_VERSION: u32 = 1;
 
-/// A spawned child process tracked by job id.
+/// A spawned runner tracked locally for child reaping. The durable metadata is
+/// the source of truth used by a fresh daemon instance.
 struct TrackedProcess {
-    /// Child pid, which equals the process group id because the child calls
+    /// Runner pid, which equals the process group id because the runner calls
     /// `setsid()` before exec.
     pid: i32,
 }
 
-/// Process-backed executor: spawns `bash -c <wrapped>` in its own session
-/// (`setsid`) with stdout/stderr redirected to `logs/<job_id>.log`.
-///
-/// Completion is reported by the wrapped command itself via
-/// `gcancel --finish` / `gcancel --fail` (same channel as the tmux executor),
-/// so the daemon's state machine is untouched. This executor additionally
-/// tracks the child so the canceller can kill the whole process group and the
-/// zombie monitor can probe real process liveness.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RunnerMetadata {
+    version: u32,
+    job_id: u32,
+    pid: i32,
+    pgid: i32,
+    /// Linux `/proc/<pid>/stat` start time. `None` on platforms without procfs.
+    #[serde(default)]
+    start_time: Option<u64>,
+    result_path: std::path::PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunnerResultFile {
+    job_id: u32,
+    exit_code: i32,
+    #[serde(default)]
+    signal: Option<i32>,
+}
+
+/// Process-backed executor. Each job is owned by an independent shell runner
+/// in its own session. The runner writes an atomic result file after the
+/// payload exits, so a new daemon can adopt the process or collect its result.
 pub struct ProcessExecutor {
+    /// Kept for child reaping while this daemon is alive. Re-adoption never
+    /// relies on this registry; it reads the durable runner metadata instead.
     processes: Arc<Mutex<HashMap<u32, TrackedProcess>>>,
 }
 
@@ -45,16 +66,137 @@ impl ProcessExecutor {
     }
 
     fn is_alive(pid: i32) -> bool {
-        unsafe { libc::kill(pid, 0) == 0 }
+        let rc = unsafe { libc::kill(pid, 0) };
+        rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
 
-    /// Build the command line executed by the child shell.
-    ///
-    /// The user command is embedded raw (no key-escaping): it is passed as a
-    /// single argv element to `bash -c`, so the shell parses it exactly as the
-    /// user wrote it. `&&`/`||` chain the completion reporters onto the exit
-    /// code of the user command.
-    fn build_wrapped_command(job: &Job) -> Result<String> {
+    fn group_is_alive(pgid: i32) -> bool {
+        let rc = unsafe { libc::kill(-pgid, 0) };
+        rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    fn process_start_time(pid: i32) -> Option<u64> {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let end = stat.rfind(')')?;
+        let mut fields = stat.get(end + 1..)?.split_whitespace();
+        let _state = fields.next()?;
+        let _ppid = fields.next()?;
+        let fields: Vec<_> = fields.collect();
+        fields.get(17)?.parse().ok()
+    }
+
+    fn process_identity_matches(metadata: &RunnerMetadata) -> bool {
+        if !Self::is_alive(metadata.pid) {
+            return false;
+        }
+
+        let current_pgid = unsafe { libc::getpgid(metadata.pid) };
+        if current_pgid != metadata.pgid {
+            return false;
+        }
+
+        metadata
+            .start_time
+            .map(|expected| Self::process_start_time(metadata.pid) == Some(expected))
+            .unwrap_or(true)
+    }
+
+    fn write_json_atomic<T: Serialize>(path: &std::path::Path, value: &T) -> Result<()> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("JSON path has no parent: {}", path.display()))?;
+        fs::create_dir_all(parent)?;
+        let tmp_path = parent.join(format!(
+            ".{}.tmp.{}",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("runner"),
+            std::process::id()
+        ));
+        let bytes = serde_json::to_vec(value)?;
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        fs::rename(&tmp_path, path)?;
+        Ok(())
+    }
+
+    fn metadata(job_id: u32) -> Result<RunnerMetadata> {
+        let path = gflow::paths::get_runner_metadata_path(job_id)?;
+        let bytes = fs::read(path)?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn result(job_id: u32) -> Option<ExecutionResult> {
+        let path = gflow::paths::get_runner_result_path(job_id).ok()?;
+        let bytes = fs::read(path).ok()?;
+        let result = match serde_json::from_slice::<RunnerResultFile>(&bytes) {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!(job_id, %error, "Ignoring incomplete runner result file");
+                return None;
+            }
+        };
+        if result.job_id != job_id {
+            tracing::warn!(
+                expected_job_id = job_id,
+                result_job_id = result.job_id,
+                "Ignoring runner result for a different job"
+            );
+            return None;
+        }
+        Some(ExecutionResult {
+            job_id,
+            exit_code: Some(result.exit_code),
+            signal: result.signal,
+        })
+    }
+
+    fn remove_runner_files(job_id: u32) {
+        for path in [
+            gflow::paths::get_runner_metadata_path(job_id).ok(),
+            gflow::paths::get_runner_result_path(job_id).ok(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    fn status_from_metadata(&self, job_id: u32) -> ExecutionStatus {
+        if let Some(result) = Self::result(job_id) {
+            return ExecutionStatus::Finished(result);
+        }
+
+        let Ok(metadata) = Self::metadata(job_id) else {
+            return self
+                .processes
+                .lock()
+                .unwrap()
+                .get(&job_id)
+                .filter(|process| Self::is_alive(process.pid))
+                .map(|_| ExecutionStatus::Running)
+                .unwrap_or(ExecutionStatus::Missing);
+        };
+
+        if metadata.version != RUNNER_METADATA_VERSION || metadata.job_id != job_id {
+            tracing::warn!(
+                job_id,
+                "Ignoring runner metadata with an incompatible identity"
+            );
+            return ExecutionStatus::Missing;
+        }
+
+        if Self::process_identity_matches(&metadata) {
+            ExecutionStatus::Running
+        } else {
+            ExecutionStatus::Missing
+        }
+    }
+
+    fn build_user_command(job: &Job) -> Result<String> {
         let mut user_command = String::new();
 
         if let Some(script) = &job.script {
@@ -62,7 +204,6 @@ impl ProcessExecutor {
                 user_command.push_str(&format!("bash {script_str}"));
             }
         } else if let Some(cmd) = &job.command {
-            // Apply parameter substitution
             let substituted = substitute_parameters(cmd, &job.parameters)?;
             user_command.push_str(&substituted);
         } else {
@@ -73,8 +214,24 @@ impl ProcessExecutor {
             user_command = format!("conda activate {conda_env} && {user_command}");
         }
 
+        Ok(user_command)
+    }
+
+    /// Build the detached runner shell. The payload is executed by a nested
+    /// bash so `exit` in user input cannot skip the result write performed by
+    /// the outer runner.
+    fn build_runner_command(job: &Job, result_path: &std::path::Path) -> Result<String> {
+        let user_command = Self::build_user_command(job)?;
+        let payload = shell_escape::escape(user_command.into());
+        let result = shell_escape::escape(result_path.to_string_lossy());
+
         Ok(format!(
-            "{user_command} && gcancel --finish {job_id} || gcancel --fail {job_id}",
+            "bash -c {payload}\n\
+             status=$?\n\
+             finished_at=$(date +%s 2>/dev/null || printf 0)\n\
+             tmp={result}.tmp.$$\n\
+             printf '{{\"version\":1,\"job_id\":{job_id},\"exit_code\":%s,\"signal\":null,\"finished_at_unix_secs\":%s}}\\n' \"$status\" \"$finished_at\" > \"$tmp\" && mv -f \"$tmp\" {result}\n\
+             exit \"$status\"",
             job_id = job.id,
         ))
     }
@@ -96,7 +253,9 @@ impl Executor for ProcessExecutor {
     }
 
     fn execute(&self, job: &Job) -> Result<()> {
-        let wrapped_command = Self::build_wrapped_command(job)?;
+        let result_path = gflow::paths::get_runner_result_path(job.id)?;
+        let runner_command = Self::build_runner_command(job, &result_path)?;
+        Self::remove_runner_files(job.id);
 
         let log_path = gflow::paths::prepare_log_file_path(job.id)?;
         if let Some(parent) = log_path.parent() {
@@ -111,7 +270,7 @@ impl Executor for ProcessExecutor {
         let mut command = Command::new("bash");
         command
             .arg("-c")
-            .arg(&wrapped_command)
+            .arg(&runner_command)
             .current_dir(&job.run_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
@@ -129,8 +288,8 @@ impl Executor for ProcessExecutor {
             );
         }
 
-        // Detach the child into its own session/process group so the whole
-        // group can be signalled with kill(-pgid, ...).
+        // Detach the runner into its own session/process group so it survives
+        // daemon exit and the whole group can be signalled with kill(-pgid, ...).
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -141,22 +300,38 @@ impl Executor for ProcessExecutor {
 
         let mut child = command.spawn().with_context(|| {
             format!(
-                "Failed to spawn job {}: bash -c {:?}",
-                job.id, wrapped_command
+                "Failed to spawn runner for job {}: bash -c {:?}",
+                job.id, runner_command
             )
         })?;
         let pid = child.id() as i32;
-        let pgid = pid; // setsid() makes the child a session leader
+        let pgid = pid;
+        let metadata = RunnerMetadata {
+            version: RUNNER_METADATA_VERSION,
+            job_id: job.id,
+            pid,
+            pgid,
+            start_time: Self::process_start_time(pid),
+            result_path,
+        };
+
+        if let Err(error) =
+            Self::write_json_atomic(&gflow::paths::get_runner_metadata_path(job.id)?, &metadata)
+        {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            return Err(error).context("Failed to persist runner metadata");
+        }
 
         self.processes
             .lock()
             .unwrap()
             .insert(job.id, TrackedProcess { pid: pgid });
 
-        // Reap the child in the background and drop the registry entry once it
-        // exits. The wrapper's `gcancel --finish/--fail` reports the final job
-        // state; the zombie monitor uses the registry to detect jobs whose
-        // process died without reporting.
+        // Reap the runner while this daemon is alive. The result file remains
+        // durable until the scheduler transitions the job and calls cleanup.
         let processes = Arc::clone(&self.processes);
         let job_id = job.id;
         std::thread::spawn(move || {
@@ -165,25 +340,66 @@ impl Executor for ProcessExecutor {
             registry.remove(&job_id);
         });
 
-        tracing::info!(job_id = job.id, pid, "Spawned job process group");
+        tracing::info!(job_id = job.id, pid, "Spawned durable job runner");
         Ok(())
     }
 
-    fn terminate(&self, job_id: u32, _run_name: Option<&str>) -> Result<()> {
-        let pid = match self.processes.lock().unwrap().get(&job_id) {
-            Some(process) => process.pid,
-            None => return Ok(()), // nothing tracked (already finished/reaped)
+    fn execution_status(&self, job_id: u32, _run_name: Option<&str>) -> ExecutionStatus {
+        self.status_from_metadata(job_id)
+    }
+
+    fn collect_finished(&self) -> Vec<ExecutionResult> {
+        let Ok(dir) = gflow::paths::get_runner_dir() else {
+            return Vec::new();
         };
+        let Ok(entries) = fs::read_dir(dir) else {
+            return Vec::new();
+        };
+
+        entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("json")
+                    || path.file_name()?.to_str()?.contains(".result.")
+                {
+                    return None;
+                }
+                let metadata =
+                    serde_json::from_slice::<RunnerMetadata>(&fs::read(path).ok()?).ok()?;
+                let result = Self::result(metadata.job_id)?;
+                Some(result)
+            })
+            .collect()
+    }
+
+    fn terminate(&self, job_id: u32, _run_name: Option<&str>) -> Result<()> {
+        let metadata = Self::metadata(job_id).ok();
+        let (pid, pgid) = metadata
+            .as_ref()
+            .map(|metadata| (metadata.pid, metadata.pgid))
+            .or_else(|| {
+                self.processes
+                    .lock()
+                    .unwrap()
+                    .get(&job_id)
+                    .map(|process| (process.pid, process.pid))
+            })
+            .unwrap_or((0, 0));
+        if pid == 0 || pgid == 0 {
+            return Ok(());
+        }
+        if let Some(metadata) = metadata.as_ref() {
+            if !Self::process_identity_matches(metadata) {
+                return Ok(());
+            }
+        }
 
         // SIGTERM to the whole process group, then escalate to SIGKILL after a
         // grace period in the background (never blocks the scheduler).
-        let rc = unsafe { libc::kill(-pid, libc::SIGTERM) };
+        let rc = unsafe { libc::kill(-pgid, libc::SIGTERM) };
         if rc != 0 {
             let err = std::io::Error::last_os_error();
-            // ESRCH: the group is already gone. EPERM: on some platforms
-            // (macOS) signalling a dead or foreign process group returns EPERM
-            // instead of ESRCH; either way there is nothing we own left to
-            // terminate (and we must not touch a reused pid's group).
             if matches!(err.raw_os_error(), Some(libc::ESRCH) | Some(libc::EPERM)) {
                 return Ok(());
             }
@@ -193,63 +409,80 @@ impl Executor for ProcessExecutor {
         std::thread::spawn(move || {
             let deadline = Instant::now() + TERMINATE_GRACE;
             while Instant::now() < deadline {
-                if !Self::is_alive(pid) {
+                if !Self::group_is_alive(pgid) {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            tracing::warn!(pid, "Process group ignored SIGTERM, sending SIGKILL");
+            tracing::warn!(pid, pgid, "Process group ignored SIGTERM, sending SIGKILL");
             unsafe {
-                libc::kill(-pid, libc::SIGKILL);
+                libc::kill(-pgid, libc::SIGKILL);
             }
         });
         Ok(())
     }
 
-    fn is_running(&self, job_id: u32, _run_name: Option<&str>) -> bool {
-        let Some(pid) = self
-            .processes
-            .lock()
-            .unwrap()
-            .get(&job_id)
-            .map(|process| process.pid)
-        else {
-            return false;
-        };
-        Self::is_alive(pid)
+    fn is_running(&self, job_id: u32, run_name: Option<&str>) -> bool {
+        matches!(
+            self.execution_status(job_id, run_name),
+            ExecutionStatus::Running
+        )
+    }
+
+    fn cleanup(&self, job: &Job) {
+        Self::remove_runner_files(job.id);
+        if let Ok(mut processes) = self.processes.lock() {
+            processes.remove(&job.id);
+        }
     }
 
     fn shutdown(&self) {
-        let pids: Vec<i32> = self
-            .processes
-            .lock()
-            .unwrap()
-            .values()
-            .map(|process| process.pid)
-            .collect();
-        if pids.is_empty() {
+        let mut groups: HashMap<i32, i32> = HashMap::new();
+        if let Ok(dir) = gflow::paths::get_runner_dir() {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                        continue;
+                    }
+                    if let Ok(metadata) = serde_json::from_slice::<RunnerMetadata>(
+                        &fs::read(path).unwrap_or_default(),
+                    ) {
+                        if Self::process_identity_matches(&metadata) {
+                            groups.insert(metadata.pgid, metadata.pid);
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(processes) = self.processes.lock() {
+            for process in processes.values() {
+                groups.entry(process.pid).or_insert(process.pid);
+            }
+        }
+        if groups.is_empty() {
             return;
         }
 
-        tracing::info!(processes = pids.len(), "Terminating managed job processes");
-        for pid in &pids {
+        tracing::info!(processes = groups.len(), "Terminating managed job runners");
+        for pgid in groups.keys() {
             unsafe {
-                libc::kill(-*pid, libc::SIGTERM);
+                libc::kill(-*pgid, libc::SIGTERM);
             }
         }
 
         let deadline = Instant::now() + TERMINATE_GRACE;
         while Instant::now() < deadline {
-            if pids.iter().all(|pid| !Self::is_alive(*pid)) {
+            if groups.keys().all(|pgid| !Self::group_is_alive(*pgid)) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
 
-        for pid in pids {
-            tracing::warn!(pid, "Process group survived SIGTERM, sending SIGKILL");
+        for (pgid, pid) in groups {
+            tracing::warn!(pid, pgid, "Process group survived SIGTERM, sending SIGKILL");
             unsafe {
-                libc::kill(-pid, libc::SIGKILL);
+                libc::kill(-pgid, libc::SIGKILL);
             }
         }
     }
@@ -385,78 +618,39 @@ mod tests {
     }
 
     #[test]
-    fn test_process_wrapped_command_basic() {
+    fn test_runner_command_records_exit_code_without_http_reporting() {
         let job = job_with_command(123, "echo hello");
-        let wrapped = ProcessExecutor::build_wrapped_command(&job).unwrap();
-        assert_eq!(
-            wrapped,
-            r#"echo hello && gcancel --finish 123 || gcancel --fail 123"#
-        );
+        let result_path = PathBuf::from("/tmp/runner.result.json");
+        let command = ProcessExecutor::build_runner_command(&job, &result_path).unwrap();
+        assert!(command.contains("bash -c"));
+        assert!(command.contains("exit_code"));
+        assert!(command.contains("runner.result.json"));
+        assert!(!command.contains("gcancel"));
     }
 
     #[test]
-    fn test_process_wrapped_command_keeps_quotes_unescaped() {
-        // No key-escaping: quotes reach `bash -c` verbatim.
-        let job = job_with_command(456, r#"echo "hello world""#);
-        let wrapped = ProcessExecutor::build_wrapped_command(&job).unwrap();
-        assert_eq!(
-            wrapped,
-            r#"echo "hello world" && gcancel --finish 456 || gcancel --fail 456"#
-        );
+    fn test_runner_command_isolates_payload_exit() {
+        let job = job_with_command(456, "exit 7");
+        let command =
+            ProcessExecutor::build_runner_command(&job, PathBuf::from("/tmp/result").as_path())
+                .unwrap();
+        assert!(command.contains("bash -c 'exit 7'"));
+        assert!(command.contains("exit \"$status\""));
     }
 
     #[test]
-    fn test_process_wrapped_command_keeps_dollar_and_backtick_unescaped() {
-        let job = job_with_command(200, "echo $HOME `date`");
-        let wrapped = ProcessExecutor::build_wrapped_command(&job).unwrap();
-        assert_eq!(
-            wrapped,
-            r#"echo $HOME `date` && gcancel --finish 200 || gcancel --fail 200"#
-        );
-    }
-
-    #[test]
-    fn test_process_wrapped_command_with_script() {
-        let job = Job {
-            id: 789,
-            script: Some(Box::new(PathBuf::from("/tmp/script.sh"))),
-            state: JobState::Queued,
-            run_dir: PathBuf::from("/tmp"),
-            ..Default::default()
-        };
-        let wrapped = ProcessExecutor::build_wrapped_command(&job).unwrap();
-        assert_eq!(
-            wrapped,
-            r#"bash /tmp/script.sh && gcancel --finish 789 || gcancel --fail 789"#
-        );
-    }
-
-    #[test]
-    fn test_process_wrapped_command_with_conda_env() {
-        let job = Job {
-            id: 321,
-            command: Some("python train.py".into()),
-            conda_env: Some("ml".into()),
-            state: JobState::Queued,
-            run_dir: PathBuf::from("/tmp"),
-            ..Default::default()
-        };
-        let wrapped = ProcessExecutor::build_wrapped_command(&job).unwrap();
-        assert_eq!(
-            wrapped,
-            r#"conda activate ml && python train.py && gcancel --finish 321 || gcancel --fail 321"#
-        );
-    }
-
-    #[test]
-    fn test_process_wrapped_command_rejects_empty_job() {
+    fn test_runner_command_rejects_empty_job() {
         let job = Job {
             id: 1,
             state: JobState::Queued,
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
         };
-        assert!(ProcessExecutor::build_wrapped_command(&job).is_err());
+        assert!(ProcessExecutor::build_runner_command(
+            &job,
+            PathBuf::from("/tmp/result").as_path()
+        )
+        .is_err());
     }
 
     #[test]
@@ -517,6 +711,50 @@ mod tests {
                 "registry entry should be removed after the child exits"
             );
             assert!(!executor.is_running(9001, None));
+        })
+    }
+
+    #[test]
+    fn test_process_executor_re_adopts_runner_and_collects_exit_code() {
+        with_isolated_data_dir(|| {
+            let executor = ProcessExecutor::new();
+            let job = job_with_command(9004, "sleep 1; exit 7");
+            executor.execute(&job).unwrap();
+
+            let metadata_path = gflow::paths::get_runner_metadata_path(job.id).unwrap();
+            assert!(metadata_path.exists(), "runner metadata should be durable");
+            assert!(executor.is_running(job.id, None));
+
+            // A fresh executor has no in-memory registry, but it must still be
+            // able to adopt the live runner from metadata.
+            drop(executor);
+            let adopted = ProcessExecutor::new();
+            assert!(adopted.is_running(job.id, None));
+
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            let result = loop {
+                if let Some(result) = adopted
+                    .collect_finished()
+                    .into_iter()
+                    .find(|result| result.job_id == job.id)
+                {
+                    break result;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "runner did not persist an exit result"
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            assert_eq!(result.exit_code, Some(7));
+            assert!(!result.succeeded());
+            assert!(matches!(
+                adopted.execution_status(job.id, None),
+                ExecutionStatus::Finished(_)
+            ));
+
+            adopted.cleanup(&job);
+            assert!(!metadata_path.exists());
         })
     }
 

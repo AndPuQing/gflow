@@ -299,20 +299,27 @@ async fn create_shutdown_signal(state_saver: StateSaverHandle, executor: Arc<dyn
     // SIGHUP is delivered when the hosting tmux session is killed (`gflowd down`).
     let mut sighup = signal(SignalKind::hangup()).expect("Failed to register SIGHUP handler");
 
-    tokio::select! {
+    let terminate_jobs = tokio::select! {
         _ = sigterm.recv() => {
             tracing::info!(signal = "SIGTERM", "Initiating graceful shutdown");
+            true
         }
         _ = sigint.recv() => {
             tracing::info!(signal = "SIGINT", "Initiating graceful shutdown");
+            true
         }
         _ = sigusr2.recv() => {
-            tracing::info!(signal = "SIGUSR2", reload = true, "Initiating graceful shutdown");
+            // SIGUSR2 is the hot-reload handoff. The replacement daemon must
+            // be able to re-adopt runners, so the control plane exits without
+            // terminating execution entities.
+            tracing::info!(signal = "SIGUSR2", reload = true, "Initiating reload handoff");
+            false
         }
         _ = sighup.recv() => {
             tracing::info!(signal = "SIGHUP", "Initiating graceful shutdown");
+            true
         }
-    }
+    };
 
     // Save state before exiting
     tracing::info!("Saving state before shutdown");
@@ -322,7 +329,12 @@ async fn create_shutdown_signal(state_saver: StateSaverHandle, executor: Arc<dyn
         tracing::info!("State saved successfully");
     }
 
-    // Terminate managed job processes (process executor).
-    tracing::info!("Terminating managed job processes");
-    executor.shutdown();
+    if terminate_jobs {
+        // Explicit stop signals terminate managed job processes (process
+        // executor). A SIGUSR2 reload deliberately skips this step.
+        tracing::info!("Terminating managed job processes");
+        executor.shutdown();
+    } else {
+        tracing::info!("Leaving managed job runners alive for reload adoption");
+    }
 }

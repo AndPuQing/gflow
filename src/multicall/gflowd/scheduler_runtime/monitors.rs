@@ -85,13 +85,44 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
             continue;
         }
 
+        let running_job_ids: HashSet<u32> = running_jobs.iter().map(|(id, _, _)| *id).collect();
+        let finished_results: Vec<_> = executor
+            .collect_finished()
+            .into_iter()
+            .filter(|result| running_job_ids.contains(&result.job_id))
+            .collect();
+        let finished_ids: HashSet<u32> = finished_results
+            .iter()
+            .map(|result| result.job_id)
+            .collect();
+
+        // Process completion results before applying the startup grace period:
+        // a payload that exited successfully while the daemon was offline must
+        // be finalized immediately after its result file becomes visible.
+        for result in finished_results {
+            tracing::info!(
+                job_id = result.job_id,
+                exit_code = ?result.exit_code,
+                signal = ?result.signal,
+                "Collected job runner exit result"
+            );
+            event_bus.publish(SchedulerEvent::JobExecutionFinished {
+                job_id: result.job_id,
+                exit_code: result.exit_code,
+                signal: result.signal,
+            });
+        }
+
         // Sample time after building the Running-job snapshot so jobs that
         // started during snapshot construction don't look like future starts.
         let now = std::time::SystemTime::now();
 
-        // Check which jobs are zombies (no lock held)
+        // Check which jobs are zombies (no lock held). A result is authoritative
+        // even if the runner is in the short window before it exits.
         for (job_id, run_name, started_at) in running_jobs {
-            if !should_check_missing_session_as_zombie(started_at, now) {
+            if finished_ids.contains(&job_id)
+                || !should_check_missing_session_as_zombie(started_at, now)
+            {
                 continue;
             }
             if !executor.is_running(job_id, run_name.as_deref()) {
@@ -102,7 +133,9 @@ pub(super) async fn zombie_monitor_task(state: SharedState, event_bus: Arc<Event
     }
 }
 
-/// Zombie handler task - reacts to zombie events and marks jobs as failed
+/// Runner completion and zombie handler. A durable exit result is mapped to
+/// Finished/Failed through SchedulerRuntime so resource accounting, retries,
+/// dependencies, and executor cleanup all use the normal transition path.
 pub(super) async fn zombie_handler_task(
     mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
     state: SharedState,
@@ -111,31 +144,90 @@ pub(super) async fn zombie_handler_task(
     loop {
         match events.recv().await {
             Ok(event) => {
-                let handling_span = event.handling_span("zombie_handler");
+                let handling_span = event.handling_span("execution_result_handler");
                 let _entered = handling_span.enter();
-                let SchedulerEvent::ZombieJobDetected { job_id } = event.event else {
-                    continue;
+                let result = match event.event {
+                    SchedulerEvent::JobExecutionFinished {
+                        job_id,
+                        exit_code,
+                        signal,
+                    } => ExecutionResult {
+                        job_id,
+                        exit_code,
+                        signal,
+                    },
+                    SchedulerEvent::ZombieJobDetected { job_id } => ExecutionResult {
+                        job_id,
+                        exit_code: None,
+                        signal: None,
+                    },
+                    _ => continue,
                 };
 
-                // Update job state (write lock); executor cleanup runs inside
-                // fail_job (tmux: stop pipe-pane; process: no-op).
-                let result = {
-                    let mut state_guard = state.write().await;
-                    state_guard.fail_job(job_id).await
-                };
-                if let Some(Some(new_job_id)) = result {
-                    event_bus.publish(SchedulerEvent::JobSubmitted { job_id: new_job_id });
-                } else if result.is_some() {
-                    tracing::info!(job_id, "Marked zombie job as failed");
-                }
+                finalize_execution_result(&state, &event_bus, result).await;
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!(skipped, "Zombie handler lagged");
+                tracing::warn!(skipped, "Execution result handler lagged");
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                tracing::info!("Event bus closed, zombie handler exiting");
+                tracing::info!("Event bus closed, execution result handler exiting");
                 break;
             }
+        }
+    }
+}
+
+async fn finalize_execution_result(
+    state: &SharedState,
+    event_bus: &Arc<EventBus>,
+    result: ExecutionResult,
+) {
+    let transition = {
+        let mut state_guard = state.write().await;
+        let Some(job) = state_guard.get_job(result.job_id) else {
+            return;
+        };
+        let gpu_ids = job.gpu_ids.clone();
+        let memory_mb = job.memory_limit_mb;
+
+        if result.succeeded() {
+            if state_guard.finish_job(result.job_id).await {
+                Some((JobState::Finished, gpu_ids, memory_mb, None))
+            } else {
+                None
+            }
+        } else {
+            state_guard
+                .fail_job(result.job_id)
+                .await
+                .map(|retry_job_id| (JobState::Failed, gpu_ids, memory_mb, retry_job_id))
+        }
+    };
+
+    if let Some((final_state, gpu_ids, memory_mb, retry_job_id)) = transition {
+        event_bus.publish(SchedulerEvent::JobCompleted {
+            job_id: result.job_id,
+            final_state,
+            gpu_ids,
+            memory_mb,
+        });
+        if let Some(new_job_id) = retry_job_id {
+            event_bus.publish(SchedulerEvent::JobSubmitted { job_id: new_job_id });
+        }
+
+        if final_state == JobState::Finished {
+            tracing::info!(
+                job_id = result.job_id,
+                exit_code = ?result.exit_code,
+                "Marked job finished from runner exit result"
+            );
+        } else {
+            tracing::info!(
+                job_id = result.job_id,
+                exit_code = ?result.exit_code,
+                signal = ?result.signal,
+                "Marked job failed from runner exit result"
+            );
         }
     }
 }
