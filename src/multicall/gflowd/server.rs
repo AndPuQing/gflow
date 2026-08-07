@@ -72,6 +72,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     )?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
     scheduler_runtime.set_quota_baseline(config.quota.clone());
+    scheduler_runtime.set_max_concurrent_jobs(config.daemon.max_concurrent_jobs);
 
     // Keep an executor handle for graceful shutdown (terminates managed jobs).
     let shutdown_executor = scheduler_runtime.executor();
@@ -154,6 +155,10 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/ui/{*path}", get(web_ui::serve_asset))
         .route("/jobs", get(handlers::list_jobs).post(handlers::create_job))
         .route("/jobs/batch", post(handlers::create_jobs_batch))
+        .route(
+            "/jobs/max-concurrency",
+            post(handlers::set_jobs_max_concurrency),
+        )
         .route(
             "/jobs/resolve-dependency",
             get(handlers::resolve_dependency),

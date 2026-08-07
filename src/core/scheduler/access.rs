@@ -257,4 +257,14 @@ impl Scheduler {
     pub fn gpu_allocation_strategy(&self) -> GpuAllocationStrategy {
         self.gpu_allocation_strategy
     }
+
+    /// Set the daemon-wide running-job cap. `None` means unlimited.
+    pub fn set_max_concurrent_jobs(&mut self, max_concurrent_jobs: Option<usize>) {
+        self.max_concurrent_jobs = max_concurrent_jobs;
+    }
+
+    /// Get the daemon-wide running-job cap.
+    pub fn max_concurrent_jobs(&self) -> Option<usize> {
+        self.max_concurrent_jobs
+    }
 }

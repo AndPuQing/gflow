@@ -660,6 +660,57 @@ impl Client {
         Ok(updated_jobs)
     }
 
+    /// Create a temporary concurrency group from independently submitted jobs.
+    pub async fn set_jobs_max_concurrency(
+        &self,
+        job_ids: &[u32],
+        max_concurrent: usize,
+    ) -> anyhow::Result<(String, usize)> {
+        tracing::debug!(
+            ?job_ids,
+            max_concurrent,
+            "Creating temporary job concurrency group"
+        );
+
+        let request_body = serde_json::json!({
+            "job_ids": job_ids,
+            "max_concurrent": max_concurrent
+        });
+
+        let response = self
+            .client
+            .post(format!("{}/jobs/max-concurrency", self.base_url))
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let error_msg = Self::extract_error_message(response).await;
+            return Err(anyhow!(
+                "Failed to create temporary job concurrency group: {}",
+                error_msg
+            ));
+        }
+
+        let result: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse response json")?;
+        let group_id = result
+            .get("group_id")
+            .and_then(|v| v.as_str())
+            .context("Invalid response format: missing group_id")?
+            .to_string();
+        let updated_jobs = result
+            .get("updated_jobs")
+            .and_then(|v| v.as_u64())
+            .context("Invalid response format: missing or invalid updated_jobs")?
+            as usize;
+
+        Ok((group_id, updated_jobs))
+    }
+
     /// List quota subjects with effective limits and current usage.
     pub async fn list_quotas(&self) -> anyhow::Result<serde_json::Value> {
         let response = self
@@ -1536,6 +1587,31 @@ mod tests {
             .set_group_max_concurrency("abc-123", 2)
             .await
             .expect("should set concurrency");
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn set_jobs_max_concurrency_returns_group_and_count() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/jobs/max-concurrency"))
+            .and(body_json(serde_json::json!({
+                "job_ids": [1, 2, 3],
+                "max_concurrent": 2,
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "group_id": "group-123",
+                "updated_jobs": 3,
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let (group_id, count) = client
+            .set_jobs_max_concurrency(&[1, 2, 3], 2)
+            .await
+            .expect("should set concurrency");
+        assert_eq!(group_id, "group-123");
         assert_eq!(count, 3);
     }
 

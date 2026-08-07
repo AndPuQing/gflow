@@ -358,6 +358,20 @@ impl SchedulerRuntime {
         self.scheduler.get_job(job_id)
     }
 
+    /// Put selected active jobs into a new concurrency group.
+    pub fn assign_jobs_to_group(
+        &mut self,
+        job_ids: &[u32],
+        group_id: uuid::Uuid,
+        max_concurrent: usize,
+    ) -> Result<Vec<u32>, String> {
+        let updated = self
+            .scheduler
+            .assign_jobs_to_group(job_ids, group_id, max_concurrent)?;
+        self.mark_dirty();
+        Ok(updated)
+    }
+
     /// Update job parameters
     /// Returns Ok((updated_job, updated_fields)) on success, Err(error_message) on failure
     pub async fn update_job(

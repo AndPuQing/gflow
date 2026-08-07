@@ -190,6 +190,7 @@ impl Scheduler {
             // First, do immutable checks using only runtime (hot data)
             let (
                 has_enough_memory,
+                within_global_limit,
                 within_group_limit,
                 within_quota,
                 respects_reservations,
@@ -206,6 +207,26 @@ impl Scheduler {
                     rt.gpus,
                 );
                 let has_enough_memory = required_memory <= available_memory;
+
+                // The state index is updated as jobs transition to Running, so
+                // this also accounts for jobs admitted earlier in this pass.
+                let running_jobs = self
+                    .state_jobs_index
+                    .get(&JobState::Running)
+                    .map(|jobs| jobs.len())
+                    .unwrap_or(0);
+                let within_global_limit = self
+                    .max_concurrent_jobs
+                    .map(|limit| running_jobs < limit)
+                    .unwrap_or(true);
+                if !within_global_limit {
+                    tracing::debug!(
+                        "Job {} waiting: global concurrency limit reached ({}/{})",
+                        rt.id,
+                        running_jobs,
+                        self.max_concurrent_jobs.unwrap_or(0)
+                    );
+                }
 
                 // Access spec only for submitted_by (needed for reservation check)
                 let job_user = self
@@ -258,6 +279,7 @@ impl Scheduler {
 
                 (
                     has_enough_memory,
+                    within_global_limit,
                     within_group_limit,
                     within_quota,
                     respects_reservations,
@@ -272,7 +294,12 @@ impl Scheduler {
             };
 
             // Now allocate resources if all checks pass
-            if has_enough_memory && within_group_limit && within_quota && respects_reservations {
+            if has_enough_memory
+                && within_global_limit
+                && within_group_limit
+                && within_quota
+                && respects_reservations
+            {
                 // Filter out GPUs that are reserved by other users
                 let mut usable_gpus = self.filter_usable_gpus(&job_user, &available_gpus);
                 self.reorder_usable_gpus(job_id, &mut usable_gpus);
@@ -404,6 +431,11 @@ impl Scheduler {
                         available_memory
                     );
                 }
+            } else if !within_global_limit {
+                // Treat the daemon-wide cap as a quota-style limit so the
+                // queued job explains why it is waiting in the CLI.
+                self.set_job_reason(job_id, Some(JobStateReason::WaitingForQuota));
+                self.enqueue_if_ready(job_id);
             } else if !within_group_limit {
                 self.set_job_reason(job_id, Some(JobStateReason::WaitingForResources));
                 self.enqueue_if_ready(job_id);

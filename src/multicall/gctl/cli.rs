@@ -36,9 +36,9 @@ pub enum Commands {
         command: GpuProcessCommands,
     },
 
-    /// Set concurrency limit for a job group
+    /// Set a temporary concurrency limit for a job group or selected jobs
     SetLimit {
-        /// Job ID (any job in the group) or Group ID (UUID)
+        /// Group ID, one job ID in an existing group, or selected IDs/range (e.g. 1,2,5 or 10-20)
         job_or_group_id: String,
         /// Maximum number of concurrent jobs in the group
         limit: usize,

@@ -37,6 +37,12 @@ pub struct DaemonConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Maximum number of jobs that may run at once across the whole daemon.
+    /// `None` means unlimited; this is independent of per-user/project quotas.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "max_running_jobs")]
+    pub max_concurrent_jobs: Option<usize>,
     /// Limit which GPUs the scheduler can use (None = all GPUs)
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -406,6 +412,7 @@ impl Default for DaemonConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            max_concurrent_jobs: None,
             gpus: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             gpu_poll_interval_secs: default_gpu_poll_interval_secs(),
@@ -665,6 +672,42 @@ cv-team = { max_running_gpus = 8, max_queued_jobs = 100 }
             .unwrap_err();
 
         assert!(error.to_string().contains("invalid type"));
+    }
+
+    #[test]
+    fn daemon_config_parses_max_concurrent_jobs() {
+        let config = config::Config::builder()
+            .add_source(config::File::from_str(
+                r#"
+[daemon]
+max_concurrent_jobs = 3
+"#,
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(config.daemon.max_concurrent_jobs, Some(3));
+    }
+
+    #[test]
+    fn daemon_config_accepts_legacy_max_running_jobs_alias() {
+        let config = config::Config::builder()
+            .add_source(config::File::from_str(
+                r#"
+[daemon]
+max_running_jobs = 5
+"#,
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize::<Config>()
+            .unwrap();
+
+        assert_eq!(config.daemon.max_concurrent_jobs, Some(5));
     }
 
     #[test]

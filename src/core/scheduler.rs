@@ -146,6 +146,10 @@ pub struct Scheduler {
     /// When true, GPU memory and host memory share a single pool (e.g. Apple Silicon unified memory).
     #[serde(skip)]
     pub(crate) unified_memory: bool,
+    /// Daemon-wide cap on concurrently running jobs. `None` means unlimited.
+    /// This is runtime configuration and is intentionally not persisted with job state.
+    #[serde(skip)]
+    pub(crate) max_concurrent_jobs: Option<usize>,
     /// Index of job IDs by username for fast dependency resolution
     /// Maps username -> sorted list of job IDs (ascending order)
     #[serde(skip)]
@@ -942,6 +946,130 @@ mod tests {
             .state_jobs_index
             .get(&JobState::Finished)
             .is_some_and(|v| v.contains(&job_id)));
+    }
+
+    #[test]
+    fn test_assign_selected_jobs_to_temporary_group() {
+        let mut scheduler = create_test_scheduler();
+        let mut job_ids = Vec::new();
+        for _ in 0..3 {
+            let (job_id, _) = scheduler.submit_job(
+                JobBuilder::new()
+                    .submitted_by("alice")
+                    .run_dir("/tmp")
+                    .command("sleep 1")
+                    .build(),
+            );
+            job_ids.push(job_id);
+        }
+
+        let group_id = Uuid::new_v4();
+        let updated = scheduler
+            .assign_jobs_to_group(&job_ids, group_id, 2)
+            .unwrap();
+        assert_eq!(updated, job_ids);
+        for job_id in &job_ids {
+            let job = scheduler.get_job(*job_id).unwrap();
+            assert_eq!(job.group_id, Some(group_id));
+            assert_eq!(job.max_concurrent, Some(2));
+        }
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(
+            scheduler.get_job(job_ids[2]).unwrap().state,
+            JobState::Queued
+        );
+
+        scheduler.finish_job(job_ids[0]).unwrap();
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_ids[2]);
+    }
+
+    #[test]
+    fn test_global_max_concurrent_jobs_gates_cpu_jobs_across_users() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.set_max_concurrent_jobs(Some(2));
+
+        let mut job_ids = Vec::new();
+        for user in ["alice", "alice", "bob"] {
+            let (job_id, _) = scheduler.submit_job(
+                JobBuilder::new()
+                    .submitted_by(user)
+                    .run_dir("/tmp")
+                    .command("sleep 1")
+                    .build(),
+            );
+            job_ids.push(job_id);
+        }
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(
+            scheduler.get_job(job_ids[0]).unwrap().state,
+            JobState::Running
+        );
+        assert_eq!(
+            scheduler.get_job(job_ids[1]).unwrap().state,
+            JobState::Running
+        );
+        assert_eq!(
+            scheduler.get_job(job_ids[2]).unwrap().state,
+            JobState::Queued
+        );
+        assert_eq!(
+            scheduler.get_job(job_ids[2]).unwrap().reason,
+            Some(Box::new(JobStateReason::WaitingForQuota))
+        );
+
+        scheduler.finish_job(job_ids[0]).unwrap();
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_ids[2]);
+    }
+
+    #[test]
+    fn test_assign_jobs_to_group_rejects_invalid_selection_atomically() {
+        let mut scheduler = create_test_scheduler();
+        let (independent_id, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .command("sleep 1")
+                .build(),
+        );
+        let existing_group = Uuid::new_v4();
+        let (grouped_id, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("alice")
+                .run_dir("/tmp")
+                .group_id_uuid(Some(existing_group))
+                .max_concurrent(Some(4))
+                .command("sleep 1")
+                .build(),
+        );
+
+        let new_group = Uuid::new_v4();
+        let error = scheduler
+            .assign_jobs_to_group(&[independent_id, grouped_id], new_group, 2)
+            .unwrap_err();
+        assert!(error.contains("already belongs"));
+        assert_eq!(
+            scheduler.get_job(independent_id).unwrap().group_id,
+            None,
+            "an invalid mixed selection must not partially update jobs"
+        );
+        assert_eq!(
+            scheduler.get_job(grouped_id).unwrap().group_id,
+            Some(existing_group)
+        );
+
+        let error = scheduler
+            .assign_jobs_to_group(&[independent_id], new_group, 0)
+            .unwrap_err();
+        assert!(error.contains("greater than zero"));
+        assert_eq!(scheduler.get_job(independent_id).unwrap().group_id, None);
     }
 
     fn quota_test_scheduler() -> Scheduler {

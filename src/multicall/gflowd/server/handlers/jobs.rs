@@ -1270,6 +1270,61 @@ pub(in crate::multicall::gflowd::server) async fn unignore_gpu_process(
 }
 
 #[derive(serde::Deserialize)]
+pub(in crate::multicall::gflowd::server) struct SetJobsMaxConcurrencyRequest {
+    job_ids: Vec<u32>,
+    max_concurrent: usize,
+}
+
+/// Assign independently submitted active jobs to a temporary concurrency group.
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn set_jobs_max_concurrency(
+    State(server_state): State<ServerState>,
+    Json(request): Json<SetJobsMaxConcurrencyRequest>,
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
+
+    let group_id = uuid::Uuid::new_v4();
+    let updated_jobs = {
+        let mut state = server_state.scheduler.write().await;
+        match state.assign_jobs_to_group(&request.job_ids, group_id, request.max_concurrent) {
+            Ok(job_ids) => job_ids,
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": error})),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    for job_id in &updated_jobs {
+        server_state
+            .event_bus
+            .publish(SchedulerEvent::JobUpdated { job_id: *job_id });
+    }
+
+    tracing::info!(
+        group_id = %group_id,
+        max_concurrent = request.max_concurrent,
+        updated_count = updated_jobs.len(),
+        "Created temporary job concurrency group"
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "group_id": group_id.to_string(),
+            "max_concurrent": request.max_concurrent,
+            "updated_jobs": updated_jobs.len()
+        })),
+    )
+        .into_response()
+}
+
+#[derive(serde::Deserialize)]
 pub(in crate::multicall::gflowd::server) struct SetGroupMaxConcurrencyRequest {
     max_concurrent: usize,
 }

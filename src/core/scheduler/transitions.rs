@@ -513,6 +513,69 @@ impl Scheduler {
         }
     }
 
+    /// Put selected active jobs into a new concurrency group.
+    ///
+    /// This is a runtime control operation for jobs that were submitted
+    /// independently. Validation is completed before any runtime field is
+    /// changed so a mixed valid/invalid selection is applied atomically.
+    pub fn assign_jobs_to_group(
+        &mut self,
+        job_ids: &[u32],
+        group_id: uuid::Uuid,
+        max_concurrent: usize,
+    ) -> Result<Vec<u32>, String> {
+        if max_concurrent == 0 {
+            return Err("Maximum concurrency must be greater than zero".to_string());
+        }
+
+        let mut unique_job_ids = job_ids.to_vec();
+        unique_job_ids.sort_unstable();
+        unique_job_ids.dedup();
+
+        if unique_job_ids.is_empty() {
+            return Err("At least one job ID is required".to_string());
+        }
+
+        for &job_id in &unique_job_ids {
+            let Some(rt) = self.get_job_runtime(job_id) else {
+                return Err(format!("Job {} not found", job_id));
+            };
+            if !JobState::ACTIVE.contains(&rt.state) {
+                return Err(format!(
+                    "Job {} is in state '{}' and cannot be added to a concurrency group",
+                    job_id, rt.state
+                ));
+            }
+            if rt.group_id.is_some() && rt.group_id != Some(group_id) {
+                return Err(format!(
+                    "Job {} already belongs to a task group; use the group ID to change its limit",
+                    job_id
+                ));
+            }
+        }
+
+        for &job_id in &unique_job_ids {
+            let Some((old_group_id, state)) = self
+                .get_job_runtime(job_id)
+                .map(|rt| (rt.group_id, rt.state))
+            else {
+                continue;
+            };
+
+            if old_group_id != Some(group_id) {
+                self.update_group_running_count(old_group_id, state, JobState::Queued);
+                self.update_group_running_count(Some(group_id), JobState::Queued, state);
+            }
+
+            if let Some(rt) = self.get_job_runtime_mut(job_id) {
+                rt.group_id = Some(group_id);
+                rt.max_concurrent = Some(max_concurrent);
+            }
+        }
+
+        Ok(unique_job_ids)
+    }
+
     fn transition_job_state_internal(
         &mut self,
         job_id: u32,

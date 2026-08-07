@@ -63,11 +63,16 @@ gctl set-gpus all
 
 ### `gctl set-limit <job_or_group_id> <limit>`
 
-设置任务组的最大并发数。
+设置任务组的最大并发数。对于已经分别提交的任务，可以传入逗号分隔的
+Job ID 或 ID 范围创建临时任务组，只影响选中的任务。选中的任务必须处于排队、
+挂起或运行状态，且不能已经属于任务组；已有任务组请直接使用组 ID。并发数必须
+大于 0。
 
 ```bash
 gctl set-limit <job_id> 2
 gctl set-limit <group_id> 2
+gctl set-limit 101,102,103 2
+gctl set-limit 201-210 4
 ```
 
 ### `gctl reserve create`

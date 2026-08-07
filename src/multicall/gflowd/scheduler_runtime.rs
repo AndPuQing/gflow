@@ -291,6 +291,11 @@ impl SchedulerRuntime {
         self.mark_dirty();
     }
 
+    /// Set the daemon-wide cap on concurrently running jobs.
+    pub fn set_max_concurrent_jobs(&mut self, max_concurrent_jobs: Option<usize>) {
+        self.scheduler.set_max_concurrent_jobs(max_concurrent_jobs);
+    }
+
     // ===== Quota methods =====
 
     /// Set the file-based quota baseline (from `gflow.toml`).

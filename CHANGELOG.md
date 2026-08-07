@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Temporary Job concurrency limits**: `gctl set-limit` accepts comma-separated Job IDs and ranges, assigning independently submitted active jobs to a temporary concurrency group without changing existing group limits
+- **Daemon-wide Job concurrency cap**: `[daemon].max_concurrent_jobs` (with the legacy `max_running_jobs` alias) limits concurrently running jobs across users and projects
 - **Process executor (default)**: jobs now run as detached child process groups (`setsid`) with stdio redirected to `logs/<job_id>.log` — no tmux required for job execution
   - New `[executor] type = "process" | "tmux"` config; `process` is the default, the legacy tmux executor remains fully available (`gjob attach` / `gjob close-sessions` keep working in tmux mode)
   - Cancellation SIGTERMs the whole process group and escalates to SIGKILL after a grace period; zombie detection uses real process liveness instead of tmux-session existence

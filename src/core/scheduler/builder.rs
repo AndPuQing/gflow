@@ -9,6 +9,7 @@ pub struct SchedulerBuilder {
     allowed_gpu_indices: Option<Vec<u32>>,
     gpu_allocation_strategy: GpuAllocationStrategy,
     unified_memory: bool,
+    max_concurrent_jobs: Option<usize>,
     fair_share_enabled: bool,
     fair_share_half_life_secs: f64,
     quota_baseline: crate::config::QuotaConfig,
@@ -24,6 +25,7 @@ impl SchedulerBuilder {
             allowed_gpu_indices: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             unified_memory: false,
+            max_concurrent_jobs: None,
             fair_share_enabled: true,
             fair_share_half_life_secs: DEFAULT_FAIR_SHARE_HALF_LIFE_SECS,
             quota_baseline: crate::config::QuotaConfig::default(),
@@ -65,6 +67,12 @@ impl SchedulerBuilder {
         self
     }
 
+    /// Configure the daemon-wide running-job cap. `None` means unlimited.
+    pub fn with_max_concurrent_jobs(mut self, max_concurrent_jobs: Option<usize>) -> Self {
+        self.max_concurrent_jobs = max_concurrent_jobs;
+        self
+    }
+
     /// Configure fair-share scheduling.
     ///
     /// `enabled` controls whether historical usage reorders jobs within a
@@ -96,6 +104,7 @@ impl SchedulerBuilder {
             allowed_gpu_indices: self.allowed_gpu_indices,
             gpu_allocation_strategy: self.gpu_allocation_strategy,
             unified_memory: self.unified_memory,
+            max_concurrent_jobs: self.max_concurrent_jobs,
             user_jobs_index: HashMap::new(),
             state_jobs_index: HashMap::new(),
             project_jobs_index: HashMap::new(),

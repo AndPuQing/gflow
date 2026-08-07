@@ -22,6 +22,7 @@ gflowd init
 [daemon]
 host = "localhost"
 port = 59000
+# max_concurrent_jobs = 4 # 可选：整个守护进程的运行任务上限
 # gpus = [0, 2]
 # gpu_allocation_strategy = "sequential" # 或 "random"
 # gpu_poll_interval_secs = 10
@@ -169,6 +170,22 @@ GFLOW_DAEMON__FAIR_SHARE__HALF_LIFE_SECS=86400
 ```
 
 单用户场景下，公平调度没有可观察的效果。
+
+#### 全局任务并发上限
+
+当 CPU 密集型任务没有声明内存或 GPU 需求时，可以设置整个守护进程的
+运行任务上限。该上限对所有用户和项目生效；不设置则表示不限制并发数。
+
+```toml
+[daemon]
+max_concurrent_jobs = 4
+```
+
+旧配置中的 `[daemon] max_running_jobs = 4` 写法仍然兼容。
+超过上限的任务会保持排队，并在运行中的任务完成、失败、超时或取消后自动
+继续调度。也可以使用环境变量 `GFLOW_DAEMON__MAX_CONCURRENT_JOBS=4`。
+该限制独立于 `[quota]` 配置和任务组的 `--max-concurrent` 上限，任务必须同时
+满足所有适用的限制才能运行。
 
 ## 时区
 

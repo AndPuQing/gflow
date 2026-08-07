@@ -63,11 +63,17 @@ gctl set-gpus all
 
 ### `gctl set-limit <job_or_group_id> <limit>`
 
-Set max concurrency for a job group.
+Set max concurrency for a job group. To temporarily group independently
+submitted jobs, pass a comma-separated list or range of active Job IDs; this
+only affects the selected jobs. Selected jobs must be queued, held, or
+running and must not already belong to a job group; use the group ID for an
+existing group. The limit must be greater than zero.
 
 ```bash
 gctl set-limit <job_id> 2
 gctl set-limit <group_id> 2
+gctl set-limit 101,102,103 2
+gctl set-limit 201-210 4
 ```
 
 ### `gctl reserve create`

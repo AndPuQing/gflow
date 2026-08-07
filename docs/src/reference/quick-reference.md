@@ -137,8 +137,10 @@ gctl show-gpus
 gctl set-gpus 0,2
 gctl set-gpus all
 
-# Group concurrency limit
+# Group or selected-job concurrency limit
 gctl set-limit <job_or_group_id> 2
+gctl set-limit 101,102,103 2
+gctl set-limit 201-210 4
 
 # Reservations (block out GPUs for a user/time window)
 gctl reserve create --user alice --gpus 2 --start '2026-01-28 14:00' --duration 2h

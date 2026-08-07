@@ -22,6 +22,7 @@ Minimal example:
 [daemon]
 host = "localhost"
 port = 59000
+# max_concurrent_jobs = 4 # optional daemon-wide running-job cap
 # gpus = [0, 2]
 # gpu_allocation_strategy = "sequential" # or "random"
 # gpu_poll_interval_secs = 10
@@ -172,6 +173,24 @@ GFLOW_DAEMON__FAIR_SHARE__HALF_LIFE_SECS=86400
 ```
 
 With a single user, fair-share has no observable effect.
+
+#### Global Job Concurrency
+
+Set a daemon-wide cap when CPU-heavy jobs do not declare memory or GPU
+requirements. The cap applies across all users and projects; omit it for
+unlimited concurrency.
+
+```toml
+[daemon]
+max_concurrent_jobs = 4
+```
+
+The legacy `[daemon] max_running_jobs = 4` spelling remains accepted.
+Jobs beyond the cap remain queued and start automatically when a running job
+finishes, fails, times out, or is cancelled. The environment variable form is
+`GFLOW_DAEMON__MAX_CONCURRENT_JOBS=4`. This limit is independent of
+`[quota]` limits and job-group `--max-concurrent` caps; all applicable limits
+must allow a job to start.
 
 ## Timezone
 

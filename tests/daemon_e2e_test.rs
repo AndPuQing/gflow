@@ -253,6 +253,7 @@ impl TestSandbox {
             daemon: DaemonConfig {
                 host: "127.0.0.1".to_string(),
                 port: self.port,
+                max_concurrent_jobs: None,
                 gpus: None,
                 gpu_allocation_strategy: Default::default(),
                 gpu_poll_interval_secs: 10,
@@ -728,6 +729,79 @@ async fn cancelling_missing_job_returns_client_error() {
     assert!(err.to_string().contains("Failed to cancel job"));
     assert!(err.to_string().contains("404"));
 
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn temporary_job_limit_endpoint_groups_selected_jobs() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let dependency = client
+        .add_job(
+            JobBuilder::new()
+                .submitted_by("daemon-e2e")
+                .run_dir(&sandbox.work_dir)
+                .command("sleep 5")
+                .build(),
+        )
+        .await
+        .unwrap();
+    wait_for_job_state(
+        &client,
+        dependency.id,
+        JobState::Running,
+        Duration::from_secs(15),
+    )
+    .await;
+
+    let selected = vec![
+        client
+            .add_job(
+                JobBuilder::new()
+                    .submitted_by("daemon-e2e")
+                    .run_dir(&sandbox.work_dir)
+                    .depends_on(Some(dependency.id))
+                    .command("echo selected-1")
+                    .build(),
+            )
+            .await
+            .unwrap(),
+        client
+            .add_job(
+                JobBuilder::new()
+                    .submitted_by("daemon-e2e")
+                    .run_dir(&sandbox.work_dir)
+                    .depends_on(Some(dependency.id))
+                    .command("echo selected-2")
+                    .build(),
+            )
+            .await
+            .unwrap(),
+    ];
+
+    let (group_id, updated_jobs) = client
+        .set_jobs_max_concurrency(&selected.iter().map(|job| job.id).collect::<Vec<_>>(), 1)
+        .await
+        .unwrap();
+    assert_eq!(updated_jobs, 2);
+
+    for job in selected {
+        let current = client.get_job(job.id).await.unwrap().unwrap();
+        assert_eq!(
+            current.group_id.map(|id| id.to_string()),
+            Some(group_id.clone())
+        );
+        assert_eq!(current.max_concurrent, Some(1));
+        assert_eq!(current.state, JobState::Queued);
+    }
+
+    client.cancel_job(dependency.id).await.unwrap();
     sandbox.stop_daemon();
 }
 
