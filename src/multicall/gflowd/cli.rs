@@ -101,10 +101,10 @@ pub enum Commands {
         daemon_overrides: DaemonOverrideArgs,
     },
     /// Start the daemon (systemd user service if available, else tmux, else direct process)
-    #[command(alias = "up")]
+    #[command(visible_alias = "up")]
     Start(DaemonOverrideArgs),
     /// Stop the daemon
-    #[command(alias = "down")]
+    #[command(visible_alias = "down")]
     Stop,
     /// Restart the daemon
     Restart(DaemonOverrideArgs),

@@ -79,7 +79,7 @@ service if installed, otherwise tmux, otherwise a direct detached process.
 gflowd start [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
 
-`up` is retained as an alias of `start`.
+`up` is an alias of `start` and is shown as such in `gflowd --help` (`start [aliases: up]`).
 
 ### `gflowd reload`
 
@@ -131,7 +131,7 @@ Stop the daemon.
 gflowd stop
 ```
 
-`down` is retained as an alias of `stop`.
+`down` is an alias of `stop` and is shown as such in `gflowd --help` (`stop [aliases: down]`).
 
 ### `gflowd service`
 
