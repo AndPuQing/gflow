@@ -62,12 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     start time), mirroring the process executor's existing guard; `down` and
     `restart` re-verify the identity right before signalling, so a PID that was
     recycled to an unrelated process is never SIGTERM/SIGKILLed
-  - The legacy plain-PID `gflowd.pid` is still honored so daemons started by
-    older builds can be stopped, but only when the process is verifiably a gflow
-    daemon; otherwise it is treated as stale and cleaned up
   - The directly-hosted daemon takes the lock itself (internal
     `--direct-internal` flag), so a duplicate `gflowd up` is refused even if the
     liveness probe raced
+  - The old plain-PID `gflowd.pid` is no longer written or read
 
 - **Job State Transitions**: Updated to support new `Timeout` state
   - Added `Running → Timeout` transition for time limit violations

@@ -19,8 +19,7 @@ pub async fn handle_down() -> Result<()> {
         // signalled (flock auto-released on crash; identity check on reuse).
         if !super::lifecycle::verify_before_signal(pid) {
             super::lifecycle::remove_daemon_lock();
-            super::lifecycle::remove_daemon_pidfile();
-            println!("gflowd is not running (stale lock/pidfile cleaned up).");
+            println!("gflowd is not running (stale lock cleaned up).");
             return Ok(());
         }
         unsafe {
@@ -46,7 +45,6 @@ pub async fn handle_down() -> Result<()> {
             }
         }
         super::lifecycle::remove_daemon_lock();
-        super::lifecycle::remove_daemon_pidfile();
         println!("gflowd stopped.");
         return Ok(());
     }

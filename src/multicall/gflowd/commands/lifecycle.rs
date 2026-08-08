@@ -18,10 +18,6 @@
 //!   process start time), mirroring the job executor's existing guard. Before
 //!   sending any signal, `down`/`restart` re-verify the identity so a PID that
 //!   was recycled is never signalled.
-//!
-//! The legacy `gflowd.pid` (plain PID, written by older gflowd versions) is
-//! still read as a fallback so daemons started by an older build can still be
-//! stopped, but only when the process can be verified as a gflow daemon.
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
@@ -45,11 +41,6 @@ pub struct DaemonIdentity {
 /// Path of the flock lock file used to host the daemon without tmux.
 pub fn daemon_lock_path() -> Result<PathBuf> {
     Ok(gflow::paths::get_runtime_dir()?.join("gflowd.lock"))
-}
-
-/// Legacy path used by older gflowd versions (plain PID, no lock).
-pub fn daemon_pidfile_path() -> Result<PathBuf> {
-    Ok(gflow::paths::get_runtime_dir()?.join("gflowd.pid"))
 }
 
 /// Try to take an exclusive non-blocking flock on `path`.
@@ -163,42 +154,18 @@ pub fn process_identity_matches(identity: &DaemonIdentity) -> bool {
         .unwrap_or(true)
 }
 
-/// Linux detection: procfs is only present on Linux.
-fn procfs_available() -> bool {
-    Path::new("/proc").exists()
-}
-
-/// Whether the process is a gflow daemon (`gflow __multicall gflowd ...`).
-/// Used as a coarse sanity check for legacy pidfiles that carry no identity.
-pub fn is_gflowd_process(pid: u32) -> bool {
-    let cmdline_path = format!("/proc/{}/cmdline", pid);
-    let Ok(bytes) = std::fs::read(cmdline_path) else {
-        return false;
-    };
-    let args: Vec<&[u8]> = bytes
-        .split(|b| *b == 0u8)
-        .filter(|s| !s.is_empty())
-        .collect();
-    args.len() >= 3 && args[1] == b"__multicall" && args[2] == b"gflowd"
-}
-
-/// Re-verify, immediately before signalling, that `pid` is still a live gflow
-/// daemon matching the recorded identity (or, for a legacy pidfile, still a
-/// gflow daemon process). Closes the TOCTOU window between the liveness probe
-/// and the signal so a recycled PID is never signalled.
+/// Re-verify, immediately before signalling, that `pid` is still the live
+/// daemon holding the lock and matching the recorded identity. Closes the
+/// TOCTOU window between the liveness probe and the signal so a recycled PID
+/// is never signalled.
 pub fn verify_before_signal(pid: u32) -> bool {
     if !process_alive(pid) {
         return false;
     }
-    // Prefer the recorded identity (pgid + start time).
-    if let Some(identity) = read_daemon_identity() {
-        if identity.pid == pid {
-            return process_identity_matches(&identity);
-        }
+    match read_daemon_identity() {
+        Some(identity) if identity.pid == pid => process_identity_matches(&identity),
+        _ => false,
     }
-    // Legacy pidfile: at least confirm it really is a gflow daemon. On
-    // non-Linux there is no procfs, so fall back to trusting a live PID.
-    !procfs_available() || is_gflowd_process(pid)
 }
 
 fn remove_file_if_exists(path: &Path) {
@@ -213,25 +180,12 @@ pub fn remove_daemon_lock() {
     }
 }
 
-/// Remove the legacy plain-PID pidfile.
-pub fn remove_daemon_pidfile() {
-    if let Ok(path) = daemon_pidfile_path() {
-        remove_file_if_exists(&path);
-    }
-}
-
-/// Read the legacy plain-PID pidfile written by older gflowd versions.
-pub fn read_daemon_pidfile() -> Option<u32> {
-    let content = std::fs::read_to_string(daemon_pidfile_path().ok()?).ok()?;
-    content.trim().parse().ok()
-}
-
 /// Best-effort PID of a live directly-hosted daemon.
 ///
-/// Prefers a lock that is held *and* whose identity matches; falls back to the
-/// legacy plain-PID pidfile only when the process can be verified as a gflow
-/// daemon (or procfs is unavailable). Stale or untrusted records are cleaned
-/// up and reported as "not running".
+/// Only a lock that is held *and* whose recorded identity matches the process
+/// at that PID is considered a running daemon. A stale lock (leftover from a
+/// crash) has its lock auto-released, so it is cleaned up and reported as
+/// "not running".
 pub fn direct_daemon_pid() -> Option<u32> {
     if daemon_lock_held() {
         if let Some(identity) = read_daemon_identity() {
@@ -245,14 +199,6 @@ pub fn direct_daemon_pid() -> Option<u32> {
         // No daemon holds the lock (crashed): clean up the stale lock file.
         remove_daemon_lock();
     }
-
-    // Legacy: an older gflowd wrote a plain PID without holding a lock.
-    let pid = read_daemon_pidfile()?;
-    if process_alive(pid) && (!procfs_available() || is_gflowd_process(pid)) {
-        return Some(pid);
-    }
-    // Stale or untrusted legacy pidfile: clean it up.
-    remove_daemon_pidfile();
     None
 }
 

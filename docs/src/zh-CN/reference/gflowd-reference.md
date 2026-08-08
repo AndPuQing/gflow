@@ -154,7 +154,7 @@ gflowd completion fish
   也是崩溃安全的存活信号：daemon 退出时锁会自动释放，因此 `status` 不会误报
   残留实例。锁文件同时记录 daemon 身份（`pid` + `pgid` + 进程启动时间）；
   `down`/`restart` 在发信号前会校验身份，从而绝不会对已被复用的 PID 误发
-  SIGTERM/SIGKILL。
+  SIGTERM/SIGKILL。这取代了旧的纯 PID `gflowd.pid`，后者不再写入或读取。
 
 ## 另见
 

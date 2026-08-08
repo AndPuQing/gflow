@@ -156,7 +156,8 @@ gflowd completion fish
   is released automatically when the daemon exits, so `status` never reports a
   stale instance. The lock file also records the daemon's identity (`pid` +
   `pgid` + process start time); `down`/`restart` verify it before signalling so
-  a recycled PID is never SIGTERM/SIGKILLed.
+  a recycled PID is never SIGTERM/SIGKILLed. This replaces the older plain-PID
+  `gflowd.pid`, which is no longer written or read.
 
 ## See Also
 
