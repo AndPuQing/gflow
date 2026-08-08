@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency Shorthand**: `gbatch --depends-on` now accepts `@` (last) and `@~N` (Nth from the end) to reference recent submissions without copying job IDs
 
 ### Changed
+- **Repo-level cargo build config routes rustc through sccache**: a new
+  `.cargo/config.toml` sets `[build] rustc-wrapper = "sccache"` for a shared
+  local compile cache across multica/CI/clean rebuilds, and disables incremental
+  compilation in the dev profile (`[profile.dev] incremental = false`) so
+  sccache can actually cache lib-crate compilations (sccache does not cache
+  incremental output). Iterative local dev builds compile the changed crate
+  fully instead of incrementally; set `CARGO_INCREMENTAL=0` or use a release
+  profile for cacheable full rebuilds, or drop the `[profile.dev]` block to
+  restore incremental dev builds.
+
 - **Direct-process daemon hosting hardened against PID reuse**: `gflowd`'s
   no-tmux hosting now uses an exclusive `flock` on a `gflowd.lock` file as the
   mutual-exclusion and liveness signal, instead of a bare `gflowd.pid`

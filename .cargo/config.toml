@@ -1,0 +1,20 @@
+# Repository-level Cargo configuration for gflow.
+#
+# sccache: forward all rustc invocations through sccache (a local compile cache)
+# so that repeated / cross-task builds (multica agent runs, CI, clean rebuilds)
+# reuse cached artifacts. Cache data lives in the shared per-user cache dir
+# (~/.cache/sccache), so different tasks on the same machine hit each other.
+#
+# Trade-off: `incremental = false` in the dev profile is what makes sccache
+# actually cache lib-crate compilations (sccache does not cache incremental
+# output, and errors out if CARGO_INCREMENTAL=1 is set). The cost is that
+# day-to-day iterative `cargo build` recompiles the changed crate fully instead
+# of incrementally. If you prefer incremental dev builds, delete the
+# `[profile.dev]` block below (or call `CARGO_INCREMENTAL=0` / release builds
+# when you want cacheable full rebuilds).
+
+[build]
+rustc-wrapper = "sccache"
+
+[profile.dev]
+incremental = false
