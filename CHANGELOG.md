@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `Timeout` to grouped job state displays
 
 ### Fixed
+- **CI: stop using the retired `macos-13` runner label** in the nightly and PyPI release pipelines — the `x86_64-apple-darwin` wheel now builds on the still-supported `macos-15` (Intel) runner instead, so the nightly build no longer blocks waiting on a discontinued macOS 13 image
 - Pattern matching in `gcancel` to handle new `Timeout` state
 - Job struct serialization to properly persist time limit information
 - Tmux session cleanup to ensure pipe-pane is disabled before session termination
