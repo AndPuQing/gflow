@@ -149,6 +149,12 @@ gflowd completion fish
 - `--gpu-allocation-strategy` 可选 `sequential` 或 `random`。
 - `--gpu-poll-interval-secs` 控制检测非 gflow GPU 占用变化的速度。
 - `start`、`reload`、`restart` 三个子命令都支持相同的 GPU 相关覆盖参数。
+- 在直接进程托管模式（无 systemd、无 tmux）下，daemon 会在运行时目录对
+  `gflowd.lock` 持有排他 `flock`。该锁既是互斥信号（重复 `up` 会被拒绝），
+  也是崩溃安全的存活信号：daemon 退出时锁会自动释放，因此 `status` 不会误报
+  残留实例。锁文件同时记录 daemon 身份（`pid` + `pgid` + 进程启动时间）；
+  `down`/`restart` 在发信号前会校验身份，从而绝不会对已被复用的 PID 误发
+  SIGTERM/SIGKILL。这取代了旧的纯 PID `gflowd.pid`，后者不再写入或读取。
 
 ## 另见
 

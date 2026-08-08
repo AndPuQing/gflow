@@ -150,6 +150,14 @@ gflowd completion fish
 - `--gpu-allocation-strategy` accepts `sequential` or `random`.
 - `--gpu-poll-interval-secs` controls how quickly unmanaged GPU occupancy changes are detected.
 - `gflowd start`, `reload`, and `restart` all accept the same GPU-related overrides.
+- In direct-process mode (no systemd, no tmux), the daemon holds an exclusive
+  `flock` on `gflowd.lock` in the runtime directory. The lock is both mutual
+  exclusion (a duplicate `up` is refused) and a crash-safe liveness signal: it
+  is released automatically when the daemon exits, so `status` never reports a
+  stale instance. The lock file also records the daemon's identity (`pid` +
+  `pgid` + process start time); `down`/`restart` verify it before signalling so
+  a recycled PID is never SIGTERM/SIGKILLed. This replaces the older plain-PID
+  `gflowd.pid`, which is no longer written or read.
 
 ## See Also
 

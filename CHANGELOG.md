@@ -51,6 +51,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency Shorthand**: `gbatch --depends-on` now accepts `@` (last) and `@~N` (Nth from the end) to reference recent submissions without copying job IDs
 
 ### Changed
+- **Direct-process daemon hosting hardened against PID reuse**: `gflowd`'s
+  no-tmux hosting now uses an exclusive `flock` on a `gflowd.lock` file as the
+  mutual-exclusion and liveness signal, instead of a bare `gflowd.pid`
+  (`src/multicall/gflowd/commands/lifecycle.rs`)
+  - The lock is auto-released by the kernel when the daemon crashes, so there
+    is no stale-pidfile ambiguity; `status`/`down`/`restart` treat a released
+    lock as "not running" and clean up stale lock/pid files
+  - The lock file body records the daemon identity (`pid` + `pgid` + process
+    start time), mirroring the process executor's existing guard; `down` and
+    `restart` re-verify the identity right before signalling, so a PID that was
+    recycled to an unrelated process is never SIGTERM/SIGKILLed
+  - The directly-hosted daemon takes the lock itself (internal
+    `--direct-internal` flag), so a duplicate `gflowd up` is refused even if the
+    liveness probe raced
+  - The old plain-PID `gflowd.pid` is no longer written or read
+
 - **Job State Transitions**: Updated to support new `Timeout` state
   - Added `Running → Timeout` transition for time limit violations
   - Updated state transition validation logic

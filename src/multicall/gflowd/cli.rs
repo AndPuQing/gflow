@@ -31,6 +31,11 @@ pub struct GFlowd {
     #[arg(long, hide = true)]
     pub gpu_poll_interval_secs_internal: Option<u64>,
 
+    /// Mark this daemon as directly-hosted (no tmux/systemd). The daemon
+    /// holds an exclusive flock on the daemon lock file for its lifetime.
+    #[arg(long, hide = true)]
+    pub direct_internal: bool,
+
     #[command(flatten)]
     pub verbosity: Verbosity,
 }

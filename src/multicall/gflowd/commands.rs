@@ -5,41 +5,13 @@ use clap_verbosity_flag::{Verbosity, VerbosityFilter};
 
 pub mod down;
 pub mod init;
+pub mod lifecycle;
 pub mod reload;
 pub mod status;
 pub mod systemd;
 pub mod up;
 
 pub static TMUX_SESSION_NAME: &str = "gflow_server";
-
-/// Path of the pidfile used when the daemon is hosted without tmux.
-pub fn daemon_pidfile_path() -> anyhow::Result<std::path::PathBuf> {
-    Ok(gflow::paths::get_runtime_dir()?.join("gflowd.pid"))
-}
-
-pub fn read_daemon_pidfile() -> Option<u32> {
-    let content = std::fs::read_to_string(daemon_pidfile_path().ok()?).ok()?;
-    content.trim().parse().ok()
-}
-
-pub fn write_daemon_pidfile(pid: u32) -> anyhow::Result<()> {
-    let path = daemon_pidfile_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, pid.to_string())?;
-    Ok(())
-}
-
-pub fn remove_daemon_pidfile() {
-    if let Ok(path) = daemon_pidfile_path() {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-pub fn process_alive(pid: u32) -> bool {
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-}
 
 #[derive(Debug, Clone)]
 pub struct DaemonStartOptions<'a> {

@@ -223,16 +223,13 @@ pub async fn handle_reload(
 }
 
 async fn get_daemon_pid() -> Result<u32> {
-    // Direct (pidfile) mode: reload is tmux-based, so it cannot hot-swap a
+    // Direct mode: reload is tmux-based, so it cannot hot-swap a
     // directly-hosted daemon. Point the user at `gflowd restart` instead.
-    if let Some(pid) = super::read_daemon_pidfile() {
-        if super::process_alive(pid) {
-            return Err(anyhow!(
-                "gflowd was started without tmux (direct mode, PID {}); `gflowd reload` requires tmux. Use `gflowd restart` instead.",
-                pid
-            ));
-        }
-        super::remove_daemon_pidfile();
+    if let Some(pid) = super::lifecycle::direct_daemon_pid() {
+        return Err(anyhow!(
+            "gflowd was started without tmux (direct mode, PID {}); `gflowd reload` requires tmux. Use `gflowd restart` instead.",
+            pid
+        ));
     }
 
     // Strategy: Find gflowd process that is a descendant of the gflow_server tmux session
