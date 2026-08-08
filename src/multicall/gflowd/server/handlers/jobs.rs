@@ -19,6 +19,31 @@ pub(in crate::multicall::gflowd::server) async fn info(
 }
 
 #[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn daemon_status(
+    State(server_state): State<ServerState>,
+) -> impl IntoResponse {
+    use gflow::core::info::DaemonStatus;
+
+    let state = server_state.scheduler.read().await;
+    let info = state.info();
+    let gpu_total = info.gpus.len();
+    let gpu_available = info.gpus.iter().filter(|g| g.available).count();
+    let status = DaemonStatus {
+        version: gflow::build_info::version()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+        pid: std::process::id(),
+        uptime_secs: server_state.started_at.elapsed().as_secs(),
+        executor: info.executor,
+        gpu_total,
+        gpu_available,
+    };
+    (StatusCode::OK, Json(status))
+}
+
+#[axum::debug_handler]
 pub(in crate::multicall::gflowd::server) async fn list_ignored_gpu_processes(
     State(server_state): State<ServerState>,
 ) -> impl IntoResponse {

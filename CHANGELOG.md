@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`gflowd status` daemon summary**: when the daemon is running, `gflowd status`
+  now also prints a daemon summary fetched from `GET /status` — version, PID,
+  uptime, job executor backend, and GPU availability (total/available) — on top
+  of the existing hosting mode, for all hosting paths (systemd, tmux, direct).
 - **Unified gflowd lifecycle + optional systemd user service**: a consistent `gflowd start` / `stop` / `restart` / `status` verb set that hides how the daemon is hosted from the user
   - Hosting is chosen automatically by priority: systemd user service → tmux → direct detached process (pidfile); `status` reports the current hosting mode
   - New `gflowd service install` / `gflowd service uninstall` manage `~/.config/systemd/user/gflowd.service` (`enable --now`, auto-start on login + `Restart=on-failure` crash recovery); `ExecStart` reuses the existing `daemon_start_args` so the daemon core is unchanged

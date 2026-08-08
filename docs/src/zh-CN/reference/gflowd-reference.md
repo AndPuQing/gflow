@@ -104,10 +104,23 @@ gflowd restart [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-
 ### `gflowd status`
 
 显示守护进程是否在运行，以及当前托管方式（systemd user service、tmux 或
-直接进程）。
+直接进程），并展示从运行中的守护进程获取的摘要（版本、PID、运行时长、
+执行器、GPU 可用情况）。
 
 ```bash
 gflowd status
+```
+
+以 systemd user service 方式托管时的示例：
+
+```text
+Status: Running
+Hosting: systemd user service (gflowd.service).
+Version:   0.4.17
+PID:       3628801
+Uptime:    25h57m21s
+Executor:  process
+GPUs:      8 total, 8 available
 ```
 
 ### `gflowd stop`

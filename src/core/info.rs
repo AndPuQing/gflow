@@ -18,6 +18,23 @@ pub struct GpuInfo {
     pub reason: Option<String>,
 }
 
+/// Rich daemon status payload exposed by `GET /status` for `gflowd status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonStatus {
+    /// gflow version (first line of `gflowd --version` output).
+    pub version: String,
+    /// Daemon process ID.
+    pub pid: u32,
+    /// Seconds since the daemon started.
+    pub uptime_secs: u64,
+    /// Job executor backend: "process" (default) or "tmux".
+    pub executor: String,
+    /// Number of detected GPU slots.
+    pub gpu_total: usize,
+    /// Number of GPU slots currently available.
+    pub gpu_available: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerInfo {
     pub gpus: Vec<GpuInfo>,
