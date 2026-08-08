@@ -171,6 +171,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .route("/jobs/{id}/log/content", get(handlers::get_job_log_content))
         .route("/events", get(handlers::events_stream))
         .route("/info", get(handlers::info))
+        .route("/status", get(handlers::daemon_status))
         .route("/health", get(handlers::get_health))
         .route("/gpus", post(handlers::set_allowed_gpus))
         .route("/gpu-processes", get(handlers::list_ignored_gpu_processes))

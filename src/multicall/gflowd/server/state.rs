@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Server state that includes both the scheduler and the event bus
 #[derive(Clone)]
@@ -14,6 +15,8 @@ pub(super) struct ServerState {
     pub(super) scheduler: SharedState,
     pub(super) event_bus: Arc<EventBus>,
     pub(super) _state_saver: StateSaverHandle,
+    /// When the daemon started, used to report uptime via `GET /status`.
+    pub(super) started_at: Instant,
 }
 
 impl ServerState {
@@ -26,6 +29,7 @@ impl ServerState {
             scheduler,
             event_bus,
             _state_saver: state_saver,
+            started_at: Instant::now(),
         }
     }
 }

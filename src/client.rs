@@ -1,4 +1,4 @@
-use crate::core::info::{IgnoredGpuProcess, SchedulerInfo};
+use crate::core::info::{DaemonStatus, IgnoredGpuProcess, SchedulerInfo};
 use crate::core::job::{DependencyMode, Job, JobNotifications};
 use anyhow::{anyhow, Context};
 use reqwest::{Client as ReqwestClient, StatusCode};
@@ -459,6 +459,23 @@ impl Client {
             .map_err(connection_error_context)?
             .status();
         Ok(health)
+    }
+
+    /// Fetch the rich daemon summary (`GET /status`) used by `gflowd status`.
+    pub async fn get_daemon_status(&self) -> anyhow::Result<DaemonStatus> {
+        tracing::debug!("Getting daemon status");
+        let status = self
+            .client
+            .get(format!("{}/status", self.base_url))
+            .send()
+            .await
+            .map_err(connection_error_context)?
+            .error_for_status()
+            .context("daemon status request failed")?
+            .json::<DaemonStatus>()
+            .await
+            .context("Failed to parse daemon status from response")?;
+        Ok(status)
     }
 
     pub async fn get_health_with_pid(&self) -> anyhow::Result<Option<u32>> {

@@ -103,11 +103,24 @@ Use this when a full restart is acceptable or needed.
 
 ### `gflowd status`
 
-Show whether the daemon is running and how it is hosted (systemd user service,
-tmux, or direct process).
+Show whether the daemon is running, how it is hosted (systemd user service,
+tmux, or direct process), and a daemon summary (version, PID, uptime, executor,
+GPU availability) fetched from the running daemon.
 
 ```bash
 gflowd status
+```
+
+Example when hosted as a systemd user service:
+
+```text
+Status: Running
+Hosting: systemd user service (gflowd.service).
+Version:   0.4.17
+PID:       3628801
+Uptime:    25h57m21s
+Executor:  process
+GPUs:      8 total, 8 available
 ```
 
 ### `gflowd stop`
