@@ -127,18 +127,34 @@ If the commands work and `gflowd --version` prints a version, the install is com
 
 Job execution no longer requires tmux: the daemon spawns each job as a detached
 child process group and redirects its output to `logs/<job_id>.log`.
-`gflowd up` hosts the daemon in tmux when available, and falls back to a direct
-detached process otherwise.
+`gflowd start` hosts the daemon via the systemd user service when installed,
+otherwise in tmux when available, otherwise as a direct detached process.
 
 ```bash
 # Optional: create a default config
 gflowd init
 
 # Start the daemon
-gflowd up
+gflowd start
 
 # Check status
 gflowd status
+```
+
+### Optional: systemd user service (auto-start + crash recovery)
+
+On Linux with a systemd user manager, install `gflowd` as a user service so it
+auto-starts on login and restarts automatically if it crashes:
+
+```bash
+gflowd service install
+gflowd status        # shows "Hosting: systemd user service"
+```
+
+Remove it later with:
+
+```bash
+gflowd service uninstall
 ```
 
 ### 2. Check tmux (only if you use tmux features)
@@ -158,7 +174,7 @@ If you have NVIDIA GPUs, you can verify detection:
 gflowd init
 
 # Start the daemon
-gflowd up
+gflowd start
 
 # Check status
 gflowd status

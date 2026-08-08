@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Unified gflowd lifecycle + optional systemd user service**: a consistent `gflowd start` / `stop` / `restart` / `status` verb set that hides how the daemon is hosted from the user
+  - Hosting is chosen automatically by priority: systemd user service → tmux → direct detached process (pidfile); `status` reports the current hosting mode
+  - New `gflowd service install` / `gflowd service uninstall` manage `~/.config/systemd/user/gflowd.service` (`enable --now`, auto-start on login + `Restart=on-failure` crash recovery); `ExecStart` reuses the existing `daemon_start_args` so the daemon core is unchanged
+  - `up` / `down` are retained as aliases of `start` / `stop` for backwards compatibility
 - **Process executor (default)**: jobs now run as detached child process groups (`setsid`) with stdio redirected to `logs/<job_id>.log` — no tmux required for job execution
   - New `[executor] type = "process" | "tmux"` config; `process` is the default, the legacy tmux executor remains fully available (`gjob attach` / `gjob close-sessions` keep working in tmux mode)
   - Cancellation SIGTERMs the whole process group and escalates to SIGKILL after a grace period; zombie detection uses real process liveness instead of tmux-session existence

@@ -7,6 +7,7 @@ pub mod down;
 pub mod init;
 pub mod reload;
 pub mod status;
+pub mod systemd;
 pub mod up;
 
 pub static TMUX_SESSION_NAME: &str = "gflow_server";
@@ -176,10 +177,10 @@ pub async fn handle_commands(
             )
             .await?;
         }
-        Commands::Up(daemon_overrides) => {
+        Commands::Start(daemon_overrides) => {
             up::handle_up(config_path, daemon_overrides, verbosity).await?;
         }
-        Commands::Down => {
+        Commands::Stop => {
             down::handle_down().await?;
         }
         Commands::Restart(daemon_overrides) => {
@@ -191,6 +192,9 @@ pub async fn handle_commands(
         }
         Commands::Status => {
             status::handle_status(config_path).await?;
+        }
+        Commands::Service { action } => {
+            systemd::handle_service(config_path, verbosity, action).await?;
         }
         Commands::Completion { shell } => {
             crate::multicall::completion::handle_completion(

@@ -4,10 +4,11 @@
 
 ```bash
 gflowd init
-gflowd up
+gflowd start       # systemd user service → tmux → 直接进程
 gflowd status
-gflowd down
+gflowd stop
 gflowd restart
+gflowd service install   # 可选：开机自启 + 崩溃拉起
 ```
 
 ## 查看与监控

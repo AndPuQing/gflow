@@ -7,6 +7,19 @@ pub async fn handle_up(
     daemon_overrides: super::super::cli::DaemonOverrideArgs,
     verbosity: Verbosity,
 ) -> Result<()> {
+    // systemd user service takes priority when installed and active.
+    if super::systemd::unit_installed()? && super::systemd::is_active()? {
+        println!("gflowd is already running (systemd user service).");
+        println!("Use `gflowd restart` to restart it.");
+        return Ok(());
+    }
+    if super::systemd::unit_installed()? {
+        println!("Starting via systemd user service...");
+        super::systemd::start()?;
+        println!("gflowd started (systemd user service).");
+        return Ok(());
+    }
+
     match existing_daemon_state(config_path).await? {
         ExistingDaemonState::NotPresent => {}
         ExistingDaemonState::Healthy => {

@@ -19,11 +19,17 @@ gflowd init
 Start the daemon:
 
 ```shell
-gflowd up
+gflowd start
 ```
 
+::: tip
+`gflowd start` hosts the daemon via the systemd user service when installed,
+otherwise in tmux, otherwise as a direct process — no need to worry about how.
+:::
+
 ::: warning
-If `gflowd up` fails, check `tmux` first.
+If `gflowd start` fails, check `tmux` first (or install the systemd user
+service with `gflowd service install`).
 :::
 
 Check status:
@@ -63,7 +69,7 @@ Use `gqueue` first to find the job ID.
 ## Step 4: Stop the Scheduler
 
 ```shell
-gflowd down
+gflowd stop
 ```
 
 ## Next Steps

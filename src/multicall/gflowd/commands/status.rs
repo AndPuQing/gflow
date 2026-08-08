@@ -2,6 +2,31 @@ use anyhow::Result;
 use gflow::tmux::is_session_exist;
 
 pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<()> {
+    // systemd user service takes priority.
+    if super::systemd::unit_installed().unwrap_or(false)
+        && super::systemd::is_active().unwrap_or(false)
+    {
+        let client = gflow::create_client_or_default(config_path)?;
+        match client.get_health().await {
+            Ok(health) if health.is_success() => {
+                println!("Status: Running");
+                println!(
+                    "Hosting: systemd user service ({}).",
+                    super::systemd::SYSTEMD_UNIT
+                );
+            }
+            Ok(_) => {
+                println!("Status: Unhealthy");
+                eprintln!("The gflowd daemon responded to the health check but is not healthy.");
+            }
+            Err(e) => {
+                println!("Status: Not Running");
+                eprintln!("Failed to connect to gflowd daemon: {e}");
+            }
+        }
+        return Ok(());
+    }
+
     // Direct (pidfile) mode first.
     if let Some(pid) = super::read_daemon_pidfile() {
         if !super::process_alive(pid) {

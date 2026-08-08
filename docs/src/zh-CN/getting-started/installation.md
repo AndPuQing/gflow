@@ -126,18 +126,35 @@ gflowd --version
 ### 1. 检查守护进程（无需 tmux）
 
 作业执行不再依赖 tmux：daemon 会把每个作业作为独立的子进程组（`setsid`）
-启动，并将输出重定向到 `logs/<job_id>.log`。`gflowd up` 在可用时会用 tmux
-托管 daemon，否则回退为直接以独立进程方式启动。
+启动，并将输出重定向到 `logs/<job_id>.log`。`gflowd start` 在已安装
+systemd user service 时走 systemd，否则在可用时用 tmux 托管 daemon，再否则
+回退为直接以独立进程方式启动。
 
 ```bash
 # 可选：生成默认配置
 gflowd init
 
 # 启动守护进程
-gflowd up
+gflowd start
 
 # 查看状态
 gflowd status
+```
+
+### 可选：systemd user service（开机自启 + 崩溃拉起）
+
+在带有 systemd user manager 的 Linux 上，可以把 gflowd 安装为用户服务，
+实现开机自启与崩溃自动拉起：
+
+```bash
+gflowd service install
+gflowd status        # 显示 "Hosting: systemd user service"
+```
+
+卸载：
+
+```bash
+gflowd service uninstall
 ```
 
 ### 2. 检查 tmux（仅在使用 tmux 功能时需要）
@@ -157,7 +174,7 @@ tmux kill-session -t test
 gflowd init
 
 # 启动守护进程
-gflowd up
+gflowd start
 
 # 检查状态
 gflowd status
