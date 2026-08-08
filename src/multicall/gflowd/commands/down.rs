@@ -3,6 +3,15 @@ use std::time::Duration;
 use tmux_interface::{KillSession, Tmux};
 
 pub async fn handle_down() -> Result<()> {
+    // systemd user service takes priority when installed and active.
+    if super::systemd::unit_installed().unwrap_or(false)
+        && super::systemd::is_active().unwrap_or(false)
+    {
+        super::systemd::stop()?;
+        println!("gflowd stopped.");
+        return Ok(());
+    }
+
     // Direct (pidfile) mode first.
     if let Some(pid) = super::read_daemon_pidfile() {
         if super::process_alive(pid) {

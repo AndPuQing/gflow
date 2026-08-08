@@ -53,12 +53,16 @@ pip install --index-url https://test.pypi.org/simple/ runqd
 
 ```bash
 gflowd init
-gflowd up
+gflowd start
 gbatch --gpus 1 --name demo bash -lc 'echo "hello from gflow"; sleep 30'
 gqueue
 gjob show <job_id>
-gflowd down
+gflowd stop
 ```
+
+On Linux with a systemd user manager, `gflowd service install` enables
+auto-start on login and automatic crash recovery. `gflowd status` always shows
+how the daemon is hosted (systemd user service, tmux, or direct process).
 
 ## MCP
 

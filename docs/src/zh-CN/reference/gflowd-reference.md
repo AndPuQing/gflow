@@ -19,13 +19,16 @@ gflowd init
 gflowd init --yes
 
 # 启动守护进程
-gflowd up
+gflowd start
 
 # 只使用部分 GPU，并启用随机分配策略
-gflowd up --gpus 0,2 --gpu-allocation-strategy random
+gflowd start --gpus 0,2 --gpu-allocation-strategy random
 
 # 更快检测 GPU 占用变化
-gflowd up --gpu-poll-interval-secs 3
+gflowd start --gpu-poll-interval-secs 3
+
+# 安装可选的 systemd user service（开机自启 + 崩溃拉起）
+gflowd service install
 
 # 无停机热重载
 gflowd reload
@@ -35,7 +38,7 @@ gflowd restart --gpus 0-3
 
 # 查看状态或停止守护进程
 gflowd status
-gflowd down
+gflowd stop
 ```
 
 ## 全局选项
@@ -67,13 +70,16 @@ gflowd init [--yes] [--force] [--advanced] [--gpus <indices>] [--host <host>] [-
 - `--gpu-allocation-strategy <strategy>`：`sequential` 或 `random`
 - `--gpu-poll-interval-secs <seconds>`：每隔 N 秒轮询一次 NVML 检查 GPU 占用变化（默认 `10`，最小 `1`）
 
-### `gflowd up`
+### `gflowd start`
 
-在 tmux 会话中启动守护进程。
+启动守护进程。托管方式自动选择：已安装 systemd user service 则走 systemd，
+否则用 tmux，否则直接以独立进程方式启动。
 
 ```bash
-gflowd up [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
+gflowd start [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
+
+保留 `up` 作为 `start` 的别名。
 
 ### `gflowd reload`
 
@@ -97,19 +103,35 @@ gflowd restart [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-
 
 ### `gflowd status`
 
-显示守护进程是否在运行，以及健康检查是否通过。
+显示守护进程是否在运行，以及当前托管方式（systemd user service、tmux 或
+直接进程）。
 
 ```bash
 gflowd status
 ```
 
-### `gflowd down`
+### `gflowd stop`
 
 停止守护进程。
 
 ```bash
-gflowd down
+gflowd stop
 ```
+
+保留 `down` 作为 `stop` 的别名。
+
+### `gflowd service`
+
+管理可选的 systemd user service，提供开机自启与崩溃自动拉起。
+
+```bash
+gflowd service install [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
+gflowd service uninstall
+```
+
+`install` 会写入 `~/.config/systemd/user/gflowd.service`、重载 systemd 并执行
+`enable --now`。需要 systemd user manager；在没有 systemd 的系统上会给出明确
+提示并回退到 tmux/直接进程托管。
 
 ### `gflowd completion <shell>`
 
@@ -126,7 +148,7 @@ gflowd completion fish
 - `--gpus` 控制调度器为新任务分配哪些 GPU。
 - `--gpu-allocation-strategy` 可选 `sequential` 或 `random`。
 - `--gpu-poll-interval-secs` 控制检测非 gflow GPU 占用变化的速度。
-- `up`、`reload`、`restart` 三个子命令都支持相同的 GPU 相关覆盖参数。
+- `start`、`reload`、`restart` 三个子命令都支持相同的 GPU 相关覆盖参数。
 
 ## 另见
 

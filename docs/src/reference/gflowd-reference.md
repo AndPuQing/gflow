@@ -19,13 +19,16 @@ gflowd init
 gflowd init --yes
 
 # Start the daemon
-gflowd up
+gflowd start
 
 # Start with restricted GPUs and random allocation
-gflowd up --gpus 0,2 --gpu-allocation-strategy random
+gflowd start --gpus 0,2 --gpu-allocation-strategy random
 
 # Start with faster GPU occupancy polling
-gflowd up --gpu-poll-interval-secs 3
+gflowd start --gpu-poll-interval-secs 3
+
+# Install the optional systemd user service (auto-start + crash recovery)
+gflowd service install
 
 # Reload without downtime
 gflowd reload
@@ -35,7 +38,7 @@ gflowd restart --gpus 0-3
 
 # Check status or stop the daemon
 gflowd status
-gflowd down
+gflowd stop
 ```
 
 ## Global Options
@@ -67,13 +70,16 @@ Options:
 - `--gpu-allocation-strategy <strategy>`: `sequential` or `random`
 - `--gpu-poll-interval-secs <seconds>`: poll NVML for GPU occupancy changes every N seconds (default: `10`, minimum: `1`)
 
-### `gflowd up`
+### `gflowd start`
 
-Start the daemon in a tmux session.
+Start the daemon. The hosting layer is chosen automatically: the systemd user
+service if installed, otherwise tmux, otherwise a direct detached process.
 
 ```bash
-gflowd up [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
+gflowd start [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
 ```
+
+`up` is retained as an alias of `start`.
 
 ### `gflowd reload`
 
@@ -97,19 +103,36 @@ Use this when a full restart is acceptable or needed.
 
 ### `gflowd status`
 
-Show whether the daemon is running and responding to health checks.
+Show whether the daemon is running and how it is hosted (systemd user service,
+tmux, or direct process).
 
 ```bash
 gflowd status
 ```
 
-### `gflowd down`
+### `gflowd stop`
 
 Stop the daemon.
 
 ```bash
-gflowd down
+gflowd stop
 ```
+
+`down` is retained as an alias of `stop`.
+
+### `gflowd service`
+
+Manage the optional systemd user service, which provides auto-start on login
+and automatic crash recovery.
+
+```bash
+gflowd service install [--gpus <indices>] [--gpu-allocation-strategy <strategy>] [--gpu-poll-interval-secs <seconds>]
+gflowd service uninstall
+```
+
+`install` writes `~/.config/systemd/user/gflowd.service`, reloads systemd, and
+runs `enable --now`. It requires a systemd user manager; on systems without
+one it prints a clear message and falls back to tmux/direct hosting.
 
 ### `gflowd completion <shell>`
 
@@ -126,7 +149,7 @@ gflowd completion fish
 - `--gpus` affects which GPUs the scheduler may allocate for new work.
 - `--gpu-allocation-strategy` accepts `sequential` or `random`.
 - `--gpu-poll-interval-secs` controls how quickly unmanaged GPU occupancy changes are detected.
-- `gflowd up`, `reload`, and `restart` all accept the same GPU-related overrides.
+- `gflowd start`, `reload`, and `restart` all accept the same GPU-related overrides.
 
 ## See Also
 

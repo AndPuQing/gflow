@@ -50,6 +50,20 @@ pub struct DaemonOverrideArgs {
     pub gpu_poll_interval_secs: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default, Args)]
+pub struct ServiceArgs {
+    #[command(flatten)]
+    pub daemon_overrides: DaemonOverrideArgs,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub enum ServiceAction {
+    /// Install the gflowd systemd user service and enable it
+    Install(ServiceArgs),
+    /// Stop and remove the gflowd systemd user service
+    Uninstall,
+}
+
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Create or update the configuration file via a guided wizard
@@ -81,16 +95,23 @@ pub enum Commands {
         #[command(flatten)]
         daemon_overrides: DaemonOverrideArgs,
     },
-    /// Start the daemon in a tmux session
-    Up(DaemonOverrideArgs),
+    /// Start the daemon (systemd user service if available, else tmux, else direct process)
+    #[command(alias = "up")]
+    Start(DaemonOverrideArgs),
     /// Stop the daemon
-    Down,
+    #[command(alias = "down")]
+    Stop,
     /// Restart the daemon
     Restart(DaemonOverrideArgs),
     /// Reload the daemon with zero downtime
     Reload(DaemonOverrideArgs),
-    /// Show the daemon status
+    /// Show the daemon status and how it is hosted
     Status,
+    /// Manage the optional systemd user service
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for

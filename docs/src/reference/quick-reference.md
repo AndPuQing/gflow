@@ -4,10 +4,11 @@
 
 ```bash
 gflowd init
-gflowd up
+gflowd start       # systemd user service → tmux → direct process
 gflowd status
-gflowd down
+gflowd stop
 gflowd restart
+gflowd service install   # optional: auto-start + crash recovery
 ```
 
 ## Inspect + Monitor

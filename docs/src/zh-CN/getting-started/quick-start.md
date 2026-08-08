@@ -19,11 +19,17 @@ gflowd init
 启动守护进程：
 
 ```shell
-gflowd up
+gflowd start
 ```
 
+::: tip
+`gflowd start` 会按 systemd user service（已安装时）→ tmux → 直接进程的顺序
+自动选择托管方式，无需关心 daemon 由谁托管。
+:::
+
 ::: warning
-如果 `gflowd up` 失败，先检查 `tmux`。
+如果 `gflowd start` 失败，先检查 `tmux`（或先用 `gflowd service install`
+安装 systemd user service）。
 :::
 
 检查状态：
@@ -63,7 +69,7 @@ gjob log <job_id>
 ## 第 4 步：停止调度器
 
 ```shell
-gflowd down
+gflowd stop
 ```
 
 ## 接下来
