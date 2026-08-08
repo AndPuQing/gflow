@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap_verbosity_flag::Verbosity;
 use gflow::tmux::{is_session_exist, TmuxSession};
+use std::time::Duration;
 
 pub async fn handle_up(
     config_path: &Option<std::path::PathBuf>,
@@ -64,11 +65,16 @@ pub async fn handle_up(
     Ok(())
 }
 
-/// Host the daemon as a detached process (no tmux). Writes a pidfile so
-/// `gflowd down` / `gflowd status` can manage it.
+/// Host the daemon as a detached process (no tmux). The daemon itself takes
+/// an exclusive flock on `gflowd.lock` and writes its identity there, so
+/// `gflowd down` / `gflowd status` can manage it safely (no stale pidfile,
+/// no PID-reuse mis-kills).
 fn start_daemon_direct(options: &super::DaemonStartOptions<'_>) -> Result<()> {
     let exe = std::env::current_exe().context("failed to resolve current gflow binary")?;
-    let args = super::daemon_start_args(options)?;
+    let mut args = super::daemon_start_args(options)?;
+    // Internal flag: tells the daemon it is being hosted directly and must
+    // hold the daemon flock for its lifetime.
+    args.push("--direct-internal".to_string());
 
     let data_dir = gflow::paths::get_data_dir()?;
     let log_dir = data_dir.join("logs");
@@ -106,8 +112,30 @@ fn start_daemon_direct(options: &super::DaemonStartOptions<'_>) -> Result<()> {
     let child = command
         .spawn()
         .context("Failed to spawn gflowd daemon process")?;
-    super::write_daemon_pidfile(child.id())?;
-    println!("gflowd started (direct mode, PID {}).", child.id());
+    let pid = child.id();
+
+    // Wait briefly for the child to acquire the daemon lock and write its
+    // identity. This confirms a healthy start and detects a duplicate (the
+    // child bails if another direct daemon already holds the lock).
+    let mut acquired = false;
+    for _ in 0..30 {
+        if let Some(identity) = super::lifecycle::read_daemon_identity() {
+            if identity.pid == pid && super::lifecycle::process_identity_matches(&identity) {
+                acquired = true;
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if !acquired {
+        bail!(
+            "gflowd daemon (PID {}) did not acquire its lock within 3s; check {}",
+            pid,
+            out_path.display()
+        );
+    }
+
+    println!("gflowd started (direct mode, PID {}).", pid);
     println!("Logs: {}", out_path.display());
     Ok(())
 }
@@ -123,18 +151,14 @@ enum ExistingDaemonState {
 async fn existing_daemon_state(
     config_path: &Option<std::path::PathBuf>,
 ) -> Result<ExistingDaemonState> {
-    // Direct (pidfile) mode first.
-    if let Some(pid) = super::read_daemon_pidfile() {
-        if super::process_alive(pid) {
-            let client = gflow::create_client_or_default(config_path)?;
-            return Ok(match client.get_health().await {
-                Ok(status) if status.is_success() => ExistingDaemonState::Healthy,
-                Ok(status) => ExistingDaemonState::Unhealthy(status.as_u16()),
-                Err(error) => ExistingDaemonState::Unreachable(error.to_string()),
-            });
-        }
-        // Stale pidfile from a dead daemon.
-        super::remove_daemon_pidfile();
+    // Direct (flock/pidfile) mode first.
+    if super::lifecycle::direct_daemon_pid().is_some() {
+        let client = gflow::create_client_or_default(config_path)?;
+        return Ok(match client.get_health().await {
+            Ok(status) if status.is_success() => ExistingDaemonState::Healthy,
+            Ok(status) => ExistingDaemonState::Unhealthy(status.as_u16()),
+            Err(error) => ExistingDaemonState::Unreachable(error.to_string()),
+        });
     }
 
     if !is_session_exist(super::TMUX_SESSION_NAME) {

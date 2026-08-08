@@ -27,15 +27,8 @@ pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<(
         return Ok(());
     }
 
-    // Direct (pidfile) mode first.
-    if let Some(pid) = super::read_daemon_pidfile() {
-        if !super::process_alive(pid) {
-            super::remove_daemon_pidfile();
-            println!("Status: Not running");
-            println!("The gflowd daemon is not running.");
-            return Ok(());
-        }
-
+    // Direct (flock/pidfile) mode first.
+    if let Some(pid) = super::lifecycle::direct_daemon_pid() {
         let client = gflow::create_client_or_default(config_path)?;
 
         match client.get_health().await {

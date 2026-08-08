@@ -53,6 +53,40 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
         return commands::handle_commands(&gflowd.config, gflowd.verbosity, command).await;
     }
 
+    // When directly hosted (no tmux/systemd), take an exclusive flock on the
+    // daemon lock file and keep it for the whole daemon lifetime. This both
+    // guarantees mutual exclusion (a second `gflowd up` cannot start a
+    // duplicate) and provides a crash-safe liveness signal. The lock file
+    // body carries the daemon identity so `down`/`restart` can refuse to
+    // signal a recycled PID.
+    let _direct_lock = if gflowd.direct_internal {
+        match commands::lifecycle::try_acquire_daemon_lock()? {
+            Some(mut file) => {
+                let pid = std::process::id() as u32;
+                let identity = commands::lifecycle::DaemonIdentity {
+                    pid,
+                    pgid: unsafe { libc::getpgid(pid as libc::pid_t) },
+                    start_time: commands::lifecycle::process_start_time(pid),
+                };
+                commands::lifecycle::write_daemon_identity(&mut file, &identity)?;
+                tracing::info!(
+                    pid,
+                    pgid = identity.pgid,
+                    "direct daemon acquired flock lock"
+                );
+                Some(file)
+            }
+            None => {
+                anyhow::bail!(
+                    "another gflowd instance is already running (direct mode); \
+                     refusing to start a duplicate. Use `gflowd status` or `gflowd down` first."
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     let mut config = gflow::config::load_config(gflowd.config.as_ref())?;
 
     // CLI flag overrides config file
