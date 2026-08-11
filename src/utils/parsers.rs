@@ -296,6 +296,105 @@ pub fn parse_reservation_time(time_str: &str) -> Result<SystemTime> {
     Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(timestamp as u64))
 }
 
+/// Parse a scheduled begin time string into a SystemTime (`gbatch --begin`,
+/// `gjob release --at`).
+///
+/// Supported formats (Slurm `--begin`-style):
+/// - `HH:MM[:SS]` — the next occurrence of that wall-clock time (today, or
+///   tomorrow if that time has already passed)
+/// - `YYYY-MM-DD` — midnight (local time) on that date
+/// - `YYYY-MM-DD HH:MM[:SS]` or `YYYY-MM-DDTHH:MM[:SS]` — absolute local time
+/// - `now+N` — N minutes from now (Slurm's default unit)
+/// - `now+N[s|m|h|d]` — N seconds/minutes/hours/days from now
+///
+/// # Examples
+///
+/// ```
+/// use std::time::SystemTime;
+/// use gflow::utils::parsers::parse_begin_time;
+///
+/// assert!(parse_begin_time("now+5").is_ok());
+/// assert!(parse_begin_time("now+2h").is_ok());
+/// assert!(parse_begin_time("23:59").is_ok());
+/// assert!(parse_begin_time("2026-01-28 14:00:00").is_ok());
+/// assert!(parse_begin_time("garbage").is_err());
+/// ```
+pub fn parse_begin_time(input: &str) -> Result<SystemTime> {
+    use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("Begin time cannot be empty");
+    }
+
+    // Relative: now+N or now+N[s|m|h|d] (Slurm default unit is minutes).
+    if let Some(rest) = trimmed
+        .strip_prefix("now+")
+        .or_else(|| trimmed.strip_prefix('+'))
+    {
+        let rest = rest.trim();
+        let (num_str, unit_secs) = match rest.chars().last() {
+            Some('s') => (&rest[..rest.len() - 1], 1u64),
+            Some('m') => (&rest[..rest.len() - 1], 60),
+            Some('h') => (&rest[..rest.len() - 1], 3600),
+            Some('d') => (&rest[..rest.len() - 1], 86400),
+            _ => (rest, 60),
+        };
+        let value = num_str
+            .trim()
+            .parse::<u64>()
+            .context("Invalid begin time. Expected now+N[s|m|h|d] (e.g. now+30, now+2h)")?;
+        let duration = Duration::from_secs(value.saturating_mul(unit_secs));
+        return Ok(SystemTime::now() + duration);
+    }
+
+    let local = Local::now();
+
+    // Absolute date + time: YYYY-MM-DD HH:MM[:SS] or YYYY-MM-DDTHH:MM[:SS].
+    if let Some((date_part, time_part)) = trimmed.split_once(['T', ' ']) {
+        let date = NaiveDate::parse_from_str(date_part.trim(), "%Y-%m-%d")
+            .context("Invalid begin date. Expected YYYY-MM-DD")?;
+        let time = NaiveTime::parse_from_str(time_part.trim(), "%H:%M:%S")
+            .or_else(|_| NaiveTime::parse_from_str(time_part.trim(), "%H:%M"))
+            .context("Invalid begin time. Expected HH:MM[:SS]")?;
+        let dt = date.and_time(time);
+        let parsed = Local
+            .from_local_datetime(&dt)
+            .single()
+            .ok_or_else(|| anyhow!("Ambiguous or invalid local time: {}", trimmed))?;
+        return Ok(parsed.into());
+    }
+
+    // Absolute date only: YYYY-MM-DD (midnight local time).
+    if trimmed.len() == 10 && trimmed.as_bytes().get(4) == Some(&b'-') {
+        let date = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
+            .context("Invalid begin date. Expected YYYY-MM-DD")?;
+        let dt = date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        let parsed = Local
+            .from_local_datetime(&dt)
+            .single()
+            .ok_or_else(|| anyhow!("Ambiguous or invalid local time: {}", trimmed))?;
+        return Ok(parsed.into());
+    }
+
+    // Wall-clock time only: HH:MM[:SS] — the next occurrence (today, or
+    // tomorrow if that time has already passed today).
+    let time = NaiveTime::parse_from_str(trimmed, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(trimmed, "%H:%M"))
+        .context(
+            "Invalid begin time. Expected HH:MM[:SS], YYYY-MM-DD[THH:MM[:SS]], or now+N[s|m|h|d]",
+        )?;
+    let today = local.date_naive();
+    let dt = today.and_time(time);
+    let mut parsed = Local
+        .from_local_datetime(&dt)
+        .single()
+        .ok_or_else(|| anyhow!("Ambiguous or invalid local time: {}", trimmed))?;
+    if parsed <= local {
+        parsed += chrono::Duration::days(1);
+    }
+    Ok(parsed.into())
+}
+
 /// Parse duration string for GPU reservations (e.g., "1h", "30m", "2h30m").
 ///
 /// Supported formats:
@@ -563,6 +662,52 @@ mod tests {
         assert!(parse_memory_limit("abc").is_err());
         assert!(parse_memory_limit("100K").is_err());
         assert!(parse_memory_limit("100T").is_err());
+    }
+
+    // Tests for parse_begin_time
+    #[test]
+    fn test_parse_begin_time_relative() {
+        let now = SystemTime::now();
+
+        let t = parse_begin_time("now+5").unwrap();
+        let delta = t.duration_since(now).unwrap().as_secs() as i64;
+        assert!((delta - 300).abs() <= 1); // now+5 defaults to minutes
+
+        let t = parse_begin_time("now+30s").unwrap();
+        let delta = t.duration_since(now).unwrap().as_secs() as i64;
+        assert!((delta - 30).abs() <= 1);
+
+        let t = parse_begin_time("now+2h").unwrap();
+        let delta = t.duration_since(now).unwrap().as_secs() as i64;
+        assert!((delta - 7200).abs() <= 1);
+
+        let t = parse_begin_time("+1d").unwrap();
+        let delta = t.duration_since(now).unwrap().as_secs() as i64;
+        assert!((delta - 86400).abs() <= 1);
+    }
+
+    #[test]
+    fn test_parse_begin_time_absolute() {
+        // Absolute date/time formats parse successfully.
+        assert!(parse_begin_time("2026-01-28 14:00").is_ok());
+        assert!(parse_begin_time("2026-01-28T14:00:00").is_ok());
+        assert!(parse_begin_time("2026-01-28").is_ok());
+
+        // Wall-clock time parses (next occurrence of that time).
+        assert!(parse_begin_time("23:59").is_ok());
+        assert!(parse_begin_time("00:00:01").is_ok());
+    }
+
+    #[test]
+    fn test_parse_begin_time_invalid() {
+        assert!(parse_begin_time("").is_err());
+        assert!(parse_begin_time("  ").is_err());
+        assert!(parse_begin_time("garbage").is_err());
+        assert!(parse_begin_time("now").is_err());
+        assert!(parse_begin_time("now+x").is_err());
+        assert!(parse_begin_time("now+5w").is_err());
+        assert!(parse_begin_time("25:99").is_err());
+        assert!(parse_begin_time("2026-13-01 14:00").is_err());
     }
 
     // Tests for parse_reservation_time

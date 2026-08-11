@@ -4,8 +4,16 @@ use gflow::utils::parse_job_ids;
 pub async fn handle_release(
     config_path: &Option<std::path::PathBuf>,
     job_ids_str: String,
+    at: Option<String>,
 ) -> Result<()> {
     let client = gflow::create_client(config_path)?;
+
+    // Parse the delayed-release time (if any) up front so a malformed value
+    // fails before any job is touched.
+    let scheduled_at = match &at {
+        Some(time_str) => Some(gflow::utils::parse_begin_time(time_str)?),
+        None => None,
+    };
 
     let job_ids = parse_job_ids(&job_ids_str)?;
 
@@ -23,9 +31,21 @@ pub async fn handle_release(
             continue;
         }
 
-        // Release the job
-        client.release_job(job_id).await?;
-        println!("Job {} released back to queue.", job_id);
+        // Release the job (immediately, or deferred to the given time)
+        match scheduled_at {
+            Some(at) => {
+                client.release_job_at(job_id, at).await?;
+                println!(
+                    "Job {} released back to queue (scheduled to start at {}).",
+                    job_id,
+                    gflow::utils::format_system_time(at)
+                );
+            }
+            None => {
+                client.release_job(job_id).await?;
+                println!("Job {} released back to queue.", job_id);
+            }
+        }
     }
 
     Ok(())

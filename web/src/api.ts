@@ -26,6 +26,7 @@ export type Job = {
   submitted_at?: ApiTime | null
   started_at?: ApiTime | null
   finished_at?: ApiTime | null
+  scheduled_at?: ApiTime | null
   run_name?: string | null
   project?: string | null
   run_dir?: string

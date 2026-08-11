@@ -51,6 +51,14 @@ pub async fn run_event_driven(
             )
             .instrument(tracing::info_span!("zombie_handler_task")),
         ),
+        // Begin-time monitor - releases jobs whose scheduled start time arrived
+        tokio::spawn(
+            super::monitors::begin_time_monitor_task(
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+            )
+            .instrument(tracing::info_span!("begin_time_monitor_task")),
+        ),
         // Timeout monitor - checks time limits every 10s
         tokio::spawn(
             super::monitors::timeout_monitor_task(
@@ -160,7 +168,7 @@ async fn scheduler_trigger_handler_with_debounce(
 }
 
 /// Trigger job scheduling
-async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<EventBus>) {
+pub(super) async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<EventBus>) {
     let scheduling_span = tracing::info_span!("trigger_scheduling");
     let _entered = scheduling_span.enter();
     #[cfg(feature = "metrics")]

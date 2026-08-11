@@ -138,6 +138,12 @@ impl Scheduler {
             return;
         }
 
+        // Jobs with a future scheduled begin time (`--begin`) are not runnable
+        // yet; a daemon monitor releases them once their start time arrives.
+        if self.scheduled_in_future(job_id) {
+            return;
+        }
+
         let Some(dep_rt) = self.dependency_runtime(job_id) else {
             return;
         };
@@ -153,10 +159,23 @@ impl Scheduler {
         });
     }
 
-    fn queued_dependency_reason_for_job(&self, job_id: u32) -> Option<JobStateReason> {
+    /// Whether the job carries a `scheduled_at` begin time still in the future.
+    pub(super) fn scheduled_in_future(&self, job_id: u32) -> bool {
+        self.get_job_spec(job_id)
+            .and_then(|spec| spec.scheduled_at)
+            .is_some_and(|t| SystemTime::now() < t)
+    }
+
+    fn queued_wait_reason_for_job(&self, job_id: u32) -> Option<JobStateReason> {
         let (_spec, rt) = self.get_job_parts(job_id)?;
         if rt.state != JobState::Queued {
             return None;
+        }
+
+        // A future scheduled begin time dominates: the job is waiting for its
+        // start time (Slurm reports this as reason "BeginTime").
+        if self.scheduled_in_future(job_id) {
+            return Some(JobStateReason::WaitingForStartTime);
         }
 
         if self
@@ -169,19 +188,21 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn sync_queued_dependency_reason(&mut self, job_id: u32) {
-        let desired_reason = self.queued_dependency_reason_for_job(job_id);
+    pub(crate) fn sync_queued_wait_reason(&mut self, job_id: u32) {
+        let desired_reason = self.queued_wait_reason_for_job(job_id);
         let current_reason = self
             .get_job_runtime(job_id)
             .and_then(|rt| rt.reason.as_deref().cloned());
 
+        // Only touch reasons we own (BeginTime / Dependency). Resource reasons
+        // (Resources/Quota/etc.) written by the scheduling loop are left alone.
         let should_update = match desired_reason {
-            Some(JobStateReason::WaitingForDependency) => true,
-            None => {
-                current_reason.is_none()
-                    || matches!(current_reason, Some(JobStateReason::WaitingForDependency))
-            }
-            Some(_) => false,
+            Some(_) => current_reason != desired_reason,
+            None => matches!(
+                current_reason,
+                Some(JobStateReason::WaitingForDependency)
+                    | Some(JobStateReason::WaitingForStartTime)
+            ),
         };
 
         if should_update {
@@ -214,12 +235,12 @@ impl Scheduler {
             return false;
         }
 
-        let old_reason = self.queued_dependency_reason_for_job(job_id);
+        let old_reason = self.queued_wait_reason_for_job(job_id);
 
         self.bump_ready_epoch(job_id);
         let dep_rt = self.build_dependency_runtime(job_id);
         self.set_dependency_runtime(job_id, dep_rt);
-        self.sync_queued_dependency_reason(job_id);
+        self.sync_queued_wait_reason(job_id);
 
         let should_auto_cancel = self.get_job_parts(job_id).is_some_and(|(spec, rt)| {
             rt.state == JobState::Queued
@@ -246,7 +267,7 @@ impl Scheduler {
             self.enqueue_if_ready(job_id);
         }
 
-        self.queued_dependency_reason_for_job(job_id) != old_reason
+        self.queued_wait_reason_for_job(job_id) != old_reason
     }
 
     fn refresh_queued_dependency_reason_wavefront(&mut self, source_job_id: u32) {
@@ -353,7 +374,7 @@ impl Scheduler {
                     )
                 };
 
-                self.sync_queued_dependency_reason(job_id);
+                self.sync_queued_wait_reason(job_id);
 
                 let should_auto_cancel = self.get_job_runtime(job_id).is_some_and(|rt| {
                     rt.state == JobState::Queued && auto_cancel && became_impossible
@@ -718,6 +739,58 @@ impl Scheduler {
     pub fn release_job(&mut self, job_id: u32) -> bool {
         self.transition_job_state(job_id, JobState::Queued, None)
             .is_some()
+    }
+
+    /// Release a held job back to the queue, deferred until `scheduled_at`
+    /// (delayed release, `gjob release --at <time>`). The job is queued
+    /// immediately but is not runnable before the given time.
+    pub fn release_job_at(&mut self, job_id: u32, scheduled_at: SystemTime) -> bool {
+        {
+            let Some((spec, _rt)) = self.get_job_parts_mut(job_id) else {
+                return false;
+            };
+            spec.scheduled_at = Some(scheduled_at);
+        }
+        self.release_job(job_id)
+    }
+
+    /// Enqueue queued jobs whose scheduled begin time (`scheduled_at`) has
+    /// arrived, clearing their BeginTime reason. Called periodically by the
+    /// daemon monitor; also picks up jobs whose begin time passed while the
+    /// daemon was down (on restart the first monitor tick runs immediately).
+    /// Returns the job IDs that were released.
+    pub fn release_due_scheduled_jobs(&mut self) -> Vec<u32> {
+        let now = SystemTime::now();
+        let due: Vec<u32> = self
+            .job_specs
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, spec)| {
+                let t = spec.scheduled_at?;
+                if t > now {
+                    return None;
+                }
+                let job_id = (idx as u32) + 1;
+                let rt = &self.job_runtimes[idx];
+                // Only release jobs that are actually waiting on their begin
+                // time (a stale BeginTime reason means it was never released).
+                if rt.state != JobState::Queued
+                    || !matches!(
+                        rt.reason.as_deref(),
+                        Some(JobStateReason::WaitingForStartTime)
+                    )
+                {
+                    return None;
+                }
+                Some(job_id)
+            })
+            .collect();
+
+        for job_id in &due {
+            self.sync_queued_wait_reason(*job_id);
+            self.enqueue_if_ready(*job_id);
+        }
+        due
     }
 
     pub fn resolve_dependency(&self, username: &str, shorthand: &str) -> Option<u32> {

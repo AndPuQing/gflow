@@ -73,6 +73,11 @@ pub enum Commands {
             value_hint = clap::ValueHint::Other
         )]
         job: String,
+
+        /// Release the job so it starts no earlier than this time (delayed release).
+        /// Formats: "HH:MM[:SS]", "YYYY-MM-DD[THH:MM[:SS]]", "now+N[s|m|h|d]"
+        #[arg(long, value_hint = clap::ValueHint::Other)]
+        at: Option<String>,
     },
     /// Update parameters for a queued or held job
     #[command(visible_alias = "u")]

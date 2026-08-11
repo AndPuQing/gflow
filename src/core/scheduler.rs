@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 #[path = "scheduler/access.rs"]
 mod access;
@@ -329,6 +329,97 @@ mod tests {
         assert_eq!(run_name, "gjob-1");
         assert!(scheduler.job_exists(1));
         assert_eq!(scheduler.get_job(1).unwrap().state, JobState::Queued);
+    }
+
+    #[test]
+    fn test_submit_job_with_future_begin_time_stays_queued() {
+        let mut scheduler = create_test_scheduler();
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .scheduled_at(SystemTime::now() + Duration::from_secs(3600))
+            .build();
+
+        let (job_id, _) = scheduler.submit_job(job);
+
+        // The job is queued but waiting for its begin time (reason "BeginTime").
+        assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
+        assert_eq!(
+            scheduler.get_job(job_id).and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForStartTime)
+        );
+
+        // It must not be scheduled while the begin time is in the future.
+        let to_execute = scheduler.prepare_jobs_for_execution();
+        assert!(to_execute.is_empty());
+        assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
+        assert!(scheduler.release_due_scheduled_jobs().is_empty());
+    }
+
+    #[test]
+    fn test_begin_time_in_past_runs_immediately() {
+        let mut scheduler = create_test_scheduler();
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .scheduled_at(SystemTime::now() - Duration::from_secs(60))
+            .build();
+
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let to_execute = scheduler.prepare_jobs_for_execution();
+        assert_eq!(to_execute.len(), 1);
+        assert_eq!(to_execute[0].id, job_id);
+    }
+
+    #[test]
+    fn test_delayed_release_releases_job_at_begin_time() {
+        let mut scheduler = create_test_scheduler();
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+        assert!(scheduler.hold_job(job_id));
+
+        // Release deferred to ~50ms in the future: queued now, not runnable yet.
+        let at = SystemTime::now() + Duration::from_millis(50);
+        assert!(scheduler.release_job_at(job_id, at));
+        assert_eq!(scheduler.get_job(job_id).unwrap().state, JobState::Queued);
+        assert_eq!(
+            scheduler.get_job(job_id).and_then(|j| j.reason.map(|r| *r)),
+            Some(JobStateReason::WaitingForStartTime)
+        );
+        assert!(scheduler.prepare_jobs_for_execution().is_empty());
+
+        // Once the begin time arrives, the monitor-style release makes it runnable.
+        std::thread::sleep(Duration::from_millis(200));
+        let released = scheduler.release_due_scheduled_jobs();
+        assert_eq!(released, vec![job_id]);
+        assert_eq!(scheduler.get_job(job_id).unwrap().reason, None);
+
+        let to_execute = scheduler.prepare_jobs_for_execution();
+        assert_eq!(to_execute.len(), 1);
+        assert_eq!(to_execute[0].id, job_id);
+    }
+
+    #[test]
+    fn test_scheduled_at_persists_through_serde_roundtrip() {
+        let at = SystemTime::now() + Duration::from_secs(3600);
+        let job = JobBuilder::new()
+            .submitted_by("test")
+            .run_dir("/tmp")
+            .scheduled_at(at)
+            .build();
+
+        let json = serde_json::to_string(&job).unwrap();
+        let deserialized: Job = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.scheduled_at, Some(at));
+
+        // Old persisted state without the field still deserializes.
+        let old = r#"{"id":1,"gpus":0,"run_dir":"/tmp","priority":10,"submitted_by":"test","state":"Queued"}"#;
+        let legacy: Job = serde_json::from_str(old).unwrap();
+        assert_eq!(legacy.scheduled_at, None);
     }
 
     #[test]

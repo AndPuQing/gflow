@@ -73,6 +73,7 @@ pub enum GpuSharingMode {
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum JobStateReason {
     JobHeldUser,
+    WaitingForStartTime,
     WaitingForDependency,
     WaitingForResources,
     WaitingForGpu,
@@ -87,6 +88,7 @@ impl fmt::Display for JobStateReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             JobStateReason::JobHeldUser => write!(f, "JobHeldUser"),
+            JobStateReason::WaitingForStartTime => write!(f, "BeginTime"),
             JobStateReason::WaitingForDependency => write!(f, "Dependency"),
             JobStateReason::WaitingForResources => write!(f, "Resources"),
             JobStateReason::WaitingForGpu => write!(f, "Resources"),

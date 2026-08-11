@@ -232,6 +232,32 @@ async fn finalize_execution_result(
     }
 }
 
+/// Begin-time monitor task - releases queued jobs whose scheduled start time
+/// (`--begin` / `scheduled_at`) has arrived.
+///
+/// Runs every 10s; the first tick fires immediately so jobs whose begin time
+/// passed while the daemon was down are picked up right after startup.
+pub(super) async fn begin_time_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+    loop {
+        interval.tick().await;
+
+        let released = {
+            let mut state_guard = state.write().await;
+            state_guard.release_due_scheduled_jobs()
+        };
+
+        if !released.is_empty() {
+            tracing::info!(released = ?released, "Released scheduled jobs whose begin time arrived");
+            // Run a scheduling pass so the released jobs can start immediately
+            // (the direct call avoids a fake "job submitted" event, which
+            // would fire webhooks/notifications for already-submitted jobs).
+            super::event_loop::trigger_scheduling(&state, &event_bus).await;
+        }
+    }
+}
+
 /// Timeout monitor task - checks time limits every 10s
 pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
