@@ -204,17 +204,17 @@ Choose how job payloads are executed.
 
 ```toml
 [executor]
-type = "process" # or "tmux"
+type = "tmux" # or "process"
 ```
 
-- **`process`** (default, no tmux required): each job runs as a detached child
+- **`tmux`** (default): each job runs in a detached tmux session with
+  terminal key injection. Enables interactive inspection via `gjob attach`
+  and `gjob close-sessions`.
+- **`process`** (opt-in, no tmux required): each job runs as a detached child
   process group (`setsid`), with stdout/stderr redirected to
   `logs/<job_id>.log`. Cancellation SIGTERMs the whole process group and
   escalates to SIGKILL after a grace period; zombie detection uses real
-  process liveness.
-- **`tmux`** (legacy): each job runs in a detached tmux session with
-  terminal key injection. Enables interactive inspection via `gjob attach`
-  and `gjob close-sessions`.
+  process liveness. Not yet considered stable.
 
 ## Project Tracking
 

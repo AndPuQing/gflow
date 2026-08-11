@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hosting is chosen automatically by priority: systemd user service → tmux → direct detached process (pidfile); `status` reports the current hosting mode
   - New `gflowd service install` / `gflowd service uninstall` manage `~/.config/systemd/user/gflowd.service` (`enable --now`, auto-start on login + `Restart=on-failure` crash recovery); `ExecStart` reuses the existing `daemon_start_args` so the daemon core is unchanged
   - `up` / `down` are retained as aliases of `start` / `stop` for backwards compatibility
-- **Process executor (default)**: jobs now run as detached child process groups (`setsid`) with stdio redirected to `logs/<job_id>.log` — no tmux required for job execution
-  - New `[executor] type = "process" | "tmux"` config; `process` is the default, the legacy tmux executor remains fully available (`gjob attach` / `gjob close-sessions` keep working in tmux mode)
+- **Process executor (experimental, opt-in)**: jobs can run as detached child process groups (`setsid`) with stdio redirected to `logs/<job_id>.log` — no tmux required for job execution
+  - New `[executor] type = "process" | "tmux"` config; `tmux` is the default, the process executor is opt-in and not yet considered stable (`gjob attach` / `gjob close-sessions` keep working in tmux mode)
   - Cancellation SIGTERMs the whole process group and escalates to SIGKILL after a grace period; zombie detection uses real process liveness instead of tmux-session existence
   - `generate_wrapped_command` key-escaping (`\`, `"`, `$`, backtick) is only kept for tmux mode; the process path spawns `bash -c` directly
   - `gflowd up` falls back to hosting the daemon as a detached process (pidfile-tracked) when tmux is unavailable; `gflowd down` / `gflowd status` handle both modes

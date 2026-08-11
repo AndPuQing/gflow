@@ -47,7 +47,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     }
     let gpu_poll_interval = Duration::from_secs(gpu_poll_interval_secs);
 
-    // Inject the configured job executor (default: process; tmux opt-in)
+    // Inject the configured job executor (default: tmux; process opt-in)
     let executor: Box<dyn Executor> = match config.executor.r#type {
         ExecutorType::Process => Box::new(ProcessExecutor::new()),
         ExecutorType::Tmux => Box::new(TmuxExecutor),

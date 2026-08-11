@@ -146,7 +146,9 @@ struct SandboxOpts {
 }
 
 impl TestSandbox {
-    /// Default sandbox: tmux-hosted daemon, process executor (the default).
+    /// Default sandbox: tmux-hosted daemon, explicit process executor (opt-in;
+    /// avoids creating tmux job sessions so the suite stays clean on shared
+    /// tmux servers; the tmux backend is covered by dedicated tests).
     fn new() -> Option<Self> {
         Self::with_opts(SandboxOpts {
             tmux_hosted: true,
@@ -1351,7 +1353,7 @@ async fn process_executor_detects_zombie_when_process_dies_without_reporting() {
 }
 
 /// Acceptance: `[executor] type` switches between backends. The tmux backend
-/// creates a job session; the process backend (default) creates none.
+/// creates a job session; the process backend (opt-in) creates none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn executor_type_config_selects_backend() {
     // tmux backend: job gets a tmux session (daemon hosted directly, but the

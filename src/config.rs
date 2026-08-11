@@ -235,18 +235,18 @@ impl QuotaConfig {
 #[serde(rename_all = "lowercase")]
 pub enum ExecutorType {
     /// Spawn a detached child process group (setsid) with stdio redirected to
-    /// the job log file. The default; requires no tmux.
-    #[default]
+    /// the job log file. Opt-in; requires no tmux.
     Process,
     /// Legacy tmux session + terminal key injection. Enables `gjob attach`
-    /// and `gjob close-sessions` for running jobs.
+    /// and `gjob close-sessions` for running jobs. The default; requires tmux.
+    #[default]
     Tmux,
 }
 
 /// Job executor settings, configured via the `[executor]` table in `gflow.toml`.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ExecutorConfig {
-    /// Which executor to use for job execution: "process" (default) or "tmux".
+    /// Which executor to use for job execution: "tmux" (default) or "process".
     #[serde(default)]
     pub r#type: ExecutorType,
 }
@@ -254,14 +254,14 @@ pub struct ExecutorConfig {
 impl Default for ExecutorConfig {
     fn default() -> Self {
         Self {
-            r#type: ExecutorType::Process,
+            r#type: ExecutorType::Tmux,
         }
     }
 }
 
 impl ExecutorConfig {
     fn is_default(value: &Self) -> bool {
-        value.r#type == ExecutorType::Process
+        value.r#type == ExecutorType::Tmux
     }
 }
 
@@ -668,8 +668,8 @@ cv-team = { max_running_gpus = 8, max_queued_jobs = 100 }
     }
 
     #[test]
-    fn executor_defaults_to_process() {
-        assert_eq!(ExecutorConfig::default().r#type, ExecutorType::Process);
+    fn executor_defaults_to_tmux() {
+        assert_eq!(ExecutorConfig::default().r#type, ExecutorType::Tmux);
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub struct DaemonStatus {
     pub pid: u32,
     /// Seconds since the daemon started.
     pub uptime_secs: u64,
-    /// Job executor backend: "process" (default) or "tmux".
+    /// Job executor backend: "tmux" (default) or "process".
     pub executor: String,
     /// Number of detected GPU slots.
     pub gpu_total: usize,
@@ -42,7 +42,7 @@ pub struct SchedulerInfo {
     pub allowed_gpu_indices: Option<Vec<u32>>,
     /// Strategy used when allocating GPUs for new jobs.
     pub gpu_allocation_strategy: GpuAllocationStrategy,
-    /// Job executor backend: "process" (default) or "tmux".
+    /// Job executor backend: "tmux" (default) or "process".
     #[serde(default)]
     pub executor: String,
 }

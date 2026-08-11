@@ -119,7 +119,7 @@ Hosting: systemd user service (gflowd.service).
 Version:   0.4.17
 PID:       3628801
 Uptime:    25h57m21s
-Executor:  process
+Executor:  tmux
 GPUs:      8 total, 8 available
 ```
 
