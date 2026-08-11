@@ -9,20 +9,20 @@ The Python package name is `runqd`. It provides `gflowd`, `gbatch`, `gqueue`, `g
 ## Prerequisites
 
 - **Operating System**: Linux
-- **tmux**: Optional (only needed for `gflowd up`/attach workflows and the legacy tmux executor; job execution itself runs as plain child processes by default)
+- **tmux**: Required for the default job executor and for `gflowd up`/attach workflows. The tmux-free `process` executor remains available as an opt-in via `[executor] type = "process"`
 - **NVIDIA GPU / drivers**: Only required for GPU scheduling
 
 ### Installing Prerequisites
 
 ::: code-group
 ```bash [Ubuntu/Debian]
-# tmux is optional; install it only if you want tmux-hosted daemon / attach support
+# tmux is required for the default tmux job executor and tmux-hosted daemon
 sudo apt-get update
 sudo apt-get install tmux
 ```
 
 ```bash [Fedora/RHEL]
-# tmux is optional; install it only if you want tmux-hosted daemon / attach support
+# tmux is required for the default tmux job executor and tmux-hosted daemon
 sudo dnf install tmux
 ```
 :::

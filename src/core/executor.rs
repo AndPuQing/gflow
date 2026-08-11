@@ -25,10 +25,11 @@ pub enum ExecutionStatus {
 
 /// Abstraction over how a job's payload is actually executed.
 ///
-/// The default implementation (`ProcessExecutor`) spawns a detached child
-/// process group (`setsid`) and redirects its stdio to the job log file.
-/// The legacy `TmuxExecutor` keeps the terminal-injection behaviour and is
-/// available as an opt-in via `[executor] type = "tmux"`.
+/// The default implementation (selected when no `[executor]` config is set) is
+/// the `TmuxExecutor`, which runs each job in a detached tmux session with
+/// terminal key injection. The `ProcessExecutor` spawns a detached child
+/// process group (`setsid`) and redirects its stdio to the job log file; it is
+/// available as an opt-in via `[executor] type = "process"`.
 ///
 /// All methods other than `execute` have default no-op implementations so
 /// that mock executors used in tests only need to implement `execute`.
