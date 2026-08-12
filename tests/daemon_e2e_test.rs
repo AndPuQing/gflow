@@ -1148,7 +1148,7 @@ async fn scheduled_begin_time_defers_job_start_until_time_arrives() {
     let client = gflow::Client::build(&sandbox.client_config()).unwrap();
 
     // Start ~3s in the future: long enough to prove the job does not start
-    // early, short enough that the 10s monitor releases it promptly.
+    // early; the begin-time monitor fires precisely at the deadline.
     let begin = std::time::SystemTime::now() + Duration::from_secs(3);
     let job = JobBuilder::new()
         .submitted_by("begin-e2e")

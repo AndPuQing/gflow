@@ -51,11 +51,13 @@ pub async fn run_event_driven(
             )
             .instrument(tracing::info_span!("zombie_handler_task")),
         ),
-        // Begin-time monitor - releases jobs whose scheduled start time arrived
+        // Begin-time monitor - sleeps precisely until the next scheduled start
+        // time (woken early by events when a new begin-time job arrives)
         tokio::spawn(
             super::monitors::begin_time_monitor_task(
                 Arc::clone(&shared_state),
                 Arc::clone(&event_bus),
+                event_bus.subscribe(),
             )
             .instrument(tracing::info_span!("begin_time_monitor_task")),
         ),

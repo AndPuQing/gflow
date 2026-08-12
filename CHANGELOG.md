@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduled / delayed job start (`--begin` and delayed release)**: jobs can now be submitted with a wall-clock start time and stay queued (reason `BeginTime`, Slurm-style) until it arrives, then be released automatically
   - `gbatch --begin <time>` defers job initiation; accepts `HH:MM[:SS]` (next occurrence), `YYYY-MM-DD[THH:MM[:SS]]`, or relative `now+N[s|m|h|d]` (minutes by default); also supported via `# GFLOW --begin=...` script directives
   - `gjob release <id> --at <time>` releases a held job so it starts no earlier than the given time (delayed release)
-  - New `scheduled_at` field on the job model persists across daemon restarts; a begin-time monitor (every 10s, first tick at startup) releases due jobs and immediately triggers a scheduling pass; the Web Dashboard shows a "Starts at" column
+  - New `scheduled_at` field on the job model persists across daemon restarts; a begin-time monitor sleeps precisely until the next start time (no polling, woken early by events) and releases due jobs with an immediate scheduling pass; the Web Dashboard shows a "Starts at" column
 - **`gflowd status` daemon summary**: when the daemon is running, `gflowd status`
   now also prints a daemon summary fetched from `GET /status` — version, PID,
   uptime, job executor backend, and GPU availability (total/available) — on top

@@ -754,10 +754,32 @@ impl Scheduler {
         self.release_job(job_id)
     }
 
+    /// The earliest scheduled begin time among queued jobs that are still
+    /// waiting on their start time (reason `BeginTime`). Returns `None` when
+    /// no job is waiting on a begin time. Used by the daemon's begin-time
+    /// monitor to sleep precisely until the next deadline.
+    pub fn next_scheduled_begin_time(&self) -> Option<SystemTime> {
+        self.job_specs
+            .iter()
+            .zip(self.job_runtimes.iter())
+            .filter_map(|(spec, rt)| {
+                if rt.state != JobState::Queued
+                    || !matches!(
+                        rt.reason.as_deref(),
+                        Some(JobStateReason::WaitingForStartTime)
+                    )
+                {
+                    return None;
+                }
+                spec.scheduled_at
+            })
+            .min()
+    }
+
     /// Enqueue queued jobs whose scheduled begin time (`scheduled_at`) has
-    /// arrived, clearing their BeginTime reason. Called periodically by the
-    /// daemon monitor; also picks up jobs whose begin time passed while the
-    /// daemon was down (on restart the first monitor tick runs immediately).
+    /// arrived, clearing their BeginTime reason. Called by the daemon's
+    /// begin-time monitor; also picks up jobs whose begin time passed while
+    /// the daemon was down (the monitor releases immediately at startup).
     /// Returns the job IDs that were released.
     pub fn release_due_scheduled_jobs(&mut self) -> Vec<u32> {
         let now = SystemTime::now();

@@ -404,6 +404,41 @@ mod tests {
     }
 
     #[test]
+    fn test_next_scheduled_begin_time() {
+        let mut scheduler = create_test_scheduler();
+
+        // No scheduled jobs -> no deadline.
+        assert_eq!(scheduler.next_scheduled_begin_time(), None);
+
+        let late = SystemTime::now() + Duration::from_secs(7200);
+        let early = SystemTime::now() + Duration::from_secs(60);
+        let (late_id, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("test")
+                .run_dir("/tmp")
+                .scheduled_at(late)
+                .build(),
+        );
+        let (early_id, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .submitted_by("test")
+                .run_dir("/tmp")
+                .scheduled_at(early)
+                .build(),
+        );
+
+        // The earliest begin time wins.
+        assert_eq!(scheduler.next_scheduled_begin_time(), Some(early));
+
+        // Jobs no longer waiting on their begin time stop contributing a
+        // deadline (cancelled here; released jobs behave the same way).
+        scheduler.cancel_job(early_id, None);
+        assert_eq!(scheduler.next_scheduled_begin_time(), Some(late));
+        scheduler.cancel_job(late_id, None);
+        assert_eq!(scheduler.next_scheduled_begin_time(), None);
+    }
+
+    #[test]
     fn test_scheduled_at_persists_through_serde_roundtrip() {
         let at = SystemTime::now() + Duration::from_secs(3600);
         let job = JobBuilder::new()
