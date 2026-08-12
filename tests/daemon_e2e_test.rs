@@ -1,5 +1,5 @@
 use gflow::config::{Config, DaemonConfig};
-use gflow::core::job::{JobBuilder, JobState};
+use gflow::core::job::{JobBuilder, JobState, JobStateReason};
 use gflow::tmux::{get_all_session_names, is_session_exist};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -1132,6 +1132,80 @@ async fn process_executor_runs_job_without_tmux() {
         Duration::from_secs(10),
     )
     .await;
+
+    sandbox.stop_daemon();
+}
+
+/// Jobs submitted with a future begin time (`scheduled_at` / `--begin`) must
+/// stay queued with reason BeginTime until the start time arrives, then be
+/// released by the daemon's begin-time monitor and run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scheduled_begin_time_defers_job_start_until_time_arrives() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+
+    // Start ~3s in the future: long enough to prove the job does not start
+    // early; the begin-time monitor fires precisely at the deadline.
+    let begin = std::time::SystemTime::now() + Duration::from_secs(3);
+    let job = JobBuilder::new()
+        .submitted_by("begin-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo began-at-time")
+        .scheduled_at(begin)
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    // Immediately after submission the job is queued and waiting on its begin
+    // time — it must NOT be scheduled before the time arrives.
+    let queued_job = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Queued,
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(matches!(
+        queued_job.reason.as_deref(),
+        Some(JobStateReason::WaitingForStartTime)
+    ));
+
+    // Still queued shortly before the begin time (no early start).
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let still_queued = client.get_job(response.id).await.unwrap().unwrap();
+    assert_eq!(still_queued.state, JobState::Queued);
+    assert!(matches!(
+        still_queued.reason.as_deref(),
+        Some(JobStateReason::WaitingForStartTime)
+    ));
+
+    // Once the begin time arrives the daemon releases the job and it runs.
+    let _running = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Running,
+        Duration::from_secs(35),
+    )
+    .await;
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "began-at-time",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    let finished = wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(finished.state, JobState::Finished);
 
     sandbox.stop_daemon();
 }

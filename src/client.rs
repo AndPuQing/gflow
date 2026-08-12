@@ -351,6 +351,25 @@ impl Client {
         .await
     }
 
+    /// Release a held job back to the queue, deferred until `at` (delayed
+    /// release — the job is queued now but won't start before `at`).
+    pub async fn release_job_at(
+        &self,
+        job_id: u32,
+        at: std::time::SystemTime,
+    ) -> anyhow::Result<()> {
+        tracing::debug!("Releasing job {job_id} at {at:?}");
+        let unix = at
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.post_expect_success(
+            format!("{}/jobs/{}/release?at={}", self.base_url, job_id, unix),
+            "release job",
+        )
+        .await
+    }
+
     pub async fn update_job(
         &self,
         job_id: u32,

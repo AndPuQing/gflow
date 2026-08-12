@@ -107,6 +107,14 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
         sortingFn: "basic",
       },
       {
+        id: "scheduled",
+        accessorFn: (job) => (job.scheduled_at ? (toDate(job.scheduled_at)?.valueOf() ?? 0) : 0),
+        header: "Starts at",
+        cell: ({ row }) =>
+          row.original.scheduled_at ? formatTime(row.original.scheduled_at) : "—",
+        sortingFn: "basic",
+      },
+      {
         id: "actions",
         header: "Logs",
         enableSorting: false,

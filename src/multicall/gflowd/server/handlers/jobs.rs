@@ -1,7 +1,7 @@
 use super::super::state::{reject_if_read_only, ServerState};
 use crate::multicall::gflowd::events::SchedulerEvent;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
@@ -971,19 +971,45 @@ pub(in crate::multicall::gflowd::server) async fn hold_job(
     }
 }
 
+/// Optional query parameters for the release endpoint.
+#[derive(Debug, serde::Deserialize)]
+pub(in crate::multicall::gflowd::server) struct ReleaseQuery {
+    /// Unix seconds (epoch) at which the job should start. When present the
+    /// release is deferred: the job is queued now but is not runnable before
+    /// this time (delayed release, `gjob release --at <time>`).
+    pub at: Option<i64>,
+}
+
 #[axum::debug_handler]
 pub(in crate::multicall::gflowd::server) async fn release_job(
     State(server_state): State<ServerState>,
     Path(id): Path<u32>,
+    Query(query): Query<ReleaseQuery>,
 ) -> Response {
     if let Some(resp) = reject_if_read_only(&server_state).await {
         return resp;
     }
-    tracing::info!(job_id = id, "Releasing job");
+    tracing::info!(job_id = id, at = ?query.at, "Releasing job");
 
     let success = {
         let mut state = server_state.scheduler.write().await;
-        state.release_job(id).await
+        match query.at {
+            Some(unix_secs) if unix_secs >= 0 => {
+                let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix_secs as u64);
+                state.release_job_at(id, at).await
+            }
+            Some(_) => {
+                tracing::error!(job_id = id, "Invalid release time (negative unix seconds)");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "Invalid release time: 'at' must be a non-negative unix timestamp"
+                    })),
+                )
+                    .into_response();
+            }
+            None => state.release_job(id).await,
+        }
     }; // Lock released here
 
     if success {

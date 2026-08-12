@@ -24,8 +24,8 @@ pub async fn handle_commands(
         Commands::Hold { job } => {
             hold::handle_hold(config_path, job).await?;
         }
-        Commands::Release { job } => {
-            release::handle_release(config_path, job).await?;
+        Commands::Release { job, at } => {
+            release::handle_release(config_path, job, at).await?;
         }
         Commands::Update {
             job,

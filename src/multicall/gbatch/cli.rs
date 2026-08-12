@@ -40,6 +40,11 @@ pub struct AddArgs {
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_hint = clap::ValueHint::CommandWithArguments)]
     pub script_or_command: Vec<String>,
 
+    /// Defer job start until this time (scheduled/delayed start).
+    /// Formats: "HH:MM[:SS]", "YYYY-MM-DD[THH:MM[:SS]]", "now+N[s|m|h|d]"
+    #[arg(long, value_hint = clap::ValueHint::Other)]
+    pub begin: Option<String>,
+
     /// The conda environment to use
     #[arg(short, long, value_hint = clap::ValueHint::Other)]
     pub conda_env: Option<String>,
@@ -189,6 +194,21 @@ mod tests {
             args.add_args.script_or_command,
             vec!["script.sh".to_string()]
         );
+    }
+
+    #[test]
+    fn parses_begin_flag() {
+        let args = GBatch::try_parse_from(["gbatch", "--begin", "now+30", "script.sh"])
+            .expect("should parse --begin flag");
+        assert_eq!(args.add_args.begin.as_deref(), Some("now+30"));
+
+        let args = GBatch::try_parse_from(["gbatch", "--begin=2026-01-28T14:00:00", "cmd"])
+            .expect("should parse --begin=...");
+        assert_eq!(args.add_args.begin.as_deref(), Some("2026-01-28T14:00:00"));
+
+        let args = GBatch::try_parse_from(["gbatch", "--begin", "14:00", "cmd"])
+            .expect("should parse --begin HH:MM");
+        assert_eq!(args.add_args.begin.as_deref(), Some("14:00"));
     }
 
     #[test]

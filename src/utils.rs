@@ -15,7 +15,8 @@ use std::time::{Duration, SystemTime};
 // Re-export parser functions for backward compatibility
 pub use parameter_sweep::{generate_param_combinations, parse_param_spec};
 pub use parsers::{
-    parse_gpu_indices, parse_job_ids, parse_memory_limit, parse_since_time, parse_time_limit,
+    parse_begin_time, parse_gpu_indices, parse_job_ids, parse_memory_limit, parse_since_time,
+    parse_time_limit,
 };
 
 /// Trait for types that can provide parameter lookups

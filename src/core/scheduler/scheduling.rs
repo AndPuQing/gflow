@@ -685,7 +685,7 @@ impl Scheduler {
         for job_id in job_ids {
             let dep_rt = self.build_dependency_runtime(job_id);
             self.set_dependency_runtime(job_id, dep_rt);
-            self.sync_queued_dependency_reason(job_id);
+            self.sync_queued_wait_reason(job_id);
             self.enqueue_if_ready(job_id);
         }
     }

@@ -27,6 +27,11 @@ gbatch --project ml-research python train.py
 gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
+# 定时 / 延时启动：任务保持 Queued（原因 "BeginTime"），到点后自动进入调度
+gbatch --begin 22:00 python night-run.py
+gbatch --begin 2026-02-01T08:00:00 python monthly-report.py
+gbatch --begin now+2h python train.py        # 相对时间：默认分钟，支持 s/m/h/d 单位
+
 # 环境
 gbatch --conda-env myenv python script.py
 

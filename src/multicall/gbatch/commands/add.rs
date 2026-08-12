@@ -495,6 +495,13 @@ async fn build_job(
         None
     };
 
+    // Parse scheduled begin time if provided
+    let scheduled_at = if let Some(begin_str) = &args.begin {
+        Some(gflow::utils::parse_begin_time(begin_str)?)
+    } else {
+        None
+    };
+
     // Handle dependencies (mutually exclusive via clap)
     let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
         let ids = parse_dependency_list(deps_all, client).await?;
@@ -564,6 +571,16 @@ async fn build_job(
             None
         };
         builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
+
+        // CLI begin time takes precedence over script begin time
+        let final_scheduled_at = if scheduled_at.is_some() {
+            scheduled_at
+        } else if let Some(script_begin) = &script_args.begin {
+            Some(gflow::utils::parse_begin_time(script_begin)?)
+        } else {
+            None
+        };
+        builder = builder.scheduled_at(final_scheduled_at);
     } else {
         // Determine if it's a script or command
         let is_script =
@@ -613,6 +630,16 @@ async fn build_job(
                 None
             };
             builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
+
+            // CLI begin time takes precedence over script begin time
+            let final_scheduled_at = if scheduled_at.is_some() {
+                scheduled_at
+            } else if let Some(script_begin) = &script_args.begin {
+                Some(gflow::utils::parse_begin_time(script_begin)?)
+            } else {
+                None
+            };
+            builder = builder.scheduled_at(final_scheduled_at);
         } else {
             // Command mode
             let command = args
@@ -635,6 +662,7 @@ async fn build_job(
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
             builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
+            builder = builder.scheduled_at(scheduled_at);
         }
     }
 
@@ -693,6 +721,13 @@ async fn build_job_with_params(
         None
     };
 
+    // Parse scheduled begin time if provided
+    let scheduled_at = if let Some(begin_str) = &args.begin {
+        Some(gflow::utils::parse_begin_time(begin_str)?)
+    } else {
+        None
+    };
+
     // Handle dependencies (mutually exclusive via clap)
     let (depends_on_ids, dependency_mode) = if let Some(ref deps_all) = args.depends_on_all {
         let ids = parse_dependency_list(deps_all, client).await?;
@@ -762,6 +797,16 @@ async fn build_job_with_params(
             None
         };
         builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
+
+        // CLI begin time takes precedence over script begin time
+        let final_scheduled_at = if scheduled_at.is_some() {
+            scheduled_at
+        } else if let Some(script_begin) = &script_args.begin {
+            Some(gflow::utils::parse_begin_time(script_begin)?)
+        } else {
+            None
+        };
+        builder = builder.scheduled_at(final_scheduled_at);
     } else {
         // Determine if it's a script or command
         let is_script =
@@ -811,6 +856,16 @@ async fn build_job_with_params(
                 None
             };
             builder = builder.gpu_memory_limit_mb(final_gpu_memory_limit);
+
+            // CLI begin time takes precedence over script begin time
+            let final_scheduled_at = if scheduled_at.is_some() {
+                scheduled_at
+            } else if let Some(script_begin) = &script_args.begin {
+                Some(gflow::utils::parse_begin_time(script_begin)?)
+            } else {
+                None
+            };
+            builder = builder.scheduled_at(final_scheduled_at);
         } else {
             // Command mode
             let command = args
@@ -833,6 +888,7 @@ async fn build_job_with_params(
             builder = builder.time_limit(time_limit);
             builder = builder.memory_limit_mb(memory_limit_mb);
             builder = builder.gpu_memory_limit_mb(gpu_memory_limit_mb);
+            builder = builder.scheduled_at(scheduled_at);
         }
     }
 
@@ -859,6 +915,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
     if gflow_lines.is_empty() {
         return Ok(cli::AddArgs {
             script_or_command: vec![],
+            begin: None,
             conda_env: None,
             gpus: None,
             shared: false,
@@ -1001,6 +1058,7 @@ mod tests {
     fn resolve_job_notifications_defaults_terminal_events() {
         let args = cli::AddArgs {
             script_or_command: vec!["python".to_string(), "train.py".to_string()],
+            begin: None,
             conda_env: None,
             gpus: None,
             shared: false,

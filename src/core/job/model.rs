@@ -50,6 +50,12 @@ pub struct JobSpec {
     pub dependency_mode: Option<DependencyMode>,
     #[serde(default)]
     pub auto_cancel_on_dependency_failure: bool,
+
+    // Scheduling (cold - checked at enqueue time)
+    // Do-not-start-before time (`--begin`): the job is not scheduled for
+    // execution until this wall-clock time has passed.
+    #[serde(default)]
+    pub scheduled_at: Option<SystemTime>,
 }
 
 impl Default for JobSpec {
@@ -74,6 +80,7 @@ impl Default for JobSpec {
             depends_on_ids: DependencyIds::new(),
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
+            scheduled_at: None,
         }
     }
 }
@@ -233,6 +240,9 @@ pub struct Job {
     #[serde(default)]
     #[serde(skip_serializing_if = "JobNotifications::is_empty")]
     pub notifications: JobNotifications,
+    /// Do-not-start-before time (`--begin`); None means start as soon as possible.
+    #[serde(default)]
+    pub scheduled_at: Option<SystemTime>,
 }
 
 #[derive(Default)]
@@ -263,6 +273,7 @@ pub struct JobBuilder {
     project: Option<CompactString>,
     notifications: Option<JobNotifications>,
     gpu_sharing_mode: Option<GpuSharingMode>,
+    scheduled_at: Option<SystemTime>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
@@ -462,6 +473,12 @@ impl JobBuilder {
         self
     }
 
+    /// Defer scheduling until this wall-clock time (`--begin`).
+    pub fn scheduled_at(mut self, scheduled_at: impl Into<Option<SystemTime>>) -> Self {
+        self.scheduled_at = scheduled_at.into();
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -502,6 +519,7 @@ impl JobBuilder {
             finished_at: None,
             reason: None,
             alive: None,
+            scheduled_at: self.scheduled_at,
         }
     }
 }
@@ -543,6 +561,7 @@ impl Default for Job {
             finished_at: None,
             reason: None,
             alive: None,
+            scheduled_at: None,
         }
     }
 }
@@ -589,6 +608,7 @@ impl Job {
             finished_at: runtime.finished_at,
             reason: runtime.reason,
             alive: None,
+            scheduled_at: spec.scheduled_at,
         }
     }
 
@@ -614,6 +634,7 @@ impl Job {
             depends_on_ids: self.depends_on_ids,
             dependency_mode: self.dependency_mode,
             auto_cancel_on_dependency_failure: self.auto_cancel_on_dependency_failure,
+            scheduled_at: self.scheduled_at,
         };
 
         let runtime = JobRuntime {

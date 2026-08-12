@@ -31,6 +31,10 @@ gjob attach @
 gjob hold 10-12
 gjob release 10,11
 
+# 延时释放：把挂起的任务放回队列，但不早于指定时间开始
+gjob release 12 --at now+1h
+gjob release 12 --at 22:00
+
 # 原地修改排队/暂停任务
 gjob update 42 --gpus 2 --time-limit 4:00:00
 gjob update 42 --max-retries 2
@@ -96,9 +100,14 @@ gjob hold <job_ids>
 
 ```bash
 gjob release <job_ids>
+gjob release <job_ids> --at <time>
 ```
 
 `<job_ids>` 支持单个 ID、逗号分隔列表，以及 `1-3` 这样的区间。
+
+带 `--at <time>` 时任务会立即放回队列，但不会早于指定时间开始（延时释放）：
+任务保持 Queued（原因 `BeginTime`），到点后才可被调度。`--at` 支持
+`HH:MM[:SS]`、`YYYY-MM-DD[THH:MM[:SS]]`，或相对时间 `now+N[s|m|h|d]`（默认分钟）。
 
 ### `gjob show <job_ids>`
 

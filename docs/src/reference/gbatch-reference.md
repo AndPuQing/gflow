@@ -27,6 +27,12 @@ gbatch --project ml-research python train.py
 gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 
+# Scheduled / delayed start: the job stays queued (reason "BeginTime") until
+# this wall-clock time, then is released automatically
+gbatch --begin 22:00 python night-run.py
+gbatch --begin 2026-02-01T08:00:00 python monthly-report.py
+gbatch --begin now+2h python train.py        # relative: minutes by default, or s/m/h/d units
+
 # Environment
 gbatch --conda-env myenv python script.py
 

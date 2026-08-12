@@ -350,6 +350,28 @@ impl SchedulerRuntime {
         result
     }
 
+    /// Release a held job back to the queue, deferred until `at` (delayed
+    /// release). The job is queued immediately but is not runnable before
+    /// the given time.
+    pub async fn release_job_at(&mut self, job_id: u32, at: std::time::SystemTime) -> bool {
+        let result = self.scheduler.release_job_at(job_id, at);
+        if result {
+            self.mark_dirty();
+        }
+        result
+    }
+
+    /// Enqueue queued jobs whose scheduled begin time (`--begin`) has arrived.
+    /// Returns the job IDs that became runnable. Called periodically by the
+    /// begin-time monitor.
+    pub fn release_due_scheduled_jobs(&mut self) -> Vec<u32> {
+        let released = self.scheduler.release_due_scheduled_jobs();
+        if !released.is_empty() {
+            self.mark_dirty();
+        }
+        released
+    }
+
     /// Update max_concurrent for a specific job
     pub fn update_job_max_concurrent(&mut self, job_id: u32, max_concurrent: usize) -> Option<Job> {
         let (_spec, rt) = self.scheduler.get_job_parts_mut(job_id)?;

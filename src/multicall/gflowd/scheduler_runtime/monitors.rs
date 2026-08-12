@@ -232,6 +232,107 @@ async fn finalize_execution_result(
     }
 }
 
+/// Begin-time monitor task - releases queued jobs whose scheduled start time
+/// (`--begin` / `scheduled_at`) has arrived.
+///
+/// Uses a precise timer instead of polling: it sleeps exactly until the
+/// earliest begin time among waiting jobs and is woken early by the event bus
+/// when a new job (with a possibly earlier begin time) is submitted or
+/// released. On startup it releases immediately so jobs whose begin time
+/// passed while the daemon was down are picked up right away.
+pub(super) async fn begin_time_monitor_task(
+    state: SharedState,
+    event_bus: Arc<EventBus>,
+    mut events: tokio::sync::broadcast::Receiver<EventEnvelope>,
+) {
+    // On startup, immediately release any jobs whose begin time already passed
+    // (e.g. the daemon was down across their start time).
+    let released = {
+        let mut state_guard = state.write().await;
+        state_guard.release_due_scheduled_jobs()
+    };
+    if !released.is_empty() {
+        super::event_loop::trigger_scheduling(&state, &event_bus).await;
+    }
+
+    loop {
+        // Compute the next begin-time deadline among waiting jobs.
+        let deadline = {
+            let state_guard = state.read().await;
+            state_guard.scheduler.next_scheduled_begin_time()
+        };
+
+        match deadline {
+            Some(deadline) => {
+                let now = std::time::SystemTime::now();
+                let sleep_duration = deadline
+                    .duration_since(now)
+                    .unwrap_or(Duration::from_secs(0));
+
+                // Wait until the deadline, or until a state change may have
+                // added a job with an earlier begin time.
+                tokio::select! {
+                    _ = tokio::time::sleep(sleep_duration) => {
+                        let released = {
+                            let mut state_guard = state.write().await;
+                            state_guard.release_due_scheduled_jobs()
+                        };
+                        if !released.is_empty() {
+                            tracing::info!(
+                                released = ?released,
+                                "Released scheduled jobs whose begin time arrived"
+                            );
+                            // Run a scheduling pass so the released jobs can
+                            // start immediately (the direct call avoids a fake
+                            // "job submitted" event, which would fire
+                            // webhooks/notifications for submitted jobs).
+                            super::event_loop::trigger_scheduling(&state, &event_bus).await;
+                        }
+                    }
+                    result = events.recv() => {
+                        match result {
+                            Ok(event) => {
+                                let handling_span = event.handling_span("begin_time_monitor");
+                                let _entered = handling_span.enter();
+                                if matches!(event.event, SchedulerEvent::JobSubmitted { .. }) {
+                                    // A new job may have an earlier begin time:
+                                    // recalculate the deadline.
+                                    continue;
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                // Fall through and recompute the deadline.
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                tracing::info!("Event bus closed, begin-time monitor exiting");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                // No job is waiting on a begin time; wait for a new one to be
+                // submitted or released.
+                match events.recv().await {
+                    Ok(event) => {
+                        let handling_span = event.handling_span("begin_time_monitor");
+                        let _entered = handling_span.enter();
+                        if matches!(event.event, SchedulerEvent::JobSubmitted { .. }) {
+                            continue;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("Event bus closed, begin-time monitor exiting");
+                        break;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                }
+            }
+        }
+    }
+}
+
 /// Timeout monitor task - checks time limits every 10s
 pub(super) async fn timeout_monitor_task(state: SharedState, event_bus: Arc<EventBus>) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));

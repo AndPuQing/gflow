@@ -31,6 +31,10 @@ gjob attach @
 gjob hold 10-12
 gjob release 10,11
 
+# Delayed release: release a held job so it starts no earlier than the given time
+gjob release 12 --at now+1h
+gjob release 12 --at 22:00
+
 # Update a queued or held job
 gjob update 42 --gpus 2 --time-limit 4:00:00
 gjob update 42 --max-retries 2
@@ -96,9 +100,15 @@ Alias: `gjob r`
 
 ```bash
 gjob release <job_ids>
+gjob release <job_ids> --at <time>
 ```
 
 `<job_ids>` supports single IDs, comma-separated lists, and ranges such as `1-3`.
+
+With `--at <time>` the job is released immediately but does not start before
+the given time (delayed release): the job is queued with reason `BeginTime`
+and becomes schedulable when the time arrives. `--at` accepts `HH:MM[:SS]`,
+`YYYY-MM-DD[THH:MM[:SS]]`, or relative `now+N[s|m|h|d]` (minutes by default).
 
 ### `gjob show <job_ids>`
 
