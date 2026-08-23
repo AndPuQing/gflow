@@ -71,7 +71,8 @@ pub async fn handle_up(
 /// `gflowd down` / `gflowd status` can manage it safely (no stale pidfile,
 /// no PID-reuse mis-kills).
 fn start_daemon_direct(options: &super::DaemonStartOptions<'_>) -> Result<()> {
-    let exe = std::env::current_exe().context("failed to resolve current gflow binary")?;
+    let exe = crate::multicall::multicall_executable()
+        .context("failed to resolve current gflow binary")?;
     let mut args = super::daemon_start_args(options)?;
     // Internal flag: tells the daemon it is being hosted directly and must
     // hold the daemon flock for its lifetime.
