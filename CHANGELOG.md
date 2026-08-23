@@ -93,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `Timeout` to grouped job state displays
 
 ### Fixed
+- **`gflowd up/restart/reload -c <config>` now passes the config path to the daemon**: the spawned daemon previously ignored `-c` and silently loaded the default config (`$XDG_CONFIG_HOME/gflow/gflow.toml`), so a custom port (or any other custom setting) only applied to the CLI-side health check while the daemon ran on default settings. The daemon start argv (tmux, direct, and systemd hosting) now carries `-c <path>`, keeping CLI and daemon configuration consistent.
 - **`gflowd --help` now shows the `up` / `down` aliases**: `gflowd up` and `gflowd down` already worked as aliases of `start` / `stop`, but were hidden from the help output. They are now advertised inline (`start [aliases: up]`, `stop [aliases: down]`) so the help matches the commands that are actually accepted.
 - **CI: stop using the retired `macos-13` runner label** in the nightly and PyPI release pipelines — the `x86_64-apple-darwin` wheel now builds on the still-supported `macos-15` (Intel) runner instead, so the nightly build no longer blocks waiting on a discontinued macOS 13 image
 - Pattern matching in `gcancel` to handle new `Timeout` state

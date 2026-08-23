@@ -11,7 +11,8 @@ pub async fn handle_reload(
     daemon_overrides: super::super::cli::DaemonOverrideArgs,
     verbosity: Verbosity,
 ) -> Result<()> {
-    let start_options = super::DaemonStartOptions::from_overrides(&daemon_overrides, verbosity);
+    let start_options =
+        super::DaemonStartOptions::from_overrides(config_path, &daemon_overrides, verbosity);
     super::validate_daemon_startup_config(config_path, &start_options)?;
 
     // Load config to get daemon URL

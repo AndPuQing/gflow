@@ -135,6 +135,9 @@ struct TestSandbox {
     /// Whether the tmux global environment was seeded for the job executor.
     tmux_seeded: bool,
     daemon_child: Option<std::process::Child>,
+    /// Path of the daemon config when it lives outside the default location
+    /// (drives `gflowd up -c <path>`); `None` for the default-location setup.
+    custom_config_path: Option<PathBuf>,
 }
 
 /// Constructor options for a test sandbox.
@@ -143,6 +146,11 @@ struct SandboxOpts {
     tmux_hosted: bool,
     /// Job executor configured in gflow.toml.
     executor: &'static str,
+    /// Write the daemon config to a non-default path and start the daemon via
+    /// `gflowd up -c <path>` instead of relying on the XDG_CONFIG_HOME default
+    /// location. The default-location config then carries a different port, so
+    /// a daemon that ignores `-c` becomes observable (wrong port bound).
+    custom_config: bool,
 }
 
 impl TestSandbox {
@@ -153,6 +161,7 @@ impl TestSandbox {
         Self::with_opts(SandboxOpts {
             tmux_hosted: true,
             executor: "process",
+            custom_config: false,
         })
     }
 
@@ -161,6 +170,7 @@ impl TestSandbox {
         Self::with_opts(SandboxOpts {
             tmux_hosted: true,
             executor,
+            custom_config: false,
         })
     }
 
@@ -170,6 +180,7 @@ impl TestSandbox {
         Self::with_opts(SandboxOpts {
             tmux_hosted: false,
             executor,
+            custom_config: false,
         })
     }
 
@@ -205,11 +216,29 @@ impl TestSandbox {
         std::fs::create_dir_all(data_home.join("gflow")).unwrap();
 
         let port = pick_unused_port();
-        let config = format!(
+        let daemon_config = format!(
             "[daemon]\nhost = \"127.0.0.1\"\nport = {port}\n\n[executor]\ntype = \"{}\"\n",
             opts.executor
         );
-        std::fs::write(config_home.join("gflow/gflow.toml"), config).unwrap();
+        let custom_config_path = if opts.custom_config {
+            // Default-location config carries a different port: a daemon that
+            // ignores `-c` would bind this one instead of the requested one.
+            let default_port = pick_unused_port();
+            let default_config = format!(
+                "[daemon]\nhost = \"127.0.0.1\"\nport = {default_port}\n\n[executor]\ntype = \"{}\"\n",
+                opts.executor
+            );
+            std::fs::write(config_home.join("gflow/gflow.toml"), default_config).unwrap();
+
+            let custom_dir = root.join("custom");
+            std::fs::create_dir_all(&custom_dir).unwrap();
+            let custom_path = custom_dir.join("gflow.toml");
+            std::fs::write(&custom_path, daemon_config).unwrap();
+            Some(custom_path)
+        } else {
+            std::fs::write(config_home.join("gflow/gflow.toml"), daemon_config).unwrap();
+            None
+        };
 
         let mut sandbox = Self {
             _guard: guard,
@@ -233,6 +262,7 @@ impl TestSandbox {
             direct_daemon: !opts.tmux_hosted,
             tmux_seeded: false,
             daemon_child: None,
+            custom_config_path,
         };
 
         // The tmux job executor needs the tmux server's global environment to
@@ -340,6 +370,9 @@ impl TestSandbox {
     fn start_daemon(&mut self) {
         if self.direct_daemon {
             self.start_daemon_direct();
+        } else if let Some(config_path) = &self.custom_config_path {
+            let result = self.run_gflow(["gflowd", "up", "-c", config_path.to_str().unwrap()]);
+            result.assert_success("gflowd up -c <config>");
         } else {
             let result = self.run_gflow(["gflowd", "up"]);
             result.assert_success("gflowd up");
@@ -608,6 +641,47 @@ async fn daemon_lifecycle_reload_and_health_endpoint() {
     let status = sandbox.run_gflow(["gflowd", "status"]);
     status.assert_success("gflowd status after down");
     assert!(status.stdout.contains("Status: Not running"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gflowd_up_with_custom_config_passes_config_path_to_daemon() {
+    // Regression for W-386: `gflowd up -c <config>` must hand the config path
+    // to the spawned daemon. The sandbox's default-location config carries a
+    // different port, so a daemon silently loading the default config would
+    // bind the wrong port and the health check below would fail.
+    let Some(mut sandbox) = TestSandbox::with_opts(SandboxOpts {
+        tmux_hosted: true,
+        executor: "process",
+        custom_config: true,
+    }) else {
+        return;
+    };
+    let custom_config = sandbox
+        .custom_config_path
+        .clone()
+        .expect("custom_config sandbox must record the custom config path");
+
+    sandbox.start_daemon();
+
+    // The daemon must serve on the custom config's port.
+    let health =
+        wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+    assert_eq!(health["status"], "ok");
+
+    // And the spawned daemon's command line must carry `-c <config>`.
+    let pid = health["pid"].as_u64().unwrap() as u32;
+    let ps = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .expect("ps should succeed");
+    let cmdline = String::from_utf8_lossy(&ps.stdout).into_owned();
+    assert!(
+        cmdline.contains("__multicall gflowd")
+            && cmdline.contains(&format!("-c {}", custom_config.display())),
+        "daemon command line should include the custom config path, got: {cmdline}"
+    );
+
+    sandbox.stop_daemon();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

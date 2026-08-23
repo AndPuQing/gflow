@@ -15,6 +15,9 @@ pub static TMUX_SESSION_NAME: &str = "gflow_server";
 
 #[derive(Debug, Clone)]
 pub struct DaemonStartOptions<'a> {
+    /// Configuration file passed through to the daemon (`-c <path>`), so the
+    /// spawned daemon loads the same config the CLI validated against.
+    pub config_path: Option<&'a std::path::Path>,
     pub gpus: Option<&'a str>,
     pub gpu_allocation_strategy: Option<&'a str>,
     pub gpu_poll_interval_secs: Option<u64>,
@@ -22,8 +25,13 @@ pub struct DaemonStartOptions<'a> {
 }
 
 impl<'a> DaemonStartOptions<'a> {
-    fn from_overrides(overrides: &'a super::cli::DaemonOverrideArgs, verbosity: Verbosity) -> Self {
+    fn from_overrides(
+        config_path: &'a Option<std::path::PathBuf>,
+        overrides: &'a super::cli::DaemonOverrideArgs,
+        verbosity: Verbosity,
+    ) -> Self {
         Self {
+            config_path: config_path.as_deref(),
             gpus: overrides.gpus.as_deref(),
             gpu_allocation_strategy: overrides.gpu_allocation_strategy.as_deref(),
             gpu_poll_interval_secs: overrides.gpu_poll_interval_secs,
@@ -51,9 +59,16 @@ pub fn validate_daemon_startup_config(
 }
 
 /// Build argv for the daemon process (used both by the tmux-hosted shell
-/// command and by the direct (no-tmux) spawn).
+/// command and by the direct (no-tmux) spawn). The `-c <config>` from the
+/// launching CLI is passed through so the daemon loads the same config file
+/// the CLI validated against.
 pub fn daemon_start_args(options: &DaemonStartOptions<'_>) -> Result<Vec<String>> {
     let mut args = vec!["__multicall".to_string(), "gflowd".to_string()];
+
+    if let Some(config_path) = options.config_path {
+        args.push("-c".to_string());
+        args.push(config_path.to_string_lossy().into_owned());
+    }
 
     if options.verbosity.is_present() {
         if let Some(flag) = daemon_verbosity_flag(options.verbosity) {
@@ -187,6 +202,7 @@ mod tests {
     #[test]
     fn daemon_start_command_keeps_existing_default_verbosity() {
         let command = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: None,
@@ -199,6 +215,7 @@ mod tests {
     #[test]
     fn daemon_start_command_passes_explicit_verbosity_to_daemon() {
         let warn_command = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: None,
@@ -209,6 +226,7 @@ mod tests {
         assert!(!warn_command.contains("__multicall gflowd -vvv"));
 
         let silent_command = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: None,
@@ -218,6 +236,7 @@ mod tests {
         assert!(silent_command.contains("__multicall gflowd -q"));
 
         let trace_command = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: None,
@@ -230,6 +249,7 @@ mod tests {
     #[test]
     fn daemon_start_command_passes_gpu_poll_interval_override() {
         let command = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: Some(3),
@@ -242,6 +262,7 @@ mod tests {
     #[test]
     fn daemon_start_command_rejects_zero_gpu_poll_interval() {
         let error = daemon_start_command(&DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: Some(0),
@@ -269,6 +290,7 @@ gpu_poll_interval_secs = 0
         let error = validate_daemon_startup_config(
             &Some(path),
             &DaemonStartOptions {
+                config_path: None,
                 gpus: None,
                 gpu_allocation_strategy: None,
                 gpu_poll_interval_secs: None,
@@ -279,5 +301,33 @@ gpu_poll_interval_secs = 0
         assert!(error
             .to_string()
             .contains("Use a value of at least 1 second"));
+    }
+
+    #[test]
+    fn daemon_start_command_passes_config_path_to_daemon() {
+        let command = daemon_start_command(&DaemonStartOptions {
+            config_path: Some(std::path::Path::new("/tmp/custom gflow.toml")),
+            gpus: None,
+            gpu_allocation_strategy: None,
+            gpu_poll_interval_secs: None,
+            verbosity: Verbosity::new(0, 0),
+        })
+        .unwrap();
+        assert!(command.contains("__multicall gflowd -c '/tmp/custom gflow.toml'"));
+    }
+
+    #[test]
+    fn daemon_start_args_omit_config_flag_when_no_config_path() {
+        let args = daemon_start_args(&DaemonStartOptions {
+            config_path: None,
+            gpus: None,
+            gpu_allocation_strategy: None,
+            gpu_poll_interval_secs: None,
+            verbosity: Verbosity::new(0, 0),
+        })
+        .unwrap();
+        assert_eq!(args[0], "__multicall");
+        assert_eq!(args[1], "gflowd");
+        assert!(!args.iter().any(|arg| arg == "-c"));
     }
 }

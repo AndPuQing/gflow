@@ -35,6 +35,11 @@ ginfo --config <path>
 gbatch --config <path> --gpus 1 python train.py
 ```
 
+Starting the daemon with a custom config (`gflowd up -c <path>`, `restart`,
+`reload`, or `service install`) passes the path through to the daemon itself,
+so the daemon serves from the same config file the CLI validated against —
+including a custom `host`/`port`.
+
 ## Daemon Settings
 
 ### Host and Port

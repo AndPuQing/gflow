@@ -35,6 +35,10 @@ ginfo --config <path>
 gbatch --config <path> --gpus 1 python train.py
 ```
 
+用自定义配置启动 daemon 时（`gflowd up -c <path>`、`restart`、`reload`、
+`service install`），配置路径会原样传给 daemon 自身，daemon 与 CLI 校验的是
+同一个配置文件——包括自定义的 `host`/`port` 都会生效。
+
 ## 守护进程配置
 
 ### 主机和端口
