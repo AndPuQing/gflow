@@ -45,7 +45,8 @@ pub async fn handle_up(
         }
     }
 
-    let start_options = super::DaemonStartOptions::from_overrides(&daemon_overrides, verbosity);
+    let start_options =
+        super::DaemonStartOptions::from_overrides(config_path, &daemon_overrides, verbosity);
     super::validate_daemon_startup_config(config_path, &start_options)?;
 
     if gflow::tmux::tmux_available() {

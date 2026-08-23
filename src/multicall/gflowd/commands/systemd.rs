@@ -83,18 +83,12 @@ pub fn stop() -> Result<()> {
     systemctl(&["stop", SYSTEMD_UNIT]).map(|_| ())
 }
 
-/// Build the `ExecStart` line for the unit, reusing the daemon start args and
-/// always pointing at the currently running `gflow` binary.
-fn unit_exec_start(
-    config_path: &Option<std::path::PathBuf>,
-    options: &DaemonStartOptions<'_>,
-) -> Result<String> {
+/// Build the `ExecStart` line for the unit, reusing the daemon start args
+/// (including `-c <config>`) and always pointing at the currently running
+/// `gflow` binary.
+fn unit_exec_start(options: &DaemonStartOptions<'_>) -> Result<String> {
     let exe = std::env::current_exe().context("failed to resolve current gflow binary")?;
     let mut parts: Vec<String> = vec![shell_escape::escape(exe.to_string_lossy()).into_owned()];
-    if let Some(cfg) = config_path {
-        parts.push("-c".to_string());
-        parts.push(shell_escape::escape(cfg.to_string_lossy()).into_owned());
-    }
     for arg in super::daemon_start_args(options)? {
         parts.push(shell_escape::escape(arg.into()).into_owned());
     }
@@ -133,11 +127,14 @@ pub async fn handle_service(
                      run `gflowd start` to start it."
                 );
             }
-            let start_options =
-                super::DaemonStartOptions::from_overrides(&args.daemon_overrides, verbosity);
+            let start_options = super::DaemonStartOptions::from_overrides(
+                config_path,
+                &args.daemon_overrides,
+                verbosity,
+            );
             super::validate_daemon_startup_config(config_path, &start_options)?;
 
-            let exec_start = unit_exec_start(config_path, &start_options)?;
+            let exec_start = unit_exec_start(&start_options)?;
             let path = systemd_unit_path()?;
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
@@ -189,17 +186,30 @@ mod tests {
     #[test]
     fn unit_exec_start_reuses_daemon_start_command() {
         // Ensure the unit's ExecStart matches the tmux/direct daemon command
-        // token-for-token (plus an optional `-c <config>`), so the hosting
-        // layer is transparent to the user.
+        // token-for-token, so the hosting layer is transparent to the user.
         let options = DaemonStartOptions {
+            config_path: None,
             gpus: None,
             gpu_allocation_strategy: None,
             gpu_poll_interval_secs: None,
             verbosity: Verbosity::new(0, 0),
         };
-        let exec_start = super::unit_exec_start(&None, &options).unwrap();
+        let exec_start = super::unit_exec_start(&options).unwrap();
         let daemon_cmd = super::super::daemon_start_command(&options).unwrap();
+        assert_eq!(exec_start, daemon_cmd);
         assert!(exec_start.contains("__multicall gflowd -vvv"));
-        assert!(daemon_cmd.contains("__multicall gflowd -vvv"));
+    }
+
+    #[test]
+    fn unit_exec_start_passes_config_path() {
+        let options = DaemonStartOptions {
+            config_path: Some(std::path::Path::new("/srv/gflow/custom.toml")),
+            gpus: None,
+            gpu_allocation_strategy: None,
+            gpu_poll_interval_secs: None,
+            verbosity: Verbosity::new(0, 0),
+        };
+        let exec_start = super::unit_exec_start(&options).unwrap();
+        assert!(exec_start.contains("__multicall gflowd -c /srv/gflow/custom.toml"));
     }
 }
