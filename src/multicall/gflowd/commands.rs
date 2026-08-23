@@ -114,8 +114,8 @@ pub fn daemon_start_args(options: &DaemonStartOptions<'_>) -> Result<Vec<String>
 /// `gflow`/`gflowd` from PATH, and works from debug `target/` builds where the
 /// wrapper dispatches in-process and `current_exe()` is the wrapper itself.
 pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> {
-    let gflow_path =
-        crate::multicall::multicall_executable().context("failed to resolve current gflow binary")?;
+    let gflow_path = crate::multicall::multicall_executable()
+        .context("failed to resolve current gflow binary")?;
     let exe = shell_escape::escape(gflow_path.to_string_lossy());
 
     let mut command = format!("{exe}");

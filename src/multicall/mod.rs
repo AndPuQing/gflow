@@ -108,6 +108,9 @@ mod tests {
     #[test]
     fn prefer_sibling_gflow_handles_missing_parent() {
         // A bare filename (no parent) must fall back to itself, not panic.
-        assert_eq!(prefer_sibling_gflow(Path::new(bin_name("gflowd").as_str())), PathBuf::from(bin_name("gflowd")));
+        assert_eq!(
+            prefer_sibling_gflow(Path::new(bin_name("gflowd").as_str())),
+            PathBuf::from(bin_name("gflowd"))
+        );
     }
 }
