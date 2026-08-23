@@ -108,10 +108,14 @@ pub fn daemon_start_args(options: &DaemonStartOptions<'_>) -> Result<Vec<String>
     Ok(args)
 }
 
-/// Build a shell command that always starts daemon from the currently running `gflow` binary.
-/// This avoids accidentally picking a stale `gflow`/`gflowd` from PATH.
+/// Build a shell command that always starts daemon from the `gflow` multicall
+/// binary (preferring a sibling `gflow` next to the currently running binary,
+/// falling back to it). This avoids accidentally picking a stale
+/// `gflow`/`gflowd` from PATH, and works from debug `target/` builds where the
+/// wrapper dispatches in-process and `current_exe()` is the wrapper itself.
 pub fn daemon_start_command(options: &DaemonStartOptions<'_>) -> Result<String> {
-    let gflow_path = std::env::current_exe().context("failed to resolve current gflow binary")?;
+    let gflow_path =
+        crate::multicall::multicall_executable().context("failed to resolve current gflow binary")?;
     let exe = shell_escape::escape(gflow_path.to_string_lossy());
 
     let mut command = format!("{exe}");

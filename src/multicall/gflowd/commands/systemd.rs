@@ -87,7 +87,8 @@ pub fn stop() -> Result<()> {
 /// (including `-c <config>`) and always pointing at the currently running
 /// `gflow` binary.
 fn unit_exec_start(options: &DaemonStartOptions<'_>) -> Result<String> {
-    let exe = std::env::current_exe().context("failed to resolve current gflow binary")?;
+    let exe = crate::multicall::multicall_executable()
+        .context("failed to resolve current gflow binary")?;
     let mut parts: Vec<String> = vec![shell_escape::escape(exe.to_string_lossy()).into_owned()];
     for arg in super::daemon_start_args(options)? {
         parts.push(shell_escape::escape(arg.into()).into_owned());
