@@ -51,6 +51,7 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `NODELIST(REASON)`（运行中：GPU 索引；排队/暂停/已取消：原因）
 - `USER`
 - `PROJECT`
+- `COMMAND`（作业运行的内容：命令提交显示存储的命令，脚本提交显示脚本路径——两者同时存在时 script 优先，与执行器一致；都没有则显示 `-`）
 
 `gqueue -t` 示例输出：
 

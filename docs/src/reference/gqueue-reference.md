@@ -51,6 +51,7 @@ Supported fields for `-f/--format`:
 - `NODELIST(REASON)` (running: GPU indices; queued/hold/cancelled: reason)
 - `USER`
 - `PROJECT`
+- `COMMAND` (what the job runs: the stored command for command submissions, the script path for script submissions — script wins when both are present, matching the executors; `-` when neither)
 
 Example `gqueue -t` output:
 

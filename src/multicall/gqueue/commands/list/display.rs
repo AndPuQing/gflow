@@ -210,6 +210,18 @@ pub(super) fn format_job_cell(
             .project
             .as_ref()
             .map_or_else(|| "-".to_string(), |p| p.to_string()),
+        // What the job runs: script jobs execute `bash <script>`; command jobs
+        // run the stored command. Script wins when both are present — matches
+        // both executors (ProcessExecutor / TmuxExecutor).
+        "COMMAND" => {
+            if let Some(script) = &job.script {
+                script.display().to_string()
+            } else if let Some(command) = &job.command {
+                command.to_string()
+            } else {
+                "-".to_string()
+            }
+        }
         _ => String::new(),
     }
 }
@@ -310,5 +322,62 @@ mod tests {
             ExecutorDisplay::ProcessLiveness,
         );
         assert_eq!(name, "gjob-3", "no hint -> no indicator");
+    }
+
+    #[test]
+    fn command_field_prefers_script_then_command_then_dash() {
+        let sessions = HashSet::new();
+
+        // Command job shows the stored command.
+        let mut cmd_job = running_job("cmd");
+        cmd_job.command = Some("python train.py --lr 0.001".into());
+        assert_eq!(
+            format_job_cell(
+                &cmd_job,
+                "COMMAND",
+                &sessions,
+                ExecutorDisplay::ProcessLiveness
+            ),
+            "python train.py --lr 0.001"
+        );
+
+        // Script job shows the script path.
+        let mut script_job = running_job("script");
+        script_job.script = Some(Box::new(PathBuf::from("/home/u/train.sh")));
+        assert_eq!(
+            format_job_cell(
+                &script_job,
+                "COMMAND",
+                &sessions,
+                ExecutorDisplay::ProcessLiveness
+            ),
+            "/home/u/train.sh"
+        );
+
+        // Both present: script wins (matches the executors).
+        let mut both = running_job("both");
+        both.script = Some(Box::new(PathBuf::from("/home/u/run.sh")));
+        both.command = Some("python train.py".into());
+        assert_eq!(
+            format_job_cell(
+                &both,
+                "COMMAND",
+                &sessions,
+                ExecutorDisplay::ProcessLiveness
+            ),
+            "/home/u/run.sh"
+        );
+
+        // Neither: dash.
+        let none = running_job("none");
+        assert_eq!(
+            format_job_cell(
+                &none,
+                "COMMAND",
+                &sessions,
+                ExecutorDisplay::ProcessLiveness
+            ),
+            "-"
+        );
     }
 }
