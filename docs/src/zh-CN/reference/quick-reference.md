@@ -26,6 +26,7 @@ gqueue -P ml-research  # 按项目筛选
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
+gqueue -a -f JOBID,NAME,ST,COMMAND
 
 # 依赖树
 gqueue -t

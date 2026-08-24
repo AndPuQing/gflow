@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`COMMAND` field for `gqueue -f`**: `gqueue -a -f JOBID,NAME,ST,COMMAND` now shows what each job runs — the stored command for command submissions, the script path for script submissions (script wins when both are present, matching the executors; `-` when neither). Optional field; default output unchanged (#192).
 - **Scheduled / delayed job start (`--begin` and delayed release)**: jobs can now be submitted with a wall-clock start time and stay queued (reason `BeginTime`, Slurm-style) until it arrives, then be released automatically
   - `gbatch --begin <time>` defers job initiation; accepts `HH:MM[:SS]` (next occurrence), `YYYY-MM-DD[THH:MM[:SS]]`, or relative `now+N[s|m|h|d]` (minutes by default); also supported via `# GFLOW --begin=...` script directives
   - `gjob release <id> --at <time>` releases a held job so it starts no earlier than the given time (delayed release)

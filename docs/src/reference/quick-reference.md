@@ -26,6 +26,7 @@ gqueue -P ml-research  # filter by project
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
+gqueue -a -f JOBID,NAME,ST,COMMAND
 
 # Dependency tree
 gqueue -t
