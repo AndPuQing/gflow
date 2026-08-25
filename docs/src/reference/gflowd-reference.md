@@ -116,7 +116,7 @@ Example when hosted as a systemd user service:
 ```text
 Status: Running
 Hosting: systemd user service (gflowd.service).
-Version:   0.4.17
+Version:   0.4.18
 PID:       3628801
 Uptime:    25h57m21s
 Executor:  tmux

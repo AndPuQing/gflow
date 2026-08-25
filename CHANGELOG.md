@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.18] - 2026-08-25
+
 ### Added
+- **Real-time web dashboard + job log viewer**: the dashboard now refreshes
+  live over a Server-Sent Events stream (`GET /events`) instead of requiring
+  manual reloads, with automatic fallback to polling when the stream is
+  unavailable and a Live/Polling/Connecting status badge. Each job has a Logs
+  action that opens a dialog tailing its captured output (`GET
+  /jobs/{id}/log/content`) with ANSI stripping and follow-on scrolling (#176).
 - **`COMMAND` field for `gqueue -f`**: `gqueue -a -f JOBID,NAME,ST,COMMAND` now shows what each job runs — the stored command for command submissions, the script path for script submissions (script wins when both are present, matching the executors; `-` when neither). Optional field; default output unchanged (#192).
 - **Scheduled / delayed job start (`--begin` and delayed release)**: jobs can now be submitted with a wall-clock start time and stay queued (reason `BeginTime`, Slurm-style) until it arrives, then be released automatically
   - `gbatch --begin <time>` defers job initiation; accepts `HH:MM[:SS]` (next occurrence), `YYYY-MM-DD[THH:MM[:SS]]`, or relative `now+N[s|m|h|d]` (minutes by default); also supported via `# GFLOW --begin=...` script directives
@@ -25,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `[executor] type = "process" | "tmux"` config; `tmux` is the default, the process executor is opt-in and not yet considered stable (`gjob attach` / `gjob close-sessions` keep working in tmux mode)
   - Cancellation SIGTERMs the whole process group and escalates to SIGKILL after a grace period; zombie detection uses real process liveness instead of tmux-session existence
   - `generate_wrapped_command` key-escaping (`\`, `"`, `$`, backtick) is only kept for tmux mode; the process path spawns `bash -c` directly
+  - Running jobs are recovered across daemon restarts: the daemon rebuilds the executor state from the journal and re-links surviving process groups
   - `gflowd up` falls back to hosting the daemon as a detached process (pidfile-tracked) when tmux is unavailable; `gflowd down` / `gflowd status` handle both modes
   - `gqueue`'s job-name liveness indicator is executor-aware: tmux mode keeps the session-alive ○, process mode shows ○ from a daemon-reported per-job liveness hint (new `alive` field on the jobs API; daemon `/info` advertises the executor backend)
 - **Per-User / Per-Project Resource Quotas**: cap how much of a shared machine one user or project can occupy
@@ -92,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Time limits displayed in standardized `HH:MM:SS` or `D-HH:MM:SS` format
   - "UNLIMITED" displayed for jobs without time limits
   - Added `Timeout` to grouped job state displays
+
+- Upgraded the MCP server to rmcp v3 while keeping the existing gflow tool
+  names, inputs, and output schemas unchanged, and upgraded `astral-sh/setup-uv`
+  to v10 and TypeScript to v7.
 
 ### Fixed
 - **`gflowd up/restart/reload -c <config>` now passes the config path to the daemon**: the spawned daemon previously ignored `-c` and silently loaded the default config (`$XDG_CONFIG_HOME/gflow/gflow.toml`), so a custom port (or any other custom setting) only applied to the CLI-side health check while the daemon ran on default settings. The daemon start argv (tmux, direct, and systemd hosting) now carries `-c <path>`, keeping CLI and daemon configuration consistent.
