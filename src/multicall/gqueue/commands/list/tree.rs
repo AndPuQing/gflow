@@ -1,6 +1,9 @@
-use super::display::{format_job_cell, ExecutorDisplay};
+use super::display::{
+    finish_table_with, format_job_cell, parse_field_specs, terminal_max_width, ExecutorDisplay,
+    FieldSpec,
+};
 use std::collections::{HashMap, HashSet};
-use tabled::{builder::Builder, settings::style::Style};
+use tabled::builder::Builder;
 
 const TREE_BRANCH: &str = "├─";
 const TREE_EDGE: &str = "╰─";
@@ -30,7 +33,7 @@ pub(super) enum JobNodeChild {
 
 /// Context for rendering jobs with formatting and session information
 struct RenderContext<'a> {
-    headers: &'a [&'a str],
+    specs: &'a [FieldSpec],
     tmux_sessions: &'a HashSet<String>,
     executor: ExecutorDisplay,
 }
@@ -235,7 +238,7 @@ pub(super) fn display_jobs_tree(
     let format = format
         .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
         .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
+    let specs = parse_field_specs(&format);
 
     // Build dependency tree
     let tree = build_dependency_tree(jobs);
@@ -244,11 +247,11 @@ pub(super) fn display_jobs_tree(
     let mut builder = Builder::default();
 
     // Add header row
-    builder.push_record(headers.clone());
+    builder.push_record(specs.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
 
     // Create render context
     let ctx = RenderContext {
-        headers: &headers,
+        specs: &specs,
         tmux_sessions,
         executor,
     };
@@ -267,7 +270,7 @@ pub(super) fn display_jobs_tree(
     }
 
     let mut table = builder.build();
-    table.with(Style::blank());
+    finish_table_with(&mut table, &specs, terminal_max_width());
 
     println!("{}", table);
 }
@@ -303,15 +306,15 @@ fn collect_tree_rows(
 
     // Build the row
     let row: Vec<String> = ctx
-        .headers
+        .specs
         .iter()
         .enumerate()
-        .map(|(idx, header)| {
-            if *header == "JOBID" && idx == 0 {
+        .map(|(idx, spec)| {
+            if spec.name == "JOBID" && idx == 0 {
                 // Add tree prefix to JOBID column
                 format!("{}{}{}", prefix, tree_prefix, job.id)
             } else {
-                format_job_cell(job, header, ctx.tmux_sessions, ctx.executor)
+                format_job_cell(job, &spec.name, ctx.tmux_sessions, ctx.executor)
             }
         })
         .collect();
@@ -366,11 +369,11 @@ fn collect_tree_rows(
                 let reference_text = format!("{}{}→ see job {}", child_prefix, tree_prefix, job_id);
 
                 let row: Vec<String> = ctx
-                    .headers
+                    .specs
                     .iter()
                     .enumerate()
-                    .map(|(idx, header)| {
-                        if *header == "JOBID" && idx == 0 {
+                    .map(|(idx, spec)| {
+                        if spec.name == "JOBID" && idx == 0 {
                             reference_text.clone()
                         } else {
                             // Use "-" for other columns to maintain table structure

@@ -113,7 +113,7 @@ pub struct ListArgs {
     #[arg(
         long,
         short = 'f',
-        help = "Specify a comma-separated list of fields to display",
+        help = "Specify a comma-separated list of fields to display (each field accepts an optional ':WIDTH' suffix to cap its width, e.g. 'COMMAND:60'; ':0' or ':full' shows the field in full)",
         value_hint = clap::ValueHint::Other
     )]
     pub format: Option<String>,

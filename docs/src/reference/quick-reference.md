@@ -26,7 +26,8 @@ gqueue -P ml-research  # filter by project
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
-gqueue -a -f JOBID,NAME,ST,COMMAND
+gqueue -a -f JOBID,NAME,ST,COMMAND   # COMMAND truncated to fit terminal; pipe for full text
+gqueue -f JOBID,COMMAND:60           # cap any field's width (:0 = no truncation)
 
 # Dependency tree
 gqueue -t

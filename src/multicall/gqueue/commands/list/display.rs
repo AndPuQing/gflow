@@ -1,7 +1,12 @@
 use gflow::core::job::{GpuIds, JobState};
 use owo_colors::OwoColorize;
 use std::collections::HashSet;
-use tabled::{builder::Builder, settings::style::Style};
+use std::io::IsTerminal;
+use tabled::{
+    builder::Builder,
+    settings::{object::Columns, peaker::PriorityMax, style::Style, width::Width, Modify},
+    Table,
+};
 
 /// How the job-name liveness indicator should be rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +17,98 @@ pub(super) enum ExecutorDisplay {
     /// Process executor: show a green ○ when the daemon reports the process
     /// alive; no indicator otherwise.
     ProcessLiveness,
+}
+
+/// A parsed `-f/--format` token: a field name plus an optional explicit
+/// column width (e.g. `COMMAND`, `COMMAND:60`, `COMMAND:0`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FieldSpec {
+    pub(super) name: String,
+    /// Explicitly requested max content width. `Some(0)` means unlimited;
+    /// `None` means the user gave no width for this field.
+    pub(super) width: Option<usize>,
+}
+
+impl FieldSpec {
+    fn has_explicit_width(&self) -> bool {
+        self.width.is_some()
+    }
+}
+
+/// Parses a `-f/--format` value into field specs.
+///
+/// Each comma-separated token is a field name optionally followed by
+/// `:WIDTH`, where `WIDTH` is a non-negative integer (`0` = unlimited,
+/// `full` is accepted as an alias). An invalid width is ignored and the
+/// token is treated as a plain field name, matching the lenient handling of
+/// unknown fields.
+pub(super) fn parse_field_specs(format: &str) -> Vec<FieldSpec> {
+    format
+        .split(',')
+        .map(|token| match token.split_once(':') {
+            Some((name, width)) => {
+                let normalized = width.trim().to_ascii_lowercase();
+                let width = if normalized == "full" {
+                    Some(0)
+                } else {
+                    normalized.parse::<usize>().ok()
+                };
+                FieldSpec {
+                    name: name.trim().to_string(),
+                    width,
+                }
+            }
+            None => FieldSpec {
+                name: token.trim().to_string(),
+                width: None,
+            },
+        })
+        .collect()
+}
+
+/// Width (in columns) of the terminal stdout is attached to, when stdout is a
+/// TTY. Returns `None` when stdout is redirected (pipe/file) or the size can't
+/// be determined — in that case tables must not be truncated, so that piping
+/// `gqueue` or redirecting it to a file keeps the full content.
+pub(super) fn terminal_max_width() -> Option<usize> {
+    if !std::io::stdout().is_terminal() {
+        return None;
+    }
+    terminal_size::terminal_size().map(|(width, _)| width.0 as usize)
+}
+
+/// Applies styling and width handling to a built table.
+///
+/// - Explicit `FIELD:WIDTH` caps from the format string are enforced per
+///   column with a `…` suffix; `FIELD:0` leaves that column untouched.
+/// - When any explicit width is given, the automatic terminal-width fitting
+///   is skipped — the caller takes manual control of the widths.
+/// - Otherwise, with `Some(max)` from a TTY stdout, the table is truncated so
+///   its total width never exceeds `max`. The widest columns are cut first
+///   (`PriorityMax`), so a long `COMMAND` column gets trimmed while short
+///   columns like `JOBID`/`ST` stay intact.
+pub(super) fn finish_table_with(table: &mut Table, specs: &[FieldSpec], term_width: Option<usize>) {
+    table.with(Style::blank());
+
+    let has_explicit_width = specs.iter().any(FieldSpec::has_explicit_width);
+    for (idx, spec) in specs.iter().enumerate() {
+        match spec.width {
+            None | Some(0) => {}
+            Some(w) => {
+                table.with(Modify::new(Columns::one(idx)).with(Width::truncate(w).suffix("…")));
+            }
+        }
+    }
+
+    if !has_explicit_width {
+        if let Some(max) = term_width {
+            table.with(
+                Width::truncate(max)
+                    .priority(PriorityMax::right())
+                    .suffix("…"),
+            );
+        }
+    }
 }
 
 pub(super) fn display_jobs_table(
@@ -28,25 +125,25 @@ pub(super) fn display_jobs_table(
     let format = format
         .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
         .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
+    let specs = parse_field_specs(&format);
 
     // Build table using tabled Builder
     let mut builder = Builder::default();
 
     // Add header row
-    builder.push_record(headers.clone());
+    builder.push_record(specs.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
 
     // Add data rows
     for job in jobs {
-        let row: Vec<String> = headers
+        let row: Vec<String> = specs
             .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions, executor))
+            .map(|spec| format_job_cell(job, &spec.name, tmux_sessions, executor))
             .collect();
         builder.push_record(row);
     }
 
     let mut table = builder.build();
-    table.with(Style::blank());
+    finish_table_with(&mut table, &specs, terminal_max_width());
 
     println!("{}", table);
 }
@@ -66,25 +163,25 @@ fn display_jobs_table_refs(
     let format = format
         .unwrap_or("JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)")
         .to_string();
-    let headers: Vec<&str> = format.split(',').collect();
+    let specs = parse_field_specs(&format);
 
     // Build table using tabled Builder
     let mut builder = Builder::default();
 
     // Add header row
-    builder.push_record(headers.clone());
+    builder.push_record(specs.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
 
     // Add data rows
     for job in jobs {
-        let row: Vec<String> = headers
+        let row: Vec<String> = specs
             .iter()
-            .map(|header| format_job_cell(job, header, tmux_sessions, executor))
+            .map(|spec| format_job_cell(job, &spec.name, tmux_sessions, executor))
             .collect();
         builder.push_record(row);
     }
 
     let mut table = builder.build();
-    table.with(Style::blank());
+    finish_table_with(&mut table, &specs, terminal_max_width());
 
     println!("{}", table);
 }
@@ -378,6 +475,141 @@ mod tests {
                 ExecutorDisplay::ProcessLiveness
             ),
             "-"
+        );
+    }
+
+    #[test]
+    fn parse_field_specs_handles_width_suffixes() {
+        let specs = parse_field_specs("JOBID,COMMAND:60,COMMAND:0,NAME:FULL,NODELIST(REASON)");
+        assert_eq!(specs[0].name, "JOBID");
+        assert_eq!(specs[0].width, None);
+        assert_eq!(specs[1].name, "COMMAND");
+        assert_eq!(specs[1].width, Some(60));
+        assert_eq!(specs[2].width, Some(0));
+        assert_eq!(specs[3].name, "NAME");
+        assert_eq!(specs[3].width, Some(0), ":full is an alias for :0");
+        assert_eq!(specs[4].name, "NODELIST(REASON)");
+        assert_eq!(specs[4].width, None);
+
+        // Invalid widths are ignored (lenient, like unknown fields).
+        let bad = parse_field_specs("USER:abc");
+        assert_eq!(
+            bad[0],
+            FieldSpec {
+                name: "USER".into(),
+                width: None,
+            }
+        );
+    }
+
+    #[test]
+    fn table_fit_truncates_long_columns_to_max_width() {
+        use tabled::builder::Builder;
+
+        let specs = parse_field_specs("JOBID,COMMAND");
+        let mut builder = Builder::default();
+        builder.push_record(["JOBID", "COMMAND"]);
+        builder.push_record([
+            "1",
+            "python train.py --config configs/exp1.yaml --lr 1e-4 --batch-size 128",
+        ]);
+        let mut table = builder.build();
+
+        finish_table_with(&mut table, &specs, Some(30));
+
+        let rendered = table.to_string();
+        let data_row = rendered.lines().nth(1).unwrap();
+        assert!(
+            data_row.chars().count() <= 30,
+            "table should fit the max width: {rendered}"
+        );
+        assert!(
+            data_row.contains("python train.py --c…"),
+            "long content should be truncated with an ellipsis: {rendered}"
+        );
+        assert!(
+            !data_row.contains("batch-size 128"),
+            "content beyond the limit must be cut: {rendered}"
+        );
+        // The short JOBID column must survive truncation.
+        assert!(
+            data_row.trim_start().starts_with("1 "),
+            "JOBID should be intact: {rendered}"
+        );
+    }
+
+    #[test]
+    fn explicit_column_width_caps_that_column() {
+        use tabled::builder::Builder;
+
+        let specs = parse_field_specs("JOBID,COMMAND:20");
+        let mut builder = Builder::default();
+        builder.push_record(["JOBID", "COMMAND"]);
+        builder.push_record([
+            "1",
+            "python train.py --config configs/exp1.yaml --lr 1e-4 --batch-size 128",
+        ]);
+        let mut table = builder.build();
+
+        // Even with a narrow terminal available, an explicit width takes over.
+        finish_table_with(&mut table, &specs, Some(10));
+
+        let rendered = table.to_string();
+        let data_row = rendered.lines().nth(1).unwrap();
+        assert!(
+            data_row.contains('…'),
+            "the column should be capped with an ellipsis: {rendered}"
+        );
+        assert!(
+            !data_row.contains("train.py --config"),
+            "content beyond the cap must be cut: {rendered}"
+        );
+        assert!(
+            data_row.trim_start().starts_with("1 "),
+            "JOBID should be intact: {rendered}"
+        );
+    }
+
+    #[test]
+    fn explicit_unlimited_width_keeps_full_content() {
+        use tabled::builder::Builder;
+
+        let command = "python train.py --config configs/exp1.yaml --lr 1e-4 --batch-size 128";
+        for token in ["JOBID,COMMAND:0", "JOBID,COMMAND:full"] {
+            let specs = parse_field_specs(token);
+            let mut builder = Builder::default();
+            builder.push_record(["JOBID", "COMMAND"]);
+            builder.push_record(["1", command]);
+            let mut table = builder.build();
+
+            // Even with a narrow terminal available, `:0`/`:full` wins.
+            finish_table_with(&mut table, &specs, Some(10));
+
+            let rendered = table.to_string();
+            assert!(
+                rendered.contains(command),
+                "{token} must keep the full content: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn table_fit_without_width_keeps_full_content() {
+        use tabled::builder::Builder;
+
+        let command = "python train.py --config configs/exp1.yaml --lr 1e-4 --batch-size 128";
+        let specs = parse_field_specs("JOBID,COMMAND");
+        let mut builder = Builder::default();
+        builder.push_record(["JOBID", "COMMAND"]);
+        builder.push_record(["1", command]);
+        let mut table = builder.build();
+
+        finish_table_with(&mut table, &specs, None);
+
+        let rendered = table.to_string();
+        assert!(
+            rendered.contains(command),
+            "without a width limit the full content must be kept: {rendered}"
         );
     }
 }

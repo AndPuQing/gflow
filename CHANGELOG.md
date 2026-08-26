@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **gqueue: column width modifiers in `-f/--format`**: any field accepts a
+  `:WIDTH` suffix (`COMMAND:60` caps the column with a `…`; `:0` or `:full`
+  shows it in full). Explicit widths also apply when piped and disable the
+  automatic terminal-width fitting.
+
+### Fixed
+- **gqueue: long fields no longer break the table layout**: on a terminal,
+  tables are truncated to fit the terminal width (widest columns first,
+  `…` suffix), so long `COMMAND` values stay on one line; piped or
+  redirected output keeps full content. Applies to table, `-g`, and `-t`
+  views.
+
 ## [0.4.18] - 2026-08-25
 
 ### Added

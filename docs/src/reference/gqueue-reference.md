@@ -53,6 +53,11 @@ Supported fields for `-f/--format`:
 - `PROJECT`
 - `COMMAND` (what the job runs: the stored command for command submissions, the script path for script submissions — script wins when both are present, matching the executors; `-` when neither)
 
+Tables fit the terminal width when stdout is a terminal (widest columns are
+truncated first with a `…` suffix); redirected output keeps full content.
+Any field accepts a `:WIDTH` suffix in `-f` to cap its width (`COMMAND:0`
+shows it in full), which disables the automatic fitting.
+
 Example `gqueue -t` output:
 
 ```

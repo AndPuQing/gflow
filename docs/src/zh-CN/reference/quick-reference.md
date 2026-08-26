@@ -26,7 +26,8 @@ gqueue -P ml-research  # 按项目筛选
 gqueue -f JOBID,NAME,ST,TIME,NODES,NODELIST(REASON)
 gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
-gqueue -a -f JOBID,NAME,ST,COMMAND
+gqueue -a -f JOBID,NAME,ST,COMMAND   # COMMAND 截断适配终端；重定向保留完整
+gqueue -f JOBID,COMMAND:60           # 限制字段宽度（:0 不截断）
 
 # 依赖树
 gqueue -t
