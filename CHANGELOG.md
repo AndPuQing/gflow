@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatic terminal-width fitting.
 
 ### Fixed
+- **CI: fix `clippy::needless-bool` in reservation filtering**: simplify the
+  active-only reservation predicate so the nightly smoke check passes with
+  warnings denied.
 - **gqueue: long fields no longer break the table layout**: on a terminal,
   tables are truncated to fit the terminal width (widest columns first,
   `…` suffix), so long `COMMAND` values stay on one line; piped or
