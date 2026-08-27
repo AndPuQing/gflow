@@ -135,11 +135,7 @@ impl Scheduler {
                 }
 
                 // Active only filter
-                if active_only && !r.is_active(now) {
-                    return false;
-                }
-
-                true
+                !(active_only && !r.is_active(now))
             })
             .collect()
     }
