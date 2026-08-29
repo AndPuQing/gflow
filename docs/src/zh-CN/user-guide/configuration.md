@@ -212,7 +212,11 @@ type = "tmux" # 或 "process"
   命令。支持 `gjob attach` 和 `gjob close-sessions` 交互式检查。
 - **`process`**（可选，无需 tmux）：每个作业作为独立子进程组（`setsid`）运行，
   stdout/stderr 重定向到 `logs/<job_id>.log`。取消作业时对整个进程组发送
-  SIGTERM，宽限期后升级为 SIGKILL；僵尸检测基于真实进程活性。尚未稳定。
+  SIGTERM，宽限期后升级为 SIGKILL；僵尸检测基于真实进程活性。带 `--conda-env`
+  的作业会先定位 conda 安装（检查守护进程的 `$CONDA_EXE`、`$PATH`、
+  `$CONDA_PREFIX` 及常见安装位置，如 `~/miniconda3`、`/opt/conda`）并 source
+  其 `etc/profile.d/conda.sh`，然后执行 `conda activate`；找不到 conda 时
+  作业会快速失败并给出明确报错。尚未稳定。
 
 ## 项目追踪
 
