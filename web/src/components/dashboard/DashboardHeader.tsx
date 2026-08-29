@@ -1,4 +1,5 @@
-import { RefreshCw, Server } from "lucide-react"
+import { useState } from "react"
+import { Moon, RefreshCw, Server, Sun } from "lucide-react"
 
 import type { ConnectionStatus } from "@/hooks/useDashboard"
 import { formatClock } from "@/lib/format"
@@ -23,6 +24,12 @@ const connectionBadge: Record<ConnectionStatus, { label: string; className: stri
   },
 }
 
+const THEME_STORAGE_KEY = "gflow-theme"
+
+function storedTheme(): "light" | "dark" {
+  return document.documentElement.classList.contains("dark") ? "dark" : "light"
+}
+
 export function DashboardHeader({
   gpuCount,
   jobCount,
@@ -39,13 +46,21 @@ export function DashboardHeader({
   onRefresh: () => void
 }) {
   const badge = connectionBadge[connection]
+  const [theme, setTheme] = useState<"light" | "dark">(storedTheme)
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark"
+    document.documentElement.classList.toggle("dark", next === "dark")
+    localStorage.setItem(THEME_STORAGE_KEY, next)
+    setTheme(next)
+  }
 
   return (
     <header className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Server className="size-4" />
-          <span>runqd</span>
+          <span>gflow</span>
         </div>
         <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
           Scheduler Console
@@ -73,10 +88,20 @@ export function DashboardHeader({
           ) : null}
         </div>
       </div>
-      <Button onClick={onRefresh} disabled={refreshing} size="sm" className="w-fit">
-        <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
-        {refreshing ? "Refreshing" : "Refresh"}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={toggleTheme}
+          variant="outline"
+          size="icon"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? <Sun /> : <Moon />}
+        </Button>
+        <Button onClick={onRefresh} disabled={refreshing} size="sm" className="w-fit">
+          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
+          {refreshing ? "Refreshing" : "Refresh"}
+        </Button>
+      </div>
     </header>
   )
 }

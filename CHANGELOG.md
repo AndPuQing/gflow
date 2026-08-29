@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **web: dark mode with toggle**: the console follows the system color
+  scheme by default and adds a light/dark toggle in the header; the choice
+  persists in `localStorage` and is applied before first paint to avoid a
+  flash. Reservation states (Pending/Active/Completed) now have matching
+  status-badge colors.
+- **web: click a job row to open its log dialog**, in addition to the per-row
+  log button.
+
+### Changed
+- **web: sort the jobs table via clickable column headers** with an active
+  direction indicator, replacing the sort-field and sort-direction dropdowns;
+  the filter row is shorter as a result.
+- **web: simplify the GPU view**: the per-slot capsule strip now carries the
+  busy reason inline, so the duplicated per-GPU detail card grid was removed.
+- **web: fix branding**: the header now says `gflow` (previously `runqd`) and
+  the page title is `gflow Dashboard` (previously `web`).
+- **web: loading skeleton mirrors the real layout** (4 overview cards plus
+  the main panel) instead of a generic 8-card grid.
+- **web: remove redundant pieces**: the unused `Separator` UI component, the
+  `SelectControl` duplicate (replaced by a shared `Select` in `components/ui`),
+  the unused `ApiResult` type, and unused placeholder assets.
 - **gqueue: column width modifiers in `-f/--format`**: any field accepts a
   `:WIDTH` suffix (`COMMAND:60` caps the column with a `…`; `:0` or `:full`
   shows it in full). Explicit widths also apply when piped and disable the

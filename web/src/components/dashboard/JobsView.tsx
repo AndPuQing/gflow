@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -6,7 +6,7 @@ import {
   type SortingState,
   useTable,
 } from "@tanstack/react-table"
-import { ArrowDownAZ, FileText, ListFilter, X } from "lucide-react"
+import { ArrowDown, ArrowUp, FileText, ListFilter, X } from "lucide-react"
 
 import type { Job } from "@/api"
 import { formatTime, toDate } from "@/lib/format"
@@ -21,15 +21,21 @@ import {
   jobName,
   type JobTableColumnId,
   type JobTableFeatures,
-  type SortDirection,
   stringColumnFilter,
   uniqueSorted,
 } from "@/lib/jobs"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select } from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -39,15 +45,16 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { GpuPill } from "@/components/dashboard/GpuPill"
-import { SelectControl } from "@/components/dashboard/SelectControl"
 import { EmptyRow } from "@/components/dashboard/StatePanels"
 import { StatusBadge } from "@/components/dashboard/StatusBadge"
 import { SummaryPill } from "@/components/dashboard/SummaryPill"
 
+const DEFAULT_SORTING: SortingState = [{ id: "id", desc: true }]
+
 export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: Job) => void }) {
   const [query, setQuery] = useState("")
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-  const [sorting, setSorting] = useState<SortingState>([{ id: "id", desc: true }])
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING)
 
   const states = useMemo(() => uniqueSorted(jobs.map((job) => job.state)), [jobs])
   const users = useMemo(
@@ -60,9 +67,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
       {
         accessorKey: "id",
         header: "ID",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.id}</span>
-        ),
+        cell: ({ row }) => <span className="font-mono text-xs">{row.original.id}</span>,
         sortingFn: "basic",
       },
       {
@@ -114,15 +119,18 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
         sortingFn: "basic",
       },
       {
-        id: "actions",
-        header: "Logs",
+        id: "logs",
+        header: () => null,
         enableSorting: false,
         cell: ({ row }) => (
           <Button
             variant="ghost"
             size="icon-xs"
             aria-label={`View logs for job ${row.original.id}`}
-            onClick={() => onViewLogs(row.original)}
+            onClick={(event) => {
+              event.stopPropagation()
+              onViewLogs(row.original)
+            }}
           >
             <FileText />
           </Button>
@@ -154,7 +162,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
   const gpuFilter = stringColumnFilter(table, "gpu") as GpuFilter
   const activeSort = sorting[0]
   const sortField = (activeSort?.id ?? "id") as JobTableColumnId
-  const sortDirection: SortDirection = activeSort?.desc === false ? "asc" : "desc"
+  const sortIsDesc = activeSort?.desc !== false
   const runningJobs = jobs.filter((job) => job.state === "Running").length
   const queuedJobs = jobs.filter((job) => job.state === "Queued").length
   const gpuJobs = jobs.filter((job) => (job.gpus ?? 0) > 0).length
@@ -164,24 +172,16 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
     userFilter !== "all" ||
     gpuFilter !== "all" ||
     sortField !== "id" ||
-    sortDirection !== "desc"
+    !sortIsDesc
 
   const setColumnFilter = (columnId: JobTableColumnId, value: string) => {
     table.getColumn(columnId)?.setFilterValue(value === "all" ? undefined : value)
   }
 
-  const setSortField = (columnId: JobTableColumnId) => {
-    setSorting([{ id: columnId, desc: sortDirection === "desc" }])
-  }
-
-  const setSortDirection = (direction: SortDirection) => {
-    setSorting([{ id: sortField, desc: direction === "desc" }])
-  }
-
   const resetControls = () => {
     setQuery("")
     setColumnFilters([])
-    setSorting([{ id: "id", desc: true }])
+    setSorting(DEFAULT_SORTING)
   }
 
   return (
@@ -191,7 +191,8 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
           <div>
             <CardTitle>Jobs</CardTitle>
             <CardDescription>
-              {visibleRows.length} of {jobs.length} visible from the latest page
+              {visibleRows.length} of {jobs.length} visible from the latest page · click a
+              row for logs
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -200,7 +201,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
             <SummaryPill label="GPU jobs" value={gpuJobs} tone="amber" />
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.2fr)_140px_160px_150px_150px_120px_auto]">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.2fr)_140px_160px_150px_auto]">
           <div className="relative">
             <ListFilter className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
             <Input
@@ -210,10 +211,10 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
               className="pl-8"
             />
           </div>
-          <SelectControl
-            ariaLabel="Filter by status"
+          <Select
+            aria-label="Filter by status"
             value={stateFilter}
-            onChange={(value) => setColumnFilter("state", value)}
+            onChange={(event) => setColumnFilter("state", event.target.value)}
           >
             <option value="all">All states</option>
             {states.map((state) => (
@@ -221,11 +222,11 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
                 {state}
               </option>
             ))}
-          </SelectControl>
-          <SelectControl
-            ariaLabel="Filter by user"
+          </Select>
+          <Select
+            aria-label="Filter by user"
             value={userFilter}
-            onChange={(value) => setColumnFilter("user", value)}
+            onChange={(event) => setColumnFilter("user", event.target.value)}
           >
             <option value="all">All users</option>
             {users.map((user) => (
@@ -233,42 +234,18 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
                 {user}
               </option>
             ))}
-          </SelectControl>
-          <SelectControl
-            ariaLabel="Filter by GPU state"
+          </Select>
+          <Select
+            aria-label="Filter by GPU state"
             value={gpuFilter}
-            onChange={(value) => setColumnFilter("gpu", value)}
+            onChange={(event) => setColumnFilter("gpu", event.target.value)}
           >
             <option value="all">All GPU states</option>
             <option value="requested">GPU requested</option>
             <option value="none">No GPU</option>
             <option value="assigned">GPU assigned</option>
             <option value="pending">GPU pending</option>
-          </SelectControl>
-          <div className="relative">
-            <ArrowDownAZ className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-            <SelectControl
-              ariaLabel="Sort jobs"
-              value={sortField}
-              onChange={(value) => setSortField(value as JobTableColumnId)}
-              className="pl-8"
-            >
-              <option value="id">Sort by ID</option>
-              <option value="submitted">Sort by submitted</option>
-              <option value="state">Sort by status</option>
-              <option value="name">Sort by name</option>
-              <option value="user">Sort by user</option>
-              <option value="gpu">Sort by GPU</option>
-            </SelectControl>
-          </div>
-          <SelectControl
-            ariaLabel="Sort direction"
-            value={sortDirection}
-            onChange={(value) => setSortDirection(value as SortDirection)}
-          >
-            <option value="desc">Descending</option>
-            <option value="asc">Ascending</option>
-          </SelectControl>
+          </Select>
           <Button
             type="button"
             variant="outline"
@@ -295,14 +272,20 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
                         className={cn(
                           "sticky top-0 z-10 bg-muted/95 backdrop-blur",
                           header.column.id === "id" && "w-20",
+                          header.column.id === "logs" && "w-12 text-right",
                         )}
                       >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
+                        {header.isPlaceholder ? null : (
+                          <HeaderCell
+                            content={flexRender(
                               header.column.columnDef.header,
                               header.getContext(),
                             )}
+                            canSort={header.column.getCanSort()}
+                            isSorted={header.column.getIsSorted()}
+                            onToggleSort={header.column.getToggleSortingHandler()}
+                          />
+                        )}
                       </TableHead>
                     ))}
                   </TableRow>
@@ -311,9 +294,13 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
               <TableBody>
                 {visibleRows.length ? (
                   visibleRows.map((row) => (
-                    <TableRow key={row.id}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() => onViewLogs(row.original)}
+                    >
                       {row.getAllCells().map((cell) => (
-                        <TableCell key={cell.id}>
+                        <TableCell key={cell.id} className={cn(cell.column.id === "logs" && "text-right")}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       ))}
@@ -328,5 +315,37 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function HeaderCell({
+  content,
+  canSort,
+  isSorted,
+  onToggleSort,
+}: {
+  content: ReactNode
+  canSort: boolean
+  isSorted: false | "asc" | "desc"
+  onToggleSort?: (event: unknown) => void
+}) {
+  if (!canSort || !onToggleSort) return <>{content}</>
+  const Icon = isSorted === "asc" ? ArrowUp : isSorted === "desc" ? ArrowDown : null
+  return (
+    <button
+      type="button"
+      onClick={onToggleSort}
+      title="Sort"
+      className="inline-flex items-center gap-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      {content}
+      <span className={cn("inline-flex", isSorted ? "text-foreground" : "opacity-40")}>
+        {Icon ? (
+          <Icon className="size-3.5" />
+        ) : (
+          <ArrowDown className="size-3.5" aria-hidden />
+        )}
+      </span>
+    </button>
   )
 }
