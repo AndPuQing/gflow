@@ -269,6 +269,13 @@ fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
         root.join("etc/profile.d/conda.sh").is_file()
     }
 
+    /// Validate a candidate root and return it canonicalized, so callers can
+    /// rely on a canonical path (matters on macOS, where `/var` is a symlink
+    /// to `/private/var`).
+    fn accept(root: &Path) -> Option<PathBuf> {
+        has_conda_init(root).then(|| fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()))
+    }
+
     /// Derive the installation root from a path to a `conda` executable.
     /// Standard layouts put the entry point in `<root>/bin` (Python script)
     /// or `<root>/condabin` (shell shim); symlinks are resolved first so a
@@ -285,7 +292,7 @@ fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
 
     if let Ok(exe) = env::var("CONDA_EXE") {
         if let Some(root) = root_of_exe(Path::new(&exe)) {
-            if has_conda_init(&root) {
+            if let Some(root) = accept(&root) {
                 return Some(root);
             }
         }
@@ -298,7 +305,7 @@ fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
             }
             let exe = Path::new(dir).join("conda");
             if let Some(root) = root_of_exe(&exe) {
-                if has_conda_init(&root) {
+                if let Some(root) = accept(&root) {
                     return Some(root);
                 }
             }
@@ -308,8 +315,8 @@ fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
     if let Ok(prefix) = env::var("CONDA_PREFIX") {
         let mut candidate = PathBuf::from(prefix);
         for _ in 0..3 {
-            if has_conda_init(&candidate) {
-                return Some(candidate);
+            if let Some(root) = accept(&candidate) {
+                return Some(root);
             }
             match candidate.parent() {
                 Some(parent) => candidate = parent.to_path_buf(),
@@ -335,9 +342,7 @@ fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
             candidates.push(Path::new(base).join(name));
         }
     }
-    candidates
-        .into_iter()
-        .find(|candidate| has_conda_init(candidate))
+    candidates.iter().find_map(|candidate| accept(candidate))
 }
 
 impl ProcessExecutor {
@@ -847,7 +852,9 @@ mod tests {
             format!("# fake conda init\n{init_extra}\n"),
         )
         .unwrap();
-        root
+        // Canonicalize so expectations match the canonicalized root returned
+        // by locate_conda_root (macOS: /var -> /private/var).
+        fs::canonicalize(&root).unwrap_or(root)
     }
 
     #[test]
