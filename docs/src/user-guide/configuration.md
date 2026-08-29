@@ -219,12 +219,15 @@ type = "tmux" # or "process"
   process group (`setsid`), with stdout/stderr redirected to
   `logs/<job_id>.log`. Cancellation SIGTERMs the whole process group and
   escalates to SIGKILL after a grace period; zombie detection uses real
-  process liveness. Jobs with a `--conda-env` source the located conda
-  installation's `etc/profile.d/conda.sh` before `conda activate` — the
-  daemon's `$CONDA_EXE`, `$PATH`, `$CONDA_PREFIX` and common install
-  locations (`~/miniconda3`, `/opt/conda`, ...) are checked; if no conda
-  installation is found the job fails fast with an explanatory error.
-  Not yet considered stable.
+  process liveness. Not yet considered stable.
+
+Both executors apply `--conda-env` the same way: before running the job the
+daemon locates a conda installation (checking `$CONDA_EXE`, `conda` on
+`$PATH`, `$CONDA_PREFIX`, and common install locations such as `~/miniconda3`
+or `/opt/conda`, recognizing both `<root>/bin` and `<root>/condabin` entry
+points), then sources its `etc/profile.d/conda.sh` and runs
+`conda activate <env>`. If no conda installation is found the job fails fast
+with an explanatory error, which is also written to the job log.
 
 ## Project Tracking
 

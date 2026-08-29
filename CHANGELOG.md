@@ -59,17 +59,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
-- **gflowd: conda envs now activate correctly under the process executor**: the
-  runner is a non-interactive, non-login `bash -c`, so conda's shell init from
-  user rc files never ran and `conda activate` failed ("conda: command not
-  found" or "Run 'conda init' before 'conda activate'"). The executor now
-  locates a conda installation (checks the daemon's `$CONDA_EXE`, `$PATH`,
-  `$CONDA_PREFIX`, then common locations like `~/miniconda3`, `/opt/conda`)
-  and sources its `etc/profile.d/conda.sh` before activating; when no
-  installation is found the job fails fast with an explanatory error. The
-  conda env name and script path are now shell-quoted, so env names or paths
-  containing spaces/special characters no longer break (or inject into) the
-  runner command.
+- **gflowd: conda envs now activate correctly in both executors**: the
+  process executor runs jobs in a non-interactive, non-login `bash -c`, so
+  conda's shell init from user rc files never ran and `conda activate`
+  failed ("conda: command not found" or "Run 'conda init' before 'conda
+  activate'"). The daemon now locates a conda installation (checks
+  `$CONDA_EXE`, `conda` on `$PATH`, `$CONDA_PREFIX`, and common locations
+  like `~/miniconda3`, `/opt/conda`; `<root>/bin` and `<root>/condabin`
+  entry points are both recognized, and symlinks are resolved) and sources
+  its `etc/profile.d/conda.sh` before activating; the tmux executor reuses
+  the same logic. When no installation is found the job fails fast with an
+  explanatory error that is also written to the job log. The conda env name
+  and script path are shell-quoted in both executors, so env names or
+  paths containing spaces/special characters no longer break (or inject
+  into) the job command.
 - **web: job log dialog fixes**: the dialog actually renders wide now (the
   default `sm:max-w-lg` was overriding the intended width, so logs showed in
   a 512px box); tail auto-follow is fixed — the view pins to the bottom on

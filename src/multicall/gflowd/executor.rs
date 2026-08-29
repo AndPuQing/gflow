@@ -215,124 +215,132 @@ impl ProcessExecutor {
         if let Some(conda_env) = &job.conda_env {
             user_command = format!(
                 "{} && {}",
-                Self::conda_activation_command(job, conda_env)?,
+                conda_activation_command(job, conda_env)?,
                 user_command
             );
         }
 
         Ok(user_command)
     }
-
-    /// Build the shell fragment that activates `conda_env` inside the runner.
-    ///
-    /// The runner is a non-interactive, non-login `bash -c`, so it never loads
-    /// the user's rc files and `conda activate` (a shell function installed by
-    /// conda's init) is unavailable. We therefore locate a conda installation
-    /// ourselves and source its init script before activating.
-    fn conda_activation_command(job: &Job, conda_env: &str) -> Result<String> {
-        let root = Self::locate_conda_root().with_context(|| {
-            format!(
-                "Job {} needs conda environment '{}' but no conda installation was found. \
+}
+/// Build the shell fragment that activates `conda_env` in the job shell.
+///
+/// Shared by both executors: the process runner is a non-interactive,
+/// non-login `bash -c` that never loads the user's rc files, and the tmux
+/// pane's interactive shell may not have conda initialized either. In both
+/// cases we locate a conda installation ourselves and source its init script
+/// before `conda activate` (a shell function installed by conda's init).
+fn conda_activation_command(job: &Job, conda_env: &str) -> Result<String> {
+    let root = locate_conda_root().with_context(|| {
+        format!(
+            "Job {} needs conda environment '{}' but no conda installation was found. \
                  gflowd checked $CONDA_EXE, $PATH, $CONDA_PREFIX, and common install locations \
                  ($HOME/miniconda3, $HOME/anaconda3, /opt/conda, ...)",
-                job.id, conda_env
-            )
-        })?;
-        let init_script = root.join("etc/profile.d/conda.sh");
-        Ok(format!(
-            "source {} && conda activate {}",
-            shell_escape::escape(init_script.to_string_lossy().into_owned().into()),
-            shell_escape::escape(conda_env.into())
-        ))
+            job.id, conda_env
+        )
+    })?;
+    let init_script = root.join("etc/profile.d/conda.sh");
+    Ok(format!(
+        "source {} && conda activate {}",
+        shell_escape::escape(init_script.to_string_lossy().into_owned().into()),
+        shell_escape::escape(conda_env.into())
+    ))
+}
+
+/// Locate the root of a conda installation, i.e. the directory containing
+/// `etc/profile.d/conda.sh`. The job shell inherits the daemon's environment,
+/// which is all we can rely on. Detection order:
+/// 1. `$CONDA_EXE` (set when the daemon started with a conda env active)
+/// 2. a `conda` executable on `$PATH`
+/// 3. `$CONDA_PREFIX` and its parents (covers envs nested under the root)
+/// 4. well-known install locations under `$HOME`, `/opt`, `/usr`
+#[cfg(not(windows))]
+fn locate_conda_root() -> Option<PathBuf> {
+    locate_conda_root_impl(":")
+}
+
+#[cfg(windows)]
+fn locate_conda_root() -> Option<PathBuf> {
+    locate_conda_root_impl(";")
+}
+
+fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
+    fn has_conda_init(root: &Path) -> bool {
+        root.join("etc/profile.d/conda.sh").is_file()
     }
 
-    /// Locate the root of a conda installation, i.e. the directory containing
-    /// `etc/profile.d/conda.sh`. The runner inherits the daemon's environment,
-    /// which is all we can rely on. Detection order:
-    /// 1. `$CONDA_EXE` (set when the daemon started with a conda env active)
-    /// 2. a `conda` executable on `$PATH`
-    /// 3. `$CONDA_PREFIX` and its parents (covers envs nested under the root)
-    /// 4. well-known install locations under `$HOME`, `/opt`, `/usr`
-    #[cfg(not(windows))]
-    fn locate_conda_root() -> Option<PathBuf> {
-        Self::locate_conda_root_impl(":")
-    }
-
-    #[cfg(windows)]
-    fn locate_conda_root() -> Option<PathBuf> {
-        Self::locate_conda_root_impl(";")
-    }
-
-    fn locate_conda_root_impl(path_sep: &str) -> Option<PathBuf> {
-        fn has_conda_init(root: &Path) -> bool {
-            root.join("etc/profile.d/conda.sh").is_file()
+    /// Derive the installation root from a path to a `conda` executable.
+    /// Standard layouts put the entry point in `<root>/bin` (Python script)
+    /// or `<root>/condabin` (shell shim); symlinks are resolved first so a
+    /// `/usr/bin/conda` link still maps back to the real installation.
+    fn root_of_exe(exe: &Path) -> Option<PathBuf> {
+        let resolved = fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        let bin = resolved.parent()?;
+        let bin_name = bin.file_name()?.to_str()?;
+        if bin_name != "bin" && bin_name != "condabin" {
+            return None;
         }
+        Some(bin.parent()?.to_path_buf())
+    }
 
-        fn root_of_exe(exe: &Path) -> Option<PathBuf> {
-            let bin = exe.parent()?;
-            if bin.file_name()?.to_str() != Some("bin") {
-                return None;
+    if let Ok(exe) = env::var("CONDA_EXE") {
+        if let Some(root) = root_of_exe(Path::new(&exe)) {
+            if has_conda_init(&root) {
+                return Some(root);
             }
-            Some(bin.parent()?.to_path_buf())
         }
+    }
 
-        if let Ok(exe) = env::var("CONDA_EXE") {
-            if let Some(root) = root_of_exe(Path::new(&exe)) {
+    if let Ok(paths) = env::var("PATH") {
+        for dir in paths.split(path_sep) {
+            if dir.is_empty() {
+                continue;
+            }
+            let exe = Path::new(dir).join("conda");
+            if let Some(root) = root_of_exe(&exe) {
                 if has_conda_init(&root) {
                     return Some(root);
                 }
             }
         }
-
-        if let Ok(paths) = env::var("PATH") {
-            for dir in paths.split(path_sep) {
-                if dir.is_empty() {
-                    continue;
-                }
-                let exe = Path::new(dir).join("conda");
-                if let Some(root) = root_of_exe(&exe) {
-                    if has_conda_init(&root) {
-                        return Some(root);
-                    }
-                }
-            }
-        }
-
-        if let Ok(prefix) = env::var("CONDA_PREFIX") {
-            let mut candidate = PathBuf::from(prefix);
-            for _ in 0..3 {
-                if has_conda_init(&candidate) {
-                    return Some(candidate);
-                }
-                match candidate.parent() {
-                    Some(parent) => candidate = parent.to_path_buf(),
-                    None => break,
-                }
-            }
-        }
-
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        if let Ok(home) = env::var("HOME") {
-            for name in [
-                "miniconda3",
-                "miniforge3",
-                "anaconda3",
-                "mambaforge",
-                "conda",
-            ] {
-                candidates.push(Path::new(&home).join(name));
-            }
-        }
-        for base in ["/opt", "/usr/local", "/usr/share"] {
-            for name in ["conda", "miniconda3", "miniforge3", "anaconda3"] {
-                candidates.push(Path::new(base).join(name));
-            }
-        }
-        candidates
-            .into_iter()
-            .find(|candidate| has_conda_init(candidate))
     }
 
+    if let Ok(prefix) = env::var("CONDA_PREFIX") {
+        let mut candidate = PathBuf::from(prefix);
+        for _ in 0..3 {
+            if has_conda_init(&candidate) {
+                return Some(candidate);
+            }
+            match candidate.parent() {
+                Some(parent) => candidate = parent.to_path_buf(),
+                None => break,
+            }
+        }
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = env::var("HOME") {
+        for name in [
+            "miniconda3",
+            "miniforge3",
+            "anaconda3",
+            "mambaforge",
+            "conda",
+        ] {
+            candidates.push(Path::new(&home).join(name));
+        }
+    }
+    for base in ["/opt", "/usr/local", "/usr/share"] {
+        for name in ["conda", "miniconda3", "miniforge3", "anaconda3"] {
+            candidates.push(Path::new(base).join(name));
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| has_conda_init(candidate))
+}
+
+impl ProcessExecutor {
     /// Build the detached runner shell. The payload is executed by a nested
     /// bash so `exit` in user input cannot skip the result write performed by
     /// the outer runner.
@@ -352,7 +360,6 @@ impl ProcessExecutor {
         ))
     }
 }
-
 #[cfg(unix)]
 fn detach_with_setsid() -> Result<(), std::io::Error> {
     // SAFETY: setsid() is async-signal-safe and runs in the freshly forked
@@ -370,15 +377,30 @@ impl Executor for ProcessExecutor {
 
     fn execute(&self, job: &Job) -> Result<()> {
         let result_path = gflow::paths::get_runner_result_path(job.id)?;
-        let runner_command = Self::build_runner_command(job, &result_path)?;
-        Self::remove_runner_files(job.id);
 
+        // Prepare the log file before building the command so that a
+        // command-construction failure (e.g. a missing conda installation)
+        // still leaves an explanatory message in the job log.
         let log_path = gflow::paths::prepare_log_file_path(job.id)?;
         if let Some(parent) = log_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let log_file = fs::File::create(&log_path)
+        let mut log_file = fs::File::create(&log_path)
             .with_context(|| format!("Failed to create log file {}", log_path.display()))?;
+
+        let runner_command = match Self::build_runner_command(job, &result_path) {
+            Ok(command) => command,
+            Err(error) => {
+                let _ = writeln!(
+                    log_file,
+                    "gflow: failed to prepare job {} for execution: {error:#}",
+                    job.id
+                );
+                return Err(error);
+            }
+        };
+        Self::remove_runner_files(job.id);
+
         let stderr_file = log_file
             .try_clone()
             .context("Failed to clone log file handle")?;
@@ -676,7 +698,8 @@ impl Executor for TmuxExecutor {
             }
 
             if let Some(conda_env) = &job.conda_env {
-                session.try_send_command(&format!("conda activate {conda_env}"))?;
+                let activation = conda_activation_command(job, conda_env)?;
+                session.try_send_command(&activation)?;
             }
 
             let wrapped_command = self.generate_wrapped_command(job)?;
@@ -833,7 +856,7 @@ mod tests {
         let root = make_fake_conda_root(tempdir.path(), "");
         let found = with_conda_env_vars(
             &[("CONDA_EXE", Some(root.join("bin/conda").to_str().unwrap()))],
-            ProcessExecutor::locate_conda_root,
+            locate_conda_root,
         )
         .unwrap();
         assert_eq!(found, root);
@@ -849,7 +872,7 @@ mod tests {
                 ("CONDA_PREFIX", None),
                 ("PATH", Some(root.join("bin").to_str().unwrap())),
             ],
-            ProcessExecutor::locate_conda_root,
+            locate_conda_root,
         )
         .unwrap();
         assert_eq!(found, root);
@@ -869,7 +892,51 @@ mod tests {
                 ("CONDA_PREFIX", Some(env_dir.to_str().unwrap())),
                 ("PATH", Some("/nonexistent-for-test")),
             ],
-            ProcessExecutor::locate_conda_root,
+            locate_conda_root,
+        )
+        .unwrap();
+        assert_eq!(found, root);
+    }
+
+    #[test]
+    fn test_conda_root_located_from_condabin_on_path() {
+        // Standard conda installs also expose `<root>/condabin/conda` (the
+        // shell shim), which `conda init` puts on PATH alongside `bin`.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path().join("fakeroot");
+        fs::create_dir_all(root.join("condabin")).unwrap();
+        fs::create_dir_all(root.join("etc/profile.d")).unwrap();
+        fs::write(root.join("condabin/conda"), "#!bin/sh\n").unwrap();
+        fs::write(root.join("etc/profile.d/conda.sh"), "# fake\n").unwrap();
+        let found = with_conda_env_vars(
+            &[
+                ("CONDA_EXE", None),
+                ("CONDA_PREFIX", None),
+                ("PATH", Some(root.join("condabin").to_str().unwrap())),
+            ],
+            locate_conda_root,
+        )
+        .unwrap();
+        assert_eq!(found, root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_conda_root_located_through_symlink() {
+        // A `conda` symlink outside the installation (e.g. /usr/bin/conda)
+        // must resolve back to the real root.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = make_fake_conda_root(tempdir.path(), "");
+        let link_dir = tempdir.path().join("links");
+        fs::create_dir_all(&link_dir).unwrap();
+        std::os::unix::fs::symlink(root.join("bin/conda"), link_dir.join("conda")).unwrap();
+        let found = with_conda_env_vars(
+            &[
+                ("CONDA_EXE", None),
+                ("CONDA_PREFIX", None),
+                ("PATH", Some(link_dir.to_str().unwrap())),
+            ],
+            locate_conda_root,
         )
         .unwrap();
         assert_eq!(found, root);
@@ -1172,6 +1239,34 @@ conda() {
 
             assert_eq!(result.exit_code, Some(0));
             assert!(result.succeeded());
+        })
+    }
+
+    #[test]
+    fn test_process_executor_build_failure_is_written_to_job_log() {
+        // A command-construction failure (here: job with neither script nor
+        // command) must leave an explanatory message in the job log, not just
+        // the daemon log.
+        with_isolated_data_dir(|| {
+            let executor = ProcessExecutor::new();
+            let job = Job {
+                id: 9202,
+                state: JobState::Queued,
+                run_dir: PathBuf::from("/tmp"),
+                ..Default::default()
+            };
+            let error = executor.execute(&job).unwrap_err();
+
+            let log =
+                std::fs::read_to_string(gflow::paths::get_log_file_path(9202).unwrap()).unwrap();
+            assert!(
+                log.contains("failed to prepare job 9202"),
+                "job log should carry the failure reason, got: {log}"
+            );
+            assert!(log.contains("neither a script nor a command"), "log: {log}");
+            assert!(error.to_string().contains("neither a script nor a command"));
+
+            executor.cleanup(&job);
         })
     }
 }
