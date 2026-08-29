@@ -3,11 +3,8 @@ import {
   type ColumnDef,
   type ColumnFiltersState,
   flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
   type SortingState,
-  useReactTable,
+  useTable,
 } from "@tanstack/react-table"
 import { ArrowDownAZ, FileText, ListFilter, X } from "lucide-react"
 
@@ -15,6 +12,7 @@ import type { Job } from "@/api"
 import { formatTime, toDate } from "@/lib/format"
 import {
   exactFilter,
+  jobTableFeatures,
   type GpuFilter,
   gpuSortValue,
   gpuStateFilter,
@@ -22,6 +20,7 @@ import {
   jobGlobalFilter,
   jobName,
   type JobTableColumnId,
+  type JobTableFeatures,
   type SortDirection,
   stringColumnFilter,
   uniqueSorted,
@@ -56,7 +55,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
     [jobs],
   )
 
-  const columns = useMemo<ColumnDef<Job>[]>(
+  const columns = useMemo<ColumnDef<JobTableFeatures, Job>[]>(
     () => [
       {
         accessorKey: "id",
@@ -134,7 +133,8 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
   )
 
   // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+  const table = useTable({
+    features: jobTableFeatures,
     data: jobs,
     columns,
     state: {
@@ -145,9 +145,6 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setQuery,
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     globalFilterFn: jobGlobalFilter,
   })
 
@@ -315,7 +312,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
                 {visibleRows.length ? (
                   visibleRows.map((row) => (
                     <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
+                      {row.getAllCells().map((cell) => (
                         <TableCell key={cell.id}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
