@@ -15,8 +15,32 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EmptyRow } from "@/components/dashboard/StatePanels"
+import { StatusBadge } from "@/components/dashboard/StatusBadge"
 import { SummaryPill } from "@/components/dashboard/SummaryPill"
 import { cn } from "@/lib/utils"
+
+type GpuStatus = "Available" | "Busy" | "Blocked"
+
+const statusTone: Record<GpuStatus, string> = {
+  Available:
+    "border-emerald-200 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-950/25",
+  Busy: "border-rose-200 bg-rose-50/80 dark:border-rose-900 dark:bg-rose-950/25",
+  Blocked: "border-dashed bg-muted/40 opacity-60 grayscale dark:bg-muted/20",
+}
+
+const statusDot: Record<GpuStatus, string> = {
+  Available: "bg-emerald-500",
+  Busy: "bg-rose-500",
+  Blocked: "bg-zinc-400 dark:bg-zinc-500",
+}
+
+/** Raw daemon reasons can be terse; surface the human-relevant parts. */
+function formatGpuReason(reason: string | null | undefined): string | null {
+  if (!reason) return null
+  const manualIgnore = reason.match(/^manual_ignore\(gpu=\d+,pid=([\d,]+)\)$/)
+  if (manualIgnore) return `Manually ignored (pids ${manualIgnore[1]})`
+  return reason
+}
 
 export function GpuView({
   gpus,
@@ -58,7 +82,7 @@ export function GpuView({
         </CardHeader>
         <CardContent>
           {gpus.length ? (
-            <GpuSlotCapsule gpus={gpus} allowed={allowed} />
+            <GpuCardGrid gpus={gpus} allowed={allowed} />
           ) : (
             <div className="rounded-lg border p-4 text-sm text-muted-foreground">
               No GPU slots reported
@@ -99,7 +123,7 @@ export function GpuView({
   )
 }
 
-function GpuSlotCapsule({
+function GpuCardGrid({
   gpus,
   allowed,
 }: {
@@ -110,39 +134,41 @@ function GpuSlotCapsule({
   const allowedSet = allowed?.length ? new Set(allowed) : null
 
   return (
-    <div className="overflow-x-auto pb-1">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {orderedGpus.map((gpu) => (
+        <GpuCard
+          key={gpu.uuid}
+          gpu={gpu}
+          blocked={allowedSet ? !allowedSet.has(gpu.index) : false}
+        />
+      ))}
+    </div>
+  )
+}
+
+function GpuCard({ gpu, blocked }: { gpu: GpuInfo; blocked: boolean }) {
+  const status: GpuStatus = blocked ? "Blocked" : gpu.available ? "Available" : "Busy"
+  const reason = formatGpuReason(gpu.reason)
+  const detail =
+    reason ?? (status === "Available" ? "Idle" : status === "Busy" ? "In use" : "Outside allowed set")
+
+  return (
+    <div className={cn("rounded-lg border p-3", statusTone[status])}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 font-mono text-sm font-semibold">
+          <span className={cn("size-2 shrink-0 rounded-full", statusDot[status])} />
+          GPU {gpu.index}
+        </span>
+        <StatusBadge value={status} />
+      </div>
+      <div className="mt-2 line-clamp-2 min-h-8 text-xs text-muted-foreground">
+        {detail}
+      </div>
       <div
-        className="flex min-w-full overflow-hidden rounded-2xl border bg-border shadow-sm"
-        role="list"
-        aria-label="GPU slot availability"
+        className="mt-1 truncate font-mono text-[11px] text-muted-foreground/70"
+        title={gpu.uuid}
       >
-        {orderedGpus.map((gpu) => {
-          const allowedGpu = allowedSet ? allowedSet.has(gpu.index) : true
-          return (
-            <div
-              key={gpu.uuid}
-              role="listitem"
-              title={`${gpu.uuid}${gpu.reason ? ` · ${gpu.reason}` : ""}`}
-              className={cn(
-                "flex min-h-20 min-w-24 flex-1 flex-col items-center justify-center gap-1.5 border-r px-3 text-center last:border-r-0",
-                gpu.available
-                  ? "border-emerald-200 bg-emerald-100 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
-                  : "border-rose-200 bg-rose-100 text-rose-950 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100",
-                !allowedGpu && "opacity-45 grayscale",
-              )}
-            >
-              <span className="font-mono text-base font-semibold">GPU {gpu.index}</span>
-              <span className="text-[11px] uppercase tracking-wide opacity-75">
-                {allowedGpu ? (gpu.available ? "Available" : "Busy") : "Blocked"}
-              </span>
-              {gpu.reason && allowedGpu ? (
-                <span className="line-clamp-1 max-w-full px-1 text-[11px] opacity-75">
-                  {gpu.reason}
-                </span>
-              ) : null}
-            </div>
-          )
-        })}
+        {gpu.uuid}
       </div>
     </div>
   )

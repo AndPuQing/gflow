@@ -20,8 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **web: sort the jobs table via clickable column headers** with an active
   direction indicator, replacing the sort-field and sort-direction dropdowns;
   the filter row is shorter as a result.
-- **web: simplify the GPU view**: the per-slot capsule strip now carries the
-  busy reason inline, so the duplicated per-GPU detail card grid was removed.
+- **web: simplify the GPU view**: the per-slot capsule strip is replaced by
+  status cards (status dot + badge, readable busy reason, UUID); terse
+  daemon reasons like `manual_ignore(gpu=1,pid=...)` are rendered as
+  human-readable text, and blocked slots get their own style/badge.
 - **web: fix branding**: the header now says `gflow` (previously `runqd`) and
   the page title is `gflow Dashboard` (previously `web`).
 - **web: loading skeleton mirrors the real layout** (4 overview cards plus

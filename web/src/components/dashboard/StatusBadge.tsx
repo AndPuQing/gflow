@@ -21,6 +21,8 @@ export const stateTone: Record<string, string> = {
   Available:
     "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200",
   Busy: "bg-rose-100 text-rose-800 ring-rose-200 dark:bg-rose-950 dark:text-rose-200",
+  Blocked:
+    "bg-zinc-100 text-zinc-800 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-200",
 }
 
 export function StatusBadge({ value }: { value: string }) {
