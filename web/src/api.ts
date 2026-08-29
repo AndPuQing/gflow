@@ -1,9 +1,3 @@
-export type ApiResult<T> = {
-  data: T | null
-  error: string | null
-  loading: boolean
-}
-
 export type SchedulerInfo = {
   gpus?: GpuInfo[]
   allowed_gpu_indices?: number[] | null

@@ -1,53 +1,46 @@
 import type { Job } from "@/api"
 import { formatAssignedGpuIds, formatGpuRequest } from "@/lib/format"
-import { cn } from "@/lib/utils"
 
+/**
+ * Compact GPU cell for the jobs table: a small "GPU" label followed by one
+ * chip per assigned GPU index (emerald) and a single dashed chip summarising
+ * how many are still pending. Chips have a fixed height and centered text so
+ * they align cleanly with the surrounding row text.
+ */
 export function GpuPill({ job }: { job: Job }) {
   const requested = job.gpus ?? 0
   const assignedIds = Array.isArray(job.gpu_ids) ? job.gpu_ids : []
-  const assigned = assignedIds.length > 0
-  const requestedGpu = requested > 0
+  const pending = Math.max(requested - assignedIds.length, 0)
 
-  if (!requestedGpu) {
-    return (
-      <span className="inline-flex h-7 items-center rounded-full border bg-muted px-2.5 font-mono text-xs text-muted-foreground">
-        No GPU
-      </span>
-    )
+  if (!requested) {
+    return <span className="text-xs text-muted-foreground/60">—</span>
   }
-
-  const pendingCount = Math.max(requested - assignedIds.length, assigned ? 0 : requested)
-  const segments = [
-    ...assignedIds.map((id) => ({ key: `gpu-${id}`, label: String(id), state: "assigned" })),
-    ...Array.from({ length: pendingCount }, (_, index) => ({
-      key: `pending-${index}`,
-      label: "…",
-      state: "pending",
-    })),
-  ]
 
   return (
     <span
-      className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border bg-background p-0.5 align-middle font-mono text-xs shadow-sm"
+      className="inline-flex items-center gap-1"
       title={formatAssignedGpuIds(job)}
       aria-label={`${formatGpuRequest(requested)} ${formatAssignedGpuIds(job)}`}
     >
-      <span className="px-1.5 text-muted-foreground">{requested}</span>
-      <span className="flex min-w-0 overflow-hidden rounded-full ring-1 ring-border">
-        {segments.map((segment) => (
-          <span
-            key={segment.key}
-            className={cn(
-              "grid h-5 min-w-6 place-items-center border-r px-1.5 text-[10px] leading-none last:border-r-0",
-              segment.state === "assigned"
-                ? "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
-                : "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100",
-            )}
-          >
-            {segment.label}
-          </span>
-        ))}
+      <span className="font-mono text-[11px] tracking-wide text-muted-foreground">
+        {requested}×
       </span>
+      {assignedIds.map((id) => (
+        <span
+          key={`gpu-${id}`}
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-md border border-emerald-200 bg-emerald-100 px-1 font-mono text-[11px] font-medium leading-none text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+        >
+          {id}
+        </span>
+      ))}
+      {pending > 0 ? (
+        <span
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-md border border-dashed border-amber-300 px-1 font-mono text-[11px] leading-none text-amber-700 dark:border-amber-800 dark:text-amber-300"
+          title={`${pending} GPU(s) still pending`}
+        >
+          +{pending}
+        </span>
+      ) : null}
     </span>
   )
 }

@@ -39,7 +39,6 @@ export type JobTableColumnId =
   | "gpu"
   | "submitted"
 export type GpuFilter = "all" | "requested" | "none" | "assigned" | "pending"
-export type SortDirection = "asc" | "desc"
 
 export function jobName(job: Job) {
   return job.run_name ?? job.command ?? job.script ?? "unnamed"

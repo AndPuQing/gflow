@@ -28,6 +28,8 @@ const SSE_RETRY_INTERVAL_MS = 15000
 const EVENT_REFRESH_DELAY_MS = 350
 /** Interval for refreshing an open job log view. */
 export const LOG_REFRESH_INTERVAL_MS = 4000
+/** How many jobs one dashboard page loads. */
+export const JOBS_PAGE_SIZE = 100
 
 /**
  * Named SSE events emitted by the daemon's `/events` endpoint. Every event is
@@ -50,10 +52,10 @@ export const DASHBOARD_EVENT_NAMES = [
   "daemon_started",
 ] as const
 
-async function fetchDashboard(): Promise<DashboardData> {
+async function fetchDashboard(pageLimit: number): Promise<DashboardData> {
   const [info, jobs, stats, reservations, ignoredProcesses] = await Promise.all([
     fetchJson<SchedulerInfo>("/info"),
-    fetchJson<Job[]>("/jobs?limit=100&order=desc"),
+    fetchJson<Job[]>(`/jobs?limit=${pageLimit}&order=desc`),
     fetchJson<UsageStats>("/stats"),
     fetchJson<Reservation[]>("/reservations"),
     fetchJson<IgnoredGpuProcess[]>("/gpu-processes"),
@@ -69,6 +71,10 @@ export type DashboardState = {
   loading: boolean
   /** True while any fetch is in flight. */
   refreshing: boolean
+  /** True when older jobs likely exist beyond the loaded pages. */
+  hasMoreJobs: boolean
+  /** Append the next page of older jobs to the loaded set. */
+  loadOlderJobs: () => Promise<void>
   connection: ConnectionStatus
   lastUpdated: Date | null
   refresh: () => Promise<void>
@@ -86,16 +92,19 @@ export function useDashboard(): DashboardState {
   const [refreshing, setRefreshing] = useState(false)
   const [connection, setConnection] = useState<ConnectionStatus>("connecting")
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [hasMoreJobs, setHasMoreJobs] = useState(false)
 
   const inFlight = useRef(false)
   const debounceTimer = useRef<number | null>(null)
+  const pageLimit = useRef(JOBS_PAGE_SIZE)
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return
     inFlight.current = true
     setRefreshing(true)
     try {
-      const dashboard = await fetchDashboard()
+      const dashboard = await fetchDashboard(pageLimit.current)
+      setHasMoreJobs(dashboard.jobs.length >= pageLimit.current)
       setData(dashboard)
       setError(null)
       setLastUpdated(new Date())
@@ -105,6 +114,26 @@ export function useDashboard(): DashboardState {
       inFlight.current = false
       setRefreshing(false)
       setLoading(false)
+    }
+  }, [])
+
+  const loadOlderJobs = useCallback(async () => {
+    if (inFlight.current) return
+    const nextLimit = pageLimit.current + JOBS_PAGE_SIZE
+    inFlight.current = true
+    setRefreshing(true)
+    try {
+      const jobs = await fetchJson<Job[]>(`/jobs?limit=${nextLimit}&order=desc`)
+      pageLimit.current = nextLimit
+      setHasMoreJobs(jobs.length >= nextLimit)
+      setData((prev) => (prev ? { ...prev, jobs } : prev))
+      setError(null)
+      setLastUpdated(new Date())
+    } catch (err) {
+      setError(unwrapError(err))
+    } finally {
+      inFlight.current = false
+      setRefreshing(false)
     }
   }, [])
 
@@ -176,5 +205,15 @@ export function useDashboard(): DashboardState {
     }
   }, [refresh])
 
-  return { data, error, loading, refreshing, connection, lastUpdated, refresh }
+  return {
+    data,
+    error,
+    loading,
+    refreshing,
+    hasMoreJobs,
+    loadOlderJobs,
+    connection,
+    lastUpdated,
+    refresh,
+  }
 }

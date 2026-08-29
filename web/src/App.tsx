@@ -24,6 +24,7 @@ function App() {
         <DashboardHeader
           gpuCount={gpus.length}
           jobCount={dashboard.data?.jobs.length ?? 0}
+          totalJobs={dashboard.data?.stats.total_jobs}
           lastUpdated={dashboard.lastUpdated}
           connection={dashboard.connection}
           refreshing={dashboard.refreshing}
@@ -46,7 +47,13 @@ function App() {
               </TabsList>
 
               <TabsContent value="jobs">
-                <JobsView jobs={dashboard.data.jobs} onViewLogs={setLogJob} />
+                <JobsView
+                  jobs={dashboard.data.jobs}
+                  hasMore={dashboard.hasMoreJobs}
+                  loadingOlder={dashboard.refreshing}
+                  onLoadOlder={() => void dashboard.loadOlderJobs()}
+                  onViewLogs={setLogJob}
+                />
               </TabsContent>
               <TabsContent value="gpus">
                 <GpuView

@@ -13,8 +13,10 @@ import { TableCell, TableRow } from "@/components/ui/table"
 export function EmptyRow({ columns, label }: { columns: number; label: string }) {
   return (
     <TableRow>
-      <TableCell colSpan={columns} className="h-24 text-center text-muted-foreground">
-        {label}
+      <TableCell colSpan={columns}>
+        <div className="flex min-h-24 items-center justify-center text-center text-sm text-muted-foreground">
+          {label}
+        </div>
       </TableCell>
     </TableRow>
   )
@@ -36,20 +38,34 @@ export function ErrorState({ message }: { message: string }) {
   )
 }
 
+/** Loading skeleton that mirrors the real layout: 4 overview cards + the main panel. */
 export function LoadingState() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {Array.from({ length: 8 }).map((_, index) => (
-        <Card key={index} className="rounded-lg">
-          <CardHeader>
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-8 w-20" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-4 w-32" />
-          </CardContent>
-        </Card>
-      ))}
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Card key={index} className="rounded-lg">
+            <CardHeader className="gap-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-20" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-4 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card className="rounded-lg">
+        <CardHeader className="gap-3 border-b">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-64" />
+        </CardHeader>
+        <CardContent className="space-y-2 py-4">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-9 w-full" />
+          ))}
+        </CardContent>
+      </Card>
     </div>
   )
 }

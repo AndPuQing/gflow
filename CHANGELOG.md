@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **web: dark mode with toggle**: the console follows the system color
+  scheme by default and adds a light/dark toggle in the header; the choice
+  persists in `localStorage` and is applied before first paint to avoid a
+  flash. Reservation states (Pending/Active/Completed) now have matching
+  status-badge colors.
+- **web: click a job row to open its log dialog**, in addition to the per-row
+  log button.
+
+### Changed
+- **web: jobs table shows runtime instead of "Starts at"**: the almost-empty
+  scheduled-time column is replaced by a `Runtime` column — elapsed time for
+  running jobs (grows with refreshes) and total runtime for finished ones.
+- **web: load older jobs**: the console starts with the latest 100 jobs and
+  gains a "Load earlier jobs" button that pages back through history; the
+  header badge now reads `N jobs · showing M` so the page limit is not
+  mistaken for the total.
+- **web: calmer overview cards**: metric cards use a neutral background with
+  the accent color limited to the value and icon, replacing the full pastel
+  card tints.
+- **web: redesign the GPU cell in the jobs table**: the old pill had
+  misaligned 10px segment text; it is now a fixed-height chip row that
+  aligns with the row text — an `N×` count, one emerald chip per assigned
+  GPU index, and a single dashed chip summarising pending GPUs (`+N`);
+  jobs without GPUs show a muted dash instead of a pill.
+- **web: sort the jobs table via clickable column headers** with an active
+  direction indicator, replacing the sort-field and sort-direction dropdowns;
+  the filter row is shorter as a result.
+- **web: simplify the GPU view**: the per-slot capsule strip is replaced by
+  status cards (status dot + badge, readable busy reason, UUID); terse
+  daemon reasons like `manual_ignore(gpu=1,pid=...)` are rendered as
+  human-readable text, and blocked slots get their own style/badge.
+- **web: fix branding**: the header now says `gflow` (previously `runqd`) and
+  the page title is `gflow Dashboard` (previously `web`).
+- **web: loading skeleton mirrors the real layout** (4 overview cards plus
+  the main panel) instead of a generic 8-card grid.
+- **web: remove redundant pieces**: the unused `Separator` UI component, the
+  `SelectControl` duplicate (replaced by a shared `Select` in `components/ui`),
+  the unused `ApiResult` type, and unused placeholder assets.
 - **gqueue: column width modifiers in `-f/--format`**: any field accepts a
   `:WIDTH` suffix (`COMMAND:60` caps the column with a `…`; `:0` or `:full`
   shows it in full). Explicit widths also apply when piped and disable the
@@ -21,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **web: job log dialog fixes**: the dialog actually renders wide now (the
+  default `sm:max-w-lg` was overriding the intended width, so logs showed in
+  a 512px box); tail auto-follow is fixed — the view pins to the bottom on
+  load and refresh, with a "Latest" button to jump back after scrolling up;
+  raw tmux-capture logs are cleaned more completely (CSI sequences with
+  private markers, OSC, charset designators, stray control chars, and CR
+  runs); the log area is taller (55vh) and wraps without breaking words
+  mid-token, plus a copy button; finished jobs stop polling.
 - **CI: fix `clippy::needless-bool` in reservation filtering**: simplify the
   active-only reservation predicate so the nightly smoke check passes with
   warnings denied.
