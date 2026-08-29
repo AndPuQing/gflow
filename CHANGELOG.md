@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shows it in full). Explicit widths also apply when piped and disable the
   automatic terminal-width fitting.
 
+### Changed
+- **web: upgrade `@tanstack/react-table` to v9**: adapt the Jobs view to the
+  v9 API — register features/row models via `tableFeatures`, switch
+  `useReactTable` to `useTable`, and use the feature-aware `ColumnDef`/
+  `Row`/`Table` types. The Jobs table now registers only the features it
+  uses (column, global, and row sorting).
+
 ### Fixed
 - **CI: fix `clippy::needless-bool` in reservation filtering**: simplify the
   active-only reservation predicate so the nightly smoke check passes with

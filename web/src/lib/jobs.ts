@@ -1,7 +1,35 @@
-import type { Row, Table as TanStackTable } from "@tanstack/react-table"
+import {
+  columnFilteringFeature,
+  createFilteredRowModel,
+  createSortedRowModel,
+  globalFilteringFeature,
+  rowSortingFeature,
+  tableFeatures,
+  type Row,
+  type Table,
+} from "@tanstack/react-table"
 
 import type { Job } from "@/api"
 import { formatAssignedGpuIds, formatGpuRequest } from "@/lib/format"
+
+/**
+ * Feature set for the jobs table. v9 of @tanstack/react-table requires every
+ * non-core feature and row model to be registered explicitly. The jobs table
+ * uses column filtering, global filtering, and sorting, so those (plus the
+ * filtered/sorted row models and `columnFilteringFeature`, which global
+ * filtering depends on) are registered here.
+ */
+export const jobTableFeatures = tableFeatures({
+  columnFilteringFeature,
+  globalFilteringFeature,
+  rowSortingFeature,
+  filteredRowModel: createFilteredRowModel(),
+  sortedRowModel: createSortedRowModel(),
+})
+
+export type JobTableFeatures = typeof jobTableFeatures
+type JobTable = Table<JobTableFeatures, Job>
+type JobRow = Row<JobTableFeatures, Job>
 
 export type JobTableColumnId =
   | "id"
@@ -27,20 +55,20 @@ export function gpuSortValue(job: Job) {
   return `${requested.toString().padStart(4, "0")}:${assigned}`
 }
 
-export function stringColumnFilter(table: TanStackTable<Job>, columnId: JobTableColumnId) {
+export function stringColumnFilter(table: JobTable, columnId: JobTableColumnId) {
   const value = table.getColumn(columnId)?.getFilterValue()
   return typeof value === "string" ? value : "all"
 }
 
-export function exactFilter(row: Row<Job>, columnId: string, value: unknown) {
+export function exactFilter(row: JobRow, columnId: string, value: unknown) {
   return String(row.getValue(columnId)) === String(value)
 }
 
-export function gpuStateFilter(row: Row<Job>, _columnId: string, value: unknown) {
+export function gpuStateFilter(row: JobRow, _columnId: string, value: unknown) {
   return matchesGpuFilter(row.original, value as GpuFilter)
 }
 
-export function jobGlobalFilter(row: Row<Job>, _columnId: string, value: unknown) {
+export function jobGlobalFilter(row: JobRow, _columnId: string, value: unknown) {
   const needle = String(value ?? "").trim().toLowerCase()
   if (!needle) return true
 
