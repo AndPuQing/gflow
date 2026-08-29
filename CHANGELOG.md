@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
+- **web: redesign the GPU cell in the jobs table**: the old pill had
+  misaligned 10px segment text; it is now a fixed-height chip row that
+  aligns with the row text — an `N×` count, one emerald chip per assigned
+  GPU index, and a single dashed chip summarising pending GPUs (`+N`);
+  jobs without GPUs show a muted dash instead of a pill.
 - **web: sort the jobs table via clickable column headers** with an active
   direction indicator, replacing the sort-field and sort-direction dropdowns;
   the filter row is shorter as a result.
