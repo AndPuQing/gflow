@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { RefreshCw } from "lucide-react"
+import { ArrowDown, Check, Copy, RefreshCw } from "lucide-react"
 
 import { fetchJobLogContent, type Job, unwrapError } from "@/api"
 import { LOG_REFRESH_INTERVAL_MS } from "@/hooks/useDashboard"
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { StatusBadge } from "@/components/dashboard/StatusBadge"
+import { cn } from "@/lib/utils"
 
 type LogState = {
   content: string
@@ -23,11 +24,27 @@ type LogState = {
   fetchedAt: Date | null
 }
 
+/** States whose log can still change while the dialog is open. */
+function isLogLive(state: string) {
+  return state === "Running" || state === "Queued"
+}
+
 export function JobLogDialog({ job, onClose }: { job: Job | null; onClose: () => void }) {
   const [log, setLog] = useState<LogState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [atBottom, setAtBottom] = useState(true)
+  const hostRef = useRef<HTMLDivElement | null>(null)
+
+  const viewport = () =>
+    hostRef.current?.querySelector<HTMLElement>("[data-slot=scroll-area-viewport]")
+
+  const jumpToBottom = useCallback((stick = true) => {
+    const el = viewport()
+    if (el) el.scrollTop = el.scrollHeight
+    if (stick) setAtBottom(true)
+  }, [])
 
   const load = useCallback(async (target: Job) => {
     setLoading(true)
@@ -47,32 +64,54 @@ export function JobLogDialog({ job, onClose }: { job: Job | null; onClose: () =>
     }
   }, [])
 
-  // Fetch on open / job change, then keep tailing while the dialog is open.
+  // Fetch on open / job change, then keep tailing while the job is active.
+  const live = job !== null && isLogLive(job.state)
   useEffect(() => {
     if (!job) {
       setLog(null)
       setError(null)
       setLoading(false)
+      setAtBottom(true)
       return
     }
 
     void load(job)
+    if (!isLogLive(job.state)) return
     const timer = window.setInterval(() => void load(job), LOG_REFRESH_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [job, load])
+  }, [job, live, load])
 
-  // Follow the log: stay pinned to the bottom unless the user scrolled up.
+  // Follow the tail: pin to the bottom unless the user scrolled up.
   useEffect(() => {
-    const viewport = scrollRef.current?.querySelector<HTMLElement>("[data-slot=scroll-area-viewport]")
-      ?? scrollRef.current?.firstElementChild
-    if (!viewport) return
-    const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
-    if (nearBottom) viewport.scrollTop = viewport.scrollHeight
-  }, [log?.content])
+    const el = viewport()
+    if (!el) return
+    const onScroll = () =>
+      setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+    el.addEventListener("scroll", onScroll)
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [job, log?.content])
+
+  useEffect(() => {
+    if (log?.content && atBottom) {
+      const el = viewport()
+      if (el) el.scrollTop = el.scrollHeight
+    }
+  }, [log?.content, atBottom])
+
+  const copyLog = async () => {
+    if (!log?.content) return
+    try {
+      await navigator.clipboard.writeText(log.content)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard unavailable (e.g. non-secure context); ignore.
+    }
+  }
 
   return (
     <Dialog open={job !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-w-3xl flex-col gap-3">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-3 max-w-[min(90vw,896px)] sm:max-w-[896px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 pr-8">
             {job ? <StatusBadge value={job.state} /> : null}
@@ -93,25 +132,48 @@ export function JobLogDialog({ job, onClose }: { job: Job | null; onClose: () =>
           </div>
         ) : null}
 
-        <ScrollArea ref={scrollRef} className="h-[420px] rounded-lg border bg-zinc-950 text-zinc-100">
-          <pre className="p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
-            {log?.content ? log.content : loading ? "Loading…" : "No log output yet."}
-          </pre>
-        </ScrollArea>
+        <div ref={hostRef} className="relative">
+          <ScrollArea className="h-[55vh] min-h-[320px] rounded-lg border bg-zinc-950 text-zinc-100">
+            <pre className="p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+              {log?.content ? log.content : loading ? "Loading…" : "No log output yet."}
+            </pre>
+          </ScrollArea>
+          {log?.content && !atBottom ? (
+            <Button
+              size="sm"
+              onClick={() => jumpToBottom()}
+              className="absolute right-3 bottom-3 shadow-md"
+            >
+              <ArrowDown className="size-3.5" />
+              Latest
+            </Button>
+          ) : null}
+        </div>
 
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>
+          <span className="truncate">
             {log ? `${log.size.toLocaleString()} bytes on disk` : "—"}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || job === null}
-            onClick={() => job && void load(job)}
-          >
-            <RefreshCw className={loading ? "animate-spin" : undefined} />
-            Refresh
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyLog}
+              disabled={!log?.content || loading}
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading || job === null}
+              onClick={() => job && void load(job)}
+            >
+              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

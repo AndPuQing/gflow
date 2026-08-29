@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **web: job log dialog fixes**: the dialog actually renders wide now (the
+  default `sm:max-w-lg` was overriding the intended width, so logs showed in
+  a 512px box); tail auto-follow is fixed — the view pins to the bottom on
+  load and refresh, with a "Latest" button to jump back after scrolling up;
+  raw tmux-capture logs are cleaned more completely (CSI sequences with
+  private markers, OSC, charset designators, stray control chars, and CR
+  runs); the log area is taller (55vh) and wraps without breaking words
+  mid-token, plus a copy button; finished jobs stop polling.
 - **CI: fix `clippy::needless-bool` in reservation filtering**: simplify the
   active-only reservation predicate so the nightly smoke check passes with
   warnings denied.
