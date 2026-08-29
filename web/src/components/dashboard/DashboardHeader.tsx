@@ -33,6 +33,7 @@ function storedTheme(): "light" | "dark" {
 export function DashboardHeader({
   gpuCount,
   jobCount,
+  totalJobs,
   lastUpdated,
   connection,
   refreshing,
@@ -40,6 +41,7 @@ export function DashboardHeader({
 }: {
   gpuCount: number
   jobCount: number
+  totalJobs?: number
   lastUpdated: Date | null
   connection: ConnectionStatus
   refreshing: boolean
@@ -70,7 +72,9 @@ export function DashboardHeader({
             {gpuCount} GPUs
           </Badge>
           <Badge variant="outline" className="bg-background">
-            {jobCount} jobs loaded
+            {totalJobs != null
+              ? `${totalJobs.toLocaleString()} jobs · showing ${jobCount}`
+              : `${jobCount} jobs loaded`}
           </Badge>
           <Badge variant="outline" className={cn("gap-1.5", badge.className)}>
             <span

@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
+- **web: jobs table shows runtime instead of "Starts at"**: the almost-empty
+  scheduled-time column is replaced by a `Runtime` column — elapsed time for
+  running jobs (grows with refreshes) and total runtime for finished ones.
+- **web: load older jobs**: the console starts with the latest 100 jobs and
+  gains a "Load earlier jobs" button that pages back through history; the
+  header badge now reads `N jobs · showing M` so the page limit is not
+  mistaken for the total.
+- **web: calmer overview cards**: metric cards use a neutral background with
+  the accent color limited to the value and icon, replacing the full pastel
+  card tints.
 - **web: redesign the GPU cell in the jobs table**: the old pill had
   misaligned 10px segment text; it is now a fixed-height chip row that
   aligns with the row text — an `N×` count, one emerald chip per assigned

@@ -6,10 +6,17 @@ import {
   type SortingState,
   useTable,
 } from "@tanstack/react-table"
-import { ArrowDown, ArrowUp, FileText, ListFilter, X } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowUp,
+  FileText,
+  History,
+  ListFilter,
+  X,
+} from "lucide-react"
 
 import type { Job } from "@/api"
-import { formatTime, toDate } from "@/lib/format"
+import { formatRuntime, formatTime, toDate } from "@/lib/format"
 import {
   exactFilter,
   jobTableFeatures,
@@ -51,7 +58,26 @@ import { SummaryPill } from "@/components/dashboard/SummaryPill"
 
 const DEFAULT_SORTING: SortingState = [{ id: "id", desc: true }]
 
-export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: Job) => void }) {
+function jobRuntimeSeconds(job: Job): number | null {
+  const start = toDate(job.started_at)
+  if (!start) return null
+  const end = toDate(job.finished_at) ?? new Date()
+  return Math.max(0, (end.getTime() - start.getTime()) / 1000)
+}
+
+export function JobsView({
+  jobs,
+  hasMore,
+  loadingOlder,
+  onLoadOlder,
+  onViewLogs,
+}: {
+  jobs: Job[]
+  hasMore: boolean
+  loadingOlder: boolean
+  onLoadOlder: () => void
+  onViewLogs: (job: Job) => void
+}) {
   const [query, setQuery] = useState("")
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING)
@@ -111,11 +137,22 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
         sortingFn: "basic",
       },
       {
-        id: "scheduled",
-        accessorFn: (job) => (job.scheduled_at ? (toDate(job.scheduled_at)?.valueOf() ?? 0) : 0),
-        header: "Starts at",
-        cell: ({ row }) =>
-          row.original.scheduled_at ? formatTime(row.original.scheduled_at) : "—",
+        id: "runtime",
+        accessorFn: jobRuntimeSeconds,
+        header: "Runtime",
+        cell: ({ row }) => {
+          const display = formatRuntime(jobRuntimeSeconds(row.original))
+          return (
+            <span
+              className={cn(
+                "font-mono text-xs",
+                display == null && "text-muted-foreground",
+              )}
+            >
+              {display ?? "—"}
+            </span>
+          )
+        },
         sortingFn: "basic",
       },
       {
@@ -191,8 +228,7 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
           <div>
             <CardTitle>Jobs</CardTitle>
             <CardDescription>
-              {visibleRows.length} of {jobs.length} visible from the latest page · click a
-              row for logs
+              {visibleRows.length} of {jobs.length} visible · click a row for logs
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -313,6 +349,20 @@ export function JobsView({ jobs, onViewLogs }: { jobs: Job[]; onViewLogs: (job: 
             </Table>
           </ScrollArea>
         </div>
+        {hasMore ? (
+          <div className="mt-3 flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onLoadOlder}
+              disabled={loadingOlder}
+            >
+              <History className="size-4" />
+              {loadingOlder ? "Loading…" : "Load earlier jobs"}
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )

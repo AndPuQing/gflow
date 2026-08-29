@@ -57,6 +57,18 @@ export function formatSeconds(value?: number | null) {
   return `${(value / 3600).toFixed(1)}h`
 }
 
+/** Human job runtime, e.g. `2h 13m`, `13m 08s`, `45s`. Null when unknown. */
+export function formatRuntime(seconds?: number | null) {
+  if (seconds == null || Number.isNaN(seconds) || seconds < 0) return null
+  const total = Math.floor(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${String(secs).padStart(2, "0")}s`
+  return `${secs}s`
+}
+
 export function toDate(value?: ApiTime | null) {
   if (value == null) return null
   if (typeof value === "string") {
