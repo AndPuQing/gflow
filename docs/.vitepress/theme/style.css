@@ -331,7 +331,7 @@ a:hover .lp-arrow {
     max-width: 52ch;
 }
 
-/* ---- terminal ---- */
+/* ---- terminal (animated session) ---- */
 .lp-terminal {
     background: var(--lp-charcoal);
     color: var(--lp-charcoal-text);
@@ -350,9 +350,24 @@ a:hover .lp-arrow {
     color: var(--lp-charcoal-text-2);
 }
 
+.lp-terminal-path {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
 .lp-terminal-meta {
     opacity: 0.65;
     white-space: nowrap;
+}
+
+.lp-live {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #4ade80;
+    flex: none;
+    animation: lp-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .lp-terminal-body {
@@ -361,38 +376,100 @@ a:hover .lp-arrow {
     font-size: 0.9rem;
     line-height: 2.05;
     overflow-x: auto;
+    min-height: 16.6rem;
 }
 
 .lp-tl {
     white-space: pre;
     color: var(--lp-charcoal-text-2);
+    animation: lp-tlin 240ms ease-out;
 }
 
-.lp-tl-command {
-    color: var(--lp-charcoal-text);
-}
-
-.lp-terminal-prompt {
+.lp-prompt {
     color: var(--lp-accent);
     font-weight: 600;
 }
 
-.lp-tl-success {
+.lp-cmd-text {
+    color: var(--lp-charcoal-text);
+}
+
+.lp-cursor {
+    display: inline-block;
+    width: 0.6ch;
+    height: 1.15em;
+    margin-left: 0.2ch;
+    vertical-align: -0.18em;
+    background: var(--lp-charcoal-text);
+    animation: lp-blink 1.06s steps(1) infinite;
+}
+
+.lp-tl-ok {
     color: #4ade80;
 }
 
-.lp-tl-header {
+.lp-tl-metric {
+    color: var(--lp-charcoal-text);
+}
+
+/* queue table (header + row) aligned on a mono grid */
+.lp-tl-thead,
+.lp-tl-trow {
+    display: grid;
+    grid-template-columns: 5ch 8ch 9ch 4ch 7ch;
+    gap: 0 0.5ch;
+    white-space: nowrap;
+}
+
+.lp-th {
+    color: var(--lp-charcoal-text-2);
+    opacity: 0.8;
+}
+
+.lp-td {
+    color: var(--lp-charcoal-text-2);
+}
+
+.lp-state {
+    font-weight: 600;
+}
+
+.lp-state.is-pend {
     color: var(--lp-charcoal-text-2);
     opacity: 0.85;
 }
 
-.lp-tl-metrics {
-    color: var(--lp-charcoal-text);
+.lp-state.is-run {
+    color: #4ade80;
 }
 
-/* force single colour for shiki tokens inside the always-dark terminal */
-.lp-terminal-body span[style] {
-    color: var(--lp-charcoal-text) !important;
+@keyframes lp-tlin {
+    from {
+        opacity: 0;
+        transform: translateY(3px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes lp-blink {
+    50% {
+        opacity: 0;
+    }
+}
+
+@keyframes lp-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
 }
 
 /* ---- grid of cells (1px hairline separators) ---- */
@@ -628,12 +705,8 @@ a:hover .lp-arrow {
     overflow-x: auto;
 }
 
-.lp-band-cmd span[style] {
-    color: var(--lp-charcoal-text) !important;
-}
-
-.lp-band-cmd .lp-code-placeholder {
-    color: var(--lp-accent);
+.lp-band-cmd-text {
+    color: var(--lp-charcoal-text);
 }
 
 /* ---- closing (solid IBM Blue) ---- */
@@ -696,6 +769,10 @@ a:hover .lp-arrow {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .lp-flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .lp-grid-3 {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -748,6 +825,10 @@ a:hover .lp-arrow {
         grid-template-columns: 1fr;
     }
 
+    .lp-flow {
+        grid-template-columns: 1fr;
+    }
+
     .lp-sec-head {
         margin-bottom: 2rem;
     }
@@ -763,5 +844,101 @@ a:hover .lp-arrow {
 
     .lp-table-cta {
         order: 3;
+    }
+}
+
+/* ---- how-it-works pipeline (animated sweep) ---- */
+.lp-flow {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--lp-hairline);
+    border: 1px solid var(--lp-hairline);
+}
+
+.lp-flow-stage {
+    position: relative;
+    background: var(--lp-bg);
+    padding: 1.9rem 1.75rem 2.1rem;
+    overflow: hidden;
+}
+
+.lp-flow-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--lp-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    animation: lp-flowbar 4.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation-delay: calc(var(--i, 0) * 1.05s);
+}
+
+.lp-flow-idx {
+    display: block;
+    font-family: var(--lp-mono);
+    font-size: 0.8125rem;
+    letter-spacing: 0.1em;
+    color: var(--lp-text-3);
+    margin-bottom: 1.1rem;
+}
+
+.lp-flow-cmd {
+    display: block;
+    font-family: var(--lp-mono);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--lp-text);
+    margin-bottom: 0.65rem;
+    overflow-wrap: break-word;
+}
+
+.lp-flow-label {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--lp-text-2);
+}
+
+@keyframes lp-flowbar {
+    0% {
+        transform: scaleX(0);
+        opacity: 1;
+    }
+
+    15% {
+        transform: scaleX(1);
+        opacity: 1;
+    }
+
+    25% {
+        transform: scaleX(1);
+        opacity: 1;
+    }
+
+    34% {
+        transform: scaleX(1);
+        opacity: 0;
+    }
+
+    100% {
+        transform: scaleX(1);
+        opacity: 0;
+    }
+}
+
+/* ---- reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    .lp-tl,
+    .lp-cursor,
+    .lp-live,
+    .lp-flow-bar {
+        animation: none !important;
+    }
+
+    .lp-flow-bar {
+        transform: scaleX(1);
+        opacity: 0.25;
     }
 }
