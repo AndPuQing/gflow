@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
+- **docs: restyle the landing page (runqd.com) into an IBM Carbon / Swiss
+  industrial style**: the homepage is a flat, grid-driven layout built only
+  from 1px hairlines — no rounded cards, shadows, gradients, or decorative
+  elements — in pure white / deep charcoal with a single IBM Blue `#0f62fe`
+  accent, set in IBM Plex Sans + IBM Plex Mono. The hero is a large bold
+  statement; the terminal now **plays out a live session** (commands stream
+  in, the job flips PENDING → RUNNING, blinking cursor, pulsing status dot,
+  loops, and respects `prefers-reduced-motion`), and “How it works” is an
+  animated pipeline with a sequential sweep. Copy was trimmed to be punchier
+  and less text-heavy. Verified in light, dark, zh-CN, and mobile.
 - **web: jobs table shows runtime instead of "Starts at"**: the almost-empty
   scheduled-time column is replaced by a `Runtime` column — elapsed time for
   running jobs (grows with refreshes) and total runtime for finished ones.
