@@ -616,7 +616,7 @@ const mcpCommandHtml = computed(() => highlightShell(copy.value.mcp.command));
                 <p class="lp-eyebrow">{{ copy.capabilities.eyebrow }}</p>
                 <h2>{{ copy.capabilities.title }}</h2>
             </div>
-            <div class="lp-card-grid">
+            <div class="lp-card-grid lp-card-grid-caps">
                 <article v-for="item in copy.capabilities.items" :key="item.title" class="lp-card">
                     <h3>{{ item.title }}</h3>
                     <p>{{ item.body }}</p>
