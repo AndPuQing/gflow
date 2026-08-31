@@ -17,15 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
-- **docs: restyle the landing page (runqd.com) into a minimal, flat look**:
-  the homepage now uses a neutral light/dark surface with a single restrained
-  blue accent and thin 1px borders — no gradients, glassmorphism, glows, or
-  animation — so it reads as a serious scheduler/infra tool rather than a
-  marketing page. The intended Space Grotesk display and IBM Plex Mono code
-  fonts are loaded and applied to headings and commands; the hero is
-  simplified to headline + a clean terminal (the floating cards are removed),
-  and the capabilities grid uses 3 columns. Balanced across both locales and
-  mobile.
+- **docs: restyle the landing page (runqd.com) into an IBM Carbon / Swiss
+  industrial style**: the homepage is a flat, grid-driven layout built only
+  from 1px hairlines — no rounded cards, shadows, gradients, or decorative
+  elements — in pure white / deep charcoal with a single IBM Blue `#0f62fe`
+  accent. Typography moves to IBM Plex Sans (display + body) and IBM Plex Mono
+  (labels, code, specs), with a large bold grotesque hero, numbered section
+  rows (01–05), a flat borderless terminal, a dark MCP band, and a solid IBM
+  Blue closing band. Verified flat and clean in light, dark, zh-CN, and mobile
+  via headless screenshots.
 - **web: jobs table shows runtime instead of "Starts at"**: the almost-empty
   scheduled-time column is replaced by a `Runtime` column — elapsed time for
   running jobs (grows with refreshes) and total runtime for finished ones.

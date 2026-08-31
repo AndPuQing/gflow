@@ -267,13 +267,13 @@ const copies = {
                 },
                 {
                     title: "Jump to command reference",
-                    body: "Use the cheat sheet for `gflowd`, `gbatch`, `gqueue`, `gjob`, `gctl`, and more.",
+                    body: "Use the cheat sheet for gflowd, gbatch, gqueue, gjob, gctl, and more.",
                     href: "/reference/quick-reference",
                     cta: "Open Reference",
                 },
                 {
                     title: "Connect your agents",
-                    body: "Run `gflow` as a local MCP server for agent tooling.",
+                    body: "Run gflow as a local MCP server for agent tooling.",
                     href: "/ai-integration/mcp-and-skills",
                     cta: "Open AI Integration",
                 },
@@ -468,7 +468,7 @@ const copies = {
                 },
                 {
                     title: "连接你的 Agent",
-                    body: "把 `gflow` 作为本地 MCP server 接给 Agent 工具。",
+                    body: "把 gflow 作为本地 MCP server 接给 Agent 工具。",
                     href: "/zh-CN/ai-integration/mcp-and-skills",
                     cta: "查看 AI 集成",
                 },
@@ -503,53 +503,49 @@ const workflowSteps = computed(() =>
     })),
 );
 const mcpCommandHtml = computed(() => highlightShell(copy.value.mcp.command));
+
+function pad(n: number) {
+    return String(n).padStart(2, "0");
+}
 </script>
 
 <template>
     <div class="landing-page">
-        <section class="lp-hero">
-            <div class="lp-hero-copy">
-                <div class="lp-brand">
-                    <img alt="gflow" class="lp-brand-logo" src="/logo.svg" />
-                    <span>gflow</span>
-                </div>
-                <p class="lp-eyebrow">{{ copy.hero.eyebrow }}</p>
-                <h1 class="lp-title">{{ copy.hero.title }}</h1>
-                <p class="lp-lead">{{ copy.hero.lead }}</p>
-                <div class="lp-actions">
-                    <a
-                        v-for="action in copy.hero.actions"
-                        :key="action.href"
-                        :class="['lp-button', `lp-button-${action.kind}`]"
-                        :href="action.href"
-                    >
-                        {{ action.label }}
-                    </a>
-                </div>
-                <ul class="lp-trust">
-                    <li v-for="item in copy.hero.trust" :key="item">{{ item }}</li>
-                </ul>
-                <div class="lp-stats">
-                    <article v-for="item in copy.hero.stats" :key="item.value" class="lp-stat-card">
-                        <p class="lp-stat-value">{{ item.value }}</p>
-                        <p class="lp-stat-label">{{ item.label }}</p>
-                    </article>
+        <!-- HERO -->
+        <header class="lp-hero">
+            <div class="lp-container">
+                <p class="lp-label"><span class="lp-label-tick" aria-hidden="true"></span>{{ copy.hero.eyebrow }}</p>
+                <h1 class="lp-hero-title">{{ copy.hero.title }}</h1>
+                <p class="lp-hero-lead">{{ copy.hero.lead }}</p>
+                <div class="lp-hero-actions">
+                    <a class="lp-btn lp-btn-primary" :href="copy.hero.actions[0].href">{{ copy.hero.actions[0].label }}</a>
+                    <a class="lp-btn-text" :href="copy.hero.actions[1].href">{{ copy.hero.actions[1].label }}<span class="lp-arrow" aria-hidden="true">→</span></a>
+                    <a class="lp-btn-text" :href="copy.hero.actions[2].href">{{ copy.hero.actions[2].label }}<span class="lp-arrow" aria-hidden="true">→</span></a>
                 </div>
             </div>
+            <div class="lp-container">
+                <ul class="lp-specstrip">
+                    <li v-for="(item, i) in copy.hero.trust" :key="item" class="lp-spec">
+                        <span class="lp-spec-idx" aria-hidden="true">{{ pad(i + 1) }}</span>
+                        <span class="lp-spec-text">{{ item }}</span>
+                    </li>
+                </ul>
+            </div>
+        </header>
 
-            <div class="lp-hero-visual">
+        <!-- TERMINAL -->
+        <section class="lp-section">
+            <div class="lp-container">
                 <div class="lp-terminal">
-                    <div class="lp-terminal-bar">
-                        <span />
-                        <span />
-                        <span />
-                        <strong>{{ copy.panel.title }}</strong>
+                    <div class="lp-terminal-head">
+                        <span class="lp-terminal-path">{{ copy.panel.title }}</span>
+                        <span class="lp-terminal-meta">gflowd&nbsp;·&nbsp;127.0.0.1:5577</span>
                     </div>
                     <div class="lp-terminal-body">
                         <div
                             v-for="(line, index) in terminalLines"
-                            :key="`${currentLocale}-${index}`"
-                            :class="['lp-terminal-line', `lp-terminal-line-${line.kind}`]"
+                            :key="index"
+                            :class="['lp-tl', `lp-tl-${line.kind}`]"
                             v-html="line.html"
                         />
                     </div>
@@ -557,106 +553,121 @@ const mcpCommandHtml = computed(() => highlightShell(copy.value.mcp.command));
             </div>
         </section>
 
+        <!-- 01 · WHY -->
         <section class="lp-section">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.problem.eyebrow }}</p>
-                <h2>{{ copy.problem.title }}</h2>
-                <p>{{ copy.problem.lead }}</p>
-            </div>
-            <div class="lp-compare">
-                <article class="lp-compare-card">
-                    <p class="lp-compare-label">{{ copy.problem.painTitle }}</p>
-                    <ul>
-                        <li v-for="item in copy.problem.painItems" :key="item">{{ item }}</li>
-                    </ul>
-                </article>
-                <article class="lp-compare-card lp-compare-card-accent">
-                    <p class="lp-compare-label">{{ copy.problem.valueTitle }}</p>
-                    <ul>
-                        <li v-for="item in copy.problem.valueItems" :key="item">{{ item }}</li>
-                    </ul>
-                </article>
+            <div class="lp-container">
+                <div class="lp-sec-head">
+                    <p class="lp-sec-eyebrow"><span class="lp-sec-idx" aria-hidden="true">{{ pad(1) }}</span>{{ copy.problem.eyebrow }}</p>
+                    <h2 class="lp-sec-title">{{ copy.problem.title }}</h2>
+                    <p class="lp-sec-lead">{{ copy.problem.lead }}</p>
+                </div>
+                <div class="lp-grid lp-grid-2">
+                    <div class="lp-cell">
+                        <p class="lp-cell-label lp-cell-label-dim">{{ copy.problem.painTitle }}</p>
+                        <ul class="lp-list lp-list-minus">
+                            <li v-for="item in copy.problem.painItems" :key="item">{{ item }}</li>
+                        </ul>
+                    </div>
+                    <div class="lp-cell">
+                        <p class="lp-cell-label lp-cell-label-accent">{{ copy.problem.valueTitle }}</p>
+                        <ul class="lp-list lp-list-plus">
+                            <li v-for="item in copy.problem.valueItems" :key="item">{{ item }}</li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </section>
 
+        <!-- 02 · HOW IT WORKS -->
         <section class="lp-section">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.workflow.eyebrow }}</p>
-                <h2>{{ copy.workflow.title }}</h2>
-            </div>
-            <div class="lp-step-grid">
-                <article v-for="step in workflowSteps" :key="step.label" class="lp-step-card">
-                    <span class="lp-step-label">{{ step.label }}</span>
-                    <code class="lp-code-inline" v-html="step.commandHtml"></code>
-                    <p>{{ step.description }}</p>
-                </article>
+            <div class="lp-container">
+                <div class="lp-sec-head">
+                    <p class="lp-sec-eyebrow"><span class="lp-sec-idx" aria-hidden="true">{{ pad(2) }}</span>{{ copy.workflow.eyebrow }}</p>
+                    <h2 class="lp-sec-title">{{ copy.workflow.title }}</h2>
+                </div>
+                <div class="lp-grid lp-grid-4">
+                    <div class="lp-cell lp-step" v-for="step in workflowSteps" :key="step.label">
+                        <code class="lp-step-cmd" v-html="step.commandHtml"></code>
+                        <p class="lp-step-desc">{{ step.description }}</p>
+                    </div>
+                </div>
             </div>
         </section>
 
+        <!-- 03 · CAPABILITIES -->
         <section class="lp-section">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.capabilities.eyebrow }}</p>
-                <h2>{{ copy.capabilities.title }}</h2>
-            </div>
-            <div class="lp-card-grid lp-card-grid-caps">
-                <article v-for="item in copy.capabilities.items" :key="item.title" class="lp-card">
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.body }}</p>
-                </article>
+            <div class="lp-container">
+                <div class="lp-sec-head">
+                    <p class="lp-sec-eyebrow"><span class="lp-sec-idx" aria-hidden="true">{{ pad(3) }}</span>{{ copy.capabilities.eyebrow }}</p>
+                    <h2 class="lp-sec-title">{{ copy.capabilities.title }}</h2>
+                </div>
+                <div class="lp-grid lp-grid-3">
+                    <div class="lp-cell" v-for="(item, i) in copy.capabilities.items" :key="item.title">
+                        <span class="lp-cell-idx" aria-hidden="true">{{ pad(i + 1) }}</span>
+                        <h3 class="lp-cell-title">{{ item.title }}</h3>
+                        <p class="lp-cell-body">{{ item.body }}</p>
+                    </div>
+                </div>
             </div>
         </section>
 
+        <!-- 04 · WHERE IT FITS -->
         <section class="lp-section">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.scenarios.eyebrow }}</p>
-                <h2>{{ copy.scenarios.title }}</h2>
-            </div>
-            <div class="lp-card-grid lp-card-grid-scenarios">
-                <article v-for="item in copy.scenarios.items" :key="item.title" class="lp-card lp-card-scenario">
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.body }}</p>
-                </article>
+            <div class="lp-container">
+                <div class="lp-sec-head">
+                    <p class="lp-sec-eyebrow"><span class="lp-sec-idx" aria-hidden="true">{{ pad(4) }}</span>{{ copy.scenarios.eyebrow }}</p>
+                    <h2 class="lp-sec-title">{{ copy.scenarios.title }}</h2>
+                </div>
+                <div class="lp-grid lp-grid-3">
+                    <div class="lp-cell" v-for="item in copy.scenarios.items" :key="item.title">
+                        <h3 class="lp-cell-title">{{ item.title }}</h3>
+                        <p class="lp-cell-body">{{ item.body }}</p>
+                    </div>
+                </div>
             </div>
         </section>
 
+        <!-- 05 · DOCUMENTATION -->
         <section class="lp-section">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.pathways.eyebrow }}</p>
-                <h2>{{ copy.pathways.title }}</h2>
-            </div>
-            <div class="lp-card-grid">
-                <article v-for="item in copy.pathways.items" :key="item.href" class="lp-card lp-card-link">
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.body }}</p>
-                    <a :href="item.href">{{ item.cta }}</a>
-                </article>
-            </div>
-        </section>
-
-        <section class="lp-section lp-mcp-callout">
-            <div class="lp-section-heading">
-                <p class="lp-eyebrow">{{ copy.mcp.eyebrow }}</p>
-                <h2>{{ copy.mcp.title }}</h2>
-                <p>{{ copy.mcp.lead }}</p>
-            </div>
-            <div class="lp-mcp-row">
-                <pre><code class="lp-code-inline" v-html="mcpCommandHtml"></code></pre>
-                <a class="lp-button lp-button-brand" :href="copy.mcp.href">{{ copy.mcp.cta }}</a>
+            <div class="lp-container">
+                <div class="lp-sec-head">
+                    <p class="lp-sec-eyebrow"><span class="lp-sec-idx" aria-hidden="true">{{ pad(5) }}</span>{{ copy.pathways.eyebrow }}</p>
+                    <h2 class="lp-sec-title">{{ copy.pathways.title }}</h2>
+                </div>
+                <div class="lp-table">
+                    <a class="lp-table-row" v-for="item in copy.pathways.items" :key="item.href" :href="item.href">
+                        <span class="lp-table-title">{{ item.title }}</span>
+                        <span class="lp-table-body">{{ item.body }}</span>
+                        <span class="lp-table-cta">{{ item.cta }}<span class="lp-arrow" aria-hidden="true">→</span></span>
+                    </a>
+                </div>
             </div>
         </section>
 
+        <!-- AI / MCP BAND -->
+        <section class="lp-band">
+            <div class="lp-container lp-band-inner">
+                <div class="lp-band-copy">
+                    <p class="lp-label lp-label-inv"><span class="lp-label-tick lp-label-tick-inv" aria-hidden="true"></span>{{ copy.mcp.eyebrow }}</p>
+                    <h2 class="lp-band-title">{{ copy.mcp.title }}</h2>
+                    <p class="lp-band-lead">{{ copy.mcp.lead }}</p>
+                </div>
+                <div class="lp-band-action">
+                    <pre class="lp-band-cmd"><code v-html="mcpCommandHtml"></code></pre>
+                    <a class="lp-btn lp-btn-inv" :href="copy.mcp.href">{{ copy.mcp.cta }}<span class="lp-arrow" aria-hidden="true">→</span></a>
+                </div>
+            </div>
+        </section>
+
+        <!-- CLOSING -->
         <section class="lp-closing">
-            <h2>{{ copy.cta.title }}</h2>
-            <p>{{ copy.cta.lead }}</p>
-            <div class="lp-actions">
-                <a
-                    v-for="action in copy.cta.actions"
-                    :key="action.href"
-                    :class="['lp-button', `lp-button-${action.kind}`]"
-                    :href="action.href"
-                >
-                    {{ action.label }}
-                </a>
+            <div class="lp-container">
+                <h2 class="lp-closing-title">{{ copy.cta.title }}</h2>
+                <p class="lp-closing-lead">{{ copy.cta.lead }}</p>
+                <div class="lp-hero-actions">
+                    <a class="lp-btn lp-btn-onblue" :href="copy.cta.actions[0].href">{{ copy.cta.actions[0].label }}</a>
+                    <a class="lp-btn-text lp-btn-text-inv" :href="copy.cta.actions[1].href">{{ copy.cta.actions[1].label }}<span class="lp-arrow" aria-hidden="true">→</span></a>
+                </div>
             </div>
         </section>
     </div>
