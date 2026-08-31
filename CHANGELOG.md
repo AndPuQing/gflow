@@ -17,13 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
-- **docs: restyle the landing page (runqd.com) with a cohesive blue theme**:
-  the homepage palette now matches the `gflow` logo (blue/indigo on a clean
-  light/dark neutral) replacing the old cream/orange, and the intended
-  Space Grotesk display and IBM Plex Mono code fonts are loaded and applied
-  to headings and commands. Layout is tightened with section spacing, card
-  hover states, gradient accent eyebrows/stat values, and a 3-column
-  capabilities grid so both locales and mobile stay balanced.
+- **docs: restyle the landing page (runqd.com) into a minimal, flat look**:
+  the homepage now uses a neutral light/dark surface with a single restrained
+  blue accent and thin 1px borders — no gradients, glassmorphism, glows, or
+  animation — so it reads as a serious scheduler/infra tool rather than a
+  marketing page. The intended Space Grotesk display and IBM Plex Mono code
+  fonts are loaded and applied to headings and commands; the hero is
+  simplified to headline + a clean terminal (the floating cards are removed),
+  and the capabilities grid uses 3 columns. Balanced across both locales and
+  mobile.
 - **web: jobs table shows runtime instead of "Starts at"**: the almost-empty
   scheduled-time column is replaced by a `Runtime` column — elapsed time for
   running jobs (grows with refreshes) and total runtime for finished ones.

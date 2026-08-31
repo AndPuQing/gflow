@@ -554,24 +554,6 @@ const mcpCommandHtml = computed(() => highlightShell(copy.value.mcp.command));
                         />
                     </div>
                 </div>
-                <article class="lp-floating-card lp-floating-card-queue">
-                    <p class="lp-floating-title">{{ copy.panel.queueCardTitle }}</p>
-                    <div class="lp-floating-grid">
-                        <div v-for="item in copy.panel.queueCardValues" :key="item.label">
-                            <span>{{ item.label }}</span>
-                            <strong>{{ item.value }}</strong>
-                        </div>
-                    </div>
-                </article>
-                <article class="lp-floating-card lp-floating-card-gpu">
-                    <p class="lp-floating-title">{{ copy.panel.gpuCardTitle }}</p>
-                    <div class="lp-floating-stack">
-                        <div v-for="item in copy.panel.gpuCardValues" :key="item.label">
-                            <span>{{ item.label }}</span>
-                            <strong>{{ item.value }}</strong>
-                        </div>
-                    </div>
-                </article>
             </div>
         </section>
 
