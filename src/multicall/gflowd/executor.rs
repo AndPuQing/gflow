@@ -246,9 +246,8 @@ impl ProcessExecutor {
 /// Build the shell fragment that activates `conda_env` in the job shell.
 ///
 /// The process runner is a non-interactive, non-login `bash -c`, so it never
-/// loads the user's rc files. The tmux pane may not have conda initialized
-/// either. Source conda's init script explicitly so `conda activate` is
-/// available in the shell that runs the payload.
+/// loads the user's rc files. Source conda's init script explicitly so
+/// `conda activate` is available in the shell that runs the payload.
 fn conda_activation_command(job: &Job, conda_env: &str) -> Result<String> {
     let root = locate_conda_root().with_context(|| {
         format!(
@@ -635,7 +634,7 @@ impl TmuxExecutor {
 
         if let Some(script) = &job.script {
             if let Some(script_str) = script.to_str() {
-                user_command.push_str(&format!("bash {}", shell_escape::escape(script_str.into())));
+                user_command.push_str(&format!("bash {script_str}"));
             }
         } else if let Some(cmd) = &job.command {
             // Apply parameter substitution
@@ -679,10 +678,7 @@ impl Executor for TmuxExecutor {
             }
             session.enable_pipe_pane(&log_path)?;
 
-            session.try_send_command(&format!(
-                "cd {}",
-                shell_escape::escape(job.run_dir.to_string_lossy())
-            ))?;
+            session.try_send_command(&format!("cd {}", job.run_dir.display()))?;
             session.try_send_command(&format!(
                 "export GFLOW_ARRAY_TASK_ID={}",
                 job.task_id.unwrap_or(0)
@@ -699,8 +695,7 @@ impl Executor for TmuxExecutor {
             }
 
             if let Some(conda_env) = &job.conda_env {
-                let activation = conda_activation_command(job, conda_env)?;
-                session.try_send_command(&activation)?;
+                session.try_send_command(&format!("conda activate {conda_env}"))?;
             }
 
             let wrapped_command = self.generate_wrapped_command(job)?;

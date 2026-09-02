@@ -221,9 +221,9 @@ type = "tmux" # or "process"
   escalates to SIGKILL after a grace period; zombie detection uses real
   process liveness. Not yet considered stable.
 
-Both executors apply `--conda-env` in the job shell. The daemon locates a Conda
-installation using `$CONDA_EXE`, `conda` on `$PATH`, `$CONDA_PREFIX`, and common
-locations such as `~/miniconda3` or `/opt/conda`, then sources its
+The process executor applies `--conda-env` in the job shell. The daemon locates
+a Conda installation using `$CONDA_EXE`, `conda` on `$PATH`, `$CONDA_PREFIX`, and
+common locations such as `~/miniconda3` or `/opt/conda`, then sources its
 `etc/profile.d/conda.sh` before running `conda activate <env>`. If no
 installation is found, the job fails with an explanatory message in its log.
 

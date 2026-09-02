@@ -214,10 +214,11 @@ type = "tmux" # 或 "process"
   stdout/stderr 重定向到 `logs/<job_id>.log`。取消作业时对整个进程组发送
   SIGTERM，宽限期后升级为 SIGKILL；僵尸检测基于真实进程活性。尚未稳定。
 
-两种执行器都会在作业 shell 中应用 `--conda-env`。守护进程会从 `$CONDA_EXE`、
-`$PATH` 上的 `conda`、`$CONDA_PREFIX` 以及 `~/miniconda3`、`/opt/conda` 等常见
-位置定位 Conda 安装，然后先加载其 `etc/profile.d/conda.sh` 再执行
-`conda activate <env>`。找不到安装时，作业会失败，并在作业日志中写入明确原因。
+`process` 执行器会在作业 shell 中应用 `--conda-env`。守护进程会从
+`$CONDA_EXE`、`$PATH` 上的 `conda`、`$CONDA_PREFIX` 以及 `~/miniconda3`、
+`/opt/conda` 等常见位置定位 Conda 安装，然后先加载其
+`etc/profile.d/conda.sh` 再执行 `conda activate <env>`。找不到安装时，作业会失败，
+并在作业日志中写入明确原因。
 
 ## 项目追踪
 
