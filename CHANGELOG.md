@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **gflowd: Conda environments now work with the process executor**: the
+  non-interactive job shell explicitly sources conda's `conda.sh` before
+  activation. The daemon locates Conda through `$CONDA_EXE`, `$PATH`,
+  `$CONDA_PREFIX`, and common installation locations, while shell-quoting
+  environment names and script paths. Missing command-preparation errors are
+  also written to the job log.
 - **web: job log dialog fixes**: the dialog actually renders wide now (the
   default `sm:max-w-lg` was overriding the intended width, so logs showed in
   a 512px box); tail auto-follow is fixed — the view pins to the bottom on
