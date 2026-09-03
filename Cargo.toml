@@ -92,7 +92,7 @@ dirs = "6.0.0"
 serde = { version = "1.0.217", default-features = false, features = ["derive"] }
 anyhow = "1.0.95"
 strum = { version = "0.28.0", features = ["derive"] }
-nvml-wrapper = "0.12.0"
+nvml-wrapper = "0.13.0"
 serde_json = "1.0"
 uuid = { version = "1.10.0", features = ["v4", "fast-rng"] }
 range-parser = "0.1.2"
@@ -136,7 +136,7 @@ vergen-gix = { version = "10.0.0", features = ["build", "cargo"] }
 [dev-dependencies]
 mockall = "0.15.0"
 tempfile = "3.16.0"
-nvml-wrapper = "0.12.0"
+nvml-wrapper = "0.13.0"
 tower = "0.5"
 criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.5"
