@@ -15,5 +15,10 @@ pub async fn handle_commands(_: &gflow::config::Config, commands: Commands) -> a
             )?;
             Ok(())
         }
+        // Query-word aliases never reach here: `run` forwards them to the
+        // command that owns the query before loading any config.
+        Commands::List(_) | Commands::Queue(_) | Commands::Status(_) | Commands::Log(_) => {
+            unreachable!("query aliases are forwarded before command handling")
+        }
     }
 }

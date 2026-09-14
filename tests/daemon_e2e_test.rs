@@ -66,6 +66,10 @@ fn gflow_bin() -> &'static str {
     env!("CARGO_BIN_EXE_gflow")
 }
 
+fn gbatch_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_gbatch")
+}
+
 fn gcancel_bin() -> &'static str {
     env!("CARGO_BIN_EXE_gcancel")
 }
@@ -355,7 +359,25 @@ impl TestSandbox {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = Command::new(gflow_bin());
+        self.run_bin(gflow_bin(), args)
+    }
+
+    /// Run the `gbatch` wrapper binary (rather than `gflow __multicall gbatch`)
+    /// so the test exercises the same entry point users invoke.
+    fn run_gbatch<I, S>(&self, args: I) -> CommandResult
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.run_bin(gbatch_bin(), args)
+    }
+
+    fn run_bin<I, S>(&self, bin: &str, args: I) -> CommandResult
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = Command::new(bin);
         command.current_dir(&self.work_dir);
         command.env("HOME", &self.root);
         command.env("PATH", path_env());
@@ -1559,5 +1581,97 @@ async fn executor_type_config_selects_backend() {
     )
     .await;
     assert!(!is_session_exist(&response.run_name));
+    sandbox.stop_daemon();
+}
+
+/// W-576: `gbatch status|log|list|queue` are query words users carry over from
+/// `squeue`/`scontrol`. They used to be swallowed as `script_or_command`, so
+/// each one submitted a job that failed a second later while still printing
+/// "Submitted batch job N". They must now answer the query and submit nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gbatch_query_words_answer_instead_of_submitting() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+
+    // Seed one real job so `status`/`log` have a target and `list` has a row.
+    let job = JobBuilder::new()
+        .submitted_by("alias-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo alias-target")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+    let job_id = response.id;
+    wait_for_job_state(&client, job_id, JobState::Finished, Duration::from_secs(20)).await;
+    let jobs_before = client.list_jobs().await.unwrap().len();
+
+    // `list`/`queue` answer with the queue: no new job, no "Submitted batch job".
+    for query_word in ["list", "queue"] {
+        let result = sandbox.run_gbatch([query_word, "-a", "-u", "all"]);
+        result.assert_success(&format!("gbatch {query_word}"));
+        assert!(
+            !result.stdout.contains("Submitted batch job"),
+            "`gbatch {query_word}` must not submit: {}",
+            result.stdout
+        );
+        assert!(
+            result.stdout.contains("JOBID") && result.stdout.contains(&job_id.to_string()),
+            "`gbatch {query_word}` should print the queue: {}",
+            result.stdout
+        );
+    }
+
+    // `status <id>` answers with job details.
+    let status = sandbox.run_gbatch(["status", &job_id.to_string()]);
+    status.assert_success("gbatch status <id>");
+    assert!(
+        !status.stdout.contains("Submitted batch job"),
+        "`gbatch status` must not submit: {}",
+        status.stdout
+    );
+    assert!(
+        status.stdout.contains(&format!("ID={job_id}")),
+        "`gbatch status {job_id}` should show job details: {}",
+        status.stdout
+    );
+
+    // `log <id>` answers with the job log output.
+    let log = sandbox.run_gbatch(["log", &job_id.to_string()]);
+    log.assert_success("gbatch log <id>");
+    assert!(
+        !log.stdout.contains("Submitted batch job"),
+        "`gbatch log` must not submit: {}",
+        log.stdout
+    );
+    assert!(
+        log.stdout.contains("alias-target"),
+        "`gbatch log {job_id}` should print the job log: {}",
+        log.stdout
+    );
+
+    // Nothing above may have enqueued a job.
+    let jobs_after = client.list_jobs().await.unwrap();
+    assert_eq!(
+        jobs_after.len(),
+        jobs_before,
+        "query words must not create jobs, got: {:?}",
+        jobs_after
+            .iter()
+            .map(|j| (j.id, j.command.clone()))
+            .collect::<Vec<_>>()
+    );
+    for word in ["list", "status", "log", "queue"] {
+        assert!(
+            !jobs_after
+                .iter()
+                .any(|j| j.command.as_deref().is_some_and(|c| c.contains(word))),
+            "no job should run the query word {word:?}"
+        );
+    }
+
     sandbox.stop_daemon();
 }

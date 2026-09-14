@@ -43,6 +43,10 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 
 ## Submit Jobs (`gbatch`)
 
+`gbatch` only submits — inspect with `gqueue` / `gjob show` / `gjob log` (the
+words `list` / `queue` / `status` / `log` also work directly, e.g.
+`gbatch status 42`).
+
 ```bash
 # Command
 gbatch python train.py --epochs 100

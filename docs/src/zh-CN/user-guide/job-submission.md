@@ -3,6 +3,12 @@
 使用 `gbatch` 提交任务（类似 Slurm 的 `sbatch`）。你可以直接提交命令，也可以提交脚本。
 
 ::: tip
+`gbatch` 只负责提交：查询请用 `gqueue`、`gjob show <job>`、`gjob log <job>`。
+查询词 `list`/`queue`/`status`/`log` 也可直接作为别名，例如 `gbatch status 42`
+会展示任务 42，而不是提交新任务。
+:::
+
+::: tip
 单步命令适合直接提交；如果需要环境准备、多条 shell 语句或更稳定的复用方式，优先使用脚本。
 :::
 

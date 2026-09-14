@@ -69,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **gbatch: `list`/`queue`/`status`/`log` no longer submit jobs**: the four
+  query words were swallowed as `<SCRIPT_OR_COMMAND>` and each one enqueued a
+  job that failed within a second while still printing
+  `Submitted batch job N`. They are now forwarded to the command that owns the
+  query — `gbatch list` / `gbatch queue` → `gqueue`, `gbatch status <job>` →
+  `gjob show`, `gbatch log <job>` → `gjob log` (extra flags are passed through,
+  including `--last N`). `gbatch --help` also states that `gbatch` only submits
+  and points at `gqueue` / `gjob show` / `gjob log`.
 - **gflowd: Conda environments now work with the process executor**: the
   non-interactive job shell explicitly sources conda's `conda.sh` before
   activation. The daemon locates Conda through `$CONDA_EXE`, `$PATH`,

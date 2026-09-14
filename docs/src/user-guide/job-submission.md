@@ -3,6 +3,12 @@
 Submit jobs with `gbatch` (similar to Slurm `sbatch`). You can submit a command directly or run a script.
 
 ::: tip
+`gbatch` only submits: to inspect jobs use `gqueue`, `gjob show <job>` and
+`gjob log <job>`. The query words `list`/`queue`/`status`/`log` also work as
+aliases, so `gbatch status 42` shows job 42 instead of submitting a job.
+:::
+
+::: tip
 Use direct commands for short, single-step work. Switch to a script when the command needs setup, environment activation, or multiple shell steps.
 :::
 
