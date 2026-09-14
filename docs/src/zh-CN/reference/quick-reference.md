@@ -124,8 +124,12 @@ gjob hold <job_id>
 gjob release <job_id>
 
 # 详情 / 重做 / 更新
+gjob log <job_id>                          # 已清理输出（无 ANSI，每次更新一行）
 gjob log <job_id> --first 20
 gjob log <job_id> --last 50
+gjob log <job_id> --raw                    # 原样 tmux 捕获
+gjob log <job_id> --path                   # 日志文件路径
+gjob log <job_id> --follow                 # 持续输出直到任务结束
 gjob show <job_id>
 gjob redo <job_id>
 gjob redo <job_id> --cascade

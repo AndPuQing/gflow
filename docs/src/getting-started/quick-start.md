@@ -62,6 +62,13 @@ Then read the logs:
 gjob log <job_id>
 ```
 
+The output is already cleaned: ANSI escapes are stripped and progress-bar
+repaints collapse to their final frame. The durable log file lives at
+`~/.local/share/gflow/logs/<job_id>.log` (or `$XDG_DATA_HOME/gflow/logs/`),
+which `gjob log <job_id> --path` prints and `gjob log <job_id> --follow`
+streams. See the [gjob reference](../reference/gjob-reference) for `--raw`,
+`--no-ansi`, and the archived older attempts (`<job_id>.log.old.*`).
+
 ::: info
 Use `gqueue` first to find the job ID.
 :::

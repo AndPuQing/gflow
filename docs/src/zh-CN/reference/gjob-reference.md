@@ -75,10 +75,48 @@ gjob log <job> [options]
 
 `<job>` 支持数字任务 ID，或用 `@` 表示最近一次任务。
 
+日志文件是 daemon 写入的持久捕获。使用 `tmux` 执行器时它是原始的 pane
+捕获，因此会包含 shell 提示符、ANSI 颜色与光标转义序列，以及进度条用
+回车符重绘的内容（一个 `tqdm` 进度条可能在同一行出现数百次）。
+
+默认情况下 `gjob log` 会清理这些内容：去掉转义序列，并把每次回车重绘
+折叠为最终一帧，输出即为可读的纯文本，每次更新只占一行。
+
 选项：
 
 - `-f, --first <lines>`：只输出前 N 行
 - `-l, --last <lines>`：只输出后 N 行
+- `--raw`：原样输出 tmux 捕获（保留转义序列与 `\r`）
+- `--no-ansi`：去掉转义序列，但每次重绘各占一行
+- `--path`：只打印日志文件路径，不读取内容（便于脚本使用）
+- `-F, --follow`：持续输出追加内容，直到任务结束
+
+`--first`/`--last` 按渲染后的行数计算，而不是原始物理行数，因此对含大量
+进度条的日志切片也符合预期。（使用 `--raw` 时按原始物理行切片。）`--follow`
+不能与切片选项或 `--path` 同时使用。当日志尚未生成时，`--path` 与 `--follow`
+会提示日志不可用。
+
+#### 日志文件位置
+
+任务 `<jobid>` 的持久日志位于 gflow 数据目录：
+
+```
+$XDG_DATA_HOME/gflow/logs/<jobid>.log      # 默认：~/.local/share/gflow/logs/<jobid>.log
+```
+
+被取代的旧尝试（例如 `gjob redo` 或自动重试之后）会归档为同目录下的
+`<jobid>.log.old.<timestamp>`。当 `gjob log` 不可用时可以直接读取该文件：
+
+```bash
+# 只取路径，不读取文件（便于脚本使用）
+gjob log 42 --path
+
+# 等价于对持久日志执行 `tail -f`
+gjob log 42 --follow
+
+# 只保留最后一个已完成的进度帧
+gjob log 42 | grep -E '^step=' | tail -1
+```
 
 ### `gjob hold <job_ids>`
 

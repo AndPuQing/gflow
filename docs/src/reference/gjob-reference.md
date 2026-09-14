@@ -65,7 +65,7 @@ gjob attach <job>
 
 ### `gjob log <job>`
 
-Print a job's log file to stdout.
+Print a job's log to stdout.
 
 Alias: `gjob l`
 
@@ -75,10 +75,52 @@ gjob log <job> [options]
 
 `<job>` supports a numeric job ID or `@` for the most recent job.
 
+The log file is the durable capture written by the daemon. With the `tmux`
+executor it is a raw pane capture, so it contains shell prompts, ANSI colour
+and cursor escapes, and the carriage-return repaints of progress bars (a
+`tqdm` bar can appear hundreds of times on one line).
+
+By default `gjob log` cleans that up: escape sequences are stripped and each
+carriage-return repaint is collapsed to the final frame, so the output is
+plain readable text with one line per rendered update.
+
 Options:
 
 - `-f, --first <lines>`: print only the first N lines
 - `-l, --last <lines>`: print only the last N lines
+- `--raw`: print the tmux capture verbatim (escapes and `\r` included)
+- `--no-ansi`: strip escape sequences but keep every repaint as its own line
+- `--path`: print only the log file path, without reading it (script-friendly)
+- `-F, --follow`: stream appended output until the job finishes
+
+`--first`/`--last` count rendered lines, not raw physical lines, so slicing a
+progress-bar-heavy log behaves as expected. (With `--raw` they slice the
+verbatim capture's physical lines instead.) `--follow` cannot be combined with
+the slicing or `--path` options. `--path` and `--follow` report that a log is
+not available when the job has not produced one yet.
+
+#### Log file location
+
+The durable log for job `<jobid>` lives in the gflow data directory:
+
+```
+$XDG_DATA_HOME/gflow/logs/<jobid>.log      # default: ~/.local/share/gflow/logs/<jobid>.log
+```
+
+Superseded attempts (for example after a `gjob redo` or an automatic retry)
+are archived beside it as `<jobid>.log.old.<timestamp>`. The file can be read
+directly when `gjob log` is unavailable:
+
+```bash
+# Path without reading the file (for scripts)
+gjob log 42 --path
+
+# Equivalent to `tail -f` on the durable log
+gjob log 42 --follow
+
+# Last finished progress frame only
+gjob log 42 | grep -E '^step=' | tail -1
+```
 
 ### `gjob hold <job_ids>`
 

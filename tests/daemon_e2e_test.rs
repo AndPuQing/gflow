@@ -1561,3 +1561,205 @@ async fn executor_type_config_selects_backend() {
     assert!(!is_session_exist(&response.run_name));
     sandbox.stop_daemon();
 }
+
+/// `gjob log` renders the tmux pane capture readably: escape sequences are
+/// stripped and carriage-return progress repaints collapse to their final
+/// frame, while `--raw` still exposes the untouched capture and `--path`
+/// prints the durable file location.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gjob_log_cleans_tmux_capture_and_exposes_the_log_path() {
+    let Some(mut sandbox) = TestSandbox::with_executor("tmux") else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    // Emit ANSI colour and three carriage-return repaints of one progress line,
+    // mimicking a tqdm-style writer captured through `tmux pipe-pane`.
+    let job = JobBuilder::new()
+        .submitted_by("log-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command(
+            r"printf '\033[31mred\033[0m\n'; \
+              printf 'step 0%%\rstep 50%%\rstep 100%%\n'; \
+              printf 'log-e2e-done\n'",
+        )
+        .auto_close_tmux(true)
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    wait_for_job_state(
+        &client,
+        response.id,
+        JobState::Finished,
+        Duration::from_secs(20),
+    )
+    .await;
+    wait_for_log_contains(
+        &sandbox.log_path(response.id),
+        "log-e2e-done",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    let id = response.id.to_string();
+
+    // The raw capture is what tmux wrote: it carries escape sequences and the
+    // carriage-return repaints.
+    let raw = sandbox.run_gflow(["gjob", "log", &id, "--raw"]);
+    raw.assert_success("gjob log --raw");
+    assert!(
+        raw.stdout.contains('\u{1b}'),
+        "raw capture should keep escape sequences, got: {:?}",
+        raw.stdout
+    );
+
+    // The default output is cleaned: no escapes, and the progress line appears
+    // once with its final frame rather than three times.
+    let clean = sandbox.run_gflow(["gjob", "log", &id]);
+    clean.assert_success("gjob log");
+    assert!(
+        !clean.stdout.contains('\u{1b}'),
+        "cleaned log should not contain escape sequences, got: {:?}",
+        clean.stdout
+    );
+    assert!(
+        !clean.stdout.contains('\r'),
+        "cleaned log should not contain carriage returns, got: {:?}",
+        clean.stdout
+    );
+    assert!(
+        clean.stdout.contains("red"),
+        "cleaned log should keep the coloured text, got: {:?}",
+        clean.stdout
+    );
+    // The three carriage-return repaints of the progress line collapse to a
+    // single rendered line holding the final frame. (The shell still echoes the
+    // typed command elsewhere in the capture, hence matching whole lines.)
+    let progress_lines: Vec<&str> = clean
+        .stdout
+        .lines()
+        .filter(|line| line.starts_with("step "))
+        .collect();
+    assert_eq!(
+        progress_lines.len(),
+        1,
+        "progress repaints should collapse to one line, got: {progress_lines:?}"
+    );
+    assert!(
+        progress_lines[0].contains("100%"),
+        "the final progress frame should survive, got: {progress_lines:?}"
+    );
+
+    // `--no-ansi` strips escapes but keeps every repaint on its own line.
+    let no_ansi = sandbox.run_gflow(["gjob", "log", &id, "--no-ansi"]);
+    no_ansi.assert_success("gjob log --no-ansi");
+    assert!(
+        !no_ansi.stdout.contains('\u{1b}'),
+        "--no-ansi should strip escape sequences, got: {:?}",
+        no_ansi.stdout
+    );
+    assert!(
+        no_ansi.stdout.contains("step 0%") && no_ansi.stdout.contains("step 100%"),
+        "--no-ansi should keep every progress frame, got: {:?}",
+        no_ansi.stdout
+    );
+
+    // `--path` prints just the durable log file, without reading it.
+    let path = sandbox.run_gflow(["gjob", "log", &id, "--path"]);
+    path.assert_success("gjob log --path");
+    assert_eq!(
+        path.stdout.trim(),
+        sandbox.log_path(response.id).display().to_string()
+    );
+
+    // Slicing applies to the rendered lines, so `--last 1` yields the final
+    // meaningful line (ignoring trailing prompt/repaint noise).
+    let last = sandbox.run_gflow(["gjob", "log", &id, "--last", "1"]);
+    last.assert_success("gjob log --last 1");
+    let last_line = last.stdout.trim_end();
+    assert!(
+        !last_line.contains('\u{1b}') && !last_line.contains('\r'),
+        "--last output should stay cleaned, got: {:?}",
+        last.stdout
+    );
+
+    sandbox.stop_daemon();
+}
+
+/// `gjob log --follow` streams appended output and returns once the job
+/// reaches a final state, so it can replace `tail -f` on the durable log.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gjob_log_follow_streams_until_the_job_finishes() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    // A blocker keeps the followed job queued (so it has no log file yet) until
+    // the blocker finishes: `--follow` must wait for the file to appear rather
+    // than reporting the log as unavailable, then stream until the job ends.
+    let blocker = JobBuilder::new()
+        .submitted_by("follow-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("sleep 2")
+        .build();
+    let blocker_id = client.add_job(blocker).await.unwrap().id;
+
+    let job = JobBuilder::new()
+        .submitted_by("follow-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("echo follow-first && sleep 2 && echo follow-second")
+        .depends_on(blocker_id)
+        .build();
+    let response = client.add_job(job).await.unwrap();
+
+    // Start following immediately, while the job is still queued behind the
+    // blocker and therefore has no log file yet.
+    let id = response.id.to_string();
+    let root = sandbox.root.clone();
+    let config_home = sandbox.config_home.clone();
+    let data_home = sandbox.data_home.clone();
+    let runtime_dir = sandbox.runtime_dir.clone();
+    let work_dir = sandbox.work_dir.clone();
+    let follow = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(gflow_bin())
+            .current_dir(&work_dir)
+            .env("HOME", &root)
+            .env("PATH", path_env())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_DATA_HOME", &data_home)
+            .env("XDG_RUNTIME_DIR", &runtime_dir)
+            .env("GFLOW_DISABLE_DEV_AUTO", "1")
+            .args(["gjob", "log", &id, "--follow"])
+            .output()
+            .unwrap()
+    });
+    let output = tokio::time::timeout(Duration::from_secs(60), follow)
+        .await
+        .expect("gjob log --follow should return once the job finishes")
+        .expect("follow task should not panic");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "gjob log --follow failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("not available"),
+        "--follow must wait for the log instead of reporting it missing: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("follow-first") && stdout.contains("follow-second"),
+        "follow should stream every line, got: {stdout:?}"
+    );
+
+    sandbox.stop_daemon();
+}

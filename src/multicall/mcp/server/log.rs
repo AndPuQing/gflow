@@ -1,4 +1,5 @@
 use gflow::core::job::Job;
+use gflow::utils::terminal::clean_terminal_text;
 
 use super::schemas::GetJobLogRequest;
 
@@ -56,63 +57,11 @@ pub(super) fn slice_text(text: String, slice: TextSlice, max_bytes: Option<usize
     output
 }
 
-#[allow(clippy::while_let_loop, clippy::while_let_on_iterator)]
 pub(super) fn clean_terminal_output(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            match chars.peek().copied() {
-                Some(']') => {
-                    chars.next();
-                    loop {
-                        let Some(next) = chars.next() else {
-                            break;
-                        };
-                        if next == '\u{7}' {
-                            break;
-                        }
-                        if next == '\u{1b}' && matches!(chars.peek(), Some('\\')) {
-                            chars.next();
-                            break;
-                        }
-                    }
-                }
-                Some('[') => {
-                    chars.next();
-                    while let Some(next) = chars.next() {
-                        if ('@'..='~').contains(&next) {
-                            break;
-                        }
-                    }
-                }
-                Some(_) => {
-                    chars.next();
-                }
-                None => break,
-            }
-            continue;
-        }
-
-        if ch == '\r' {
-            continue;
-        }
-
-        if ch.is_control() && ch != '\n' && ch != '\t' {
-            continue;
-        }
-
-        output.push(ch);
-    }
-
-    output
-        .lines()
-        .map(|line| line.trim_end_matches([' ', '\t']))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
+    // Shares the crate-level terminal state machine with `gjob log` so both
+    // surfaces agree on what the capture means. `extract_likely_program_output`
+    // below still applies its own job-specific noise filtering on top.
+    clean_terminal_text(text).trim().to_string()
 }
 
 pub(super) fn extract_likely_program_output(text: &str, job: &Job) -> String {

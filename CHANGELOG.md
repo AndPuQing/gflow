@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **gjob: `log` output is no longer a raw tmux pane capture**: by default the
+  capture is rendered — ANSI/OSC escape sequences are stripped and
+  carriage-return progress-bar repaints (tqdm and friends) collapse to their
+  final frame, so `gjob log 42` is plain readable text with one line per
+  update instead of hundreds of `\r`-overwritten frames full of shell prompts.
+  `gjob log --raw` prints the verbatim capture, and `--no-ansi` strips escapes
+  while keeping every repaint as its own line. `--first`/`--last` now count
+  rendered lines rather than raw physical lines.
+- **gjob: `log --follow` and `log --path`**: `--follow` (`-F`) streams appended
+  output until the job reaches a final state, replacing `tail -f` on the log
+  file; it waits for the log file to appear, so a job that is still queued (or
+  has not started yet) can be followed immediately. `--path` prints the durable
+  log file location without reading it, for use in scripts.
+- **docs: the persistent job log file is now documented**: `gjob log --help`,
+  the `gjob` reference (EN/zh-CN), and the quick-start guide state that logs
+  live at `$XDG_DATA_HOME/gflow/logs/<jobid>.log`
+  (default `~/.local/share/gflow/logs/<jobid>.log`) and that superseded
+  attempts are kept as `<jobid>.log.old.<timestamp>`. Previously the file was
+  undocumented and only discoverable by searching the filesystem.
 - **web: dark mode with toggle**: the console follows the system color
   scheme by default and adds a light/dark toggle in the header; the choice
   persists in `localStorage` and is applied before first paint to avoid a

@@ -62,6 +62,12 @@ gqueue
 gjob log <job_id>
 ```
 
+输出已经过清理：ANSI 转义序列被去除，进度条重绘折叠为最终一帧。持久日志
+文件位于 `~/.local/share/gflow/logs/<job_id>.log`（或
+`$XDG_DATA_HOME/gflow/logs/`）；`gjob log <job_id> --path` 会打印该路径，
+`gjob log <job_id> --follow` 会持续输出。`--raw`、`--no-ansi` 以及旧的归档
+尝试（`<job_id>.log.old.*`）见 [gjob 参考](../reference/gjob-reference)。
+
 ::: info
 通常先用 `gqueue` 找到任务编号。
 :::

@@ -1,5 +1,6 @@
 pub mod parameter_sweep;
 pub mod parsers;
+pub mod terminal;
 pub mod timezone;
 
 use anyhow::{anyhow, Result};

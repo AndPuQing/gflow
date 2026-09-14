@@ -55,7 +55,10 @@ Use CLI only when MCP is unavailable or when testing the CLI itself.
 - Queue: `gqueue`, `gqueue -a`, `gqueue -s Running`
 - Scheduler info: `ginfo`, `gstats`
 - Submit: `gbatch ...`
-- Inspect: `gjob show <job_id>`, `gjob log <job_id>`
+- Inspect: `gjob show <job_id>`, `gjob log <job_id>` (output is cleaned — no
+  ANSI, progress repaints collapsed; `--raw` for the verbatim capture,
+  `--path` for the durable log file at `$XDG_DATA_HOME/gflow/logs/<id>.log`,
+  `--follow` to stream until the job finishes)
 - Mutate: `gjob hold <job_id>`, `gjob release <job_id>`, `gjob update ...`, `gcancel <job_id>`
 
 ## Safety Rules

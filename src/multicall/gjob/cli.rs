@@ -33,6 +33,17 @@ pub enum Commands {
         job: String,
     },
     /// View a job's log output
+    ///
+    /// By default the tmux pane capture is cleaned: ANSI/OSC escape sequences
+    /// are stripped and `\r` progress-bar repaints are collapsed to the final
+    /// frame. Use --raw for the verbatim capture or --no-ansi to keep every
+    /// repaint as its own line.
+    ///
+    /// The durable log file lives in the gflow data directory
+    /// (~/.local/share/gflow/logs/<jobid>.log by default; honouring
+    /// XDG_DATA_HOME). Older attempts are kept next to it as
+    /// <jobid>.log.old.<timestamp>. Use --path to print the file location, or
+    /// --follow to stream appended output.
     #[command(visible_alias = "l")]
     Log {
         #[arg(help = "Job ID to view the log for (supports @ for most recent job)", value_hint = clap::ValueHint::Other)]
@@ -55,6 +66,30 @@ pub enum Commands {
             conflicts_with = "first"
         )]
         last: Option<NonZeroUsize>,
+
+        #[arg(
+            long,
+            help = "Print the raw tmux capture, including ANSI escape sequences and carriage returns",
+            conflicts_with = "no_ansi"
+        )]
+        raw: bool,
+
+        #[arg(
+            long = "no-ansi",
+            help = "Strip ANSI escape sequences but keep every carriage-return repaint as its own line"
+        )]
+        no_ansi: bool,
+
+        #[arg(long, help = "Print only the log file path (for use in scripts)")]
+        path: bool,
+
+        #[arg(
+            short = 'F',
+            long,
+            help = "Stream appended log output until the job finishes",
+            conflicts_with_all = ["first", "last", "path"]
+        )]
+        follow: bool,
     },
     /// Put a queued job on hold
     #[command(visible_alias = "h")]
@@ -277,6 +312,7 @@ pub enum Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn parses_log_first_option() {
@@ -284,10 +320,19 @@ mod tests {
             GJob::try_parse_from(["gjob", "log", "@", "--first", "25"]).expect("should parse");
 
         match args.command {
-            Commands::Log { job, first, last } => {
+            Commands::Log {
+                job,
+                first,
+                last,
+                raw,
+                no_ansi,
+                path,
+                follow,
+            } => {
                 assert_eq!(job, "@");
                 assert_eq!(first.map(NonZeroUsize::get), Some(25));
                 assert_eq!(last, None);
+                assert!(!raw && !no_ansi && !path && !follow);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -301,5 +346,59 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("--first"));
         assert!(message.contains("--last"));
+    }
+
+    #[test]
+    fn rejects_raw_with_no_ansi() {
+        let err = GJob::try_parse_from(["gjob", "log", "42", "--raw", "--no-ansi"])
+            .expect_err("should reject conflicting output modes");
+
+        assert!(err.to_string().contains("--no-ansi") || err.to_string().contains("--raw"));
+    }
+
+    #[test]
+    fn rejects_follow_with_line_slicing() {
+        let err = GJob::try_parse_from(["gjob", "log", "42", "--follow", "--last", "5"])
+            .expect_err("should reject follow with --last");
+
+        assert!(err.to_string().contains("--follow"));
+    }
+
+    #[test]
+    fn parses_log_output_mode_flags() {
+        let args = GJob::try_parse_from(["gjob", "log", "42", "--no-ansi", "--path"])
+            .expect("should parse");
+
+        match args.command {
+            Commands::Log {
+                raw,
+                no_ansi,
+                path,
+                follow,
+                ..
+            } => {
+                assert!(!raw);
+                assert!(no_ansi);
+                assert!(path);
+                assert!(!follow);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn log_long_help_documents_the_persistent_path() {
+        let mut cmd = GJob::command();
+        let log = cmd
+            .find_subcommand_mut("log")
+            .expect("log subcommand should exist");
+        let help = log.render_long_help().to_string();
+
+        assert!(help.contains("logs/<jobid>.log"), "help was: {help}");
+        assert!(help.contains("XDG_DATA_HOME"), "help was: {help}");
+        assert!(help.contains("--follow"), "help was: {help}");
+        assert!(help.contains("--path"), "help was: {help}");
+        assert!(help.contains("--no-ansi"), "help was: {help}");
+        assert!(help.contains("--raw"), "help was: {help}");
     }
 }

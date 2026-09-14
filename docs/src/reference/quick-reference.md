@@ -124,8 +124,12 @@ gjob hold <job_id>
 gjob release <job_id>
 
 # Details / redo / update
+gjob log <job_id>                          # cleaned output (no ANSI, one line per update)
 gjob log <job_id> --first 20
 gjob log <job_id> --last 50
+gjob log <job_id> --raw                    # verbatim tmux capture
+gjob log <job_id> --path                   # log file location
+gjob log <job_id> --follow                 # stream until the job finishes
 gjob show <job_id>
 gjob redo <job_id>
 gjob redo <job_id> --cascade
