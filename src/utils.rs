@@ -1,3 +1,4 @@
+pub mod logfile;
 pub mod parameter_sweep;
 pub mod parsers;
 pub mod timezone;

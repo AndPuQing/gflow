@@ -45,7 +45,10 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `NAME`
 - `ST`
 - `TIME`
-- `TIMELIMIT`
+- `TIMELIMIT`（实际生效的时间限制，未设置时为 `UNLIMITED`）
+- `PROGRESS`（任务上报的进度：`已完成/总数 (百分比)`；没有总数时只显示已完成量；未上报时显示 `-`；停止刷新后追加 `stale`）
+- `PERCENT`（完成百分比，未知时为 `-`）
+- `ETA`（按观测速率计算的剩余工作量，不扣除任务空转时间，因此只是估算；到达总数时显示 `done`，未知时为 `-`；由 stale 进度估算出的值带 `~` 后缀）
 - `MEMORY`
 - `NODES`（请求的 GPU 数量）
 - `NODELIST(REASON)`（运行中：GPU 索引；排队/暂停/已取消：原因）
@@ -54,6 +57,21 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `COMMAND`（作业运行的内容：命令提交显示存储的命令，脚本提交显示脚本路径——两者同时存在时 script 优先，与执行器一致；都没有则显示 `-`）
 
 标准输出为终端时表格自动适配终端宽度（最宽列优先截断并加 `…`）；重定向到文件或管道时保留完整内容。`-f` 中任意字段可加 `:宽度` 后缀限制列宽（`:0` 显示完整），指定后跳过自适应。
+
+任务可以自行上报进度（见 [`gjob progress`](./gjob-reference)），表格会显示该进度：
+
+```bash
+gqueue -f JOBID,NAME,ST,TIME,PROGRESS,PERCENT,ETA
+```
+
+```text
+ JOBID   NAME         ST   TIME       PROGRESS       PERCENT   ETA
+ 354     infonce40k   R    08:57:37   24925/40000    62.3%     08:03:19
+```
+
+未上报进度的任务（默认情况）在 `PROGRESS`、`PERCENT`、`ETA` 列显示 `-`。停止刷新
+进度的任务会在 `PROGRESS` 中标记 `stale`，其 `ETA` 带 `~` 后缀，因为该估算
+来自已过期的测量值。
 
 `gqueue -t` 示例输出：
 

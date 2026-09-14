@@ -131,6 +131,8 @@ pub(super) fn extract_likely_program_output(text: &str, job: &Job) -> String {
 fn is_shell_noise_line(line: &str) -> bool {
     line.starts_with("cd ")
         || line.starts_with("export GFLOW_ARRAY_TASK_ID=")
+        || line.starts_with("export GFLOW_JOB_ID=")
+        || line.starts_with("export GFLOW_PROGRESS_FILE=")
         || line.starts_with("export CUDA_VISIBLE_DEVICES=")
         || line.starts_with("conda activate ")
         || line.starts_with("➜ ")

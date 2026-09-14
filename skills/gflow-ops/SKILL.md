@@ -56,6 +56,7 @@ Use CLI only when MCP is unavailable or when testing the CLI itself.
 - Scheduler info: `ginfo`, `gstats`
 - Submit: `gbatch ...`
 - Inspect: `gjob show <job_id>`, `gjob log <job_id>`
+- Publish progress (from inside a job): `gjob progress --value <done> --total <all> [-m <message>]`
 - Mutate: `gjob hold <job_id>`, `gjob release <job_id>`, `gjob update ...`, `gcancel <job_id>`
 
 ## Safety Rules

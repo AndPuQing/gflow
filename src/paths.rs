@@ -85,6 +85,19 @@ pub fn get_daemon_log_file_path() -> anyhow::Result<PathBuf> {
     Ok(get_log_dir()?.join("daemon.log"))
 }
 
+/// Directory holding the progress documents published by running jobs.
+///
+/// Kept separate from `logs/` so a job deleting or rotating its own log cannot
+/// take the progress document with it.
+pub fn get_progress_dir() -> anyhow::Result<PathBuf> {
+    Ok(get_data_dir()?.join("progress"))
+}
+
+/// Returns the progress document path for a job without any side effects.
+pub fn get_progress_file_path(job_id: u32) -> anyhow::Result<PathBuf> {
+    Ok(get_progress_dir()?.join(format!("{job_id}.json")))
+}
+
 /// Directory containing durable execution metadata for process-backed jobs.
 ///
 /// This is deliberately separate from scheduler state: the runner remains a

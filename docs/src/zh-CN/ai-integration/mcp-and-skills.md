@@ -32,6 +32,11 @@ ginfo
 
 除非用户已经明确要求执行对应操作，agent 在调用任何会修改状态的工具前都应该先确认。排查失败任务时，先调用 `triage_job`，让回复包含任务状态、运行时间、GPU 分配、最近日志证据和重试建议。
 
+当任务上报了进度时，`get_job` 与 `triage_job` 的结果中也会带上该进度
+（`value`、`total`、`percent`、`rate_per_sec`、`eta_secs`、`stale`），agent 无需读取
+日志即可回答「进行到哪一步」。未上报进度的任务不包含 `progress` 字段；
+`stale: true` 表示最近一次测量已超过 15 分钟。
+
 ## Claude Code
 
 推荐按用户级配置：

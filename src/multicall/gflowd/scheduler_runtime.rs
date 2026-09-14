@@ -282,6 +282,29 @@ impl SchedulerRuntime {
         }
     }
 
+    /// Attach the job's published progress (if any) to a materialized job.
+    ///
+    /// The progress document is read from disk on demand and reduced to a
+    /// display-only view; it is never persisted in scheduler state. Jobs that
+    /// never started have nothing to publish, so the file lookup is skipped
+    /// for them. Finished jobs keep their last published progress so a run
+    /// that stopped short of its total can still report how far it got —
+    /// without being flagged stale, because a finished job's last document is
+    /// simply its final state.
+    pub fn annotate_progress(&self, job: &mut Job) {
+        if job.started_at.is_none() {
+            return;
+        }
+        let mut progress = match crate::core::job::progress::load(job.id, job.started_at) {
+            Some(progress) => progress,
+            None => return,
+        };
+        if job.state != JobState::Running {
+            progress.stale = false;
+        }
+        job.progress = Some(progress);
+    }
+
     pub fn gpu_slots_count(&self) -> usize {
         self.scheduler.gpu_slots_count()
     }

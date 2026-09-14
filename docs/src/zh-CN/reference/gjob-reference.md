@@ -121,6 +121,79 @@ gjob show <job_ids>
 
 `<job_ids>` 支持单个 ID、逗号分隔列表，以及 `1-3` 这样的区间。
 
+当任务发布了进度（见 `gjob progress`）时，会额外显示 `Progress:` 块，
+包含已完成量、百分比、速率、ETA 和最后更新时间。`Log:` 块会报告日志文件的
+路径、大小、最后修改时间和最后一行，因此可以区分「卡住的作业」和「只是较慢的
+作业」。日志信息要求运行命令的机器能读取该日志文件。
+
+```text
+Progress:
+  Value=24925/40000 (62.3%)
+  Rate=0.52/s
+  ETA=08:03:19 (at 09/14-22:12:04)
+  Message=epoch 25/40
+  Updated=09/14-14:08:45 (00:00:03 ago)
+Log:
+  Path=/home/alice/.local/share/gflow/logs/354.log
+  Size=1.2M
+  Modified=09/14-14:08:45 (last write 00:00:03 ago)
+  LastLine=epoch 25/40 loss=0.412
+```
+
+### `gjob progress [<job>]`
+
+为运行中的任务发布进度，使 `gjob show` 与 `gqueue` 能显示「进行到哪一步」
+以及「预计何时完成」。gflow 无法自行推断这些信息，需要任务主动上报。
+
+别名：`gjob p`
+
+```bash
+gjob progress <job> --value <units> [--total <units>] [-m <message>]
+```
+
+选项：
+
+- `--value <units>`（必填）：已完成的工作单元数（step、epoch、样本等）
+- `--total <units>`：总工作单元数；设置后才有百分比与 ETA
+- `-m, --message <text>`：简短状态文本，例如 `epoch 25/40`
+- `-s, --silent`：不输出任何内容；供频繁上报的任务使用
+
+在 gflow 任务内部可以省略 `<job>`：executor 会导出 `GFLOW_JOB_ID`，因此训练脚本
+直接调用 `gjob progress --silent --value 24925 --total 40000` 即可。
+
+```bash
+# 任务内部（任务 ID 来自 $GFLOW_JOB_ID）
+gjob progress --value 24925 --total 40000 -m "epoch 25/40"
+
+# 从外部为指定任务发布
+gjob progress 354 --value 24925 --total 40000
+```
+
+对非运行中的任务发布会报错：进度只描述正在进行的作业。
+
+#### 不依赖 `gjob` 的上报方式
+
+无法调用 `gjob` 的任务可以直接写入同样的文档。executor 会导出
+`GFLOW_PROGRESS_FILE`，即 daemon 读取的每任务路径：
+
+```bash
+cat > "$GFLOW_PROGRESS_FILE" <<EOF
+{"value": 24925, "total": 40000, "message": "epoch 25/40"}
+EOF
+```
+
+`value` 必填，`total` 与 `message` 可选。若希望速率从任务开始之后的某个时间点
+计算（例如漫长的数据加载阶段之后），可写入可选的 `started_at_unix_secs`。
+文档需小于 8 KiB；超过该大小、无法解析或缺少 `value` 的文档会被 daemon 忽略。
+
+ETA 是按观测速率计算出的剩余工作量，而不是承诺：它不会扣除任务空转的时间，因此
+暂停过的任务恢复后仍需要这些时间。
+
+如果任务 15 分钟没有刷新文档，进度会被标记为 stale 而非丢弃——「只上报过一次
+然后卡住」正是这个标记要暴露的情况。`gjob show` 会打印 `[STALE]`，并把 ETA 显示为
+`<时间> (~, from stale progress)` 而不是预测的完成时刻；`gqueue -f PROGRESS` 会追加
+`stale`，`-f ETA` 则带 `~` 后缀。
+
 ### `gjob update <job_ids>`
 
 原地更新排队中或 hold 状态的任务。

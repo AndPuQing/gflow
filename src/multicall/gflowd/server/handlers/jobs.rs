@@ -362,6 +362,7 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
     // jobs so clients can render an executor-appropriate indicator.
     for job in &mut jobs {
         state.annotate_liveness(job);
+        state.annotate_progress(job);
     }
 
     (StatusCode::OK, Json(jobs))
@@ -596,6 +597,7 @@ pub(in crate::multicall::gflowd::server) async fn get_job(
         return Err(StatusCode::NOT_FOUND);
     };
     state.annotate_liveness(&mut job);
+    state.annotate_progress(&mut job);
     Ok(Json(job))
 }
 
@@ -655,6 +657,69 @@ pub(in crate::multicall::gflowd::server) async fn finish_job(
         (StatusCode::OK, Json(())).into_response()
     } else {
         (StatusCode::NOT_FOUND, Json(())).into_response()
+    }
+}
+
+/// Record a progress document published by a running job.
+///
+/// The daemon owns the progress directory so every user on a shared host can
+/// publish progress through the API without needing write access to the
+/// scheduler's data directory. The request body is the same `JobProgress`
+/// document a job may write to `$GFLOW_PROGRESS_FILE` directly, so the API and
+/// the file contract cannot drift.
+#[axum::debug_handler]
+pub(in crate::multicall::gflowd::server) async fn set_job_progress(
+    State(server_state): State<ServerState>,
+    Path(id): Path<u32>,
+    Json(progress): Json<gflow::core::job::JobProgress>,
+) -> Response {
+    if let Some(resp) = reject_if_read_only(&server_state).await {
+        return resp;
+    }
+
+    let state = server_state.scheduler.read().await;
+    let Some(job) = state.get_job(id) else {
+        return (StatusCode::NOT_FOUND, Json(None::<()>)).into_response();
+    };
+    if job.state != JobState::Running {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!(
+                    "Job {id} is {}; progress can only be published for running jobs",
+                    job.state
+                )
+            })),
+        )
+            .into_response();
+    }
+
+    if progress.total.is_some_and(|total| progress.value > total) {
+        tracing::debug!(
+            job_id = id,
+            value = progress.value,
+            total = progress.total,
+            "Progress value exceeds total; percent will be clamped"
+        );
+    }
+
+    // The path is per-job, so the daemon owns the job identity: a document that
+    // claims another job is rewritten to this one rather than rejected, since
+    // the target is already unambiguous.
+    let mut progress = progress;
+    progress.job_id = Some(id);
+    progress.version = gflow::core::job::PROGRESS_VERSION;
+
+    match gflow::core::job::progress::write(id, &progress) {
+        Ok(path) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "job_id": id, "path": path.display().to_string() })),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::warn!(job_id = id, %error, "Failed to write job progress");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None::<()>)).into_response()
+        }
     }
 }
 

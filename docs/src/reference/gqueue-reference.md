@@ -45,7 +45,13 @@ Supported fields for `-f/--format`:
 - `NAME`
 - `ST`
 - `TIME`
-- `TIMELIMIT`
+- `TIMELIMIT` (the effective time limit, or `UNLIMITED` when the job has none)
+- `PROGRESS` (progress published by the job: `value/total (percent)`, `value`
+  when no total, or `-`; appends `stale` when the job stopped refreshing it)
+- `PERCENT` (completion percentage, or `-`)
+- `ETA` (work left at the observed rate — not a promise, since idle time is not
+  discounted; `done` when the total is reached, or `-`; a trailing `~` marks an
+  estimate from stale progress)
 - `MEMORY`
 - `NODES` (GPUs requested)
 - `NODELIST(REASON)` (running: GPU indices; queued/hold/cancelled: reason)
@@ -57,6 +63,23 @@ Tables fit the terminal width when stdout is a terminal (widest columns are
 truncated first with a `…` suffix); redirected output keeps full content.
 Any field accepts a `:WIDTH` suffix in `-f` to cap its width (`COMMAND:0`
 shows it in full), which disables the automatic fitting.
+
+A job that publishes its own progress (see
+[`gjob progress`](./gjob-reference)) is shown with that progress:
+
+```bash
+gqueue -f JOBID,NAME,ST,TIME,PROGRESS,PERCENT,ETA
+```
+
+```text
+ JOBID   NAME         ST   TIME       PROGRESS       PERCENT   ETA
+ 354     infonce40k   R    08:57:37   24925/40000    62.3%     08:03:19
+```
+
+`PROGRESS`, `PERCENT` and `ETA` are `-` for jobs that publish nothing, which is
+the default. A job that stops refreshing its progress is marked `stale` in
+`PROGRESS` and its `ETA` gets a trailing `~`, because the estimate comes from a
+measurement that is no longer current.
 
 Example `gqueue -t` output:
 

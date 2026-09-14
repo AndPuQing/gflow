@@ -115,7 +115,7 @@ flowchart TD
     State -->|Hold| Release[释放任务<br/>gjob release ID]
     Release --> Recheck
 
-    State -->|Running| Monitor[查看日志或附着<br/>gjob log ID / gjob attach ID]
+    State -->|Running| Monitor[查看进度/日志或附着<br/>gjob show ID / gjob log ID / gjob attach ID]
     Monitor --> Recheck
 
     State -->|Finished| Done([已完成])
@@ -132,8 +132,51 @@ flowchart TD
     MoreTime --> Recheck
 ```
 
+## 监控运行中的任务
+
+对于长时间运行的任务，只看 `ST` 和 `TIME` 无法判断它是否还在推进、以及能否在
+时间限制前完成。`gjob show` 会额外输出两个信息块：
+
+```bash
+gjob show 354
+```
+
+- **`Progress:`** —— 仅在任务上报进度时出现，显示已完成量、百分比、观测速率、
+  ETA、状态文本以及最后更新时间。
+- **`Log:`** —— 日志文件路径、大小、最后修改时间和最后一行非空内容。日志长时间没有
+  新写入，就是「任务卡住」最直接的信号，无需自己去翻日志。
+
+`gqueue` 可以在表格中展示同样的进度：
+
+```bash
+gqueue -f JOBID,NAME,ST,TIME,PROGRESS,PERCENT,ETA
+```
+
+### 上报进度
+
+任务通过 `gjob progress` 上报自身进度：
+
+```bash
+gjob progress --value 24925 --total 40000 -m "epoch 25/40"
+```
+
+在 gflow 任务内部无需指定任务 ID：executor 会导出 `GFLOW_JOB_ID`。频繁上报时
+可加 `--silent`。无法调用 `gjob` 的任务可以直接把同样的 JSON 文档写入
+`$GFLOW_PROGRESS_FILE`：
+
+```bash
+printf '{"value":24925,"total":40000,"message":"epoch 25/40"}' > "$GFLOW_PROGRESS_FILE"
+```
+
+进度始终是可选的。未上报进度的任务在 `gqueue` 中显示 `-`，`gjob show` 中不出现
+`Progress:` 块；`Log:` 块仍然可用。若任务停止刷新进度超过 15 分钟，已上报的值会
+被标记为 `stale`，避免把「上报一次后卡住」误认为「仍在推进」。
+
+完整契约见 [`gjob progress`](/zh-CN/reference/gjob-reference)。
+
 ## 另请参阅
 
 - [任务依赖](./job-dependencies) - 任务依赖完整指南
 - [任务提交](./job-submission) - 任务提交选项
 - [时间限制](./time-limits) - 管理任务超时
+- [`gjob progress`](/zh-CN/reference/gjob-reference) - 进度与 ETA 上报

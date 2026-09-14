@@ -397,6 +397,14 @@ impl Executor for ProcessExecutor {
             }
         };
         Self::remove_runner_files(job.id);
+        // A job ID is reused only by a retry/redo of the same job, which starts
+        // fresh work: drop any progress the previous run published so a stale
+        // document cannot be mistaken for the new run's progress. Recreating
+        // the directory here keeps `$GFLOW_PROGRESS_FILE` writable even if the
+        // daemon's data dir was pruned while it was running.
+        if let Err(error) = gflow::core::job::progress::reset(job.id) {
+            tracing::warn!(job_id = job.id, %error, "Failed to reset job progress");
+        }
 
         let stderr_file = log_file
             .try_clone()
@@ -410,7 +418,20 @@ impl Executor for ProcessExecutor {
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(stderr_file))
-            .env("GFLOW_ARRAY_TASK_ID", job.task_id.unwrap_or(0).to_string());
+            .env("GFLOW_ARRAY_TASK_ID", job.task_id.unwrap_or(0).to_string())
+            .env("GFLOW_JOB_ID", job.id.to_string());
+
+        // Tell the job where to publish progress (`gjob progress` writes the
+        // same file). A failure to resolve the path is not fatal: the job just
+        // cannot report progress.
+        match gflow::paths::get_progress_file_path(job.id) {
+            Ok(progress_path) => {
+                command.env("GFLOW_PROGRESS_FILE", &progress_path);
+            }
+            Err(error) => {
+                tracing::warn!(job_id = job.id, %error, "Cannot resolve progress file path");
+            }
+        }
 
         if let Some(gpu_ids) = &job.gpu_ids {
             command.env(
@@ -676,6 +697,10 @@ impl Executor for TmuxExecutor {
             if let Some(parent) = log_path.parent() {
                 fs::create_dir_all(parent)?;
             }
+            // Drop progress from a previous run of this (retried/redone) job ID.
+            if let Err(error) = gflow::core::job::progress::reset(job.id) {
+                tracing::warn!(job_id = job.id, %error, "Failed to reset job progress");
+            }
             session.enable_pipe_pane(&log_path)?;
 
             session.try_send_command(&format!("cd {}", job.run_dir.display()))?;
@@ -683,6 +708,13 @@ impl Executor for TmuxExecutor {
                 "export GFLOW_ARRAY_TASK_ID={}",
                 job.task_id.unwrap_or(0)
             ))?;
+            session.try_send_command(&format!("export GFLOW_JOB_ID={}", job.id))?;
+            if let Ok(progress_path) = gflow::paths::get_progress_file_path(job.id) {
+                session.try_send_command(&format!(
+                    "export GFLOW_PROGRESS_FILE={}",
+                    progress_path.display()
+                ))?;
+            }
             if let Some(gpu_ids) = &job.gpu_ids {
                 session.try_send_command(&format!(
                     "export CUDA_VISIBLE_DEVICES={}",

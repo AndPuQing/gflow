@@ -1561,3 +1561,202 @@ async fn executor_type_config_selects_backend() {
     assert!(!is_session_exist(&response.run_name));
     sandbox.stop_daemon();
 }
+
+/// A long-running job can publish its own progress, and every surface the user
+/// already looks at reports it: `gjob show` prints Value/ETA, `gqueue -f
+/// PROGRESS,PERCENT,ETA` agrees, and the job's log liveness (mtime + last
+/// line) is summarised so a stuck job is distinguishable from a slow one.
+/// Regression for W-580.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn job_progress_is_published_and_visible_in_cli_output() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+
+    // The job keeps running while we inspect it, and publishes progress the way
+    // a training script would: a small JSON document at $GFLOW_PROGRESS_FILE,
+    // here written with the JSON contract directly (the `gjob progress` wrapper
+    // is covered separately below).
+    let job = JobBuilder::new()
+        .submitted_by("progress-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command(
+            "echo 'step 0/100'; sleep 3; \
+             printf '{\"value\":25,\"total\":100,\"message\":\"step 25/100\"}' > \"$GFLOW_PROGRESS_FILE\"; \
+             echo 'step 25/100'; sleep 300",
+        )
+        .build();
+    let response = client.add_job(job).await.unwrap();
+    let job_id = response.id;
+
+    wait_for_job_state(&client, job_id, JobState::Running, Duration::from_secs(15)).await;
+
+    // The executor must export the progress contract into the job environment.
+    let log_path = sandbox.log_path(job_id);
+    wait_for_log_contains(&log_path, "step 0/100", Duration::from_secs(15)).await;
+
+    // Wait until the daemon can report the published progress.
+    let start = Instant::now();
+    let progress = loop {
+        let job = client.get_job(job_id).await.unwrap().unwrap();
+        if let Some(progress) = job.progress {
+            break progress;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "timed out waiting for job {job_id} to report progress"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+
+    let progress = &progress;
+    assert_eq!(progress.value, 25);
+    assert_eq!(progress.total, Some(100));
+    assert_eq!(progress.percent, Some(25.0));
+    assert_eq!(progress.message.as_deref(), Some("step 25/100"));
+    assert!(
+        progress.rate_per_sec.is_some(),
+        "a rate should be derivable from the job start time"
+    );
+    assert!(
+        progress.eta_secs.is_some(),
+        "an ETA should be derivable from value/total"
+    );
+    assert!(!progress.stale, "fresh progress must not be stale");
+
+    // `gjob show` reports the progress block plus log liveness.
+    let show = sandbox.run_gflow(["gjob", "show", &job_id.to_string()]);
+    show.assert_success("gjob show");
+    assert!(
+        show.stdout.contains("Value=25/100 (25%)"),
+        "gjob show must report progress, got:\n{}",
+        show.stdout
+    );
+    assert!(
+        show.stdout.contains("ETA="),
+        "gjob show must report an ETA, got:\n{}",
+        show.stdout
+    );
+    assert!(
+        show.stdout.contains("LastLine=step 25/100"),
+        "gjob show must report the last log line, got:\n{}",
+        show.stdout
+    );
+    assert!(
+        show.stdout.contains("Log:") && show.stdout.contains("Modified="),
+        "gjob show must report log liveness, got:\n{}",
+        show.stdout
+    );
+
+    // `gqueue -f` renders the same values.
+    // `-u all`: the job is submitted through the client with an explicit
+    // submitted_by, which is not the OS user running the CLI.
+    let queue = sandbox.run_gflow([
+        "gqueue",
+        "-u",
+        "all",
+        "-a",
+        "-n",
+        "0",
+        "-f",
+        "JOBID,PROGRESS,PERCENT,ETA",
+    ]);
+    queue.assert_success("gqueue -f JOBID,PROGRESS,PERCENT,ETA");
+    let row = queue
+        .stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with(&job_id.to_string()))
+        .unwrap_or_else(|| panic!("job {job_id} row missing from gqueue:\n{}", queue.stdout));
+    assert!(
+        row.contains("25/100 (25%)"),
+        "gqueue PROGRESS must show the published progress: {row}"
+    );
+    assert!(row.contains("25%"), "gqueue PERCENT must show 25%: {row}");
+    assert!(
+        !row.contains(" - "),
+        "gqueue ETA must be populated for a bounded job: {row}"
+    );
+
+    // Progress is a running-job concept: publishing for a finished job fails
+    // rather than writing a document nothing will read.
+    client.cancel_job(job_id).await.unwrap();
+    wait_for_job_state(
+        &client,
+        job_id,
+        JobState::Cancelled,
+        Duration::from_secs(15),
+    )
+    .await;
+    let late = sandbox.run_gflow(["gjob", "progress", &job_id.to_string(), "--value", "50"]);
+    assert!(
+        !late.status.success(),
+        "publishing progress for a cancelled job must fail, got:\n{}",
+        late.stdout
+    );
+
+    sandbox.stop_daemon();
+}
+
+/// `gjob progress` is the wrapper a job calls instead of hand-writing JSON, and
+/// it must resolve the job from `GFLOW_JOB_ID` so an in-job call needs no
+/// argument. Publishing through the daemon API (rather than the data dir) is
+/// what makes this work for every user on a shared host. Regression for W-580.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gjob_progress_publishes_through_the_daemon_for_a_running_job() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let job = JobBuilder::new()
+        .submitted_by("progress-cli-e2e")
+        .run_dir(&sandbox.work_dir)
+        .command("sleep 300")
+        .build();
+    let response = client.add_job(job).await.unwrap();
+    let job_id = response.id;
+
+    wait_for_job_state(&client, job_id, JobState::Running, Duration::from_secs(15)).await;
+
+    // Explicit job ID (the shape a wrapper script uses).
+    let explicit = sandbox.run_gflow([
+        "gjob",
+        "progress",
+        &job_id.to_string(),
+        "--value",
+        "10",
+        "--total",
+        "40",
+        "-m",
+        "stage 1",
+    ]);
+    explicit.assert_success("gjob progress <id>");
+    assert!(
+        explicit.stdout.contains("10/40 (stage 1)"),
+        "gjob progress must report what it published, got:\n{}",
+        explicit.stdout
+    );
+
+    let job = client.get_job(job_id).await.unwrap().unwrap();
+    let progress = job.progress.expect("progress should be attached");
+    assert_eq!(progress.value, 10);
+    assert_eq!(progress.total, Some(40));
+    assert_eq!(progress.percent, Some(25.0));
+    assert_eq!(progress.message.as_deref(), Some("stage 1"));
+
+    // Unpublishing values are rejected before anything is written.
+    let mismatched = sandbox.run_gflow(["gjob", "progress", "not-a-job-id", "--value", "1"]);
+    assert!(
+        !mismatched.status.success(),
+        "an invalid job ID must fail: {}",
+        mismatched.stdout
+    );
+
+    sandbox.stop_daemon();
+}

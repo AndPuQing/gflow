@@ -115,7 +115,7 @@ flowchart TD
     State -->|Hold| Release[Release job<br/>gjob release ID]
     Release --> Recheck
 
-    State -->|Running| Monitor[Monitor logs or attach<br/>gjob log ID / gjob attach ID]
+    State -->|Running| Monitor[Monitor logs or attach<br/>gjob show ID / gjob log ID / gjob attach ID]
     Monitor --> Recheck
 
     State -->|Finished| Done([Done])
@@ -132,8 +132,56 @@ flowchart TD
     MoreTime --> Recheck
 ```
 
+## Monitoring Running Jobs
+
+For a long job, `ST` and `TIME` alone do not say whether it is making progress
+or expected to finish before its time limit. `gjob show` reports two extra
+blocks that answer those questions:
+
+```bash
+gjob show 354
+```
+
+- **`Progress:`** — only present when the job publishes progress (see below).
+  Shows the completed value, percent, observed rate, ETA, status message and
+  the age of the last update.
+- **`Log:`** — log file path, size, last-modified time and the last non-empty
+  line. A log that has not been written to for a long time is the fastest
+  signal that a job is stuck, without reading the log yourself.
+
+`gqueue` can render the same progress in its table:
+
+```bash
+gqueue -f JOBID,NAME,ST,TIME,PROGRESS,PERCENT,ETA
+```
+
+### Publishing Progress
+
+A job publishes its own progress through `gjob progress`:
+
+```bash
+gjob progress --value 24925 --total 40000 -m "epoch 25/40"
+```
+
+Inside a gflow job no job ID is needed: the executor exports `GFLOW_JOB_ID`.
+Use `--silent` when the job calls this often. A job that cannot call `gjob` can
+write the same JSON document to `$GFLOW_PROGRESS_FILE` instead:
+
+```bash
+printf '{"value":24925,"total":40000,"message":"epoch 25/40"}' > "$GFLOW_PROGRESS_FILE"
+```
+
+Progress is always optional. Jobs that publish nothing simply show `-` in
+`gqueue` and no `Progress:` block in `gjob show`; the `Log:` block still works.
+If a job stops refreshing its progress for 15 minutes, the reported values are
+marked `stale` so a job that hung after publishing once is not mistaken for one
+that is still working.
+
+See [`gjob progress`](/reference/gjob-reference) for the full contract.
+
 ## See Also
 
 - [Job Dependencies](./job-dependencies) - Complete guide to job dependencies
 - [Job Submission](./job-submission) - Job submission options
 - [Time Limits](./time-limits) - Managing job timeouts
+- [`gjob progress`](/reference/gjob-reference) - Progress and ETA publishing

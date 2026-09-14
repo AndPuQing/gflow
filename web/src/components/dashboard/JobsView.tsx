@@ -52,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { GpuPill } from "@/components/dashboard/GpuPill"
+import { ProgressCell } from "@/components/dashboard/ProgressCell"
 import { EmptyRow } from "@/components/dashboard/StatePanels"
 import { StatusBadge } from "@/components/dashboard/StatusBadge"
 import { SummaryPill } from "@/components/dashboard/SummaryPill"
@@ -153,6 +154,13 @@ export function JobsView({
             </span>
           )
         },
+        sortingFn: "basic",
+      },
+      {
+        id: "progress",
+        accessorFn: (job) => job.progress?.percent ?? -1,
+        header: "Progress",
+        cell: ({ row }) => <ProgressCell job={row.original} />,
         sortingFn: "basic",
       },
       {

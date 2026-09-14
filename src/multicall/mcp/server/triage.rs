@@ -59,6 +59,7 @@ pub(super) fn build_triage_job_output(
         exit_status: None,
         exit_status_note: "gflow currently records terminal state but not the process exit code"
             .to_string(),
+        progress: job.progress.clone(),
         log_path,
         log_excerpt,
         retry_hints,

@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status-badge colors.
 - **web: click a job row to open its log dialog**, in addition to the per-row
   log button.
+- **jobs: progress and ETA for long-running jobs**: a job can publish its own
+  progress with `gjob progress --value <done> --total <all> [-m <message>]`
+  (or by writing the same JSON document to the exported
+  `$GFLOW_PROGRESS_FILE`), and `gjob show` / `gqueue` report it. `gjob show`
+  gains `Progress:` and `Log:` blocks — completed value, percent, observed
+  rate, ETA, last update, plus log path/size/mtime/last line — and `gqueue`
+  gains `-f PROGRESS,PERCENT,ETA` fields. Progress is read on demand and never
+  persisted; values older than 15 minutes are reported as stale instead of
+  dropped, and publishing for a job that is not running is rejected.
 
 ### Changed
 - **docs: restyle the landing page (runqd.com) into an IBM Carbon / Swiss

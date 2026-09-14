@@ -5,6 +5,7 @@ pub mod attach;
 pub mod close_sessions;
 pub mod hold;
 pub mod log;
+pub mod progress;
 pub mod redo;
 pub mod release;
 pub mod show;
@@ -81,6 +82,15 @@ pub async fn handle_commands(
         }
         Commands::Show { job } => {
             show::handle_show(config_path, job).await?;
+        }
+        Commands::Progress {
+            job,
+            value,
+            total,
+            message,
+            silent,
+        } => {
+            progress::handle_progress(config_path, job, value, total, message, silent).await?;
         }
         Commands::Redo {
             job,

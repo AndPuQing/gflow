@@ -398,6 +398,39 @@ impl Client {
         Ok(result)
     }
 
+    /// Publish a progress document for a running job.
+    ///
+    /// The daemon owns the progress directory, so this works for every user on
+    /// a shared host without needing write access to the scheduler's data
+    /// directory.
+    pub async fn set_job_progress(
+        &self,
+        job_id: u32,
+        progress: &gflow::core::job::JobProgress,
+    ) -> anyhow::Result<()> {
+        tracing::debug!("Setting progress for job {job_id}");
+        let response = self
+            .client
+            .post(format!("{}/jobs/{}/progress", self.base_url, job_id))
+            .json(progress)
+            .send()
+            .await
+            .map_err(connection_error_context)?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_msg = Self::extract_error_message(response).await;
+            let detail = if error_msg.trim().is_empty() {
+                status.to_string()
+            } else {
+                format!("{status}: {error_msg}")
+            };
+            return Err(anyhow!("Failed to publish job progress: {detail}"));
+        }
+
+        Ok(())
+    }
+
     pub async fn get_job_log_path(&self, job_id: u32) -> anyhow::Result<Option<String>> {
         tracing::debug!("Getting log path for job {job_id}");
         let response = self

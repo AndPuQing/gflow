@@ -172,6 +172,44 @@ pub enum Commands {
         #[arg(long = "param", help = "Update parameter (KEY=VALUE, can be repeated)", value_hint = clap::ValueHint::Other)]
         params: Vec<String>,
     },
+    /// Publish progress for a running job
+    #[command(visible_alias = "p")]
+    Progress {
+        #[arg(
+            help = "Job ID to publish progress for (defaults to $GFLOW_JOB_ID or @)",
+            value_hint = clap::ValueHint::Other
+        )]
+        job: Option<String>,
+
+        #[arg(
+            long = "value",
+            help = "Completed work units (e.g. steps, epochs)",
+            value_name = "UNITS"
+        )]
+        value: u64,
+
+        #[arg(
+            long = "total",
+            help = "Total work units, when known; enables percent and ETA",
+            value_name = "UNITS"
+        )]
+        total: Option<u64>,
+
+        #[arg(
+            short = 'm',
+            long,
+            help = "Short free-form status line (e.g. 'epoch 25/40')",
+            value_hint = clap::ValueHint::Other
+        )]
+        message: Option<String>,
+
+        #[arg(
+            short = 's',
+            long,
+            help = "Suppress stdout/warnings; use inside a job that publishes often"
+        )]
+        silent: bool,
+    },
     /// Show detailed information about a job
     #[command(visible_alias = "s")]
     Show {

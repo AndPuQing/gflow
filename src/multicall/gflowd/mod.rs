@@ -18,6 +18,11 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
     let log_dir = gflow::paths::get_data_dir()?.join("logs");
     std::fs::create_dir_all(&log_dir)?;
 
+    // Jobs (and `gjob progress`) write their progress documents here, so it
+    // must exist before any job starts: a job writing straight to
+    // $GFLOW_PROGRESS_FILE cannot create the daemon's data directory itself.
+    std::fs::create_dir_all(gflow::paths::get_progress_dir()?)?;
+
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("daemon")

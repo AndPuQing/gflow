@@ -1,9 +1,14 @@
 mod model;
 mod parameters;
+pub mod progress;
 mod state;
 
 pub use model::{Job, JobBuilder, JobNotifications, JobRuntime, JobSpec, JobView};
 pub use parameters::{DependencyIds, GpuIds, Parameters};
+pub use progress::{
+    JobProgress, JobProgressView, MAX_PROGRESS_FILE_BYTES, MAX_PROGRESS_MESSAGE_CHARS,
+    PROGRESS_STALE_AFTER_SECS, PROGRESS_VERSION,
+};
 pub use state::{DependencyMode, GpuSharingMode, JobError, JobState, JobStateReason};
 
 use serde::{Deserialize, Deserializer, Serializer};

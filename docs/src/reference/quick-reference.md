@@ -28,6 +28,7 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 gqueue -a -f JOBID,NAME,ST,COMMAND   # COMMAND truncated to fit terminal; pipe for full text
 gqueue -f JOBID,COMMAND:60           # cap any field's width (:0 = no truncation)
+gqueue -f JOBID,NAME,ST,PROGRESS,PERCENT,ETA   # progress published by the job
 
 # Dependency tree
 gqueue -t
@@ -127,6 +128,7 @@ gjob release <job_id>
 gjob log <job_id> --first 20
 gjob log <job_id> --last 50
 gjob show <job_id>
+gjob progress --value 25 --total 100 -m "epoch 25"   # publish progress (in-job)
 gjob redo <job_id>
 gjob redo <job_id> --cascade
 gjob update <job_id> --gpus 2 --time-limit 4:00:00

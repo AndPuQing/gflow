@@ -30,6 +30,20 @@ export type Job = {
   group_id?: string | null
   task_id?: number | null
   reason?: unknown
+  progress?: JobProgress | null
+}
+
+/** Progress published by a job (see `gjob progress`). Read-only, display-only. */
+export type JobProgress = {
+  value: number
+  total?: number | null
+  percent?: number | null
+  message?: string | null
+  updated_at?: ApiTime | null
+  idle_secs: number
+  stale: boolean
+  rate_per_sec?: number | null
+  eta_secs?: number | null
 }
 
 export type UsageStats = {

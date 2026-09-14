@@ -122,6 +122,86 @@ gjob show <job_ids>
 
 `<job_ids>` supports single IDs, comma-separated lists, and ranges such as `1-3`.
 
+When the job publishes progress (see `gjob progress`), a `Progress:` block shows
+the value, percent, rate, ETA and last update. A `Log:` block reports the log
+file's path, size, last-modified time and last line, so a job stuck without new
+output can be told apart from a slow one. Log details require the log file to be
+readable from the machine running the command.
+
+```text
+Progress:
+  Value=24925/40000 (62.3%)
+  Rate=0.52/s
+  ETA=08:03:19 (at 09/14-22:12:04)
+  Message=epoch 25/40
+  Updated=09/14-14:08:45 (00:00:03 ago)
+Log:
+  Path=/home/alice/.local/share/gflow/logs/354.log
+  Size=1.2M
+  Modified=09/14-14:08:45 (last write 00:00:03 ago)
+  LastLine=epoch 25/40 loss=0.412
+```
+
+### `gjob progress [<job>]`
+
+Publish progress for a running job so `gjob show` and `gqueue` can report how
+far it has come and when it is expected to finish. gflow cannot infer this on
+its own, so the job has to publish it.
+
+Alias: `gjob p`
+
+```bash
+gjob progress <job> --value <units> [--total <units>] [-m <message>]
+```
+
+Options:
+
+- `--value <units>` (required): completed work units (steps, epochs, samples, ...)
+- `--total <units>`: total work units; enables percent and ETA
+- `-m, --message <text>`: short free-form status line, e.g. `epoch 25/40`
+- `-s, --silent`: suppress output; use inside a job that publishes often
+
+`<job>` may be omitted inside a gflow job: the executor exports `GFLOW_JOB_ID`,
+so a training script can simply call `gjob progress --silent --value 24925 --total 40000`.
+
+```bash
+# Inside a job (job ID comes from $GFLOW_JOB_ID)
+gjob progress --value 24925 --total 40000 -m "epoch 25/40"
+
+# From outside, for a specific job
+gjob progress 354 --value 24925 --total 40000
+```
+
+Publishing for a job that is not running is rejected: progress only describes
+work in flight.
+
+#### Publishing without `gjob`
+
+A job that cannot call `gjob` can write the same document itself. The executor
+exports `GFLOW_PROGRESS_FILE`, the per-job path the daemon reads:
+
+```bash
+cat > "$GFLOW_PROGRESS_FILE" <<EOF
+{"value": 24925, "total": 40000, "message": "epoch 25/40"}
+EOF
+```
+
+`value` is required; `total` and `message` are optional. Write an optional
+`started_at_unix_secs` to measure the rate from a later point than the job's
+start (for example after a long data-loading phase). The document must be
+smaller than 8 KiB; the daemon ignores anything larger, unparsable, or without
+a `value`.
+
+The ETA is the work left at the observed rate, not a promise: it does not
+discount time the job spent idle, so a job that paused is expected to need that
+time left once it resumes.
+
+If the job does not refresh its document for 15 minutes, the reported progress
+is marked stale rather than dropped: a job that published once and then hung is
+exactly what this flag is for. `gjob show` prints `[STALE]`, reports the ETA as
+`<time> (~, from stale progress)` instead of a predicted finish time, and
+`gqueue -f PROGRESS` appends `stale` while `-f ETA` gets a `~` suffix.
+
 ### `gjob update <job_ids>`
 
 Update queued or held jobs in place.

@@ -20,12 +20,21 @@ pub async fn handle_show(config_path: &Option<PathBuf>, job_ids_str: String) -> 
             continue;
         };
 
-        print_job_details(&job);
+        // The log summary is derived from the local log file, which lives on
+        // the same host as the daemon that serves this client.
+        let log_summary = client
+            .get_job_log_path(job_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|path| gflow::utils::logfile::summarize(std::path::Path::new(&path)));
+
+        print_job_details(&job, log_summary.as_ref());
     }
     Ok(())
 }
 
-fn print_job_details(job: &Job) {
+fn print_job_details(job: &Job, log_summary: Option<&gflow::utils::logfile::LogSummary>) {
     println!("Job Details:");
     print_field!("ID", "{}", job.id);
     print_field!("State", "{} ({})", job.state, job.state.short_form());
@@ -172,6 +181,108 @@ fn print_job_details(job: &Job) {
         } else {
             print_field!("Started", "{}", format_time(started_at));
         }
+    }
+
+    // Progress published by the job itself (see `gjob progress`). Absent for
+    // jobs that do not publish any; the log block below still shows liveness.
+    if let Some(progress) = &job.progress {
+        println!("\nProgress:");
+        match progress.total {
+            Some(total) => print_field!(
+                "Value",
+                "{}/{} ({})",
+                progress.value,
+                total,
+                progress
+                    .percent_display()
+                    .unwrap_or_else(|| "?".to_string())
+            ),
+            None => print_field!("Value", "{}", progress.value),
+        }
+        if let Some(rate) = progress.rate_per_sec {
+            print_field!("Rate", "{:.2}/s", rate);
+        }
+        match progress.eta_secs {
+            Some(0) => print_field!("ETA", "done"),
+            Some(eta) => {
+                let remaining = gflow::utils::format_duration(std::time::Duration::from_secs(eta));
+                // The estimate is work remaining at the observed rate, so it
+                // only maps to a wall-clock time when the last measurement is
+                // fresh. A stale estimate is still useful (it bounds the work
+                // left) but must not be presented as a predicted finish time.
+                if progress.stale {
+                    print_field!("ETA", "{} (~, from stale progress)", remaining);
+                } else {
+                    print_field!(
+                        "ETA",
+                        "{} (at {})",
+                        remaining,
+                        format_time(SystemTime::now() + std::time::Duration::from_secs(eta))
+                    );
+                }
+            }
+            None => {}
+        }
+        if let Some(message) = &progress.message {
+            print_field!("Message", "{}", message);
+        }
+        print_field!(
+            "Updated",
+            "{} ({} ago){}",
+            format_time(progress.updated_at),
+            gflow::utils::format_duration(std::time::Duration::from_secs(progress.idle_secs)),
+            if progress.stale { " [STALE]" } else { "" }
+        );
+        if progress.stale {
+            print_field!(
+                "StaleHint",
+                "no update for over {}",
+                gflow::utils::format_duration(std::time::Duration::from_secs(
+                    gflow::core::job::PROGRESS_STALE_AFTER_SECS
+                ))
+            );
+        }
+    }
+
+    // Log liveness: mtime and the last line answer "is it still moving?"
+    // without making the user parse the log.
+    if let Some(summary) = log_summary {
+        println!("\nLog:");
+        print_field!("Path", "{}", summary.path.display());
+        print_field!("Size", "{}", format_bytes(summary.size_bytes));
+        if let Some(modified_at) = summary.modified_at {
+            let idle = summary
+                .idle_secs()
+                .map(|secs| {
+                    format!(
+                        " (last write {} ago)",
+                        gflow::utils::format_duration(std::time::Duration::from_secs(secs))
+                    )
+                })
+                .unwrap_or_default();
+            print_field!("Modified", "{}{}", format_time(modified_at), idle);
+        }
+        if let Some(last_line) = &summary.last_line {
+            print_field!("LastLine", "{}", last_line);
+        }
+    }
+}
+
+/// Render a byte count with a binary unit suffix.
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+
+    let bytes_f = bytes as f64;
+    if bytes_f >= GIB {
+        format!("{:.1}G", bytes_f / GIB)
+    } else if bytes_f >= MIB {
+        format!("{:.1}M", bytes_f / MIB)
+    } else if bytes_f >= KIB {
+        format!("{:.1}K", bytes_f / KIB)
+    } else {
+        format!("{}B", bytes)
     }
 }
 

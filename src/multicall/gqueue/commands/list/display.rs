@@ -272,6 +272,34 @@ fn format_gpu_ids(gpu_ids: Option<&GpuIds>) -> String {
     )
 }
 
+/// Formats a job's progress ETA for display (`"-"` when unknown).
+///
+/// An ETA only makes sense while the job is running: a finished job is not
+/// going to advance any further. A stale document's ETA is a guess from an old
+/// measurement, so it is annotated rather than dropped — hiding it would look
+/// like progress was never published.
+fn format_progress_eta(job: &gflow::core::job::Job) -> String {
+    if job.state != JobState::Running {
+        return "-".to_string();
+    }
+    let Some(progress) = job.progress.as_ref() else {
+        return "-".to_string();
+    };
+    let Some(eta_secs) = progress.eta_secs else {
+        return "-".to_string();
+    };
+    let eta = if eta_secs == 0 {
+        "done".to_string()
+    } else {
+        gflow::utils::format_duration(std::time::Duration::from_secs(eta_secs))
+    };
+    if progress.stale {
+        format!("{}~", eta)
+    } else {
+        eta
+    }
+}
+
 /// Formats a job field value for display
 pub(super) fn format_job_cell(
     job: &gflow::core::job::Job,
@@ -299,6 +327,16 @@ pub(super) fn format_job_cell(
             }
         }
         "TIME" => gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
+        "PROGRESS" => job
+            .progress
+            .as_ref()
+            .map_or_else(|| "-".to_string(), |progress| progress.summary()),
+        "PERCENT" => job
+            .progress
+            .as_ref()
+            .and_then(|progress| progress.percent_display())
+            .unwrap_or_else(|| "-".to_string()),
+        "ETA" => format_progress_eta(job),
         "TIMELIMIT" => job
             .time_limit
             .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),

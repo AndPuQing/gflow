@@ -59,6 +59,15 @@ export function formatSeconds(value?: number | null) {
 
 /** Human job runtime, e.g. `2h 13m`, `13m 08s`, `45s`. Null when unknown. */
 export function formatRuntime(seconds?: number | null) {
+  return formatElapsed(seconds)
+}
+
+/**
+ * Render a duration in seconds as a compact human string (`1h 5m`, `3m 04s`).
+ * Returns `null` for values that cannot describe a duration, so callers can
+ * fall back to a placeholder.
+ */
+export function formatElapsed(seconds?: number | null) {
   if (seconds == null || Number.isNaN(seconds) || seconds < 0) return null
   const total = Math.floor(seconds)
   const hours = Math.floor(total / 3600)

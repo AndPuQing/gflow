@@ -243,6 +243,13 @@ pub struct Job {
     /// Do-not-start-before time (`--begin`); None means start as soon as possible.
     #[serde(default)]
     pub scheduled_at: Option<SystemTime>,
+    /// Transient progress published by the job (see `core::job::progress`).
+    /// Populated by the daemon on read for Running/just-finished jobs;
+    /// display-only and never persisted. Appended last so the legacy msgpack
+    /// array layout stays decodable.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<crate::core::job::JobProgressView>,
 }
 
 #[derive(Default)]
@@ -519,6 +526,7 @@ impl JobBuilder {
             finished_at: None,
             reason: None,
             alive: None,
+            progress: None,
             scheduled_at: self.scheduled_at,
         }
     }
@@ -561,6 +569,7 @@ impl Default for Job {
             finished_at: None,
             reason: None,
             alive: None,
+            progress: None,
             scheduled_at: None,
         }
     }
@@ -608,6 +617,7 @@ impl Job {
             finished_at: runtime.finished_at,
             reason: runtime.reason,
             alive: None,
+            progress: None,
             scheduled_at: spec.scheduled_at,
         }
     }

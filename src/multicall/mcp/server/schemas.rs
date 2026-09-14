@@ -267,6 +267,8 @@ pub(super) struct TriageJobOutput {
     pub wait_secs: Option<f64>,
     pub exit_status: Option<i32>,
     pub exit_status_note: String,
+    /// Progress published by the job itself (`gjob progress`), when any.
+    pub progress: Option<gflow::core::job::JobProgressView>,
     pub log_path: Option<String>,
     pub log_excerpt: Option<String>,
     pub retry_hints: Vec<String>,

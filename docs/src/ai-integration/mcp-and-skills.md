@@ -32,6 +32,12 @@ Use read-only and preview tools before mutating scheduler state:
 
 Agents should ask for explicit confirmation before calling any mutating tool unless the user has already requested that exact action. For failures, call `triage_job` first so the response includes job state, runtime, GPU assignment, recent log evidence, and retry hints.
 
+`get_job` and `triage_job` also carry the job's published progress
+(`value`, `total`, `percent`, `rate_per_sec`, `eta_secs`, `stale`) when the job
+reports any, so an agent can answer "how far along is it?" without reading the
+log. `progress` is absent for jobs that publish nothing, and `stale: true` means
+the last measurement is over 15 minutes old.
+
 ## Claude Code
 
 User-scope configuration is recommended:

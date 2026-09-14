@@ -293,6 +293,7 @@ mod tests {
             max_concurrent: None,
             reason: None,
             alive: None,
+            progress: None,
             scheduled_at: None,
         }
     }
@@ -344,6 +345,7 @@ mod tests {
             max_concurrent: None,
             reason: None,
             alive: None,
+            progress: None,
             scheduled_at: None,
         }
     }
@@ -384,6 +386,7 @@ mod tests {
             max_concurrent: None,
             reason: None,
             alive: None,
+            progress: None,
             scheduled_at: None,
         }
     }

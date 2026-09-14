@@ -28,6 +28,7 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIME,NODES,NODELIST(REASON)
 gqueue -s Running -f JOBID,NAME,ST,NODES,NODELIST(REASON)
 gqueue -a -f JOBID,NAME,ST,COMMAND   # COMMAND 截断适配终端；重定向保留完整
 gqueue -f JOBID,COMMAND:60           # 限制字段宽度（:0 不截断）
+gqueue -f JOBID,NAME,ST,PROGRESS,PERCENT,ETA   # 任务上报的进度
 
 # 依赖树
 gqueue -t
@@ -127,6 +128,7 @@ gjob release <job_id>
 gjob log <job_id> --first 20
 gjob log <job_id> --last 50
 gjob show <job_id>
+gjob progress --value 25 --total 100 -m "epoch 25"   # 上报进度（任务内）
 gjob redo <job_id>
 gjob redo <job_id> --cascade
 gjob update <job_id> --gpus 2 --time-limit 4:00:00
