@@ -43,6 +43,9 @@ JOBID  NAME   ST  TIME      NODES  NODELIST(REASON)
 
 ## 提交任务（`gbatch`）
 
+`gbatch` 只负责提交——查询请用 `gqueue` / `gjob show` / `gjob log`（也可以直接写
+`list` / `queue` / `status` / `log`，例如 `gbatch status 42`）。
+
 ```bash
 # 提交命令
 gbatch python train.py --epochs 100

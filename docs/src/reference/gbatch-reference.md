@@ -2,6 +2,13 @@
 
 `gbatch` submits jobs to the scheduler (similar to Slurm `sbatch`).
 
+::: tip
+`gbatch` only submits. To inspect jobs use `gqueue` (queue), `gjob show <job>`
+(details) and `gjob log <job>` (output). The query words `list`, `queue`,
+`status` and `log` are accepted as shorthand aliases and are forwarded to those
+commands, so `gbatch status 42` shows job 42 instead of submitting a job.
+:::
+
 ## Usage
 
 ```bash
@@ -9,6 +16,17 @@ gbatch [options] <script>
 gbatch [options] <command> [args...]
 gbatch new <name>
 gbatch completion <shell>
+```
+
+## Lookup shorthand (never submits)
+
+```bash
+gbatch list              # = gqueue
+gbatch queue             # = gqueue
+gbatch queue -a -u all   # extra flags are forwarded to gqueue
+gbatch status 42         # = gjob show 42
+gbatch log 42            # = gjob log 42
+gbatch log 42 --last 50  # = gjob log 42 --last 50
 ```
 
 ## Common Options

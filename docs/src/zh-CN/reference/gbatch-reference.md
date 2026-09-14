@@ -2,6 +2,13 @@
 
 `gbatch` 用于提交任务到调度器（类似 Slurm `sbatch`）。
 
+::: tip
+`gbatch` 只负责提交。查询请用 `gqueue`（队列）、`gjob show <job>`（详情）、
+`gjob log <job>`（日志）。查询词 `list` / `queue` / `status` / `log` 可直接作为
+简写别名，会被转发到上述命令，因此 `gbatch status 42` 会展示任务 42，而不是
+提交一个新任务。
+:::
+
 ## 用法
 
 ```bash
@@ -9,6 +16,17 @@ gbatch [options] <script>
 gbatch [options] <command> [args...]
 gbatch new <name>
 gbatch completion <shell>
+```
+
+## 查询简写（不会提交任务）
+
+```bash
+gbatch list              # = gqueue
+gbatch queue             # = gqueue
+gbatch queue -a -u all   # 额外参数会转发给 gqueue
+gbatch status 42         # = gjob show 42
+gbatch log 42            # = gjob log 42
+gbatch log 42 --last 50  # = gjob log 42 --last 50
 ```
 
 ## 常用选项

@@ -5,11 +5,26 @@ use gflow::config::load_config;
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 
+mod aliases;
 mod cli;
 mod commands;
 
 pub async fn run(argv: Vec<OsString>) -> Result<()> {
     let args = cli::GBatch::parse_from(argv);
+
+    // `gbatch list/queue/status/log` are query aliases: forward them to the
+    // command that owns the query instead of submitting a job. Done before any
+    // config/daemon interaction so a mistyped query can never enqueue work.
+    if let Some(command) = args.commands.as_ref() {
+        if let Some((target, rest)) = aliases::resolve_alias(command, args.config.as_deref()) {
+            let argv = aliases::forwarded_argv(target, rest);
+            return match target {
+                aliases::AliasTarget::GQueue => crate::multicall::gqueue::run(argv).await,
+                aliases::AliasTarget::GJob => crate::multicall::gjob::run(argv).await,
+            };
+        }
+    }
+
     let config = load_config(args.config.as_ref())?;
 
     if let Some(commands) = args.commands {

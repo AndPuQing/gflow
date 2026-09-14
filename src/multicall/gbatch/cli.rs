@@ -5,6 +5,15 @@ use gflow::build_info::version;
 #[derive(Debug, Parser)]
 #[command(name = "gbatch", author, version = version(), about = "Submits jobs to the gflow scheduler. Inspired by sbatch.")]
 #[command(styles=gflow::utils::STYLES)]
+#[command(
+    long_about = "Submits jobs to the gflow scheduler. Inspired by sbatch.\n\n\
+To inspect jobs use gqueue (queue/list), gjob show <id> (details) and \
+gjob log <id> (output); gbatch only submits.",
+    after_help = "Lookup commands (gbatch only submits):\n  \
+  gqueue            list queued/running jobs (gqueue -a for all)\n  \
+  gjob show <job>   show details for a job\n  \
+  gjob log <job>    print a job's log output"
+)]
 pub struct GBatch {
     #[command(subcommand)]
     pub commands: Option<Commands>,
@@ -20,6 +29,14 @@ pub struct GBatch {
 pub enum Commands {
     /// Create a new job script template
     New(NewArgs),
+    /// Print the queue instead of submitting (alias for gqueue)
+    List(ListPassthroughArgs),
+    /// Show the queue instead of submitting (alias for gqueue)
+    Queue(ListPassthroughArgs),
+    /// Show job details instead of submitting (alias for gjob show)
+    Status(StatusPassthroughArgs),
+    /// Show a job's log instead of submitting (alias for gjob log)
+    Log(LogPassthroughArgs),
     /// Generate shell completion scripts
     Completion {
         /// The shell to generate completions for
@@ -32,6 +49,43 @@ pub enum Commands {
 pub struct NewArgs {
     /// The name of the new job
     pub name: String,
+}
+
+/// Extra arguments forwarded verbatim after the alias name (e.g.
+/// `gbatch list -a -u all` forwards `-a -u all` to `gqueue`).
+#[derive(Debug, Parser)]
+pub struct ListPassthroughArgs {
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_hint = clap::ValueHint::Other)]
+    pub args: Vec<String>,
+}
+
+/// Argument for the `status`/`log` aliases: the job ID (or `@` shorthand).
+#[derive(Debug, Parser)]
+pub struct StatusPassthroughArgs {
+    /// Job ID to look up (supports @ for the most recent job)
+    pub job: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct LogPassthroughArgs {
+    /// Job ID to view the log for (supports @ for the most recent job)
+    pub job: String,
+
+    #[arg(
+        short = 'f',
+        long = "first",
+        help = "Print only the first N lines of the job log",
+        value_name = "LINES"
+    )]
+    pub first: Option<std::num::NonZeroUsize>,
+
+    #[arg(
+        short = 'l',
+        long = "last",
+        help = "Print only the last N lines of the job log",
+        value_name = "LINES"
+    )]
+    pub last: Option<std::num::NonZeroUsize>,
 }
 
 #[derive(Debug, Parser, Clone)]
