@@ -1,4 +1,4 @@
-import type { GpuInfo, IgnoredGpuProcess } from "@/api"
+import type { GpuInfo, IgnoredGpuProcess, UnmanagedGpuProcess } from "@/api"
 import {
   Card,
   CardContent,
@@ -40,6 +40,47 @@ function formatGpuReason(reason: string | null | undefined): string | null {
   const manualIgnore = reason.match(/^manual_ignore\(gpu=\d+,pid=([\d,]+)\)$/)
   if (manualIgnore) return `Manually ignored (pids ${manualIgnore[1]})`
   return reason
+}
+
+/**
+ * A process holding a GPU for a long time while running no kernels is almost
+ * always a leftover rather than real work. The daemon decides when it can see
+ * the process metrics; fall back to the same rule when it cannot report them.
+ *
+ * Unknown values must never be treated as zero.
+ */
+const IDLE_LEFTOVER_AGE_SECS = 3600
+
+function isIdleLeftover(process: UnmanagedGpuProcess): boolean {
+  if (typeof process.idle_leftover === "boolean") return process.idle_leftover
+  return (
+    process.utilization_percent === 0 &&
+    (process.age_secs ?? 0) >= IDLE_LEFTOVER_AGE_SECS
+  )
+}
+
+function releaseCommand(gpuIndex: number, process: UnmanagedGpuProcess): string {
+  return (
+    process.release_command ??
+    `gctl gpu-process ignore --gpu ${gpuIndex} --pid ${process.pid}`
+  )
+}
+
+function formatMemory(mb: number | null | undefined): string {
+  if (mb == null) return "?"
+  if (mb >= 1024) {
+    const gb = mb / 1024
+    return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)}G`
+  }
+  return `${mb}M`
+}
+
+function formatAge(secs: number | null | undefined): string {
+  if (secs == null) return "?"
+  if (secs >= 86400) return `${Math.floor(secs / 86400)}d`
+  if (secs >= 3600) return `${Math.floor(secs / 3600)}h`
+  if (secs >= 60) return `${Math.floor(secs / 60)}m`
+  return `${secs}s`
 }
 
 export function GpuView({
@@ -151,6 +192,7 @@ function GpuCard({ gpu, blocked }: { gpu: GpuInfo; blocked: boolean }) {
   const reason = formatGpuReason(gpu.reason)
   const detail =
     reason ?? (status === "Available" ? "Idle" : status === "Busy" ? "In use" : "Outside allowed set")
+  const processes = gpu.unmanaged_processes ?? []
 
   return (
     <div className={cn("rounded-lg border p-3", statusTone[status])}>
@@ -164,6 +206,38 @@ function GpuCard({ gpu, blocked }: { gpu: GpuInfo; blocked: boolean }) {
       <div className="mt-2 line-clamp-2 min-h-8 text-xs text-muted-foreground">
         {detail}
       </div>
+      {processes.length ? (
+        <div className="mt-2 space-y-1">
+          {processes.map((process) => {
+            const idle = isIdleLeftover(process)
+            return (
+              <div
+                key={process.pid}
+                className="rounded border border-dashed bg-background/60 p-1.5 text-[11px]"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono">pid {process.pid}</span>
+                  {idle ? (
+                    <span className="font-medium text-amber-600 dark:text-amber-500">
+                      idle leftover
+                    </span>
+                  ) : null}
+                </div>
+                <div className="font-mono text-muted-foreground">
+                  {formatMemory(process.used_memory_mb)} · util{" "}
+                  {process.utilization_percent ?? "?"}% · age {formatAge(process.age_secs)}
+                </div>
+                <code
+                  className="mt-1 block truncate font-mono text-[10px] text-muted-foreground/80"
+                  title={releaseCommand(gpu.index, process)}
+                >
+                  {releaseCommand(gpu.index, process)}
+                </code>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
       <div
         className="mt-1 truncate font-mono text-[11px] text-muted-foreground/70"
         title={gpu.uuid}

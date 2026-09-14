@@ -35,14 +35,38 @@ gpu        1     0      allocated  5 (train-resnet)
 - 若 GPU 被占用但不是由 gflow 分配，可能会以“原因”的形式显示（如可获取）。
 
 非 gflow 占用：
-- 如果 NVML 检测到某张 GPU 上有运行中的计算进程，gflow 会将其视为不可用（常显示为 `Unmanaged`），不会去分配这张卡。
+- 如果 NVML 检测到某张 GPU 上有运行中的计算进程，gflow 会将其视为不可用（显示为 `unmanaged(pid=…)`），不会去分配这张卡。
 - gflow 不会抢占/终止非 gflow 进程；任务只会等待 GPU 变为空闲后再运行。
+
+`ginfo` 会列出每个阻塞进程的内存、利用率、存活时长，以及释放该 GPU 的命令。若某个进程占用 GPU 超过一小时却几乎没有执行 kernel，会被标记为 `idle leftover`。详见[释放被非 gflow 进程占用的 GPU](#释放被非-gflow-进程占用的-gpu)。
 
 如需查看每张 GPU 是否被限制（allowed vs restricted）：
 
 ```bash
 gctl show-gpus
 ```
+
+### 释放被非 gflow 进程占用的 GPU
+
+有时某个进程占着 GPU 却什么都没做——比如崩溃的训练任务，或一个只建了 CUDA context 的 Python 会话。此时可以告诉 gflow 忽略该进程，让这张卡重新可被调度，而不需要动那个进程：
+
+```bash
+# ginfo 会为每个阻塞的 PID 打印可直接执行的命令
+ginfo
+
+# 例如一个占用 642 MiB、利用率 0%、已挂 2 天的进程
+gctl gpu-process ignore --gpu 0 --pid 3471817
+```
+
+如果进程真的在跑（例如占用 80 GiB、利用率 99%），就应该保留它：忽略它会让 gflow 把作业调度到一张实际正在使用的卡上。
+
+关于这个 override：
+
+- 它**仅在运行时生效**：`gflowd` 重启或 reload 后会清空，不会跨重启保留。
+- 用 `gctl gpu-process list` 查看当前生效的规则；`ginfo` 的输出末尾也会列出。
+- 用 `gctl gpu-process unignore --gpu <index> --pid <pid>` 撤销。进程已退出时，对应规则会被自动丢弃。
+
+`gbatch` 在提交作业后也会打印一段被阻塞 GPU 的摘要（含释放命令），避免可用卡数被长期压缩而无人察觉。
 
 ### 依赖条件
 

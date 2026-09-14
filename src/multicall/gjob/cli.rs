@@ -11,6 +11,9 @@ use std::num::NonZeroUsize;
     version=gflow::build_info::version(),
     about = "Controls and manages jobs in the gflow scheduler.",
 )]
+#[command(
+    after_help = "JOB STUCK IN QUEUE?\n  A GPU blocked by a non-gflow process is never allocated. Run `ginfo` to see\n  the blocking PIDs and the `gctl gpu-process ignore` command that releases\n  that GPU."
+)]
 #[command(styles=STYLES)]
 pub struct GJob {
     #[command(flatten)]

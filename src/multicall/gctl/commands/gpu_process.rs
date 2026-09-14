@@ -5,6 +5,9 @@ fn print_warning() {
     eprintln!("Warning: manually ignoring a GPU process is unsafe.");
     eprintln!("gflow may schedule onto that GPU even though the process is still attached.");
     eprintln!("This override is runtime-only and will be cleared after gflowd restarts.");
+    eprintln!(
+        "Check the currently active overrides at any time with `gctl gpu-process list` (also shown by `ginfo`)."
+    );
 }
 
 pub async fn handle_ignore_gpu_process(client: &Client, gpu: u32, pid: u32) -> Result<()> {
@@ -28,6 +31,9 @@ pub async fn handle_list_gpu_processes(client: &Client) -> Result<()> {
     let processes = client.list_ignored_gpu_processes().await?;
     if processes.is_empty() {
         println!("No ignored GPU processes");
+        println!(
+            "(If a GPU is blocked by a non-gflow process, `ginfo` lists its PID and the `gctl gpu-process ignore` command that releases it.)"
+        );
         return Ok(());
     }
 

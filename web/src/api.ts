@@ -9,6 +9,20 @@ export type GpuInfo = {
   index: number
   available: boolean
   reason?: string | null
+  /** Non-gflow compute processes attached to this GPU. */
+  unmanaged_processes?: UnmanagedGpuProcess[]
+}
+
+/** A non-gflow process that blocks a GPU from being scheduled. */
+export type UnmanagedGpuProcess = {
+  pid: number
+  used_memory_mb?: number | null
+  utilization_percent?: number | null
+  age_secs?: number | null
+  /** Computed client-side: old process doing no GPU work. */
+  idle_leftover?: boolean
+  /** Computed client-side: command that releases the GPU. */
+  release_command?: string
 }
 
 export type Job = {

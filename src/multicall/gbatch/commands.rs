@@ -2,6 +2,7 @@ use super::cli::Commands;
 use clap::CommandFactory;
 
 pub mod add;
+pub mod gpu_hint;
 mod new;
 
 pub async fn handle_commands(_: &gflow::config::Config, commands: Commands) -> anyhow::Result<()> {

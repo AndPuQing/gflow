@@ -216,6 +216,7 @@ impl Scheduler {
                 index: slot.index,
                 available: slot.available,
                 reason: slot.reason.clone(),
+                unmanaged_processes: Vec::new(), // filled in by the daemon runtime
             })
             .collect();
         // Sort by index for stable output
@@ -225,6 +226,7 @@ impl Scheduler {
             allowed_gpu_indices: self.allowed_gpu_indices.clone(),
             gpu_allocation_strategy: self.gpu_allocation_strategy,
             executor: String::new(), // filled in by the runtime with the real backend
+            ignored_gpu_processes: Vec::new(), // filled in by the runtime
         }
     }
 

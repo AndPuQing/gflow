@@ -4,6 +4,9 @@ use gflow::build_info::version;
 
 #[derive(Debug, Parser)]
 #[command(name = "gbatch", author, version = version(), about = "Submits jobs to the gflow scheduler. Inspired by sbatch.")]
+#[command(
+    after_help = "GPU CAPACITY\n  If a GPU is blocked by a non-gflow process, gflow will not allocate it.\n  gbatch prints the blocking PIDs and the release command after submitting;\n  `ginfo` shows the same detail at any time."
+)]
 #[command(styles=gflow::utils::STYLES)]
 pub struct GBatch {
     #[command(subcommand)]

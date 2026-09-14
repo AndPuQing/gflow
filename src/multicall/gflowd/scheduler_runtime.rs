@@ -64,6 +64,12 @@ pub struct SchedulerRuntime {
     journal_error: Option<String>,
     journal_applied: bool,
     ignored_gpu_processes: HashSet<IgnoredGpuProcess>,
+    /// Non-gflow compute processes per GPU index, refreshed from NVML on each
+    /// poll. Display-only: never persisted.
+    unmanaged_gpu_processes: HashMap<u32, Vec<gflow::core::info::UnmanagedGpuProcess>>,
+    /// Last NVML per-process utilization sample timestamp per GPU index, used
+    /// to query only the interval since the previous poll.
+    gpu_utilization_last_seen: HashMap<u32, u64>,
 }
 
 impl SchedulerRuntime {
@@ -175,6 +181,8 @@ impl SchedulerRuntime {
             journal_error: None,
             journal_applied: false,
             ignored_gpu_processes: HashSet::new(),
+            unmanaged_gpu_processes: HashMap::new(),
+            gpu_utilization_last_seen: HashMap::new(),
         };
         runtime.load_state();
         runtime.init_journal();
@@ -270,6 +278,12 @@ impl SchedulerRuntime {
     pub fn info(&self) -> gflow::core::info::SchedulerInfo {
         let mut info = self.scheduler.info();
         info.executor = self.executor.kind().to_string();
+        info.ignored_gpu_processes = self.list_ignored_gpu_processes();
+        for gpu in &mut info.gpus {
+            if let Some(processes) = self.unmanaged_gpu_processes.get(&gpu.index) {
+                gpu.unmanaged_processes = processes.clone();
+            }
+        }
         info
     }
 

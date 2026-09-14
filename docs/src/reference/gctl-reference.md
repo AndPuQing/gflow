@@ -23,7 +23,11 @@ gctl show-gpus
 
 Ignore a running GPU process when gflow evaluates whether a GPU is blocked by an unmanaged workload.
 
-This is a runtime-only override. `gflowd` restart or reload clears it automatically.
+Use this when a non-gflow process holds a GPU but is idle or no longer needed. `ginfo` lists the blocking PIDs and prints this command ready to run; `gbatch` shows the same summary after a submission.
+
+Do not ignore a genuinely busy process — gflow would then schedule onto a card that is already in use.
+
+This is a runtime-only override. `gflowd` restart or reload clears it automatically, so it is not durable across restarts.
 
 ```bash
 gctl gpu-process ignore --gpu 0 --pid 1234
@@ -39,7 +43,7 @@ gctl gpu-process unignore --gpu 0 --pid 1234
 
 ### `gctl gpu-process list`
 
-List active runtime GPU-process ignore overrides.
+List active runtime GPU-process ignore overrides. `ginfo` also reports these in its output.
 
 ```bash
 gctl gpu-process list

@@ -261,6 +261,8 @@ pub(crate) async fn handle_add(
             );
         }
 
+        crate::multicall::gbatch::commands::gpu_hint::warn_if_gpu_capacity_is_blocked(&client)
+            .await;
         return Ok(());
     }
 
@@ -343,6 +345,8 @@ pub(crate) async fn handle_add(
             );
         }
 
+        crate::multicall::gbatch::commands::gpu_hint::warn_if_gpu_capacity_is_blocked(&client)
+            .await;
         return Ok(());
     }
 
@@ -420,6 +424,8 @@ pub(crate) async fn handle_add(
                 response.id, response.run_name
             );
         }
+        crate::multicall::gbatch::commands::gpu_hint::warn_if_gpu_capacity_is_blocked(&client)
+            .await;
         return Ok(());
     }
 
@@ -446,6 +452,8 @@ pub(crate) async fn handle_add(
         "Submitted batch job {} ({})",
         response.id, response.run_name
     );
+
+    crate::multicall::gbatch::commands::gpu_hint::warn_if_gpu_capacity_is_blocked(&client).await;
 
     Ok(())
 }

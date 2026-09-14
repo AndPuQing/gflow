@@ -193,11 +193,32 @@ pub(super) struct HealthOutput {
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
+pub(super) struct UnmanagedGpuProcessOutput {
+    pub pid: u32,
+    pub used_memory_mb: Option<u64>,
+    pub utilization_percent: Option<u32>,
+    pub age_secs: Option<u64>,
+    /// True when the process is old and running no kernels, i.e. likely an
+    /// idle leftover rather than a real workload.
+    pub idle_leftover: bool,
+    /// Command that releases the GPU without touching the process.
+    pub release_command: String,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
 pub(super) struct GpuInfoOutput {
     pub uuid: String,
     pub index: u32,
     pub available: bool,
     pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unmanaged_processes: Vec<UnmanagedGpuProcessOutput>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub(super) struct IgnoredGpuProcessOutput {
+    pub gpu_index: u32,
+    pub pid: u32,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -205,6 +226,9 @@ pub(super) struct SchedulerInfoOutput {
     pub gpus: Vec<GpuInfoOutput>,
     pub allowed_gpu_indices: Option<Vec<u32>>,
     pub gpu_allocation_strategy: String,
+    /// Runtime-only ignore overrides currently in effect.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_gpu_processes: Vec<IgnoredGpuProcessOutput>,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]
@@ -289,6 +313,22 @@ pub(super) struct QueuePressureOutput {
     pub projects: Vec<QueuePressureGroupOutput>,
     pub reservations_total: usize,
     pub reservations_active: usize,
+    /// GPUs held by non-gflow processes, with the detail needed to reclaim
+    /// them. gflow never allocates these until the processes exit or are
+    /// ignored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_by_processes: Vec<UnmanagedGpuProcessOnGpuOutput>,
+}
+
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub(super) struct UnmanagedGpuProcessOnGpuOutput {
+    pub gpu_index: u32,
+    pub pid: u32,
+    pub used_memory_mb: Option<u64>,
+    pub utilization_percent: Option<u32>,
+    pub age_secs: Option<u64>,
+    pub idle_leftover: bool,
+    pub release_command: String,
 }
 
 #[derive(Debug, serde::Serialize, JsonSchema)]

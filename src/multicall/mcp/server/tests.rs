@@ -1,3 +1,4 @@
+use super::helpers::*;
 use super::list_jobs::*;
 use super::log::*;
 use super::queue_pressure::*;
@@ -208,21 +209,130 @@ fn triage_job_includes_log_based_retry_hints_and_exit_status_note() {
 }
 
 #[test]
+fn scheduler_info_output_resolves_unmanaged_processes() {
+    use gflow::core::info::UnmanagedGpuProcess;
+
+    let info = SchedulerInfo {
+        executor: String::new(),
+        ignored_gpu_processes: vec![gflow::core::info::IgnoredGpuProcess {
+            gpu_index: 2,
+            pid: 555,
+        }],
+        gpus: vec![GpuInfo {
+            uuid: "gpu-0".to_string(),
+            index: 0,
+            available: false,
+            reason: Some("unmanaged(pid=3471817)".to_string()),
+            unmanaged_processes: vec![UnmanagedGpuProcess {
+                pid: 3471817,
+                used_memory_mb: Some(642),
+                utilization_percent: Some(0),
+                age_secs: Some(2 * 24 * 3600),
+            }],
+        }],
+        allowed_gpu_indices: None,
+        gpu_allocation_strategy: GpuAllocationStrategy::Sequential,
+    };
+
+    let output = scheduler_info_output(info);
+
+    let gpu = &output.gpus[0];
+    assert_eq!(gpu.unmanaged_processes.len(), 1);
+    let process = &gpu.unmanaged_processes[0];
+    assert_eq!(process.pid, 3471817);
+    assert!(process.idle_leftover, "642 MiB / 0% for 2 days is idle");
+    assert_eq!(
+        process.release_command,
+        "gctl gpu-process ignore --gpu 0 --pid 3471817"
+    );
+    assert_eq!(output.gpu_allocation_strategy, "sequential");
+    assert_eq!(output.ignored_gpu_processes.len(), 1);
+    assert_eq!(output.ignored_gpu_processes[0].gpu_index, 2);
+}
+
+#[test]
+fn scheduler_info_output_does_not_flag_busy_processes_as_idle() {
+    use gflow::core::info::UnmanagedGpuProcess;
+
+    let info = SchedulerInfo {
+        executor: String::new(),
+        ignored_gpu_processes: Vec::new(),
+        gpus: vec![GpuInfo {
+            uuid: "gpu-0".to_string(),
+            index: 0,
+            available: false,
+            reason: None,
+            unmanaged_processes: vec![UnmanagedGpuProcess {
+                pid: 42,
+                used_memory_mb: Some(80 * 1024),
+                utilization_percent: Some(99),
+                age_secs: Some(2 * 24 * 3600),
+            }],
+        }],
+        allowed_gpu_indices: None,
+        gpu_allocation_strategy: GpuAllocationStrategy::Sequential,
+    };
+
+    let output = scheduler_info_output(info);
+    assert!(!output.gpus[0].unmanaged_processes[0].idle_leftover);
+}
+
+#[test]
+fn queue_pressure_surfaces_process_blocked_gpus() {
+    use gflow::core::info::UnmanagedGpuProcess;
+
+    let info = SchedulerInfo {
+        executor: String::new(),
+        ignored_gpu_processes: Vec::new(),
+        gpus: vec![GpuInfo {
+            uuid: "gpu-0".to_string(),
+            index: 0,
+            available: false,
+            reason: Some("unmanaged(pid=3471817)".to_string()),
+            unmanaged_processes: vec![UnmanagedGpuProcess {
+                pid: 3471817,
+                used_memory_mb: Some(642),
+                utilization_percent: Some(0),
+                age_secs: Some(2 * 24 * 3600),
+            }],
+        }],
+        allowed_gpu_indices: None,
+        gpu_allocation_strategy: GpuAllocationStrategy::Sequential,
+    };
+
+    let output = build_queue_pressure_output(info, Vec::new(), Vec::new());
+
+    assert_eq!(output.total_gpus, 1);
+    assert_eq!(output.blocked_by_processes.len(), 1);
+    let blocked = &output.blocked_by_processes[0];
+    assert_eq!(blocked.gpu_index, 0);
+    assert_eq!(blocked.pid, 3471817);
+    assert!(blocked.idle_leftover);
+    assert_eq!(
+        blocked.release_command,
+        "gctl gpu-process ignore --gpu 0 --pid 3471817"
+    );
+}
+
+#[test]
 fn queue_pressure_summarizes_gpu_pressure_and_groups() {
     let info = SchedulerInfo {
         executor: String::new(),
+        ignored_gpu_processes: Vec::new(),
         gpus: vec![
             GpuInfo {
                 uuid: "gpu-0".to_string(),
                 index: 0,
                 available: false,
                 reason: Some("running gflow job".to_string()),
+                unmanaged_processes: Vec::new(),
             },
             GpuInfo {
                 uuid: "gpu-1".to_string(),
                 index: 1,
                 available: true,
                 reason: None,
+                unmanaged_processes: Vec::new(),
             },
         ],
         allowed_gpu_indices: None,

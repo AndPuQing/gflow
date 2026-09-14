@@ -23,7 +23,11 @@ gctl show-gpus
 
 在 gflow 判断某张 GPU 是否被非托管进程占用时，忽略其中一个正在运行的 GPU 进程。
 
-这是仅在运行时生效的 override。`gflowd` 重启或 reload 后会自动清空。
+适用于某个非 gflow 进程占用 GPU 但已经空转或不再需要的情况。`ginfo` 会列出阻塞的 PID 并直接给出可执行的命令；`gbatch` 在提交后也会打印同样的摘要。
+
+不要忽略真正繁忙的进程——否则 gflow 会把作业调度到一张实际正在使用的卡上。
+
+这是仅在运行时生效的 override。`gflowd` 重启或 reload 后会自动清空，因此不会跨重启保留。
 
 ```bash
 gctl gpu-process ignore --gpu 0 --pid 1234
@@ -39,7 +43,7 @@ gctl gpu-process unignore --gpu 0 --pid 1234
 
 ### `gctl gpu-process list`
 
-列出当前生效的运行时 GPU 进程忽略规则。
+列出当前生效的运行时 GPU 进程忽略规则。`ginfo` 的输出中也会包含这些规则。
 
 ```bash
 gctl gpu-process list

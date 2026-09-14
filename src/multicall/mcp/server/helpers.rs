@@ -1,7 +1,52 @@
+use gflow::core::info::SchedulerInfo;
 use gflow::core::job::Job;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::schemas::{
+    GpuInfoOutput, IgnoredGpuProcessOutput, SchedulerInfoOutput, UnmanagedGpuProcessOutput,
+};
+
+/// Convert the daemon's scheduler info into the MCP output schema, resolving
+/// each unmanaged process into actionable fields (idle-leftover verdict and the
+/// exact release command).
+pub(super) fn scheduler_info_output(info: SchedulerInfo) -> SchedulerInfoOutput {
+    SchedulerInfoOutput {
+        gpus: info
+            .gpus
+            .into_iter()
+            .map(|gpu| GpuInfoOutput {
+                uuid: gpu.uuid,
+                index: gpu.index,
+                available: gpu.available,
+                reason: gpu.reason,
+                unmanaged_processes: gpu
+                    .unmanaged_processes
+                    .iter()
+                    .map(|process| UnmanagedGpuProcessOutput {
+                        pid: process.pid,
+                        used_memory_mb: process.used_memory_mb,
+                        utilization_percent: process.utilization_percent,
+                        age_secs: process.age_secs,
+                        idle_leftover: process.is_idle_leftover(),
+                        release_command: process.release_command(gpu.index),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        allowed_gpu_indices: info.allowed_gpu_indices,
+        gpu_allocation_strategy: info.gpu_allocation_strategy.to_string(),
+        ignored_gpu_processes: info
+            .ignored_gpu_processes
+            .into_iter()
+            .map(|process| IgnoredGpuProcessOutput {
+                gpu_index: process.gpu_index,
+                pid: process.pid,
+            })
+            .collect(),
+    }
+}
 
 pub(super) fn structured_response<T: serde::Serialize>(
     value: T,

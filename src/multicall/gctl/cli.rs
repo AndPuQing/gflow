@@ -30,7 +30,10 @@ pub enum Commands {
     /// Show current GPU configuration
     ShowGpus,
 
-    /// Manage runtime GPU process ignore overrides
+    /// Manage runtime GPU process ignore overrides.
+    ///
+    /// Use this to release a GPU that is blocked by a non-gflow process which
+    /// is idle or no longer needed; ginfo lists the exact PID and command.
     GpuProcess {
         #[command(subcommand)]
         command: GpuProcessCommands,
@@ -67,6 +70,9 @@ pub enum Commands {
 #[derive(Debug, Parser)]
 pub enum GpuProcessCommands {
     /// Ignore a running GPU process for scheduling decisions
+    #[command(
+        long_about = "Ignore a running GPU process so the scheduler can allocate its GPU.\n\nUse this when a non-gflow process holds a GPU but is idle or no longer\nneeded. Find the PID with `ginfo`, which prints the ready-to-run command.\n\nThe override is runtime-only: it is cleared when gflowd restarts. Check the\nactive overrides with `gctl gpu-process list`."
+    )]
     Ignore {
         /// GPU index where the process is attached
         #[arg(long)]

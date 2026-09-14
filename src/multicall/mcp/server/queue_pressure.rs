@@ -4,7 +4,10 @@ use gflow::core::reservation::{GpuReservation, ReservationStatus};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::schemas::{GpuAvailabilityOutput, QueuePressureGroupOutput, QueuePressureOutput};
+use super::schemas::{
+    GpuAvailabilityOutput, QueuePressureGroupOutput, QueuePressureOutput,
+    UnmanagedGpuProcessOnGpuOutput,
+};
 
 #[derive(Debug, Default)]
 struct QueuePressureGroupAccumulator {
@@ -35,6 +38,27 @@ pub(super) fn build_queue_pressure_output(
         .map(|gpu| GpuAvailabilityOutput {
             index: gpu.index,
             reason: gpu.reason.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    // GPUs blocked by non-gflow processes are the actionable subset of the
+    // unavailable ones: surface the PID and the release command so an agent
+    // can explain (or fix) why capacity is missing.
+    let blocked_by_processes = info
+        .gpus
+        .iter()
+        .flat_map(|gpu| {
+            gpu.unmanaged_processes
+                .iter()
+                .map(move |process| UnmanagedGpuProcessOnGpuOutput {
+                    gpu_index: gpu.index,
+                    pid: process.pid,
+                    used_memory_mb: process.used_memory_mb,
+                    utilization_percent: process.utilization_percent,
+                    age_secs: process.age_secs,
+                    idle_leftover: process.is_idle_leftover(),
+                    release_command: process.release_command(gpu.index),
+                })
         })
         .collect::<Vec<_>>();
 
@@ -105,6 +129,7 @@ pub(super) fn build_queue_pressure_output(
         projects: queue_group_outputs(projects),
         reservations_total: reservations.len(),
         reservations_active,
+        blocked_by_processes,
     }
 }
 

@@ -35,14 +35,47 @@ gpu        1     0      allocated  5 (train-resnet)
 - If a GPU is busy but not allocated by gflow, it may appear with a reason (when available).
 
 Non-gflow GPU usage:
-- If NVML reports running compute processes on a GPU, gflow treats it as unavailable (often shown as `Unmanaged`) and will not allocate it.
+- If NVML reports running compute processes on a GPU, gflow treats it as unavailable (shown as `unmanaged(pid=…)`) and will not allocate it.
 - gflow does not preempt/kill non-gflow processes; jobs wait until the GPU becomes idle.
+
+`ginfo` lists each blocking process with its memory, utilization, and age, plus the command that releases the GPU. A process that has held a card for over an hour while running no kernels is flagged `idle leftover`. See [Reclaim a GPU blocked by a non-gflow process](#reclaim-a-gpu-blocked-by-a-non-gflow-process).
 
 If you need per-GPU restriction status (allowed vs restricted):
 
 ```bash
 gctl show-gpus
 ```
+
+### Reclaim a GPU blocked by a non-gflow process
+
+Sometimes a process holds a GPU but is doing nothing useful — a crashed training
+job, or a stray Python session with a CUDA context. In that case you can tell
+gflow to ignore that process so the card becomes schedulable again, without
+touching the process itself:
+
+```bash
+# ginfo prints the exact command for each blocking PID
+ginfo
+
+# e.g. for a 642 MiB / 0%-utilization process that has been attached for 2 days
+gctl gpu-process ignore --gpu 0 --pid 3471817
+```
+
+A GPU held by a genuinely busy process (for example 80 GiB and 99% utilization)
+should be left alone: ignoring it would let gflow schedule onto a card that is
+already in use.
+
+Things to know about this override:
+
+- It is **runtime-only**: `gflowd` restart or reload clears it, and it is not
+  persisted across restarts.
+- List the overrides currently in effect with `gctl gpu-process list`; `ginfo`
+  shows them at the end of its output too.
+- Undo one with `gctl gpu-process unignore --gpu <index> --pid <pid>`. An
+  override whose process has exited is dropped automatically.
+
+`gbatch` also prints a short summary of blocked GPUs (with the release command)
+after you submit a job, so a permanently reduced GPU count does not go unnoticed.
 
 ### Requirements
 

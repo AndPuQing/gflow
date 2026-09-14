@@ -80,13 +80,13 @@ impl GflowMcpServer {
     }
 
     #[tool(
-        description = "Read scheduler and GPU status from the local gflow daemon.",
+        description = "Read scheduler and GPU status from the local gflow daemon. Unmanaged (non-gflow) GPU processes are listed with their memory, utilization, age, and the `gctl gpu-process ignore` command that releases the GPU because gflow never allocates a GPU that still has an unmanaged process attached.",
         output_schema = schema_for::<SchedulerInfoOutput>()
     )]
     async fn get_info(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let client = self.client().map_err(stringify_error)?;
         let info = client.get_info().await.map_err(stringify_error)?;
-        structured_response(info)
+        structured_response(scheduler_info_output(info))
     }
 
     #[tool(

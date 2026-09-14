@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`ginfo` explains GPUs blocked by non-gflow processes and how to release
+  them**: for every unmanaged compute process the daemon reports its PID, GPU
+  memory, SM utilization, and host-process age, and flags a process that has
+  held a card for over an hour while running no kernels as an `idle leftover`.
+  Each row carries the ready-to-run `gctl gpu-process ignore --gpu N --pid P`
+  command. Active runtime ignore overrides are listed at the end of the output
+  with their `unignore` command, so `gctl gpu-process list` no longer has to be
+  found separately.
+- **`gbatch` warns when GPUs are blocked by non-gflow processes**: after a
+  successful submission it prints the blocking PIDs, their memory/utilization/
+  age, and the release command, so a card silently stuck at "allocated" no
+  longer caps concurrency unnoticed. The same guidance is in the `gbatch`,
+  `gqueue`, `gjob`, and `ginfo` `--help` footers and in `gctl gpu-process
+  ignore`'s long help.
+- **MCP/`GET /info`: unmanaged GPU processes are exposed structurally**
+  (`unmanaged_processes` per GPU, `blocked_by_processes` in
+  `get_queue_pressure`), each carrying an `idle_leftover` verdict and a
+  `release_command`, so agents can diagnose reduced GPU capacity.
 - **web: dark mode with toggle**: the console follows the system color
   scheme by default and adds a light/dark toggle in the header; the choice
   persists in `localStorage` and is applied before first paint to avoid a
@@ -17,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log button.
 
 ### Changed
+- **Web dashboard GPU view shows the blocking process**: each busy GPU card
+  lists the non-gflow PID with its memory, utilization, and age, highlights
+  idle leftovers, and shows the release command; `gpu-process ignore` help and
+  the `gctl gpu-process list` empty state now point at `ginfo`.
 - **docs: restyle the landing page (runqd.com) into an IBM Carbon / Swiss
   industrial style**: the homepage is a flat, grid-driven layout built only
   from 1px hairlines — no rounded cards, shadows, gradients, or decorative
