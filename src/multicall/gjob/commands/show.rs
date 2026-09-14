@@ -133,9 +133,13 @@ fn print_job_details(job: &Job) {
 
     // Time information
     println!("\nTiming:");
-    if let Some(time_limit) = job.time_limit {
-        print_field!("TimeLimit", "{}", gflow::utils::format_duration(time_limit));
-    }
+    // Always show the effective limit so `UNLIMITED` is visible rather than
+    // looking like a missing field the user has to guess about.
+    print_field!(
+        "TimeLimit",
+        "{}",
+        gflow::utils::format_time_limit(job.time_limit)
+    );
     if let Some(submitted_at) = job.submitted_at {
         if let Some(wait_time) = job.wait_time() {
             print_field!(

@@ -74,6 +74,11 @@ To ease migration from Slurm `sbatch`, `gbatch` accepts a few common flag aliase
 
 Note: a single number is **minutes**. Use `0:30` for 30 seconds.
 
+**No time limit is applied by default.** A job submitted without `--time` (and
+without a `# GFLOW --time` script directive) runs until it exits and is shown as
+`UNLIMITED`. `gbatch` prints the effective limit at submission time, and
+`gjob show` / `gqueue -f TIMELIMIT` display it for the life of the job.
+
 ## Memory Format (`--memory`)
 
 - `100` (MB)

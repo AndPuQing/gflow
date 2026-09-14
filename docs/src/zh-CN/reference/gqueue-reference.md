@@ -45,7 +45,7 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `NAME`
 - `ST`
 - `TIME`
-- `TIMELIMIT`
+- `TIMELIMIT`（生效的时间限制，未设置时显示 `UNLIMITED`）
 - `MEMORY`
 - `NODES`（请求的 GPU 数量）
 - `NODELIST(REASON)`（运行中：GPU 索引；排队/暂停/已取消：原因）
@@ -54,6 +54,14 @@ gqueue -f JOBID,NAME,PROJECT,ST,TIMELIMIT,MEMORY,NODELIST(REASON)
 - `COMMAND`（作业运行的内容：命令提交显示存储的命令，脚本提交显示脚本路径——两者同时存在时 script 优先，与执行器一致；都没有则显示 `-`）
 
 标准输出为终端时表格自动适配终端宽度（最宽列优先截断并加 `…`）；重定向到文件或管道时保留完整内容。`-f` 中任意字段可加 `:宽度` 后缀限制列宽（`:0` 显示完整），指定后跳过自适应。
+
+运行中且已用掉 90% 时间限制的任务会在表格之前向 stderr 输出提示：
+
+```text
+WARNING: job 42 is near its time limit (00:04:12 remaining of 02:00:00); it will be terminated as Timeout when the limit is reached
+```
+
+未设置限制的任务不会提示；该提示仅供参考，超时判定仍由调度器负责。
 
 `gqueue -t` 示例输出：
 

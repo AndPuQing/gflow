@@ -21,6 +21,26 @@ python train.py
 
 Command-line flags override script directives.
 
+## No Default Limit
+
+**gflow applies no default time limit.** A job submitted without `--time` (and
+without a `# GFLOW --time` directive) runs until it exits on its own and is
+displayed as `UNLIMITED`:
+
+```bash
+gbatch python train.py                    # no limit
+gbatch --time 24:00:00 python train.py    # 24-hour cap
+```
+
+This is why jobs only enter the `Timeout` (`TO`) state when a limit was actually
+set — a `TO` job always has a limit behind it. To keep the effective limit
+explicit:
+
+- `gbatch` prints `Time limit: <value>` at submission time, naming the source
+  (`--time`, `script directive`, or `no limit`).
+- `gjob show <job_id>` always prints `TimeLimit`, using `UNLIMITED` when unset.
+- `gqueue -f TIMELIMIT` shows the same value in the job list.
+
 ## Time Formats
 
 `<TIME>` accepts:
@@ -43,6 +63,10 @@ gjob show <job_id>
 - The timer starts when a job enters `Running` (queue time is not counted).
 - Enforcement is periodic (jobs may run slightly past the exact limit).
 - On timeout, gflow sends an interrupt (Ctrl-C / SIGINT) and transitions the job to `Timeout` (`TO`).
+- A running job that has used 90% of its limit is flagged by `gqueue` with a
+  `WARNING:` line naming the job, the time remaining, and the limit, so there is
+  a chance to act (extend via `gjob redo --time`, or inspect the log) before the
+  timeout fires.
 
 ## Troubleshooting
 

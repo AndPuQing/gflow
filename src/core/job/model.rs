@@ -751,6 +751,37 @@ impl Job {
         false
     }
 
+    /// Time left before this running job hits its time limit, if it has one.
+    ///
+    /// Returns `None` when the job has no limit or has not started, and
+    /// `Duration::ZERO` once the limit has already been reached.
+    pub fn time_limit_remaining(&self) -> Option<Duration> {
+        let time_limit = self.time_limit?;
+        let started_at = self.started_at?;
+        let elapsed = SystemTime::now().duration_since(started_at).ok()?;
+        Some(time_limit.saturating_sub(elapsed))
+    }
+
+    /// Whether a running job has entered the final 10% of its time limit.
+    ///
+    /// Used to warn before a job is killed by the timeout monitor. Jobs with no
+    /// limit, that are not running, or whose remaining time is unknown are
+    /// never considered near the limit.
+    pub fn is_near_time_limit(&self) -> bool {
+        if self.state != JobState::Running {
+            return false;
+        }
+        let (Some(time_limit), Some(remaining)) = (self.time_limit, self.time_limit_remaining())
+        else {
+            return false;
+        };
+        // Guard against a zero limit, which would make every remaining value 0.
+        if time_limit.is_zero() {
+            return false;
+        }
+        remaining <= time_limit.mul_f64(0.1)
+    }
+
     /// Calculate wait time (time from submission to start)
     pub fn wait_time(&self) -> Option<Duration> {
         match (self.submitted_at, self.started_at) {
@@ -780,5 +811,78 @@ impl Job {
     pub fn with_redone_from(mut self, redone_from: Option<u32>) -> Self {
         self.redone_from = redone_from;
         self
+    }
+}
+
+#[cfg(test)]
+mod time_limit_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn running_job(time_limit: Option<Duration>, elapsed: Duration) -> Job {
+        Job {
+            state: JobState::Running,
+            time_limit,
+            started_at: Some(SystemTime::now() - elapsed),
+            ..Job::default()
+        }
+    }
+
+    #[test]
+    fn time_limit_remaining_is_none_without_a_limit() {
+        let job = running_job(None, Duration::from_secs(60));
+        assert_eq!(job.time_limit_remaining(), None);
+    }
+
+    #[test]
+    fn time_limit_remaining_counts_down() {
+        let job = running_job(Some(Duration::from_secs(1000)), Duration::from_secs(400));
+        let remaining = job.time_limit_remaining().unwrap();
+        assert!(
+            remaining <= Duration::from_secs(600) && remaining >= Duration::from_secs(595),
+            "expected ~600s remaining, got {remaining:?}"
+        );
+    }
+
+    #[test]
+    fn time_limit_remaining_saturates_once_exceeded() {
+        let job = running_job(Some(Duration::from_secs(100)), Duration::from_secs(500));
+        assert_eq!(job.time_limit_remaining(), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn near_time_limit_requires_a_limit() {
+        let job = running_job(None, Duration::from_secs(10_000));
+        assert!(!job.is_near_time_limit());
+    }
+
+    #[test]
+    fn near_time_limit_is_false_early_in_the_run() {
+        let job = running_job(Some(Duration::from_secs(1000)), Duration::from_secs(100));
+        assert!(!job.is_near_time_limit());
+    }
+
+    #[test]
+    fn near_time_limit_is_true_in_the_final_tenth() {
+        // 5% elapsed leaves 95%, so this must not warn yet.
+        let almost = running_job(Some(Duration::from_secs(1000)), Duration::from_secs(50));
+        assert!(!almost.is_near_time_limit());
+
+        // 95% elapsed leaves 5%, inside the final 10%.
+        let late = running_job(Some(Duration::from_secs(1000)), Duration::from_secs(950));
+        assert!(late.is_near_time_limit());
+    }
+
+    #[test]
+    fn near_time_limit_ignores_non_running_jobs() {
+        let mut job = running_job(Some(Duration::from_secs(1000)), Duration::from_secs(999));
+        job.state = JobState::Queued;
+        assert!(!job.is_near_time_limit());
+    }
+
+    #[test]
+    fn near_time_limit_handles_zero_limit() {
+        let job = running_job(Some(Duration::ZERO), Duration::from_secs(1));
+        assert!(!job.is_near_time_limit());
     }
 }

@@ -100,6 +100,28 @@ pub fn format_duration(duration: Duration) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
+/// Format an optional time limit for display.
+///
+/// A job without a time limit is unlimited. Rendering that as `UNLIMITED`
+/// (instead of omitting the field) keeps the effective limit visible on every
+/// surface, so "no limit" is never mistaken for an undocumented default.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+/// use gflow::utils::format_time_limit;
+///
+/// assert_eq!(format_time_limit(None), "UNLIMITED");
+/// assert_eq!(
+///     format_time_limit(Some(Duration::from_secs(7200))),
+///     "02:00:00"
+/// );
+/// ```
+pub fn format_time_limit(time_limit: Option<Duration>) -> String {
+    time_limit.map_or_else(|| "UNLIMITED".to_string(), format_duration)
+}
+
 /// Format elapsed time between two system times in HH:MM:SS format.
 ///
 /// For finished jobs, calculates the duration between `started_at` and `finished_at`.
@@ -316,4 +338,23 @@ pub fn validate_job_state(
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_time_limit_marks_unset_as_unlimited() {
+        assert_eq!(format_time_limit(None), "UNLIMITED");
+    }
+
+    #[test]
+    fn format_time_limit_renders_set_limits() {
+        assert_eq!(
+            format_time_limit(Some(Duration::from_secs(2 * 3600))),
+            "02:00:00"
+        );
+        assert_eq!(
+            format_time_limit(Some(Duration::from_secs(30 * 60))),
+            "00:30:00"
+        );
+    }
+}

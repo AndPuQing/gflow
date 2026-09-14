@@ -1561,3 +1561,113 @@ async fn executor_type_config_selects_backend() {
     assert!(!is_session_exist(&response.run_name));
     sandbox.stop_daemon();
 }
+
+/// The effective time limit must be visible without the user having to infer it:
+/// `gbatch` reports it at submission (including the "no limit" default),
+/// `gjob show` always prints `TimeLimit` (with `UNLIMITED` when unset), and
+/// `gqueue -f TIMELIMIT` agrees with both. Regression for W-581.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn time_limit_is_visible_at_submission_and_in_show_output() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    // `--help` must state that no limit is applied by default.
+    let help = sandbox.run_gflow(["gbatch", "--help"]);
+    help.assert_success("gbatch --help");
+    assert!(
+        help.stdout.contains("No time limit is applied by default"),
+        "gbatch --help must document the default, got:\n{}",
+        help.stdout
+    );
+
+    // Unset limit: submission says so explicitly.
+    let unbounded = sandbox.run_gflow(["gbatch", "echo unbounded"]);
+    unbounded.assert_success("gbatch without --time");
+    assert!(
+        unbounded.stdout.contains("Time limit: UNLIMITED"),
+        "submission without --time must report an unlimited limit, got:\n{}",
+        unbounded.stdout
+    );
+    let unbounded_id: u32 = unbounded
+        .stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Submitted batch job ")
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|id| id.parse().ok())
+        })
+        .expect("submission output should carry the job id");
+
+    // Explicit limit: submission names the value and its source.
+    let bounded = sandbox.run_gflow(["gbatch", "--time", "30", "sleep", "60"]);
+    bounded.assert_success("gbatch --time");
+    assert!(
+        bounded.stdout.contains("Time limit: 00:30:00 (--time)"),
+        "submission with --time must report the effective limit and source, got:\n{}",
+        bounded.stdout
+    );
+    let bounded_id: u32 = bounded
+        .stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Submitted batch job ")
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|id| id.parse().ok())
+        })
+        .expect("submission output should carry the job id");
+
+    // `gjob show` always prints TimeLimit, so a missing field can never be
+    // mistaken for an undocumented default.
+    let show_unbounded = sandbox.run_gflow(["gjob", "show", &unbounded_id.to_string()]);
+    show_unbounded.assert_success("gjob show (unlimited)");
+    assert!(
+        show_unbounded.stdout.contains("TimeLimit=UNLIMITED"),
+        "gjob show must mark an unbounded job as UNLIMITED, got:\n{}",
+        show_unbounded.stdout
+    );
+
+    let show_bounded = sandbox.run_gflow(["gjob", "show", &bounded_id.to_string()]);
+    show_bounded.assert_success("gjob show (bounded)");
+    assert!(
+        show_bounded.stdout.contains("TimeLimit=00:30:00"),
+        "gjob show must render the explicit limit, got:\n{}",
+        show_bounded.stdout
+    );
+
+    // `gqueue` renders the same effective value for both jobs.
+    let queue = sandbox.run_gflow(["gqueue", "-a", "-n", "0", "-f", "JOBID,TIMELIMIT"]);
+    queue.assert_success("gqueue -f JOBID,TIMELIMIT");
+    let unbounded_row = queue
+        .stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with(&unbounded_id.to_string()))
+        .unwrap_or_else(|| {
+            panic!(
+                "job {unbounded_id} row missing from gqueue:\n{}",
+                queue.stdout
+            )
+        });
+    assert!(
+        unbounded_row.contains("UNLIMITED"),
+        "gqueue must show UNLIMITED for job {unbounded_id}: {unbounded_row}"
+    );
+    let bounded_row = queue
+        .stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with(&bounded_id.to_string()))
+        .unwrap_or_else(|| {
+            panic!(
+                "job {bounded_id} row missing from gqueue:\n{}",
+                queue.stdout
+            )
+        });
+    assert!(
+        bounded_row.contains("00:30:00"),
+        "gqueue must show the explicit limit for job {bounded_id}: {bounded_row}"
+    );
+
+    sandbox.stop_daemon();
+}

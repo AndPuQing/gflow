@@ -195,6 +195,14 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         }
     }
 
+    // Warn about running jobs that are close to their time limit before the
+    // table, so the warning is visible even when a long table would otherwise
+    // scroll it away. This is advisory only: the scheduler still owns the
+    // actual timeout decision.
+    if output_format == OutputFormat::Table {
+        print_time_limit_warnings(&jobs_vec);
+    }
+
     match output_format {
         OutputFormat::Table => {
             if options.group {
@@ -226,6 +234,30 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Print an advisory warning for running jobs that are within the final 10%
+/// of their time limit.
+///
+/// gflow has no default limit, so only jobs that actually set one can be near
+/// it. Warnings go to stderr to keep stdout pipeable, and an unstyled
+/// `WARNING:` prefix keeps them readable when color is disabled.
+fn print_time_limit_warnings(jobs: &[gflow::core::job::Job]) {
+    for job in jobs {
+        if !job.is_near_time_limit() {
+            continue;
+        }
+        let Some(remaining) = job.time_limit_remaining() else {
+            continue;
+        };
+        let limit = gflow::utils::format_time_limit(job.time_limit);
+        eprintln!(
+            "WARNING: job {} is near its time limit ({} remaining of {}); it will be terminated as Timeout when the limit is reached",
+            job.id,
+            gflow::utils::format_duration(remaining),
+            limit
+        );
+    }
 }
 
 fn sort_jobs(jobs: &mut [gflow::core::job::Job], sort_field: &str) {

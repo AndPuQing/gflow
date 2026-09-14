@@ -299,9 +299,7 @@ pub(super) fn format_job_cell(
             }
         }
         "TIME" => gflow::utils::format_elapsed_time(job.started_at, job.finished_at),
-        "TIMELIMIT" => job
-            .time_limit
-            .map_or_else(|| "UNLIMITED".to_string(), gflow::utils::format_duration),
+        "TIMELIMIT" => gflow::utils::format_time_limit(job.time_limit),
         "USER" => job.submitted_by.to_string(),
         "PROJECT" => job
             .project

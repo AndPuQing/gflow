@@ -114,6 +114,8 @@ and becomes schedulable when the time arrives. `--at` accepts `HH:MM[:SS]`,
 
 Show detailed job information including resources, dependencies, timing, and tmux session name.
 
+The `Timing:` block always prints `TimeLimit`, showing `UNLIMITED` when the job has no limit, so the effective limit is never ambiguous.
+
 Alias: `gjob s`
 
 ```bash

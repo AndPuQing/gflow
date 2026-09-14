@@ -21,6 +21,24 @@ python train.py
 
 命令行参数优先于脚本指令。
 
+## 默认不设置限制
+
+**gflow 默认不应用任何时间限制。** 未指定 `--time`（且脚本中没有
+`# GFLOW --time` 指令）的任务会一直运行到自行结束，显示为 `UNLIMITED`：
+
+```bash
+gbatch python train.py                    # 无限制
+gbatch --time 24:00:00 python train.py    # 24 小时上限
+```
+
+这也解释了为什么只有真正设置过限制的任务才会进入 `Timeout`（`TO`）状态：
+`TO` 任务背后必定有一个明确的限制。为了让生效的限制始终可见：
+
+- `gbatch` 在提交时打印 `Time limit: <值>`，并标明来源
+  （`--time`、`script directive` 或 `no limit`）。
+- `gjob show <job_id>` 始终打印 `TimeLimit`，未设置时显示 `UNLIMITED`。
+- `gqueue -f TIMELIMIT` 在任务列表中显示相同的值。
+
 ## 时间格式
 
 `<TIME>` 支持：
@@ -43,6 +61,9 @@ gjob show <job_id>
 - 计时从任务进入 `Running` 开始（排队时间不计入）。
 - 以周期方式检查（可能会略微超过精确限制）。
 - 超时后会发送中断（Ctrl-C / SIGINT），并将状态切换为 `Timeout`（`TO`）。
+- 运行中的任务已用掉 90% 的限制时，`gqueue` 会输出 `WARNING:` 提示，
+  包括任务 ID、剩余时间和限制值，便于在超时前采取措施
+  （用 `gjob redo --time` 延长时间，或查看日志）。
 
 ## 故障排除
 

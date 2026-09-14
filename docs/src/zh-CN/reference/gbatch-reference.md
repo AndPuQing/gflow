@@ -73,6 +73,10 @@ gbatch --dry-run --gpus 1 python train.py
 
 注意：单个数字表示**分钟**。30 秒请用 `0:30`。
 
+**默认不设置时间限制。** 未指定 `--time`（且脚本中没有 `# GFLOW --time` 指令）
+的任务会一直运行到自行结束，显示为 `UNLIMITED`。`gbatch` 会在提交时打印
+生效的时间限制，任务运行期间也可用 `gjob show` / `gqueue -f TIMELIMIT` 查看。
+
 ## 内存格式（`--memory`）
 
 - `100`（MB）

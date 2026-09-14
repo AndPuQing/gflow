@@ -84,6 +84,10 @@ pub struct AddArgs {
     pub array: Option<String>,
 
     /// Time limit for the job (formats: "HH:MM:SS", "MM:SS", "MM", or seconds as number)
+    ///
+    /// No time limit is applied by default, so a job without this flag can run
+    /// indefinitely. The effective limit for a job is printed at submission and
+    /// shown by `gjob show` (`UNLIMITED` when unset).
     #[arg(
         short = 't',
         long,

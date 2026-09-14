@@ -45,7 +45,7 @@ Supported fields for `-f/--format`:
 - `NAME`
 - `ST`
 - `TIME`
-- `TIMELIMIT`
+- `TIMELIMIT` (the effective time limit, or `UNLIMITED` when the job has none)
 - `MEMORY`
 - `NODES` (GPUs requested)
 - `NODELIST(REASON)` (running: GPU indices; queued/hold/cancelled: reason)
@@ -57,6 +57,16 @@ Tables fit the terminal width when stdout is a terminal (widest columns are
 truncated first with a `…` suffix); redirected output keeps full content.
 Any field accepts a `:WIDTH` suffix in `-f` to cap its width (`COMMAND:0`
 shows it in full), which disables the automatic fitting.
+
+Running jobs within the final 10% of their time limit are flagged on stderr
+before the table:
+
+```text
+WARNING: job 42 is near its time limit (00:04:12 remaining of 02:00:00); it will be terminated as Timeout when the limit is reached
+```
+
+Jobs without a limit are never flagged, and the warning is advisory — the
+scheduler still makes the timeout decision.
 
 Example `gqueue -t` output:
 

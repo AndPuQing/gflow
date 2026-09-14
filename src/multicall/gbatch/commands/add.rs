@@ -6,7 +6,7 @@ use gflow::core::job::{GpuSharingMode, Job, JobNotifications};
 use gflow::utils::parsers::parse_array_spec;
 use gflow::utils::{generate_param_combinations, parse_param_spec};
 use lettre::message::Mailbox;
-use std::{collections::HashMap, env, fs, io::Read, path::PathBuf};
+use std::{collections::HashMap, env, fs, io::Read, path::PathBuf, time::Duration};
 
 /// Validate project against configuration requirements
 fn validate_project(job: &mut Job, config: &gflow::config::Config) -> Result<()> {
@@ -79,6 +79,49 @@ fn validate_shared_requires_gpu_memory(job: &Job) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Describe the effective time limits of a submission and where they came from.
+///
+/// gflow applies no default time limit, so a job submitted without `--time` (and
+/// without a script directive) can run indefinitely. Making that explicit at
+/// submission time avoids the user having to infer it from a silently absent
+/// `TimeLimit` field later. `from_cli` is only used to label the source when
+/// every job in the submission shares the same limit.
+fn describe_effective_time_limit(jobs: &[Job], from_cli: bool) -> String {
+    let mut unique: Vec<Option<Duration>> = Vec::new();
+    for job in jobs {
+        if !unique.contains(&job.time_limit) {
+            unique.push(job.time_limit);
+        }
+    }
+
+    if unique.len() == 1 {
+        let limit = unique[0];
+        let source = match (limit.is_none(), from_cli) {
+            (true, _) => "no limit; set one with --time",
+            (false, true) => "--time",
+            (false, false) => "script directive",
+        };
+        return format!("{} ({source})", gflow::utils::format_time_limit(limit));
+    }
+
+    // Per-job script directives produced differing limits; list the distinct set.
+    unique.sort();
+    let rendered = unique
+        .iter()
+        .map(|limit| gflow::utils::format_time_limit(*limit))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("mixed: {rendered} (per-job limits)")
+}
+
+/// Print the effective time limit for a submission in one line.
+fn print_effective_time_limit(jobs: &[Job], from_cli: bool) {
+    println!(
+        "Time limit: {}",
+        describe_effective_time_limit(jobs, from_cli)
+    );
 }
 
 /// Substitute {param_name} patterns in command with actual values (for preview only)
@@ -235,6 +278,9 @@ pub(crate) async fn handle_add(
             jobs.push(job);
         }
 
+        // Report the effective limit before handing the jobs to the daemon.
+        print_effective_time_limit(&jobs, add_args.time.is_some());
+
         // Submit in batch
         let responses = client
             .add_jobs(jobs)
@@ -317,6 +363,9 @@ pub(crate) async fn handle_add(
             jobs.push(job);
         }
 
+        // Report the effective limit before handing the jobs to the daemon.
+        print_effective_time_limit(&jobs, add_args.time.is_some());
+
         // Submit in batch
         let responses = client
             .add_jobs(jobs)
@@ -395,6 +444,9 @@ pub(crate) async fn handle_add(
             jobs.push(job);
         }
 
+        // Report the effective limit before handing the jobs to the daemon.
+        print_effective_time_limit(&jobs, add_args.time.is_some());
+
         // Submit in batch
         let responses = client
             .add_jobs(jobs)
@@ -441,6 +493,7 @@ pub(crate) async fn handle_add(
     // Single job submission (existing logic)
     let mut job = build_job(&add_args, None, &client, stdin_content.as_ref()).await?;
     validate_project(&mut job, config)?;
+    print_effective_time_limit(std::slice::from_ref(&job), add_args.time.is_some());
     let response = client.add_job(job).await.context("Failed to add job")?;
     println!(
         "Submitted batch job {} ({})",
@@ -1125,6 +1178,52 @@ python train.py
         assert_eq!(
             args.notify_on,
             vec!["job_failed".to_string(), "job_timeout".to_string()]
+        );
+    }
+
+    fn job_with_limit(time_limit: Option<Duration>) -> Job {
+        Job::builder()
+            .command("echo hi")
+            .time_limit(time_limit)
+            .build()
+    }
+
+    #[test]
+    fn effective_limit_flags_missing_default() {
+        let job = job_with_limit(None);
+        let described = describe_effective_time_limit(&[job], false);
+        assert!(
+            described.starts_with("UNLIMITED") && described.contains("--time"),
+            "unset limit must be called out as unlimited: {described}"
+        );
+    }
+
+    #[test]
+    fn effective_limit_labels_cli_source() {
+        let job = job_with_limit(Some(Duration::from_secs(7200)));
+        let described = describe_effective_time_limit(&[job], true);
+        assert_eq!(described, "02:00:00 (--time)");
+    }
+
+    #[test]
+    fn effective_limit_labels_script_source() {
+        let job = job_with_limit(Some(Duration::from_secs(1800)));
+        let described = describe_effective_time_limit(&[job], false);
+        assert_eq!(described, "00:30:00 (script directive)");
+    }
+
+    #[test]
+    fn effective_limit_summarizes_mixed_batch() {
+        let jobs = vec![
+            job_with_limit(None),
+            job_with_limit(Some(Duration::from_secs(3600))),
+        ];
+        let described = describe_effective_time_limit(&jobs, false);
+        assert!(
+            described.starts_with("mixed:")
+                && described.contains("UNLIMITED")
+                && described.contains("01:00:00"),
+            "a mixed batch must list every distinct limit: {described}"
         );
     }
 }

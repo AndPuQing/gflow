@@ -113,6 +113,8 @@ gjob release <job_ids> --at <time>
 
 显示任务详细信息，包括资源、依赖、时间信息和 tmux 会话名。
 
+`Timing:` 区块始终输出 `TimeLimit`：未设置限制时显示 `UNLIMITED`，因此生效的时间限制不会有歧义。
+
 别名：`gjob s`
 
 ```bash

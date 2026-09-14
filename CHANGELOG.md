@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status-badge colors.
 - **web: click a job row to open its log dialog**, in addition to the per-row
   log button.
+- **jobs: the effective time limit is now visible everywhere**: `gbatch` prints
+  `Time limit: <value> (<source>)` at submission, `gjob show` always prints
+  `TimeLimit` (`UNLIMITED` when unset), and `gqueue` warns on stderr when a
+  running job has used 90% of its limit. gflow applies **no default time
+  limit**, which the `gbatch --help` text and the time-limit docs now state
+  explicitly.
 
 ### Changed
 - **docs: restyle the landing page (runqd.com) into an IBM Carbon / Swiss
