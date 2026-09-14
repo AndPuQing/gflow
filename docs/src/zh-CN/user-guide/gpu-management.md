@@ -155,6 +155,21 @@ nvidia-smi --query-gpu=memory.free,memory.used --format=csv
 
 若共享任务出现显存 OOM，请优先检查 `--gpu-memory` 是否已设置且数值是否合理。
 
+**独占**任务同样建议设置 `--gpu-memory`：gflow 会把它当作硬性校验，若某张卡的
+可用显存（来自 NVML，含非 gflow 进程占用）小于声明需求，就不会把任务排上去。
+这类任务会带 `GpuMemory: ...` 原因留在队列中，`gqueue` 会在 `NODELIST(REASON)` 里展示：
+
+```bash
+gqueue -f JOBID,ST,NODELIST(REASON)
+```
+
+若任务确实因 CUDA OOM 失败，daemon 会在失败时检查其日志尾部，并把 `OutOfMemory`
+记录为任务原因，因此不必再翻 `gjob log` 才知原因：
+
+```bash
+gjob show <job_id>   # 会输出 `Reason: OutOfMemory`
+```
+
 ## 另见
 
 - [任务提交](./job-submission) - 完整的任务提交指南

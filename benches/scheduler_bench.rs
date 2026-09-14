@@ -98,6 +98,7 @@ fn create_test_scheduler() -> Scheduler {
                 index: i,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );

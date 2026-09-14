@@ -92,7 +92,26 @@ Aliases: `--max-mem`, `--max-memory`.
 
 Aliases: `--max-gpu-mem`, `--max-gpu-memory`.
 
-`--gpu-memory` controls per-GPU VRAM.
+`--gpu-memory` controls per-GPU VRAM, and is enforced in **both** sharing modes:
+
+- **Shared jobs** must set it. It caps each job's fair share of a device, and
+  the scheduler admits a shared job only while `managed + requested` fits.
+- **Exclusive jobs** may set it too. It then acts as a hard fit check against
+  the device's *actual* free VRAM, including memory held by processes gflow
+  does not manage (for example a vLLM server you started by hand). A job whose
+  requirement does not fit anywhere stays `Queued` with reason
+  `GpuMemory: ...` instead of starting and dying from CUDA OOM later.
+
+Omitting `--gpu-memory` on an exclusive job means "no declared requirement":
+gflow will not second-guess how the job manages its own VRAM.
+
+At submit time `gbatch` also prints the current per-GPU usage, e.g.:
+
+```text
+Current GPU memory usage:
+  GPU 0: 665 MiB used / 94.97 GiB total (94.32 GiB free)
+  GPU 1: 54.7 GiB used / 94.97 GiB total (40.27 GiB free)
+```
 
 ## Shared GPU Mode (`--shared`)
 

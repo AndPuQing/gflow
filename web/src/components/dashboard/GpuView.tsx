@@ -42,6 +42,27 @@ function formatGpuReason(reason: string | null | undefined): string | null {
   return reason
 }
 
+/** Render MB as GiB with one decimal, matching how users read nvidia-smi. */
+function formatMemoryGb(mb: number): string {
+  return `${(mb / 1024).toFixed(1)} GiB`
+}
+
+/**
+ * "used / total" VRAM summary, or `null` when the daemon could not read NVML
+ * memory counters (e.g. on WDDM).
+ */
+function formatVram(
+  gpu: GpuInfo,
+): { label: string; usedRatio: number } | null {
+  const total = gpu.total_memory_mb
+  if (total == null || total <= 0) return null
+  const used = gpu.used_memory_mb ?? 0
+  return {
+    label: `${formatMemoryGb(used)} / ${formatMemoryGb(total)}`,
+    usedRatio: Math.min(used / total, 1),
+  }
+}
+
 export function GpuView({
   gpus,
   allowed,
@@ -151,6 +172,7 @@ function GpuCard({ gpu, blocked }: { gpu: GpuInfo; blocked: boolean }) {
   const reason = formatGpuReason(gpu.reason)
   const detail =
     reason ?? (status === "Available" ? "Idle" : status === "Busy" ? "In use" : "Outside allowed set")
+  const vram = formatVram(gpu)
 
   return (
     <div className={cn("rounded-lg border p-3", statusTone[status])}>
@@ -161,6 +183,24 @@ function GpuCard({ gpu, blocked }: { gpu: GpuInfo; blocked: boolean }) {
         </span>
         <StatusBadge value={status} />
       </div>
+      {vram && (
+        <div className="mt-2">
+          <div className="flex items-center justify-between font-mono text-[11px] text-muted-foreground">
+            <span>VRAM</span>
+            <span>{vram.label}</span>
+          </div>
+          {/* Device-wide usage, so memory held by non-gflow processes shows up here. */}
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                "h-full rounded-full",
+                vram.usedRatio >= 0.9 ? "bg-rose-500" : "bg-emerald-500",
+              )}
+              style={{ width: `${Math.round(vram.usedRatio * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
       <div className="mt-2 line-clamp-2 min-h-8 text-xs text-muted-foreground">
         {detail}
       </div>

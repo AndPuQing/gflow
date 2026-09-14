@@ -1,4 +1,34 @@
 use super::*;
+use crate::utils::format_memory;
+
+/// Explain why a declared per-GPU VRAM requirement does not fit on `gpu`.
+///
+/// Distinguishes "the request is larger than the card" from "the card is
+/// occupied by something else", so the reason is actionable rather than a bare
+/// pair of numbers.
+fn describe_gpu_memory_shortfall(
+    gpu: u32,
+    requested_mb: u64,
+    used_mb: u64,
+    total_mb: u64,
+) -> String {
+    if requested_mb > total_mb {
+        format!(
+            "GPU {gpu} has only {} of VRAM but {} was requested",
+            format_memory(total_mb),
+            format_memory(requested_mb),
+        )
+    } else {
+        let free_mb = total_mb.saturating_sub(used_mb);
+        format!(
+            "GPU {gpu} has {} free of {} ({} in use) but {} was requested",
+            format_memory(free_mb),
+            format_memory(total_mb),
+            format_memory(used_mb),
+            format_memory(requested_mb),
+        )
+    }
+}
 
 impl Scheduler {
     pub fn calculate_time_bonus(time_limit: &Option<Duration>) -> u32 {
@@ -141,6 +171,14 @@ impl Scheduler {
             .values()
             .filter_map(|slot| slot.total_memory_mb.map(|total_mb| (slot.index, total_mb)))
             .collect();
+        // Device-wide memory already in use per GPU, including memory held by
+        // processes gflow does not manage. Used to refuse/park jobs whose
+        // declared VRAM requirement cannot physically fit on a device.
+        let gpu_used_memory_mb: HashMap<u32, u64> = self
+            .gpu_slots
+            .values()
+            .filter_map(|slot| slot.used_memory_mb.map(|used_mb| (slot.index, used_mb)))
+            .collect();
 
         let mut runnable_jobs = Vec::new();
         let mut seen_ready_jobs = HashSet::new();
@@ -280,6 +318,12 @@ impl Scheduler {
                 // Enforce sharing compatibility:
                 // - Shared jobs can use idle or shared-occupied GPUs, but never exclusive-occupied GPUs.
                 // - Exclusive jobs can only use fully idle GPUs.
+                //
+                // When the job declares a per-GPU memory requirement, the device
+                // must also have room for it on top of whatever is already
+                // allocated - including memory held by processes gflow does not
+                // manage (e.g. a user-started inference server).
+                let mut memory_blocked_gpus: Vec<String> = Vec::new();
                 let compatible_gpus: Vec<u32> = usable_gpus
                     .into_iter()
                     .filter(|gpu| match gpu_sharing_mode {
@@ -301,15 +345,55 @@ impl Scheduler {
                             }
                         }
                         GpuSharingMode::Exclusive => {
-                            !exclusive_gpu_occupancy.contains(gpu)
-                                && shared_gpu_occupancy.get(gpu).copied().unwrap_or(0) == 0
+                            let is_idle = !exclusive_gpu_occupancy.contains(gpu)
+                                && shared_gpu_occupancy.get(gpu).copied().unwrap_or(0) == 0;
+                            if !is_idle {
+                                return false;
+                            }
+
+                            // `--gpu-memory` acts as a hard fit check for
+                            // exclusive submissions too. Unmanaged processes are
+                            // invisible to gflow's own bookkeeping, so we compare
+                            // the declared requirement against NVML's device-wide
+                            // usage rather than against managed allocations.
+                            let Some(requested_gpu_memory_mb) = requested_gpu_memory_mb else {
+                                return true;
+                            };
+                            let Some(total_gpu_memory_mb) = gpu_total_memory_mb.get(gpu) else {
+                                return true;
+                            };
+                            let used_memory_mb = gpu_used_memory_mb.get(gpu).copied().unwrap_or(0);
+                            if used_memory_mb.saturating_add(requested_gpu_memory_mb)
+                                <= *total_gpu_memory_mb
+                            {
+                                true
+                            } else {
+                                memory_blocked_gpus.push(describe_gpu_memory_shortfall(
+                                    *gpu,
+                                    requested_gpu_memory_mb,
+                                    used_memory_mb,
+                                    *total_gpu_memory_mb,
+                                ));
+                                false
+                            }
                         }
                     })
                     .collect();
                 let has_enough_gpus = requested_gpu_count as usize <= compatible_gpus.len();
 
                 if !has_enough_gpus {
-                    self.set_job_reason(job_id, Some(JobStateReason::WaitingForGpu));
+                    // Surface a VRAM-specific reason when memory, not raw
+                    // availability, is what kept the job out - otherwise the job
+                    // silently looks like generic resource starvation.
+                    let reason = if requested_gpu_count > 0
+                        && !memory_blocked_gpus.is_empty()
+                        && requested_gpu_count as usize > compatible_gpus.len()
+                    {
+                        JobStateReason::InsufficientGpuMemory(memory_blocked_gpus.join("; ").into())
+                    } else {
+                        JobStateReason::WaitingForGpu
+                    };
+                    self.set_job_reason(job_id, Some(reason));
                     self.enqueue_if_ready(job_id);
                     continue;
                 }

@@ -1,4 +1,4 @@
-use gflow::core::job::{Job, JobState};
+use gflow::core::job::{Job, JobState, JobStateReason};
 use gflow::Client;
 use std::fs;
 use std::time::SystemTime;
@@ -93,6 +93,14 @@ fn retry_hints_for_job(job: &Job, log_excerpt: Option<&str>) -> Vec<String> {
             Some(reason) if reason.contains("Dependency") => hints.push(
                 "inspect dependency jobs before retrying or changing dependencies".to_string(),
             ),
+            // Must precede the host-memory arm: "GpuMemory: ..." also contains
+            // "Memory" and would otherwise get the wrong hint.
+            Some(reason) if reason.starts_with("GpuMemory") => hints.push(
+                "the declared --gpu-memory does not fit on any visible GPU; check get_info \
+                 for per-GPU usage (a process started outside gflow may be holding VRAM), \
+                 then free it or lower --gpu-memory"
+                    .to_string(),
+            ),
             Some(reason) if reason.contains("Memory") => {
                 hints.push("lower memory request or wait for memory pressure to clear".to_string())
             }
@@ -103,6 +111,13 @@ fn retry_hints_for_job(job: &Job, log_excerpt: Option<&str>) -> Vec<String> {
             _ => hints.push("check get_queue_pressure before changing the job".to_string()),
         },
         JobState::Failed | JobState::Timeout => {
+            if matches!(job.reason.as_deref(), Some(JobStateReason::OutOfMemory)) {
+                hints.push(
+                    "job failed with out-of-memory; it needs more VRAM/RAM or a smaller \
+                     workload, or the device was partly occupied by another process"
+                        .to_string(),
+                );
+            }
             hints.push("review the log excerpt before using redo_job".to_string());
             if job.max_retries > 0 {
                 hints.push(format!(

@@ -16,7 +16,7 @@ use compact_str::CompactString;
 use gflow::core::executor::{ExecutionResult, ExecutionStatus, Executor};
 use gflow::core::gpu::{GPUSlot, GpuUuid};
 use gflow::core::info::IgnoredGpuProcess;
-use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
+use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState, JobStateReason};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use nvml_wrapper::Nvml;
 use std::{
@@ -98,6 +98,7 @@ impl SchedulerRuntime {
                             index: 0,
                             available: true,
                             total_memory_mb: None,
+                            used_memory_mb: None,
                             reason: None,
                         },
                     );
@@ -439,12 +440,17 @@ impl SchedulerRuntime {
                         .memory_info()
                         .ok()
                         .map(|mi| mi.total / (1024_u64 * 1024_u64));
+                    let used_memory_mb = device
+                        .memory_info()
+                        .ok()
+                        .map(|mi| mi.used / (1024_u64 * 1024_u64));
                     gpu_slots.insert(
                         uuid,
                         GPUSlot {
                             available: true,
                             index: i,
                             total_memory_mb,
+                            used_memory_mb,
                             reason: None,
                         },
                     );

@@ -13,6 +13,13 @@ pub struct GpuInfo {
     pub uuid: String,
     pub index: u32,
     pub available: bool,
+    /// Total device memory in MB, if known from NVML.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_memory_mb: Option<u64>,
+    /// Memory in MB held by processes the scheduler does not manage (e.g. a
+    /// user-started inference server). `None` when NVML cannot report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_memory_mb: Option<u64>,
     /// Reason why GPU is unavailable (e.g., occupied by non-gflow process)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,

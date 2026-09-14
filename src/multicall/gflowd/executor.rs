@@ -973,13 +973,10 @@ mod tests {
     // ── live process tests (Linux) ─────────────────────────────────────────
 
     /// Serializes live-process tests and redirects the data dir to a temp dir
-    /// so stray job logs don't pollute the real XDG data home.
-    static LIVE_PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// so stray job logs don't pollute the real XDG data home. The env lock is
+    /// shared with every other test that mutates `XDG_DATA_HOME`.
     fn with_isolated_data_dir<T>(f: impl FnOnce() -> T) -> T {
-        let _guard = LIVE_PROCESS_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::test_support::env_lock();
         let tempdir = tempfile::tempdir().unwrap();
         std::env::set_var("XDG_DATA_HOME", tempdir.path());
         let result = f();

@@ -63,6 +63,13 @@ impl JobOutput {
                         .trim_matches(|c| c == '(' || c == ')')
                         .to_string(),
                 ),
+                // Only report a terminal reason when one was actually diagnosed
+                // (e.g. OutOfMemory); a bare failure keeps the field empty.
+                JobState::Failed | JobState::Timeout if job.reason.is_some() => Some(
+                    get_job_reason_display(job)
+                        .trim_matches(|c| c == '(' || c == ')')
+                        .to_string(),
+                ),
                 _ => None,
             },
             memory_mb: job.memory_limit_mb,

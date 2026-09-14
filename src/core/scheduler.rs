@@ -611,6 +611,7 @@ mod tests {
                     index: i,
                     available: true,
                     total_memory_mb: None,
+                    used_memory_mb: None,
                     reason: None,
                 },
             );
@@ -641,6 +642,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -687,6 +689,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -737,6 +740,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -943,6 +947,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -990,6 +995,154 @@ mod tests {
     }
 
     #[test]
+    fn test_exclusive_job_waits_when_unmanaged_process_hogs_vram() {
+        // Reproduces the reported scenario: a user-started vLLM server holds
+        // ~21GB on GPU 1, so an exclusive job declaring 82GB cannot fit even
+        // though gflow itself has no job on that device.
+        let mut scheduler = create_test_scheduler();
+        // GPU 0 is already claimed by another gflow job, so only GPU 1 is a
+        // candidate - and GPU 1 cannot fit the request.
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: false,
+                total_memory_mb: Some(96 * 1024),
+                used_memory_mb: Some(665),
+                reason: Some("unmanaged(pid=999)".to_string()),
+            },
+        );
+        scheduler.gpu_slots.insert(
+            "GPU-1".to_string(),
+            GPUSlot {
+                index: 1,
+                available: true,
+                total_memory_mb: Some(96 * 1024),
+                used_memory_mb: Some(21 * 1024),
+                reason: Some("unmanaged(pid=999)".to_string()),
+            },
+        );
+
+        let job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .gpu_memory_limit_mb(Some(82 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        // 82GB does not fit on GPU 1 (96-21=75GB free), and GPU 0 is reported
+        // as busy by NVML so it is not in the available set either.
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert!(prepared.is_empty());
+
+        let reason = scheduler.get_job(job_id).and_then(|j| j.reason.map(|r| *r));
+        let Some(JobStateReason::InsufficientGpuMemory(detail)) = reason else {
+            panic!("expected InsufficientGpuMemory, got {reason:?}");
+        };
+        assert!(
+            detail.contains("GPU 1") && detail.contains("21G in use"),
+            "reason should name the occupied GPU and the culprit memory: {detail}"
+        );
+    }
+
+    #[test]
+    fn test_exclusive_job_requesting_more_than_card_capacity_says_so() {
+        // A request larger than the card itself must read differently from one
+        // blocked by another process, so the reason is actionable.
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: Some(48 * 1024),
+                used_memory_mb: Some(0),
+                reason: None,
+            },
+        );
+
+        let job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .gpu_memory_limit_mb(Some(82 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        assert!(scheduler.prepare_jobs_for_execution().is_empty());
+
+        let reason = scheduler.get_job(job_id).and_then(|j| j.reason.map(|r| *r));
+        let Some(JobStateReason::InsufficientGpuMemory(detail)) = reason else {
+            panic!("expected InsufficientGpuMemory, got {reason:?}");
+        };
+        assert!(
+            detail.contains("has only 48G of VRAM but 82G was requested"),
+            "unexpected reason: {detail}"
+        );
+    }
+
+    #[test]
+    fn test_exclusive_job_schedules_when_declared_vram_fits() {
+        // Same setup as above, but the job only needs what is actually free.
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: Some(96 * 1024),
+                used_memory_mb: Some(21 * 1024),
+                reason: None,
+            },
+        );
+
+        let job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .gpu_memory_limit_mb(Some(70 * 1024))
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_id);
+        assert_eq!(
+            scheduler.get_job(job_id).and_then(|j| j.gpu_ids),
+            Some(GpuIds::from_iter([0]))
+        );
+    }
+
+    #[test]
+    fn test_exclusive_job_without_declared_vram_is_unaffected() {
+        // No `--gpu-memory` means no fit check: existing behaviour is preserved
+        // so jobs that manage VRAM themselves are not newly blocked.
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".to_string(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: Some(96 * 1024),
+                used_memory_mb: Some(90 * 1024),
+                reason: None,
+            },
+        );
+
+        let job = JobBuilder::new()
+            .submitted_by("alice")
+            .run_dir("/tmp")
+            .gpus(1)
+            .build();
+        let (job_id, _) = scheduler.submit_job(job);
+
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, job_id);
+    }
+
+    #[test]
     fn test_shared_jobs_respect_per_gpu_memory_limits() {
         let mut scheduler = create_test_scheduler();
         scheduler.gpu_slots.insert(
@@ -998,6 +1151,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: Some(10_000),
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -1078,6 +1232,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -1087,6 +1242,7 @@ mod tests {
                 index: 1,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -1538,6 +1694,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -1580,6 +1737,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -1621,6 +1779,7 @@ mod tests {
                 index: 0,
                 available: true,
                 total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         );
@@ -2003,6 +2162,7 @@ mod tests {
                     index: i,
                     available: true,
                     total_memory_mb: None,
+                    used_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2042,6 +2202,7 @@ mod tests {
                     index: i,
                     available: true,
                     total_memory_mb: None,
+                    used_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2098,6 +2259,7 @@ mod tests {
                     index: i,
                     available: true,
                     total_memory_mb: None,
+                    used_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2143,6 +2305,7 @@ mod tests {
                     index: i,
                     available: true,
                     total_memory_mb: None,
+                    used_memory_mb: None,
                     reason: None,
                 },
             );
@@ -2182,6 +2345,7 @@ mod tests {
                         index: i,
                         available: true,
                         total_memory_mb: None,
+                        used_memory_mb: None,
                         reason: None,
                     },
                 );

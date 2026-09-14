@@ -76,6 +76,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
             index: 0,
             available: true,
             total_memory_mb: None,
+            used_memory_mb: None,
             reason: None,
         },
     );
@@ -85,6 +86,7 @@ fn create_test_scheduler() -> (Scheduler, MockExecutor) {
             index: 1,
             available: true,
             total_memory_mb: None,
+            used_memory_mb: None,
             reason: None,
         },
     );

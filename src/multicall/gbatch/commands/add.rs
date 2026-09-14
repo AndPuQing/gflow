@@ -81,6 +81,77 @@ fn validate_shared_requires_gpu_memory(job: &Job) -> Result<()> {
     Ok(())
 }
 
+/// Report the current VRAM occupancy of the GPUs the scheduler manages, and
+/// warn when the declared `--gpu-memory` cannot fit on any of them.
+///
+/// The scheduler already parks a job whose declared requirement does not fit
+/// (see `JobStateReason::InsufficientGpuMemory`), but that only becomes visible
+/// later as an anonymous queued job. Surfacing it at submit time tells the user
+/// right away that a non-gflow process is holding the card.
+///
+/// Best-effort: an unreachable daemon or unknown memory prints nothing.
+async fn report_gpu_memory(
+    client: &Client,
+    requests_gpus: bool,
+    requested_gpu_memory_mb: Option<u64>,
+) {
+    let Ok(info) = client.get_info().await else {
+        return;
+    };
+    let mut gpus: Vec<_> = info
+        .gpus
+        .iter()
+        .filter(|gpu| gpu.total_memory_mb.is_some())
+        .collect();
+    gpus.sort_by_key(|gpu| gpu.index);
+    if gpus.is_empty() {
+        return;
+    }
+
+    println!("Current GPU memory usage:");
+    for gpu in &gpus {
+        let total = gpu.total_memory_mb.unwrap_or(0);
+        let used = gpu.used_memory_mb.unwrap_or(0);
+        println!(
+            "  GPU {}: {} used / {} total ({} free)",
+            gpu.index,
+            gflow::utils::format_memory(used),
+            gflow::utils::format_memory(total),
+            gflow::utils::format_memory(total.saturating_sub(used)),
+        );
+    }
+
+    // Warn only when this submission actually needs GPU memory.
+    if !requests_gpus {
+        return;
+    }
+    let Some(requested_mb) = requested_gpu_memory_mb else {
+        return;
+    };
+
+    let max_free_mb = gpus
+        .iter()
+        .map(|gpu| {
+            gpu.total_memory_mb
+                .unwrap_or(0)
+                .saturating_sub(gpu.used_memory_mb.unwrap_or(0))
+        })
+        .max()
+        .unwrap_or(0);
+
+    if requested_mb > max_free_mb {
+        println!(
+            "Warning: this job declares {} per GPU, but the most free GPU has only {} available.",
+            gflow::utils::format_memory(requested_mb),
+            gflow::utils::format_memory(max_free_mb),
+        );
+        println!(
+            "  It will stay queued until enough VRAM is free. Check for processes started \
+             outside gflow with `nvidia-smi`, then free them or lower --gpu-memory."
+        );
+    }
+}
+
 /// Substitute {param_name} patterns in command with actual values (for preview only)
 fn preview_substitute(command: &str, parameters: &HashMap<String, String>) -> String {
     let mut result = command.to_string();
@@ -162,6 +233,20 @@ pub(crate) async fn handle_add(
     // Validation: --param and --array are mutually exclusive
     if !add_args.param.is_empty() && add_args.array.is_some() {
         anyhow::bail!("Cannot use both --param and --array together");
+    }
+
+    // Surface the current VRAM situation before the job is queued. Exclusive
+    // submissions are otherwise scheduled blindly: a card already holding a
+    // user-started process can leave the new job to OOM mid-training.
+    if !add_args.dry_run {
+        // A declared --gpu-memory implies GPU intent even when --gpus is left
+        // to the script's #GFLOW args.
+        let requested_gpu_memory_mb = match add_args.gpu_memory.as_deref() {
+            Some(memory) => gflow::utils::parse_memory_limit(memory).ok(),
+            None => None,
+        };
+        let requests_gpus = add_args.gpus.unwrap_or(0) > 0 || requested_gpu_memory_mb.is_some();
+        report_gpu_memory(&client, requests_gpus, requested_gpu_memory_mb).await;
     }
 
     // Validation: --param-file and --array are mutually exclusive

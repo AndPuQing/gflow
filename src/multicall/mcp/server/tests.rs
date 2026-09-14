@@ -216,12 +216,16 @@ fn queue_pressure_summarizes_gpu_pressure_and_groups() {
                 uuid: "gpu-0".to_string(),
                 index: 0,
                 available: false,
+                total_memory_mb: None,
+                used_memory_mb: None,
                 reason: Some("running gflow job".to_string()),
             },
             GpuInfo {
                 uuid: "gpu-1".to_string(),
                 index: 1,
                 available: true,
+                total_memory_mb: None,
+                used_memory_mb: None,
                 reason: None,
             },
         ],
@@ -763,4 +767,54 @@ fn submit_jobs_reject_duplicate_keys_between_parameters_and_param() {
         err,
         "submit_job cannot use the same key in both 'parameters' and 'param': lr"
     );
+}
+
+/// A queued job parked on a VRAM fit check should point the caller at the
+/// per-GPU usage data rather than generic resource pressure.
+#[test]
+fn triage_job_hints_about_insufficient_gpu_memory() {
+    let mut job = JobBuilder::new()
+        .command("python train.py")
+        .submitted_by("alice")
+        .gpus(1)
+        .gpu_memory_limit_mb(Some(82 * 1024))
+        .build();
+    job.id = 12;
+    job.state = JobState::Queued;
+    job.reason = Some(Box::new(JobStateReason::InsufficientGpuMemory(
+        "GPU 1: needs 83968MB but 21504MB of 98304MB is already in use".into(),
+    )));
+
+    let output = build_triage_job_output(job, None, None).expect("triage output should build");
+
+    assert_eq!(
+        output.reason.as_deref(),
+        Some("GpuMemory: GPU 1: needs 83968MB but 21504MB of 98304MB is already in use")
+    );
+    assert!(output
+        .retry_hints
+        .iter()
+        .any(|hint| hint.contains("declared --gpu-memory does not fit")));
+}
+
+/// An OOM-diagnosed failure must produce an OOM-specific hint even when the
+/// log excerpt itself does not mention OOM.
+#[test]
+fn triage_job_hints_about_recorded_out_of_memory_reason() {
+    let mut job = JobBuilder::new()
+        .command("python train.py")
+        .submitted_by("alice")
+        .gpus(1)
+        .build();
+    job.id = 13;
+    job.state = JobState::Failed;
+    job.reason = Some(Box::new(JobStateReason::OutOfMemory));
+
+    let output = build_triage_job_output(job, None, None).expect("triage output should build");
+
+    assert_eq!(output.reason.as_deref(), Some("OutOfMemory"));
+    assert!(output
+        .retry_hints
+        .iter()
+        .any(|hint| hint.contains("failed with out-of-memory")));
 }

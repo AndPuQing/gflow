@@ -79,6 +79,13 @@ pub enum JobStateReason {
     WaitingForGpu,
     WaitingForMemory,
     WaitingForQuota,
+    /// A job's declared GPU memory limit cannot fit on any candidate device
+    /// because unmanaged (non-gflow) processes already hold memory there.
+    /// The payload carries a human-readable per-GPU explanation.
+    InsufficientGpuMemory(CompactString),
+    /// The job's log tail contained a CUDA/host out-of-memory signature when it
+    /// failed.
+    OutOfMemory,
     CancelledByUser,
     DependencyFailed(u32),
     SystemError(CompactString),
@@ -94,6 +101,8 @@ impl fmt::Display for JobStateReason {
             JobStateReason::WaitingForGpu => write!(f, "Resources"),
             JobStateReason::WaitingForMemory => write!(f, "Resources"),
             JobStateReason::WaitingForQuota => write!(f, "Quota"),
+            JobStateReason::InsufficientGpuMemory(detail) => write!(f, "GpuMemory: {detail}"),
+            JobStateReason::OutOfMemory => write!(f, "OutOfMemory"),
             JobStateReason::CancelledByUser => write!(f, "CancelledByUser"),
             JobStateReason::DependencyFailed(job_id) => {
                 write!(f, "DependencyFailed:{}", job_id)
@@ -167,5 +176,17 @@ mod tests {
         assert_eq!(JobStateReason::WaitingForResources.to_string(), "Resources");
         assert_eq!(JobStateReason::WaitingForGpu.to_string(), "Resources");
         assert_eq!(JobStateReason::WaitingForMemory.to_string(), "Resources");
+    }
+
+    #[test]
+    fn gpu_memory_and_oom_reasons_are_self_describing() {
+        assert_eq!(
+            JobStateReason::InsufficientGpuMemory(
+                "GPU 1: 21504MB in use by non-gflow processes".into()
+            )
+            .to_string(),
+            "GpuMemory: GPU 1: 21504MB in use by non-gflow processes"
+        );
+        assert_eq!(JobStateReason::OutOfMemory.to_string(), "OutOfMemory");
     }
 }

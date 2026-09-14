@@ -698,6 +698,23 @@ impl Scheduler {
             .is_some()
     }
 
+    /// Fail a job while recording why it failed (e.g. detected OOM in the log).
+    pub fn fail_job_with_reason(&mut self, job_id: u32, reason: Option<JobStateReason>) -> bool {
+        self.transition_job_state(job_id, JobState::Failed, reason)
+            .is_some()
+    }
+
+    /// Like [`Self::fail_job_with_reason`] but does not propagate the failure to
+    /// dependent jobs; used when the caller retargets dependents to a retry.
+    pub fn fail_job_without_propagation_with_reason(
+        &mut self,
+        job_id: u32,
+        reason: Option<JobStateReason>,
+    ) -> bool {
+        self.transition_job_state_internal(job_id, JobState::Failed, reason, false)
+            .is_some()
+    }
+
     pub fn fail_job_without_propagation(&mut self, job_id: u32) -> bool {
         self.transition_job_state_internal(job_id, JobState::Failed, None, false)
             .is_some()

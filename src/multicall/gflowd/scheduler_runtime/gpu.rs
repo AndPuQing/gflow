@@ -50,6 +50,14 @@ impl SchedulerRuntime {
                     let occupied_by_shared = running_shared_gpu_indices.contains(&slot.index);
                     let slot_index = slot.index;
 
+                    // Refresh the device-wide memory usage. This is what tells us
+                    // whether a declared GPU memory requirement can actually fit,
+                    // including memory held by processes gflow does not manage.
+                    slot.used_memory_mb = device
+                        .memory_info()
+                        .ok()
+                        .map(|mi| mi.used / (1024_u64 * 1024_u64));
+
                     match device.running_compute_processes() {
                         Ok(processes) => {
                             let mut unmanaged_pids = processes

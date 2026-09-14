@@ -828,3 +828,118 @@ async fn prefers_newer_journal_snapshot_and_truncates_after_state_save() {
         JobState::Finished
     );
 }
+
+/// A failure whose log tail shows an OOM must record a self-describing reason
+/// so `gqueue` / `gjob show` do not just report a bare `Failed (F)`.
+///
+/// Written as a synchronous test that drives the async scheduler with
+/// `block_on`: the XDG env lock is a `std::sync::Mutex`, so it must not be held
+/// across an await point.
+#[test]
+fn fail_job_records_out_of_memory_reason_from_log_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+    let _env_guard = crate::test_support::env_lock();
+    let previous = std::env::var_os("XDG_DATA_HOME");
+    std::env::set_var("XDG_DATA_HOME", data_dir.path());
+
+    let runtime_builder = || {
+        SchedulerRuntime::with_state_path(
+            Box::new(NoopExecutor),
+            dir.path().to_path_buf(),
+            None,
+            gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+            gflow::config::ProjectsConfig::default(),
+            gflow::config::FairShareConfig::default(),
+        )
+        .unwrap()
+    };
+
+    let outcome = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let mut runtime = runtime_builder();
+            let job = Job::builder()
+                .command("python train.py")
+                .submitted_by("alice")
+                .build();
+            let (job_id, _, _) = runtime.submit_job(job).await.unwrap();
+            runtime.scheduler.prepare_jobs_for_execution();
+            assert_eq!(runtime.get_job(job_id).unwrap().state, JobState::Running);
+
+            // Write the OOM traceback the daemon would have captured for this job.
+            let log_path = gflow::paths::get_log_file_path(job_id).unwrap();
+            std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &log_path,
+                "step=1000 stage2: thawed 104 block tensors (1.745B parameters)\n\
+                 torch.OutOfMemoryError: CUDA out of memory.\n\
+                 \x20 GPU 0 has a total capacity of 94.97 GiB of which 10.81 MiB is free.\n",
+            )
+            .unwrap();
+
+            let retry = runtime.fail_job(job_id).await;
+            assert_eq!(retry, Some(None));
+            runtime.get_job(job_id).unwrap().reason.map(|r| *r)
+        });
+
+    match previous {
+        Some(value) => std::env::set_var("XDG_DATA_HOME", value),
+        None => std::env::remove_var("XDG_DATA_HOME"),
+    }
+
+    assert_eq!(
+        outcome,
+        Some(JobStateReason::OutOfMemory),
+        "log tail OOM should be recorded as the failure reason"
+    );
+}
+
+/// A plain non-zero exit with no OOM signature must not fabricate a reason.
+#[test]
+fn fail_job_without_oom_signature_keeps_reason_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+    let _env_guard = crate::test_support::env_lock();
+    let previous = std::env::var_os("XDG_DATA_HOME");
+    std::env::set_var("XDG_DATA_HOME", data_dir.path());
+
+    let outcome = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let mut runtime = SchedulerRuntime::with_state_path(
+                Box::new(NoopExecutor),
+                dir.path().to_path_buf(),
+                None,
+                gflow::core::gpu_allocation::GpuAllocationStrategy::Sequential,
+                gflow::config::ProjectsConfig::default(),
+                gflow::config::FairShareConfig::default(),
+            )
+            .unwrap();
+
+            let job = Job::builder()
+                .command("python train.py")
+                .submitted_by("alice")
+                .build();
+            let (job_id, _, _) = runtime.submit_job(job).await.unwrap();
+            runtime.scheduler.prepare_jobs_for_execution();
+
+            let log_path = gflow::paths::get_log_file_path(job_id).unwrap();
+            std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+            std::fs::write(&log_path, "ValueError: bad config\n").unwrap();
+
+            runtime.fail_job(job_id).await;
+            runtime.get_job(job_id).unwrap().reason.map(|r| *r)
+        });
+
+    match previous {
+        Some(value) => std::env::set_var("XDG_DATA_HOME", value),
+        None => std::env::remove_var("XDG_DATA_HOME"),
+    }
+
+    assert_eq!(outcome, None);
+}

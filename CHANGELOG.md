@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **gflowd: the scheduler now accounts for real GPU VRAM occupancy**, including
+  memory held by processes gflow does not manage (e.g. a vLLM server you started
+  by hand). `--gpu-memory` is now enforced as a hard fit check for **exclusive**
+  submissions as well as shared ones: a job whose declared per-GPU requirement
+  does not fit on an available device stays `Queued` with a self-describing
+  `GpuMemory: ...` reason instead of starting and dying from CUDA OOM later.
+  `gbatch` also prints the current per-GPU usage at submit time, and the Web
+  Dashboard GPU cards show a VRAM usage bar.
 - **web: dark mode with toggle**: the console follows the system color
   scheme by default and adds a light/dark toggle in the header; the choice
   persists in `localStorage` and is applied before first paint to avoid a
@@ -69,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **jobs: OOM failures are now diagnosed automatically**: when a job fails, the
+  daemon inspects the tail of its log for CUDA / ROCm / MPS / host out-of-memory
+  signatures and records `OutOfMemory` as the job reason. `gqueue` shows it in
+  `NODELIST(REASON)` and `gjob show` prints a `Reason` line, so a bare
+  `Failed (F)` no longer hides why a job died.
 - **gflowd: Conda environments now work with the process executor**: the
   non-interactive job shell explicitly sources conda's `conda.sh` before
   activation. The daemon locates Conda through `$CONDA_EXE`, `$PATH`,

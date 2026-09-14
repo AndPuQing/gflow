@@ -101,7 +101,12 @@ pub struct AddArgs {
     )]
     pub memory: Option<String>,
 
-    /// Per-GPU memory limit for shared scheduling (formats: "24G", "16384M", or "8192" for MB)
+    /// Per-GPU memory (VRAM) required by the job (formats: "24G", "16384M", or "8192" for MB).
+    ///
+    /// Required for `--shared` (where it caps a job's fair share of a device),
+    /// and also enforced as a hard fit check for exclusive submissions: a job
+    /// will not be scheduled onto a device that already has less than this
+    /// amount free, including memory held by processes gflow does not manage.
     #[arg(
         long = "gpu-memory",
         visible_aliases = ["max-gpu-mem", "max-gpu-memory"],

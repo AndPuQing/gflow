@@ -29,6 +29,11 @@ fn print_job_details(job: &Job) {
     println!("Job Details:");
     print_field!("ID", "{}", job.id);
     print_field!("State", "{} ({})", job.state, job.state.short_form());
+    // Surface the state reason for terminal failures too (e.g. OutOfMemory that
+    // was diagnosed from the log tail), not just for queued/held jobs.
+    if let Some(reason) = job.reason.as_deref() {
+        print_field!("Reason", "{}", reason);
+    }
     print_field!("Priority", "{}", job.priority);
     print_field!("SubmittedBy", "{}", job.submitted_by);
     if job.max_retries > 0 {

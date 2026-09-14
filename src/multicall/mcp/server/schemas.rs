@@ -197,6 +197,10 @@ pub(super) struct GpuInfoOutput {
     pub uuid: String,
     pub index: u32,
     pub available: bool,
+    /// Total device memory in MB, when the daemon could read it from NVML.
+    pub total_memory_mb: Option<u64>,
+    /// Device memory in MB currently in use, including non-gflow processes.
+    pub used_memory_mb: Option<u64>,
     pub reason: Option<String>,
 }
 

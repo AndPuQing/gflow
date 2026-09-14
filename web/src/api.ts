@@ -8,6 +8,10 @@ export type GpuInfo = {
   uuid: string
   index: number
   available: boolean
+  /** Total device memory in MB, when the daemon can read it from NVML. */
+  total_memory_mb?: number | null
+  /** Device memory in MB already in use, including non-gflow processes. */
+  used_memory_mb?: number | null
   reason?: string | null
 }
 

@@ -19,6 +19,8 @@ pub mod metrics;
 pub mod multicall;
 pub mod paths;
 pub mod platform;
+#[cfg(test)]
+pub mod test_support;
 pub mod tls;
 pub mod tmux;
 pub mod utils;

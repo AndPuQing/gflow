@@ -1,6 +1,17 @@
 use super::*;
 
 impl SchedulerRuntime {
+    /// Diagnose why a failed job died so `gqueue` / `gjob show` can show a
+    /// meaningful Reason instead of a bare `Failed (F)`.
+    ///
+    /// Only OOM is classified today; other failures keep their existing
+    /// terminal reason (or none).
+    fn failure_reason_for(&self, job_id: u32) -> Option<JobStateReason> {
+        let path = gflow::paths::get_log_file_path(job_id).ok()?;
+        gflow::core::diagnostics::log_tail_indicates_oom(&path)
+            .then_some(JobStateReason::OutOfMemory)
+    }
+
     fn retry_lineage_root_id(job: &Job) -> u32 {
         job.redone_from.unwrap_or(job.id)
     }
@@ -104,6 +115,10 @@ impl SchedulerRuntime {
         // Timeouts are only delivered after sending Ctrl-C to the running process.
         // We do not have a reliable "process has actually exited" signal yet, so spawning
         // a retry attempt here could run concurrently with the timed-out payload.
+        let failure_reason = (final_state == JobState::Failed)
+            .then(|| self.failure_reason_for(job_id))
+            .flatten();
+
         if final_state == JobState::Failed && self.should_retry_job(&original_job) {
             let retry_job = self.build_retry_job(&original_job);
             match self.submit_job(retry_job).await {
@@ -111,7 +126,12 @@ impl SchedulerRuntime {
                     self.scheduler
                         .retarget_dependents_to_retry(job_id, new_job_id);
                     let transitioned = match final_state {
-                        JobState::Failed => self.scheduler.fail_job_without_propagation(job_id),
+                        JobState::Failed => {
+                            self.scheduler.fail_job_without_propagation_with_reason(
+                                job_id,
+                                failure_reason.clone(),
+                            )
+                        }
                         JobState::Timeout => self.scheduler.timeout_job_without_propagation(job_id),
                         _ => false,
                     };
@@ -132,7 +152,7 @@ impl SchedulerRuntime {
         }
 
         let transitioned = match final_state {
-            JobState::Failed => self.scheduler.fail_job(job_id),
+            JobState::Failed => self.scheduler.fail_job_with_reason(job_id, failure_reason),
             JobState::Timeout => self.scheduler.timeout_job(job_id),
             _ => false,
         };

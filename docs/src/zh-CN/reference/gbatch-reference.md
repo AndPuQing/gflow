@@ -91,7 +91,24 @@ gbatch --dry-run --gpus 1 python train.py
 
 别名：`--max-gpu-mem`、`--max-gpu-memory`。
 
-`--gpu-memory` 控制每张 GPU 的显存（VRAM）。
+`--gpu-memory` 控制每张 GPU 的显存（VRAM），在两种共享模式下都会生效：
+
+- **共享任务**必须指定。它限制每个任务在单卡上的公平份额，调度器只有在
+  `已分配 + 本任务需求` 仍能装下时才接纳该任务。
+- **独占任务**也可以指定。此时它作为硬性校验，对比的是设备**实际**可用显存，
+  包含非 gflow 进程（例如你手动启动的 vLLM 服务）占用的部分。若需求在任何一张卡上
+  都装不下，任务会保持 `Queued` 并带 `GpuMemory: ...` 原因，而不是先启动、
+  训练一段时间后才 CUDA OOM 失败。
+
+独占任务不指定 `--gpu-memory` 表示「未声明需求」：gflow 不会干预任务自己管理显存的方式。
+
+提交时 `gbatch` 还会打印当前各卡显存占用，例如：
+
+```text
+Current GPU memory usage:
+  GPU 0: 665 MiB used / 94.97 GiB total (94.32 GiB free)
+  GPU 1: 54.7 GiB used / 94.97 GiB total (40.27 GiB free)
+```
 
 ## GPU 共享模式（`--shared`）
 

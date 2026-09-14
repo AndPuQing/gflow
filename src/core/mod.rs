@@ -1,4 +1,5 @@
 pub mod conflict;
+pub mod diagnostics;
 pub mod executor;
 pub mod gpu;
 pub mod gpu_allocation;

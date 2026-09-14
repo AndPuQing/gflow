@@ -290,11 +290,14 @@ pub(super) fn format_job_cell(
         "NODELIST(REASON)" => {
             // For running jobs, show GPU IDs
             // For queued/held/cancelled jobs, show pending reason
+            // For failed/timeout jobs, surface a diagnosed failure reason
+            // (e.g. OutOfMemory) when the scheduler recorded one.
             match job.state {
                 JobState::Running => format_gpu_ids(job.gpu_ids.as_ref()),
                 JobState::Queued | JobState::Hold | JobState::Cancelled => {
                     get_job_reason_display(job)
                 }
+                JobState::Failed | JobState::Timeout => get_job_reason_display(job),
                 _ => "-".to_string(),
             }
         }

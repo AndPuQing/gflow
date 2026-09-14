@@ -153,7 +153,26 @@ gqueue -f JOBID,NODELIST(REASON)
 nvidia-smi --query-gpu=memory.free,memory.used --format=csv
 ```
 
-If shared jobs fail with OOM, verify `--gpu-memory` is set and sized appropriately for each job.
+If shared jobs fail with OOM, verify `--gpu-memory` is set and sized appropriately
+for each job.
+
+For **exclusive** jobs, set `--gpu-memory` as well: gflow then treats it as a
+hard fit check and refuses to start the job on a device whose free VRAM (as
+reported by NVML, including processes gflow does not manage) is smaller than the
+declared requirement. Such a job waits in the queue with reason
+`GpuMemory: ...`, which `gqueue` shows in `NODELIST(REASON)`:
+
+```bash
+gqueue -f JOBID,ST,NODELIST(REASON)
+```
+
+When a job does fail with CUDA OOM, the daemon inspects the tail of its log on
+failure and records `OutOfMemory` as the job reason, so you no longer have to go
+hunting through `gjob log` to find out why:
+
+```bash
+gjob show <job_id>   # prints a `Reason: OutOfMemory` line
+```
 
 ## See Also
 

@@ -215,6 +215,8 @@ impl Scheduler {
                 uuid: uuid.clone(),
                 index: slot.index,
                 available: slot.available,
+                total_memory_mb: slot.total_memory_mb,
+                used_memory_mb: slot.used_memory_mb,
                 reason: slot.reason.clone(),
             })
             .collect();
