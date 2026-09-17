@@ -163,14 +163,26 @@ gflowd completion fish
 - `--gpu-allocation-strategy` accepts `sequential` or `random`.
 - `--gpu-poll-interval-secs` controls how quickly unmanaged GPU occupancy changes are detected.
 - `gflowd start`, `reload`, and `restart` all accept the same GPU-related overrides.
-- In direct-process mode (no systemd, no tmux), the daemon holds an exclusive
-  `flock` on `gflowd.lock` in the runtime directory. The lock is both mutual
-  exclusion (a duplicate `up` is refused) and a crash-safe liveness signal: it
-  is released automatically when the daemon exits, so `status` never reports a
-  stale instance. The lock file also records the daemon's identity (`pid` +
-  `pgid` + process start time); `down`/`restart` verify it before signalling so
-  a recycled PID is never SIGTERM/SIGKILLed. This replaces the older plain-PID
-  `gflowd.pid`, which is no longer written or read.
+- **Every hosting mode** (systemd, tmux, and direct process) takes an exclusive
+  `flock` on `gflowd.lock` in the runtime directory for the daemon's lifetime.
+  Only one daemon may run against a given state directory and port; a duplicate
+  `up` is refused rather than co-hosting the port. The lock is also a
+  crash-safe liveness signal: it is released automatically when the daemon
+  exits (even on a hard crash), so `status` never reports a stale instance. The
+  lock file also records the daemon's identity (`pid` + `pgid` + process start
+  time) and its hosting mode; `stop`/`restart` verify the identity before
+  acting so a recycled PID is never SIGTERM/SIGKILLed. This replaces the older
+  plain-PID `gflowd.pid`, which is no longer written or read.
+- The daemon port is bound **exclusively**: the listener does not set
+  `SO_REUSEPORT`. Two live daemons on one port would each keep their own
+  in-memory scheduler, so clients (`gqueue`, `gbatch`, …) would be
+  load-balanced between divergent job queues. A second daemon now fails to
+  start instead of silently splitting the cluster view. `SO_REUSEADDR` is
+  still set so a replacement daemon can rebind the port immediately after a
+  reload/restart (`TIME_WAIT`).
+- Because a reload/restart replacement intentionally overlaps its
+  predecessor's shutdown, a starting daemon waits up to 30s for the instance
+  lock to be released before giving up with an explanatory error.
 
 ## See Also
 

@@ -162,12 +162,20 @@ gflowd completion fish
 - `--gpu-allocation-strategy` 可选 `sequential` 或 `random`。
 - `--gpu-poll-interval-secs` 控制检测非 gflow GPU 占用变化的速度。
 - `start`、`reload`、`restart` 三个子命令都支持相同的 GPU 相关覆盖参数。
-- 在直接进程托管模式（无 systemd、无 tmux）下，daemon 会在运行时目录对
-  `gflowd.lock` 持有排他 `flock`。该锁既是互斥信号（重复 `up` 会被拒绝），
-  也是崩溃安全的存活信号：daemon 退出时锁会自动释放，因此 `status` 不会误报
-  残留实例。锁文件同时记录 daemon 身份（`pid` + `pgid` + 进程启动时间）；
-  `down`/`restart` 在发信号前会校验身份，从而绝不会对已被复用的 PID 误发
-  SIGTERM/SIGKILL。这取代了旧的纯 PID `gflowd.pid`，后者不再写入或读取。
+- **所有托管模式**（systemd、tmux、直接进程）下，daemon 都会在整个生命周期内对
+  运行时目录的 `gflowd.lock` 持有排他 `flock`。同一份状态目录与端口只允许一个
+  daemon 运行，重复 `up` 会被拒绝，而不会共享端口。该锁也是崩溃安全的存活信号：
+  daemon 退出（包括硬崩溃）时锁会自动释放，因此 `status` 不会误报残留实例。锁文件
+  同时记录 daemon 身份（`pid` + `pgid` + 进程启动时间）与托管模式；`stop`/`restart`
+  在动作前会校验身份，从而绝不会对已被复用的 PID 误发 SIGTERM/SIGKILL。这取代了
+  旧的纯 PID `gflowd.pid`，后者不再写入或读取。
+- daemon 端口为**排他绑定**：监听 socket 不再设置 `SO_REUSEPORT`。若两个 daemon
+  同时占用同一端口，它们各自维护独立的内存调度器，客户端（`gqueue`、`gbatch` 等）
+  就会被负载均衡到两条不同的作业队列上。现在第二个 daemon 会直接启动失败，而不是
+  悄悄把集群视图一分为二。`SO_REUSEADDR` 仍然保留，以便 reload/restart 后的新
+  daemon 能立即重新绑定端口（`TIME_WAIT`）。
+- 由于 reload/restart 的新旧 daemon 在切换时会有意重叠，正在启动的 daemon 会等待
+  最多 30 秒以获取实例锁，超时后才给出明确错误并退出。
 
 ## 另见
 

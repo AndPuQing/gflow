@@ -153,8 +153,10 @@ enum ExistingDaemonState {
 async fn existing_daemon_state(
     config_path: &Option<std::path::PathBuf>,
 ) -> Result<ExistingDaemonState> {
-    // Direct (flock/pidfile) mode first.
-    if super::lifecycle::direct_daemon_pid().is_some() {
+    // Any live daemon holds the instance lock, whichever way it is hosted.
+    // Checking the lock first catches a supervised daemon whose tmux session or
+    // unit was replaced, too.
+    if super::lifecycle::locked_daemon().is_some() {
         let client = gflow::create_client_or_default(config_path)?;
         return Ok(match client.get_health().await {
             Ok(status) if status.is_success() => ExistingDaemonState::Healthy,

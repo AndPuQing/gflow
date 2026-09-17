@@ -69,6 +69,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses (column, global, and row sorting).
 
 ### Fixed
+- **gflowd: a second daemon can no longer serve the same port, which made
+  `gqueue` alternate between two different queues**: the listener set
+  `SO_REUSEPORT`, so two live daemons both bound the daemon port and the kernel
+  load-balanced every client request between them. Because each daemon keeps its
+  own in-memory scheduler, consecutive `gqueue` calls alternatingly reported two
+  unrelated job queues — the same JOBID appearing under different names, whole
+  job groups vanishing and reappearing, and only one job ever Running — while
+  `gbatch` submissions landed in whichever scheduler won the race. The port is
+  now bound exclusively (`SO_REUSEADDR` only, so a reload/restart replacement
+  can still rebind promptly), and every hosting mode (systemd, tmux, direct)
+  takes the `gflowd.lock` instance lock for the daemon's lifetime, so a
+  duplicate daemon refuses to start with an explanatory error instead of
+  silently co-hosting the port. A starting daemon waits up to 30s for the lock
+  so the intentional reload/restart overlap still works.
+- **gflowd: clearing a stale daemon lock no longer unlinks the lock file**:
+  unlinking let a starting daemon create a fresh inode and take its own lock
+  while the previous daemon still held the lock on the removed one, defeating
+  the mutual exclusion the lock exists to provide. The identity body is now
+  cleared in place, and `stop`/`status` pick the teardown path (signal the PID
+  vs. end the hosting tmux session) from the hosting mode recorded in the lock.
 - **gflowd: Conda environments now work with the process executor**: the
   non-interactive job shell explicitly sources conda's `conda.sh` before
   activation. The daemon locates Conda through `$CONDA_EXE`, `$PATH`,

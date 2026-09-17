@@ -1,5 +1,5 @@
-//! Daemon lifecycle primitives for the "direct process" hosting mode (no
-//! tmux, no systemd).
+//! Daemon lifecycle primitives: the instance lock plus the identity written
+//! alongside it.
 //!
 //! The old implementation kept a plain `gflowd.pid` containing only a PID and
 //! signalled it on `down`/`restart` with no identity check. That is unsafe:
@@ -11,13 +11,20 @@
 //! identity** scheme (the recommended combination from the issue):
 //!
 //! * An exclusive `flock(LOCK_EX)` on `gflowd.lock` is both mutual exclusion
-//!   (only one direct daemon may run) and a liveness signal — the kernel
-//!   releases the lock automatically when the daemon exits, even on a hard
-//!   crash, so there is no stale state and no PID-reuse ambiguity.
+//!   (only one daemon — of *any* hosting mode — may run) and a liveness
+//!   signal. The kernel releases the lock automatically when the daemon exits,
+//!   even on a hard crash, so there is no stale state and no PID-reuse
+//!   ambiguity.
 //! * The lock file body carries the daemon identity (`pid` + `pgid` +
-//!   process start time), mirroring the job executor's existing guard. Before
-//!   sending any signal, `down`/`restart` re-verify the identity so a PID that
-//!   was recycled is never signalled.
+//!   process start time + hosting mode), mirroring the job executor's existing
+//!   guard. Before sending any signal, `down`/`restart` re-verify the identity
+//!   so a PID that was recycled is never signalled.
+//!
+//! Every hosting mode takes this lock (tmux- and systemd-hosted daemons
+//! included). Holding it is what makes "am I the only daemon?" answerable, and
+//! it is what stops two daemons from binding the same port through
+//! `SO_REUSEPORT` and silently load-balancing client requests across two
+//! divergent schedulers.
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
@@ -27,8 +34,29 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Identity of a directly-hosted daemon process, captured at startup and
-/// written into the lock file. Used to refuse PID-reuse mis-kills.
+/// How the daemon process is hosted. Recorded in the lock file so `down` and
+/// `status` can pick the right teardown path (signal the PID directly vs. let
+/// the hosting supervisor kill the session/unit) for whichever daemon
+/// currently holds the lock.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonHostMode {
+    /// Detached process owning the lock itself (no tmux, no systemd). Tearing
+    /// it down means signalling its PID.
+    #[default]
+    Direct,
+    /// Hosted by an external supervisor (the `gflow_server` tmux session or the
+    /// `gflowd.service` systemd unit). Tearing it down means stopping that
+    /// supervisor so the session/unit does not survive as a dead shell.
+    Supervised,
+}
+
+/// Identity of a daemon process, captured at startup and written into the lock
+/// file. Used to refuse PID-reuse mis-kills.
+///
+/// `mode` defaults to [`DaemonHostMode::Direct`] when absent, matching lock
+/// files written before hosting mode was recorded (those only ever described
+/// directly-hosted daemons).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DaemonIdentity {
     pub pid: u32,
@@ -36,6 +64,8 @@ pub struct DaemonIdentity {
     /// Linux `/proc/<pid>/stat` start time; `None` on platforms without procfs.
     #[serde(default)]
     pub start_time: Option<u64>,
+    #[serde(default)]
+    pub mode: DaemonHostMode,
 }
 
 /// Path of the flock lock file used to host the daemon without tmux.
@@ -70,9 +100,25 @@ fn try_acquire_lock_at(path: &Path) -> Result<Option<File>> {
     Err(err).with_context(|| format!("failed to lock {}", path.display()))
 }
 
-/// Acquire the daemon lock. See [`try_acquire_lock_at`].
-pub fn try_acquire_daemon_lock() -> Result<Option<File>> {
-    try_acquire_lock_at(&daemon_lock_path()?)
+/// Block until the daemon lock is free, or `timeout` elapses.
+///
+/// Used by daemon startup: a daemon starting as part of a reload handoff must
+/// wait for its predecessor to finish shutting down and release the lock,
+/// rather than failing immediately. Because the predecessor releases both the
+/// lock and the listening socket when it exits, acquiring the lock also means
+/// the port is free to bind exclusively. Returns `Ok(None)` on timeout.
+pub fn acquire_daemon_lock_blocking(timeout: std::time::Duration) -> Result<Option<File>> {
+    let path = daemon_lock_path()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(file) = try_acquire_lock_at(&path)? {
+            return Ok(Some(file));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// Whether a directly-hosted daemon currently holds the lock (i.e. is alive).
@@ -116,6 +162,29 @@ fn write_identity_at(file: &mut File, identity: &DaemonIdentity) -> Result<()> {
 /// Write the daemon identity into a freshly acquired lock file.
 pub fn write_daemon_identity(file: &mut File, identity: &DaemonIdentity) -> Result<()> {
     write_identity_at(file, identity)
+}
+
+/// Clear the identity recorded in the lock file, leaving the file itself in
+/// place.
+///
+/// The file is deliberately **not unlinked**. Unlinking would let a starting
+/// daemon create a fresh inode and take its own lock while a previous daemon
+/// still held the lock on the unlinked one, defeating mutual exclusion — the
+/// exact class of duplicate-daemon bug this lock exists to prevent. Clearing
+/// the body instead makes a stale record self-describing ("no identity") while
+/// the kernel still owns the liveness truth through flock.
+pub fn clear_daemon_identity() {
+    let Ok(path) = daemon_lock_path() else {
+        return;
+    };
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+    {
+        let _ = file.sync_data();
+    }
 }
 
 /// True when the process at `pid` is alive (signal 0 succeeds, or is denied
@@ -168,38 +237,38 @@ pub fn verify_before_signal(pid: u32) -> bool {
     }
 }
 
-fn remove_file_if_exists(path: &Path) {
-    let _ = std::fs::remove_file(path);
-}
-
-/// Remove the daemon lock file (used to clean up a stale lock after the
-/// daemon has exited; flock is unaffected by unlinking).
-pub fn remove_daemon_lock() {
-    if let Ok(path) = daemon_lock_path() {
-        remove_file_if_exists(&path);
-    }
-}
-
-/// Best-effort PID of a live directly-hosted daemon.
+/// Best-effort PID and hosting mode of the live daemon currently holding the
+/// instance lock, if any.
 ///
 /// Only a lock that is held *and* whose recorded identity matches the process
 /// at that PID is considered a running daemon. A stale lock (leftover from a
-/// crash) has its lock auto-released, so it is cleaned up and reported as
-/// "not running".
-pub fn direct_daemon_pid() -> Option<u32> {
+/// crash) has its flock auto-released by the kernel, so it is reported as
+/// "not running" and its stale identity body is cleared.
+pub fn locked_daemon() -> Option<(u32, DaemonHostMode)> {
     if daemon_lock_held() {
         if let Some(identity) = read_daemon_identity() {
             if process_identity_matches(&identity) {
-                return Some(identity.pid);
+                return Some((identity.pid, identity.mode));
             }
         }
         // Lock is held but the identity does not match: this is not our
         // daemon (or a stale record). Never signal it; leave the lock alone.
     } else {
-        // No daemon holds the lock (crashed): clean up the stale lock file.
-        remove_daemon_lock();
+        // No daemon holds the lock (crashed): clear the stale identity body.
+        clear_daemon_identity();
     }
     None
+}
+
+/// Best-effort PID of a live *directly-hosted* daemon.
+///
+/// Returns `None` when no daemon holds the lock, or when the daemon that holds
+/// it is supervised (that one must be torn down via its supervisor).
+pub fn direct_daemon_pid() -> Option<u32> {
+    match locked_daemon() {
+        Some((pid, DaemonHostMode::Direct)) => Some(pid),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +334,7 @@ mod tests {
             pid: u32::MAX - 1,
             pgid: -1,
             start_time: Some(0),
+            mode: DaemonHostMode::Direct,
         };
         write_identity_at(&mut file, &identity).unwrap();
         assert!(!process_identity_matches(&identity));
@@ -273,6 +343,7 @@ mod tests {
             pid: std::process::id(),
             pgid: unsafe { libc::getpgid(std::process::id() as libc::pid_t) },
             start_time: process_start_time(std::process::id()),
+            mode: DaemonHostMode::Direct,
         };
         assert!(process_identity_matches(&self_id));
     }
@@ -286,8 +357,57 @@ mod tests {
             pid: 7,
             pgid: 7,
             start_time: Some(42),
+            mode: DaemonHostMode::Supervised,
         };
         write_identity_at(&mut file, &identity).unwrap();
         assert_eq!(read_identity_at(&path).unwrap(), identity);
+    }
+
+    #[test]
+    fn identity_without_mode_deserializes_as_direct() {
+        // Lock files written before hosting mode was recorded only ever
+        // described directly-hosted daemons, so an absent `mode` must default
+        // to `Direct` rather than failing to parse.
+        let dir = temp_lock_dir();
+        let path = dir.path().join("gflowd.lock");
+        std::fs::write(&path, "{\"pid\":123,\"pgid\":456,\"start_time\":789}").unwrap();
+        let identity = read_identity_at(&path).expect("legacy lock body must parse");
+        assert_eq!(identity.mode, DaemonHostMode::Direct);
+        assert_eq!(identity.pid, 123);
+    }
+
+    #[test]
+    fn clearing_identity_keeps_lock_held_and_file_present() {
+        // Regression guard for the duplicate-daemon bug: clearing a stale
+        // identity must not unlink the lock file. Unlinking would let a new
+        // daemon create a second inode and lock it while the current holder
+        // still owns the original inode's lock, so two daemons could run.
+        let dir = temp_lock_dir();
+        let path = dir.path().join("gflowd.lock");
+        let mut file = try_acquire_lock_at(&path).unwrap().expect("lock free");
+        write_identity_at(
+            &mut file,
+            &DaemonIdentity {
+                pid: std::process::id(),
+                pgid: 0,
+                start_time: None,
+                mode: DaemonHostMode::Direct,
+            },
+        )
+        .unwrap();
+
+        // Clear the body while the lock is still held by `file`.
+        std::fs::write(&path, "").unwrap();
+        assert!(path.exists(), "lock file must survive identity clearing");
+        assert!(
+            lock_held_at(&path),
+            "clearing the body must not release the held lock"
+        );
+        assert!(read_identity_at(&path).is_none());
+
+        // A second daemon still cannot acquire the lock.
+        assert!(try_acquire_lock_at(&path).unwrap().is_none());
+        drop(file);
+        assert!(!lock_held_at(&path));
     }
 }

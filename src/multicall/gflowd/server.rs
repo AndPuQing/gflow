@@ -206,7 +206,20 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         .layer(middleware::from_fn(request_tracing_middleware))
         .with_state(server_state);
 
-    // Create socket with SO_REUSEPORT for hot reload support
+    // Bind the daemon port exclusively.
+    //
+    // This socket deliberately does NOT set SO_REUSEPORT. Setting it let two
+    // live daemons bind the same port, and the kernel then load-balanced every
+    // client request between them. Because each daemon keeps its own in-memory
+    // scheduler, `gqueue` alternatingly reported two completely different job
+    // queues (the same JOBID showing different names, whole job groups
+    // vanishing and reappearing) while `gbatch` submissions landed in whichever
+    // scheduler happened to win the race. A plain exclusive bind makes the
+    // second daemon fail loudly instead.
+    //
+    // SO_REUSEADDR is still set on Unix: it only permits rebinding a port in
+    // TIME_WAIT, which is what lets a replacement daemon come up promptly after
+    // a reload/restart. It never allows two live listeners on one port.
     let host = &config.daemon.host;
     let port = config.daemon.port;
 
@@ -232,10 +245,20 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     };
 
     let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+    #[cfg(unix)]
     socket.set_reuse_address(true)?;
-    socket.set_reuse_port(true)?; // Enable SO_REUSEPORT for hot reload
     socket.set_nonblocking(true)?;
-    socket.bind(&addr.into())?;
+    socket.bind(&addr.into()).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            anyhow::anyhow!(
+                "another gflowd instance is already listening on {addr}. Two daemons \
+                 would serve divergent job queues on the same port. Stop the running \
+                 instance with `gflowd down` first. (underlying error: {error})"
+            )
+        } else {
+            anyhow::anyhow!("failed to bind {addr}: {error}")
+        }
+    })?;
     socket.listen(1024)?;
 
     // Convert to tokio TcpListener
@@ -243,7 +266,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
     std_listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
 
-    tracing::info!(%addr, reuse_port = true, "Listening for HTTP requests");
+    tracing::info!(%addr, "Listening for HTTP requests");
 
     // Create shutdown signal handler with state saver for graceful shutdown.
     // The executor handle lets the daemon terminate managed job processes

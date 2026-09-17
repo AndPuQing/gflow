@@ -57,17 +57,26 @@ pub async fn handle_status(config_path: &Option<std::path::PathBuf>) -> Result<(
         return Ok(());
     }
 
-    // Direct (flock/pidfile) mode first.
-    if let Some(pid) = super::lifecycle::direct_daemon_pid() {
+    // Any live daemon holds the instance lock. Its recorded hosting mode says
+    // how to describe it; fall back to the tmux-session probe below for a
+    // daemon from an older build that never took the lock.
+    if let Some((pid, mode)) = super::lifecycle::locked_daemon() {
         let client = gflow::create_client_or_default(config_path)?;
 
         match client.get_health().await {
             Ok(health) if health.is_success() => {
                 println!("Status: Running");
-                println!(
-                    "The gflowd daemon is running as a direct process (PID {}).",
-                    pid
-                );
+                match mode {
+                    super::lifecycle::DaemonHostMode::Direct => println!(
+                        "The gflowd daemon is running as a direct process (PID {}).",
+                        pid
+                    ),
+                    super::lifecycle::DaemonHostMode::Supervised => println!(
+                        "The gflowd daemon is running in tmux session '{}' (PID {}).",
+                        super::TMUX_SESSION_NAME,
+                        pid
+                    ),
+                }
                 print_daemon_summary(&fetch_summary(&client).await);
             }
             Ok(_) => {

@@ -70,9 +70,10 @@ pub async fn handle_reload(
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     // 4. Verify new instance is running by checking the tmux session directly
-    // NOTE: We cannot rely on HTTP health checks with SO_REUSEPORT because
-    // the kernel load-balances requests between old and new daemon, making
-    // it unreliable to detect the new instance via HTTP.
+    // NOTE: the replacement waits for the instance lock the old daemon releases
+    // on exit before it binds the port, so a health check here can still be
+    // answered by the old daemon while it finishes shutting down. Detecting the
+    // new instance by PID is therefore more reliable than via HTTP.
     tracing::info!(
         "Verifying new daemon instance (distinct from old PID {})...",
         pid

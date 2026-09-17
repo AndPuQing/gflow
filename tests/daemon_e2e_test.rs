@@ -1561,3 +1561,104 @@ async fn executor_type_config_selects_backend() {
     assert!(!is_session_exist(&response.run_name));
     sandbox.stop_daemon();
 }
+
+/// Regression for the W-617 report: a second daemon must not be able to bind
+/// the daemon port while the first one is live.
+///
+/// Previously the listener set `SO_REUSEPORT`, so two live daemons both bound
+/// the port and the kernel load-balanced each request between them. Because
+/// each daemon keeps its own in-memory scheduler, consecutive `gqueue` calls
+/// alternatingly reported two unrelated job queues — the same JOBID appearing
+/// under different names and whole job groups vanishing and reappearing — and
+/// submissions landed in whichever scheduler won the race.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn second_daemon_cannot_bind_port_while_first_is_live() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    sandbox.start_daemon();
+    let health =
+        wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+    let first_pid = health["pid"].as_u64().unwrap() as u32;
+
+    // Submit a job whose identity we can look for later: if a competitor
+    // daemon were serving requests, its empty scheduler would not know it.
+    let client = gflow::Client::build(&sandbox.client_config()).unwrap();
+    let response = client
+        .add_job(
+            JobBuilder::new()
+                .submitted_by("dup-daemon-e2e")
+                .run_dir(&sandbox.work_dir)
+                .command("sleep 30")
+                .build(),
+        )
+        .await
+        .unwrap();
+
+    // Spawn a competitor daemon against the same state dir and port. It must
+    // refuse to run rather than silently co-hosting the port.
+    let mut competitor = Command::new(gflow_bin())
+        .current_dir(&sandbox.work_dir)
+        .env("HOME", &sandbox.root)
+        .env("PATH", path_env())
+        .env("XDG_CONFIG_HOME", &sandbox.config_home)
+        .env("XDG_DATA_HOME", &sandbox.data_home)
+        .env("XDG_RUNTIME_DIR", &sandbox.runtime_dir)
+        .env("GFLOW_DISABLE_DEV_AUTO", "1")
+        .args(["__multicall", "gflowd", "-vvv", "--direct-internal"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn competitor daemon");
+
+    // The competitor waits briefly for the instance lock (to let a legitimate
+    // reload handoff through), then gives up and exits non-zero.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        if let Some(status) = competitor.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "competitor daemon never exited; it must refuse to start alongside a live daemon"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert!(
+        !status.success(),
+        "a second daemon must not start while the first one is live"
+    );
+
+    let mut stderr = String::new();
+    if let Some(mut handle) = competitor.stderr.take() {
+        use std::io::Read;
+        handle.read_to_string(&mut stderr).ok();
+    }
+    assert!(
+        stderr.contains("already running"),
+        "competitor should explain the duplicate instance, got: {stderr}"
+    );
+
+    // The original daemon must still be the only one serving the port, and its
+    // scheduler must still know about the submitted job: every request is
+    // answered by the same instance rather than being load-balanced away.
+    for _ in 0..8 {
+        let health =
+            wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(10))
+                .await;
+        assert_eq!(
+            health["pid"].as_u64().unwrap() as u32,
+            first_pid,
+            "the port must only ever be answered by the original daemon"
+        );
+    }
+
+    let job = client
+        .get_job(response.id)
+        .await
+        .unwrap()
+        .expect("the original daemon must still know the submitted job");
+    assert_eq!(job.run_name.as_deref(), Some(response.run_name.as_str()));
+
+    sandbox.stop_daemon();
+}

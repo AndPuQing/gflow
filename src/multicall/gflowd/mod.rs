@@ -53,38 +53,56 @@ pub async fn run(argv: Vec<OsString>) -> anyhow::Result<()> {
         return commands::handle_commands(&gflowd.config, gflowd.verbosity, command).await;
     }
 
-    // When directly hosted (no tmux/systemd), take an exclusive flock on the
-    // daemon lock file and keep it for the whole daemon lifetime. This both
-    // guarantees mutual exclusion (a second `gflowd up` cannot start a
-    // duplicate) and provides a crash-safe liveness signal. The lock file
-    // body carries the daemon identity so `down`/`restart` can refuse to
-    // signal a recycled PID.
-    let _direct_lock = if gflowd.direct_internal {
-        match commands::lifecycle::try_acquire_daemon_lock()? {
-            Some(mut file) => {
-                let pid = std::process::id() as u32;
-                let identity = commands::lifecycle::DaemonIdentity {
-                    pid,
-                    pgid: unsafe { libc::getpgid(pid as libc::pid_t) },
-                    start_time: commands::lifecycle::process_start_time(pid),
-                };
-                commands::lifecycle::write_daemon_identity(&mut file, &identity)?;
-                tracing::info!(
-                    pid,
-                    pgid = identity.pgid,
-                    "direct daemon acquired flock lock"
-                );
-                Some(file)
-            }
-            None => {
-                anyhow::bail!(
-                    "another gflowd instance is already running (direct mode); \
-                     refusing to start a duplicate. Use `gflowd status` or `gflowd down` first."
-                );
-            }
-        }
+    // Every hosting mode (direct process, tmux, systemd) takes the instance
+    // lock for the daemon's whole lifetime. This guarantees mutual exclusion:
+    // a second daemon cannot start while one is live, which is what keeps two
+    // schedulers from binding the same port (SO_REUSEPORT would otherwise
+    // silently load-balance requests across them) and from clobbering each
+    // other's state files.
+    //
+    // The lock file body carries the daemon identity and hosting mode so
+    // `down`/`restart`/`status` can refuse to signal a recycled PID and can
+    // tear down a tmux-hosted daemon through its session.
+    let host_mode = if gflowd.direct_internal {
+        commands::lifecycle::DaemonHostMode::Direct
     } else {
-        None
+        commands::lifecycle::DaemonHostMode::Supervised
+    };
+    // A replacement daemon launched by `gflowd reload`/`restart` intentionally
+    // overlaps with its predecessor's shutdown, so wait briefly for the lock
+    // instead of failing instantly. Both the lock and the listening socket are
+    // released when the predecessor exits, so acquiring the lock means the port
+    // is free to bind exclusively.
+    let _instance_lock = match commands::lifecycle::acquire_daemon_lock_blocking(
+        std::time::Duration::from_secs(30),
+    )? {
+        Some(mut file) => {
+            let pid = std::process::id() as u32;
+            let identity = commands::lifecycle::DaemonIdentity {
+                pid,
+                pgid: unsafe { libc::getpgid(pid as libc::pid_t) },
+                start_time: commands::lifecycle::process_start_time(pid),
+                mode: host_mode,
+            };
+            commands::lifecycle::write_daemon_identity(&mut file, &identity)?;
+            tracing::info!(
+                pid,
+                pgid = identity.pgid,
+                mode = ?host_mode,
+                "daemon acquired instance flock lock"
+            );
+            Some(file)
+        }
+        None => {
+            let holder = commands::lifecycle::read_daemon_identity()
+                .map(|identity| format!("PID {} ({:?})", identity.pid, identity.mode))
+                .unwrap_or_else(|| "an unknown process".to_string());
+            anyhow::bail!(
+                "another gflowd instance is already running ({holder}); refusing to start \
+                 a duplicate. Two daemons would share the daemon port and serve \
+                 divergent job queues. Use `gflowd status` or `gflowd down` first."
+            );
+        }
     };
 
     let mut config = gflow::config::load_config(gflowd.config.as_ref())?;
