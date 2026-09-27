@@ -77,6 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gjob show`, `gbatch log <job>` → `gjob log` (extra flags are passed through,
   including `--last N`). `gbatch --help` also states that `gbatch` only submits
   and points at `gqueue` / `gjob show` / `gjob log`.
+- **gbatch: leading options are no longer swallowed as the job command**:
+  `<SCRIPT_OR_COMMAND>` accepted hyphen-leading values, so the first such token
+  became the command and everything after it was lost. `gbatch -g1 --dry-run
+  python train.py` submitted a real job with no GPU request *and* ignored
+  `--dry-run`, printing the usual success line; a `--mem`/`--gres` typo was
+  submitted as the command instead of being rejected. `gbatch`'s own options
+  are now parsed before the trailing command again — unknown options error,
+  `--dry-run` is always honored, and `gbatch -g1 list` reaches the `list`
+  alias. Hyphenated command arguments (`gbatch python train.py --epochs 100`),
+  `gbatch -` and `gbatch -- <command>` still work.
 - **gflowd: Conda environments now work with the process executor**: the
   non-interactive job shell explicitly sources conda's `conda.sh` before
   activation. The daemon locates Conda through `$CONDA_EXE`, `$PATH`,

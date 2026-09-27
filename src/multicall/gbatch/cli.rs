@@ -91,7 +91,7 @@ pub struct LogPassthroughArgs {
 #[derive(Debug, Parser, Clone)]
 pub struct AddArgs {
     /// The script or command to run (e.g., "script.sh" or "python train.py --epochs 100")
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_hint = clap::ValueHint::CommandWithArguments)]
+    #[arg(trailing_var_arg = true, value_hint = clap::ValueHint::CommandWithArguments)]
     pub script_or_command: Vec<String>,
 
     /// Defer job start until this time (scheduled/delayed start).
@@ -311,5 +311,44 @@ mod tests {
             args.add_args.notify_on,
             vec!["job_failed".to_string(), "job_timeout".to_string()]
         );
+    }
+
+    #[test]
+    fn parses_hyphenated_command_arguments() {
+        let args = GBatch::try_parse_from([
+            "gbatch", "--gpus", "1", "python", "train.py", "--epochs", "100", "-v",
+        ])
+        .expect("should parse hyphenated command arguments");
+        assert_eq!(args.add_args.gpus, Some(1));
+        assert_eq!(
+            args.add_args.script_or_command,
+            vec!["python", "train.py", "--epochs", "100", "-v"]
+        );
+    }
+
+    #[test]
+    fn parses_attached_short_flag_value_before_command() {
+        let args = GBatch::try_parse_from(["gbatch", "-g1", "--dry-run", "python", "train.py"])
+            .expect("should parse attached short flag value");
+        assert_eq!(args.add_args.gpus, Some(1), "-g1 should set --gpus");
+        assert!(
+            args.add_args.dry_run,
+            "--dry-run must not be swallowed into the command"
+        );
+        assert_eq!(args.add_args.script_or_command, vec!["python", "train.py"]);
+    }
+
+    #[test]
+    fn parses_bare_dash_as_stdin_marker() {
+        let args = GBatch::try_parse_from(["gbatch", "-"]).expect("should parse bare dash");
+        assert_eq!(args.add_args.script_or_command, vec!["-"]);
+    }
+
+    #[test]
+    fn double_dash_still_submits_a_command_named_like_a_query() {
+        let args = GBatch::try_parse_from(["gbatch", "--", "list"])
+            .expect("should parse `-- list` as a command");
+        assert!(args.commands.is_none(), "`-- list` must stay a command");
+        assert_eq!(args.add_args.script_or_command, vec!["list"]);
     }
 }
