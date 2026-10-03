@@ -218,14 +218,66 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
 
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
+    let output = Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
         .output()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!("Failed to kill tmux session: {}", e))
+        .map_err(|e| anyhow::anyhow!("Failed to kill tmux session '{}': {}", name, e))?;
+
+    if !output.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr()).trim().to_string();
+        anyhow::bail!(
+            "Failed to kill tmux session '{}': {}",
+            name,
+            if stderr.is_empty() {
+                "tmux returned a non-zero exit status"
+            } else {
+                &stderr
+            }
+        );
+    }
+
+    Ok(())
 }
 
-/// Kill multiple tmux sessions in batch using a single tmux command
-/// This is much faster than killing sessions sequentially
+/// tmux rejects a command whose argv exceeds 1000 entries (`cmd_unpack_argv`
+/// in tmux's `cmd.c` reports "command too long"), and the packed argv must
+/// also fit into `MAX_IMSGSIZE` (16 KiB). Each session below costs
+/// `pipe-pane -t <name> ; kill-session -t <name>`, i.e. 8 argv entries and
+/// `35 + 2 * name.len()` bytes, so batches are chunked to stay under both
+/// limits with headroom.
+const MAX_BATCH_SESSIONS: usize = 100;
+const MAX_BATCH_BYTES: usize = 12 * 1024;
+
+/// Estimated tmux argv size of one `pipe-pane` + `kill-session` pair.
+fn session_batch_cost(name: &str) -> usize {
+    35 + 2 * name.len()
+}
+
+/// Split sessions into chunks that each fit into a single tmux invocation.
+fn chunk_sessions<'a>(sessions: &[&'a String]) -> Vec<Vec<&'a String>> {
+    let mut chunks = Vec::new();
+    let mut current: Vec<&String> = Vec::new();
+    let mut bytes = 0;
+
+    for &name in sessions {
+        let cost = session_batch_cost(name);
+        if !current.is_empty()
+            && (current.len() >= MAX_BATCH_SESSIONS || bytes + cost > MAX_BATCH_BYTES)
+        {
+            chunks.push(std::mem::take(&mut current));
+            bytes = 0;
+        }
+        bytes += cost;
+        current.push(name);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    chunks
+}
+
+/// Kill multiple tmux sessions in batched tmux invocations.
+/// This is much faster than killing sessions sequentially.
 /// Returns a vector of tuples: (session_name, result)
 pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)> {
     if names.is_empty() {
@@ -255,31 +307,34 @@ pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)
         return results;
     }
 
-    // Build a single tmux command with multiple pipe-pane disables and kill-session commands
-    let mut tmux = Tmux::new();
-    for name in &existing {
-        tmux = tmux
-            // Disable pipe-pane first (ignore errors if already disabled)
-            .add_command(PipePane::new().target_pane(name.as_str()))
-            // Kill the session
-            .add_command(KillSession::new().target_session(name.as_str()));
-    }
+    // A single oversized tmux command fails with "command too long" and kills
+    // nothing, so split the sessions into chunks that fit tmux's limits.
+    for chunk in chunk_sessions(&existing) {
+        // Build one tmux command with pipe-pane disables and kill-session commands
+        let mut tmux = Tmux::new();
+        for name in &chunk {
+            tmux = tmux
+                // Disable pipe-pane first (ignore errors if already disabled)
+                .add_command(PipePane::new().target_pane(name.as_str()))
+                // Kill the session
+                .add_command(KillSession::new().target_session(name.as_str()));
+        }
 
-    // Execute all commands in a single tmux invocation
-    let batch_result = tmux.output();
+        // Execute the whole chunk in a single tmux invocation
+        let batch_succeeded = tmux
+            .output()
+            .map(|output| output.success())
+            .unwrap_or(false);
 
-    // Map results back to individual sessions
-    // Note: If the batch command succeeds, all sessions were killed successfully
-    // If it fails, we can't easily determine which specific session failed in a batch operation
-    match batch_result {
-        Ok(_) => {
-            for name in existing {
+        if batch_succeeded {
+            for name in chunk {
                 results.push((name.clone(), Ok(())));
             }
-        }
-        Err(_) => {
-            // If batch fails, fall back to individual kills to get granular error info
-            for name in existing {
+        } else {
+            // tmux stops a command sequence at the first error, so we cannot
+            // tell which sessions of the chunk were killed. Retry each one
+            // individually to get per-session results.
+            for name in chunk {
                 let result = kill_session(name);
                 results.push((name.clone(), result));
             }
@@ -301,7 +356,7 @@ pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
 mod tests {
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tmux_interface::{HasSession, KillSession, Tmux};
+    use tmux_interface::{HasSession, KillSession, NewSession, Tmux};
 
     use super::*;
 
@@ -384,5 +439,94 @@ mod tests {
         );
         assert_eq!(normalize_session_name("中文:实验.1"), "中文_实验_1");
         assert_eq!(normalize_session_name("___"), "");
+    }
+
+    #[test]
+    fn test_kill_sessions_batch_over_tmux_argc_limit() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!("Skipping test_kill_sessions_batch_over_tmux_argc_limit: tmux not usable");
+            return;
+        }
+
+        // 150 sessions exceed tmux's 1000-argv command limit in a single batch
+        // (8 argv entries per session), so this exercises the chunking path.
+        let prefix = format!(
+            "gflow-test-batch-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let names: Vec<String> = (0..150).map(|i| format!("{}-{}", prefix, i)).collect();
+
+        for name in &names {
+            let output =
+                Tmux::with_command(NewSession::new().detached().session_name(name.as_str()))
+                    .output()
+                    .unwrap();
+            assert!(output.success(), "failed to create session '{}'", name);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        let results = kill_sessions_batch(&names);
+
+        // Clean up any survivors before asserting so a failure does not leak
+        // test sessions into the user's tmux server.
+        let remaining = get_all_session_names();
+        for name in &names {
+            if remaining.contains(name) {
+                let _ =
+                    Tmux::with_command(KillSession::new().target_session(name.as_str())).output();
+            }
+        }
+
+        assert_eq!(results.len(), names.len());
+        for (name, result) in &results {
+            assert!(result.is_ok(), "session '{}' failed: {:?}", name, result);
+        }
+        let remaining = get_all_session_names();
+        for name in &names {
+            assert!(
+                !remaining.contains(name),
+                "session '{}' was not killed",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_kill_session_reports_missing_session() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!("Skipping test_kill_session_reports_missing_session: tmux not usable");
+            return;
+        }
+
+        let missing = format!(
+            "gflow-test-missing-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let error = kill_session(&missing).unwrap_err().to_string();
+        assert!(
+            error.contains("can't find session"),
+            "unexpected error for missing session: {}",
+            error
+        );
     }
 }
