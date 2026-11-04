@@ -49,9 +49,8 @@ pub async fn handle_down() -> Result<()> {
         return Ok(());
     }
 
-    if let Err(e) =
-        Tmux::with_command(KillSession::new().target_session(super::TMUX_SESSION_NAME)).output()
-    {
+    let session = gflow::tmux::exact_session_target(super::TMUX_SESSION_NAME);
+    if let Err(e) = Tmux::with_command(KillSession::new().target_session(session)).output() {
         eprintln!("Failed to stop gflowd: {e}");
     } else {
         println!("gflowd stopped.");

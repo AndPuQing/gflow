@@ -1,6 +1,27 @@
 use std::path::Path;
 use tmux_interface::{KillSession, NewSession, PipePane, SendKeys, Tmux};
 
+/// Exact-match target for commands that take a session (`has-session`,
+/// `kill-session`, `attach-session`).
+///
+/// tmux resolves `-t <name>` by exact name first and falls back to a unique
+/// prefix match, so `gjob-5` addresses `gjob-50` when `gjob-5` no longer
+/// exists. Prefixing with `=` disables that fallback and makes a missing
+/// session fail instead of hitting an unrelated one.
+pub fn exact_session_target(name: &str) -> String {
+    format!("={name}")
+}
+
+/// Exact-match target for commands that take a pane (`send-keys`, `pipe-pane`,
+/// `display-message`, `capture-pane`).
+///
+/// Pane targets resolve their session part, so the `=` prefix is applied to
+/// the session and the trailing `:` lets tmux pick that session's current
+/// window and pane.
+pub fn exact_pane_target(name: &str) -> String {
+    format!("={name}:")
+}
+
 /// A tmux session
 pub struct TmuxSession {
     pub name: String, // Name of the tmux session
@@ -46,8 +67,16 @@ impl TmuxSession {
     /// Send a command to the tmux session and surface tmux errors.
     pub fn try_send_command(&self, command: &str) -> anyhow::Result<()> {
         let output = Tmux::new()
-            .add_command(SendKeys::new().target_pane(&self.name).key(command))
-            .add_command(SendKeys::new().target_pane(&self.name).key("Enter"))
+            .add_command(
+                SendKeys::new()
+                    .target_pane(exact_pane_target(&self.name))
+                    .key(command),
+            )
+            .add_command(
+                SendKeys::new()
+                    .target_pane(exact_pane_target(&self.name))
+                    .key("Enter"),
+            )
             .output()
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -81,7 +110,7 @@ impl TmuxSession {
 
         Tmux::with_command(
             tmux_interface::PipePane::new()
-                .target_pane(&self.name)
+                .target_pane(exact_pane_target(&self.name))
                 .open()
                 .shell_command(format!("cat >> {}", log_path_str)),
         )
@@ -92,17 +121,19 @@ impl TmuxSession {
 
     /// Disable pipe-pane for the session
     pub fn disable_pipe_pane(&self) -> anyhow::Result<()> {
-        Tmux::with_command(tmux_interface::PipePane::new().target_pane(&self.name))
-            .output()
-            .map(|_| ())
-            .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
+        Tmux::with_command(
+            tmux_interface::PipePane::new().target_pane(exact_pane_target(&self.name)),
+        )
+        .output()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
     }
 
     /// Check if pipe-pane is active for the session
     pub fn is_pipe_pane_active(&self) -> bool {
         Tmux::with_command(
             tmux_interface::DisplayMessage::new()
-                .target_pane(&self.name)
+                .target_pane(exact_pane_target(&self.name))
                 .print()
                 .message("#{pane_pipe}"),
         )
@@ -134,7 +165,7 @@ pub fn normalize_session_name(name: &str) -> String {
 }
 
 pub fn is_session_exist(name: &str) -> bool {
-    Tmux::with_command(tmux_interface::HasSession::new().target_session(name))
+    Tmux::with_command(tmux_interface::HasSession::new().target_session(exact_session_target(name)))
         .output()
         .map(|output| output.success())
         .unwrap_or(false)
@@ -170,10 +201,14 @@ pub fn get_all_session_names() -> std::collections::HashSet<String> {
 }
 
 pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
-    Tmux::with_command(SendKeys::new().target_pane(name).key("C-c"))
-        .output()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
+    Tmux::with_command(
+        SendKeys::new()
+            .target_pane(exact_pane_target(name))
+            .key("C-c"),
+    )
+    .output()
+    .map(|_| ())
+    .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
 }
 
 /// The process group in the foreground of a session's pane, if it is not the pane's shell.
@@ -183,8 +218,9 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
 /// background commands with SIGINT ignored, so C-c alone does not stop them.
 /// Returns `None` when the pane shell itself is in the foreground (no job command runs).
 pub fn foreground_job_pgid(name: &str) -> Option<i32> {
+    let target = exact_pane_target(name);
     let output = std::process::Command::new("tmux")
-        .args(["display-message", "-p", "-t", name, "#{pane_pid}"])
+        .args(["display-message", "-p", "-t", &target, "#{pane_pid}"])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -219,7 +255,7 @@ pub fn foreground_job_pgid(name: &str) -> Option<i32> {
 /// Disable pipe-pane for a session (standalone function)
 /// This stops the `cat >> logfile` process without killing the tmux session
 pub fn disable_pipe_pane(name: &str) -> anyhow::Result<()> {
-    Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))
+    Tmux::with_command(tmux_interface::PipePane::new().target_pane(exact_pane_target(name)))
         .output()
         .map(|_| ())
         .map_err(|e| anyhow::anyhow!("Failed to disable pipe-pane: {}", e))
@@ -252,15 +288,17 @@ pub fn disable_pipe_pane_for_job(job_id: u32, session_name: &str, expect_failure
 
 pub fn kill_session(name: &str) -> anyhow::Result<()> {
     // Disable pipe-pane before killing session (ignore errors if already disabled)
-    Tmux::with_command(tmux_interface::PipePane::new().target_pane(name))
+    Tmux::with_command(tmux_interface::PipePane::new().target_pane(exact_pane_target(name)))
         .output()
         .ok();
 
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    let output = Tmux::with_command(tmux_interface::KillSession::new().target_session(name))
-        .output()
-        .map_err(|e| anyhow::anyhow!("Failed to kill tmux session '{}': {}", name, e))?;
+    let output = Tmux::with_command(
+        tmux_interface::KillSession::new().target_session(exact_session_target(name)),
+    )
+    .output()
+    .map_err(|e| anyhow::anyhow!("Failed to kill tmux session '{}': {}", name, e))?;
 
     if !output.success() {
         let stderr = String::from_utf8_lossy(&output.stderr()).trim().to_string();
@@ -355,9 +393,9 @@ pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)
         for name in &chunk {
             tmux = tmux
                 // Disable pipe-pane first (ignore errors if already disabled)
-                .add_command(PipePane::new().target_pane(name.as_str()))
+                .add_command(PipePane::new().target_pane(exact_pane_target(name)))
                 // Kill the session
-                .add_command(KillSession::new().target_session(name.as_str()));
+                .add_command(KillSession::new().target_session(exact_session_target(name)));
         }
 
         // Execute the whole chunk in a single tmux invocation
@@ -385,9 +423,11 @@ pub fn kill_sessions_batch(names: &[String]) -> Vec<(String, anyhow::Result<()>)
 }
 
 pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
-    Tmux::with_command(tmux_interface::AttachSession::new().target_session(name))
-        .output()
-        .map_err(|e| anyhow::anyhow!("Failed to attach to tmux session: {}", e))?;
+    Tmux::with_command(
+        tmux_interface::AttachSession::new().target_session(exact_session_target(name)),
+    )
+    .output()
+    .map_err(|e| anyhow::anyhow!("Failed to attach to tmux session: {}", e))?;
 
     Ok(())
 }
@@ -396,7 +436,7 @@ pub fn attach_to_session(name: &str) -> anyhow::Result<()> {
 mod tests {
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tmux_interface::{HasSession, KillSession, NewSession, Tmux};
+    use tmux_interface::{KillSession, NewSession, Tmux};
 
     use super::*;
 
@@ -426,15 +466,9 @@ mod tests {
                 .as_millis()
         );
         TmuxSession::new(session_name.clone());
-        let has_session = Tmux::with_command(HasSession::new().target_session(&session_name))
-            .output()
-            .unwrap();
+        assert!(is_session_exist(&session_name));
 
-        assert!(has_session.success());
-
-        Tmux::with_command(KillSession::new().target_session(&session_name))
-            .output()
-            .unwrap();
+        kill_session(&session_name).unwrap();
     }
 
     #[test]
@@ -466,9 +500,7 @@ mod tests {
 
         assert!(error.to_string().contains("Failed to create tmux session"));
 
-        Tmux::with_command(KillSession::new().target_session(&session_name))
-            .output()
-            .unwrap();
+        kill_session(&session_name).unwrap();
     }
 
     #[test]
@@ -522,8 +554,9 @@ mod tests {
         let remaining = get_all_session_names();
         for name in &names {
             if remaining.contains(name) {
+                let target = exact_session_target(name);
                 let _ =
-                    Tmux::with_command(KillSession::new().target_session(name.as_str())).output();
+                    Tmux::with_command(KillSession::new().target_session(target.as_str())).output();
             }
         }
 
@@ -568,5 +601,92 @@ mod tests {
             "unexpected error for missing session: {}",
             error
         );
+    }
+
+    #[test]
+    fn exact_targets_disable_prefix_matching() {
+        assert_eq!(exact_session_target("gjob-5"), "=gjob-5");
+        assert_eq!(exact_pane_target("gjob-5"), "=gjob-5:");
+    }
+
+    /// tmux resolves `-t <name>` by prefix when the exact session is gone, so
+    /// a cancel for `gjob-5` must never address `gjob-50`. Reproduce that shape
+    /// with two sessions whose names share a prefix.
+    #[test]
+    fn test_prefix_session_name_does_not_address_a_sibling() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !tmux_usable {
+            eprintln!(
+                "Skipping test_prefix_session_name_does_not_address_a_sibling: tmux not usable"
+            );
+            return;
+        }
+
+        let stamp = format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        // `base` is a strict prefix of `sibling`, like `gjob-5` and `gjob-50`.
+        let base = format!("gflow-test-prefix-{stamp}");
+        let sibling = format!("{base}-sibling");
+
+        struct SessionGuard(String);
+        impl Drop for SessionGuard {
+            fn drop(&mut self) {
+                let _ = kill_session(&self.0);
+            }
+        }
+
+        let _sibling = match TmuxSession::create(sibling.clone()) {
+            Ok(session) => session,
+            Err(error) => {
+                eprintln!("Skipping test_prefix_session_name_does_not_address_a_sibling: {error}");
+                return;
+            }
+        };
+        let _guard = SessionGuard(sibling.clone());
+
+        let marker = std::env::temp_dir().join(format!("gflow-prefix-leak-{stamp}"));
+        let _ = std::fs::remove_file(&marker);
+
+        // `base` does not exist, so every call below must fail or report
+        // "nothing to act on" instead of falling back to the sibling.
+        let ghost = TmuxSession { name: base.clone() };
+        assert!(
+            ghost
+                .try_send_command(&format!("touch {}", marker.display()))
+                .is_err(),
+            "send-keys addressed the prefix sibling"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !marker.exists(),
+            "the command was typed into the prefix sibling's pane"
+        );
+
+        assert!(
+            !is_session_exist(&base),
+            "the prefix sibling was reported as '{base}'"
+        );
+        assert!(foreground_job_pgid(&base).is_none());
+        assert!(
+            kill_session(&base).is_err(),
+            "kill-session addressed the prefix sibling"
+        );
+        assert!(
+            is_session_exist(&sibling),
+            "the prefix sibling died because of a cancel for another session"
+        );
+
+        let _ = std::fs::remove_file(&marker);
     }
 }

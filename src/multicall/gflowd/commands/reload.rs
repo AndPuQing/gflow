@@ -141,7 +141,7 @@ pub async fn handle_reload(
     // Try to rename first. If it fails because the target name exists, kill the old session and retry.
     let rename_result = Tmux::with_command(
         RenameSession::new()
-            .target_session(&new_session_name)
+            .target_session(gflow::tmux::exact_session_target(&new_session_name))
             .new_name(super::TMUX_SESSION_NAME),
     )
     .output();
@@ -159,10 +159,11 @@ pub async fn handle_reload(
                     super::TMUX_SESSION_NAME
                 );
                 // Kill the old session
-                let kill_result = Tmux::with_command(
-                    tmux_interface::KillSession::new().target_session(super::TMUX_SESSION_NAME),
-                )
-                .output();
+                let kill_result =
+                    Tmux::with_command(tmux_interface::KillSession::new().target_session(
+                        gflow::tmux::exact_session_target(super::TMUX_SESSION_NAME),
+                    ))
+                    .output();
                 if let Err(e) = kill_result {
                     tracing::warn!("Failed to kill old session: {}", e);
                 }
@@ -171,7 +172,7 @@ pub async fn handle_reload(
                 tracing::info!("Retrying rename after killing old session...");
                 Tmux::with_command(
                     RenameSession::new()
-                        .target_session(&new_session_name)
+                        .target_session(gflow::tmux::exact_session_target(&new_session_name))
                         .new_name(super::TMUX_SESSION_NAME),
                 )
                 .output()
@@ -361,7 +362,7 @@ fn tmux_pane_pid_and_current_command(session_name: &str) -> Result<(u32, String)
 
     let output = Tmux::with_command(
         ListPanes::new()
-            .target(session_name)
+            .target(gflow::tmux::exact_session_target(session_name))
             .format("#{pane_pid}\t#{pane_current_command}"),
     )
     .output()?;
