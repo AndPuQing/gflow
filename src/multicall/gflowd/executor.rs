@@ -623,6 +623,31 @@ impl Executor for ProcessExecutor {
     }
 }
 
+/// Stop what is left of a tmux job's process group after C-c, in the background
+/// (never blocks the scheduler). The job gets `TERMINATE_GRACE` to exit on SIGINT.
+/// Then the group gets SIGTERM, and SIGKILL after one more `TERMINATE_GRACE`.
+fn stop_group_after_ctrl_c(pgid: i32) {
+    std::thread::spawn(move || {
+        for signal in [libc::SIGTERM, libc::SIGKILL] {
+            let deadline = Instant::now() + TERMINATE_GRACE;
+            while Instant::now() < deadline {
+                if !ProcessExecutor::group_is_alive(pgid) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            tracing::warn!(
+                pgid,
+                signal,
+                "tmux job process group still alive after cancel, sending signal"
+            );
+            unsafe {
+                libc::kill(-pgid, signal);
+            }
+        }
+    });
+}
+
 /// Legacy tmux-based executor: creates a detached tmux session per job and
 /// injects the command via send-keys. Kept for `gjob attach` / interactive
 /// inspection; opt-in via `[executor] type = "tmux"`.
@@ -706,7 +731,13 @@ impl Executor for TmuxExecutor {
 
     fn terminate(&self, _job_id: u32, run_name: Option<&str>) -> Result<()> {
         if let Some(name) = run_name {
+            // Read the job's process group before C-c: the group leader can exit on SIGINT,
+            // while background children that ignore SIGINT stay in the group.
+            let job_pgid = gflow::tmux::foreground_job_pgid(name);
             gflow::tmux::send_ctrl_c(name)?;
+            if let Some(pgid) = job_pgid {
+                stop_group_after_ctrl_c(pgid);
+            }
         }
         Ok(())
     }
@@ -750,6 +781,58 @@ mod tests {
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn test_tmux_terminate_stops_background_children_that_ignore_sigint() {
+        let tmux_usable = Command::new("tmux")
+            .arg("start-server")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if !tmux_usable {
+            eprintln!("Skipping the tmux cancel test: tmux not usable");
+            return;
+        }
+
+        let name = format!(
+            "gflow-test-cancel-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let session = gflow::tmux::TmuxSession::create(name.clone()).unwrap();
+        // A non-interactive shell starts background commands with SIGINT ignored,
+        // as in a job script that starts workers with `&`.
+        session
+            .try_send_command("bash -c 'sleep 300 & sleep 300 & wait'")
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut pgid = None;
+        while pgid.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+            pgid = gflow::tmux::foreground_job_pgid(&name);
+        }
+        let pgid = pgid.expect("the job command did not start in the pane");
+        assert!(ProcessExecutor::group_is_alive(pgid));
+
+        TmuxExecutor.terminate(0, Some(name.as_str())).unwrap();
+
+        let deadline = Instant::now() + 2 * TERMINATE_GRACE + Duration::from_secs(2);
+        while ProcessExecutor::group_is_alive(pgid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let alive = ProcessExecutor::group_is_alive(pgid);
+        if alive {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        let _ = gflow::tmux::kill_session(&name);
+        assert!(!alive, "the job's background children survived the cancel");
     }
 
     #[test]

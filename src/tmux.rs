@@ -176,6 +176,46 @@ pub fn send_ctrl_c(name: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send C-c to tmux session: {}", e))
 }
 
+/// The process group in the foreground of a session's pane, if it is not the pane's shell.
+///
+/// The interactive pane shell starts the job command in a process group of its own.
+/// Every process that the job starts stays in that group. A non-interactive shell starts its
+/// background commands with SIGINT ignored, so C-c alone does not stop them.
+/// Returns `None` when the pane shell itself is in the foreground (no job command runs).
+pub fn foreground_job_pgid(name: &str) -> Option<i32> {
+    let output = std::process::Command::new("tmux")
+        .args(["display-message", "-p", "-t", name, "#{pane_pid}"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let pane_pid: i32 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .ok()?;
+
+    // tpgid is the foreground process group of the process's terminal (Linux and macOS ps).
+    let output = std::process::Command::new("ps")
+        .args(["-o", "tpgid=", "-p", &pane_pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let pgid: i32 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .ok()?;
+
+    // Never give the pane shell's group or our own group.
+    let own_pgid = unsafe { libc::getpgrp() };
+    if pgid <= 1 || pgid == pane_pid || pgid == own_pgid {
+        return None;
+    }
+    Some(pgid)
+}
+
 /// Disable pipe-pane for a session (standalone function)
 /// This stops the `cat >> logfile` process without killing the tmux session
 pub fn disable_pipe_pane(name: &str) -> anyhow::Result<()> {
