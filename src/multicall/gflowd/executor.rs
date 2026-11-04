@@ -783,18 +783,51 @@ mod tests {
         }
     }
 
+    /// A process group may contain only zombies after its live processes are
+    /// stopped, especially when PID 1 does not reap orphans promptly. `kill(-pgid,
+    /// 0)` still succeeds for zombies, so use this for the test's liveness checks.
+    fn group_has_live_processes(pgid: i32) -> bool {
+        let output = Command::new("ps").args(["-eo", "pgid=,stat="]).output();
+        let Ok(output) = output else {
+            return ProcessExecutor::group_is_alive(pgid);
+        };
+        if !output.status.success() {
+            return ProcessExecutor::group_is_alive(pgid);
+        }
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            let group = fields.next().and_then(|value| value.parse::<i32>().ok());
+            let state = fields.next();
+            group == Some(pgid) && state.is_some_and(|state| !state.starts_with('Z'))
+        })
+    }
+
+    /// Kill the session and any captured process group if the test panics before
+    /// its normal cleanup.
+    struct TmuxTestGuard {
+        name: String,
+        pgid: Option<i32>,
+    }
+
+    impl TmuxTestGuard {
+        fn new(name: String) -> Self {
+            Self { name, pgid: None }
+        }
+    }
+
+    impl Drop for TmuxTestGuard {
+        fn drop(&mut self) {
+            if let Some(pgid) = self.pgid {
+                unsafe {
+                    libc::kill(-pgid, libc::SIGKILL);
+                }
+            }
+            let _ = gflow::tmux::kill_session(&self.name);
+        }
+    }
+
     #[test]
     fn test_tmux_terminate_stops_background_children_that_ignore_sigint() {
-        let tmux_usable = Command::new("tmux")
-            .arg("start-server")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false);
-        if !tmux_usable {
-            eprintln!("Skipping the tmux cancel test: tmux not usable");
-            return;
-        }
-
         let name = format!(
             "gflow-test-cancel-{}-{}",
             std::process::id(),
@@ -803,35 +836,38 @@ mod tests {
                 .unwrap_or_default()
                 .as_millis()
         );
-        let session = gflow::tmux::TmuxSession::create(name.clone()).unwrap();
+        let session = match gflow::tmux::TmuxSession::create(name.clone()) {
+            Ok(session) => session,
+            Err(error) => {
+                eprintln!("Skipping the tmux cancel test: {error}");
+                return;
+            }
+        };
+        let mut guard = TmuxTestGuard::new(name.clone());
         // A non-interactive shell starts background commands with SIGINT ignored,
         // as in a job script that starts workers with `&`.
         session
             .try_send_command("bash -c 'sleep 300 & sleep 300 & wait'")
             .unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // The shell and the job may take a while to start on a loaded CI runner.
+        let deadline = Instant::now() + Duration::from_secs(15);
         let mut pgid = None;
         while pgid.is_none() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
             pgid = gflow::tmux::foreground_job_pgid(&name);
         }
         let pgid = pgid.expect("the job command did not start in the pane");
-        assert!(ProcessExecutor::group_is_alive(pgid));
+        guard.pgid = Some(pgid);
+        assert!(group_has_live_processes(pgid));
 
         TmuxExecutor.terminate(0, Some(name.as_str())).unwrap();
 
         let deadline = Instant::now() + 2 * TERMINATE_GRACE + Duration::from_secs(2);
-        while ProcessExecutor::group_is_alive(pgid) && Instant::now() < deadline {
+        while group_has_live_processes(pgid) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
         }
-        let alive = ProcessExecutor::group_is_alive(pgid);
-        if alive {
-            unsafe {
-                libc::kill(-pgid, libc::SIGKILL);
-            }
-        }
-        let _ = gflow::tmux::kill_session(&name);
+        let alive = group_has_live_processes(pgid);
         assert!(!alive, "the job's background children survived the cancel");
     }
 

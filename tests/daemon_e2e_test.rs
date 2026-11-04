@@ -46,6 +46,24 @@ fn tmux_usable() -> bool {
     }
 }
 
+/// Retry short-lived tmux commands: killing the last probe/bootstrap session can
+/// make the server exit just as the next command tries to connect, which tmux
+/// reports as "server exited unexpectedly".
+fn run_tmux_with_retry(args: &[&str]) -> Output {
+    let mut last_output = None;
+    for attempt in 0..5 {
+        let output = Command::new("tmux").args(args).output().unwrap();
+        if output.status.success() {
+            return output;
+        }
+        last_output = Some(output);
+        if attempt < 4 {
+            std::thread::sleep(Duration::from_millis(200 * (attempt as u64 + 1)));
+        }
+    }
+    last_output.expect("tmux command produced no output")
+}
+
 fn stale_gflowd_session_present() -> bool {
     is_session_exist(DAEMON_SESSION)
 }
@@ -315,17 +333,14 @@ impl TestSandbox {
     }
 
     fn seed_tmux_environment(&self) {
-        let bootstrap = Command::new("tmux")
-            .args([
-                "new-session",
-                "-d",
-                "-s",
-                &self.bootstrap_session,
-                "sleep",
-                "300",
-            ])
-            .output()
-            .unwrap();
+        let bootstrap = run_tmux_with_retry(&[
+            "new-session",
+            "-d",
+            "-s",
+            self.bootstrap_session.as_str(),
+            "sleep",
+            "300",
+        ]);
         assert!(
             bootstrap.status.success(),
             "failed to create tmux bootstrap session {}: {}",
@@ -337,10 +352,7 @@ impl TestSandbox {
             let Some(value) = self.env_value(key) else {
                 continue;
             };
-            let output = Command::new("tmux")
-                .args(["set-environment", "-g", key, &value])
-                .output()
-                .unwrap();
+            let output = run_tmux_with_retry(&["set-environment", "-g", key, value.as_str()]);
             assert!(
                 output.status.success(),
                 "failed to seed tmux env {}: {}",
