@@ -55,7 +55,7 @@ jobs:
         strategy:
             matrix:
                 platform:
-                    - runner: macos-14
+                    - runner: macos-15
                       target: aarch64-apple-darwin
                     - runner: macos-15
                       target: x86_64-apple-darwin
@@ -77,7 +77,7 @@ jobs:
             - name: Upload wheels
               uses: actions/upload-artifact@v7
               with:
-                  name: wheels-macos-${{ matrix.platform.runner }}
+                  name: wheels-macos-${{ matrix.platform.target }}
                   path: dist
 
     sdist:
