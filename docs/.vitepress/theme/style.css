@@ -36,19 +36,36 @@
 }
 
 /* ---- shell: strip VitePress chrome, flat Carbon header ---- */
+.landing-page-shell {
+    /* VitePress derives the bar height, nav row heights, mobile menu offset
+       and the content top offset from this one token. Keeping it on the
+       Carbon 3rem is what stops the header from overflowing its own bar. */
+    --vp-nav-height: 3rem;
+    /* Reuse the landing palette for VitePress chrome on this page. */
+    --vp-nav-bg-color: var(--lp-bg);
+    --vp-nav-screen-bg-color: var(--lp-bg);
+    --vp-c-gutter: var(--lp-hairline);
+    --vp-c-divider: var(--lp-hairline);
+    --vp-c-brand-1: var(--lp-accent);
+    --vp-c-brand-2: var(--lp-accent-hover);
+    --vp-c-brand-3: var(--lp-accent);
+}
+
 .landing-page-shell .VPDoc {
     padding: 0;
 }
 
-.landing-page-shell .container,
-.landing-page-shell .content,
-.landing-page-shell .content-container,
-.landing-page-shell .main {
+/* Only neutralise the inner doc wrappers. Never touch .container/.content
+   inside the navbar: those must stay on the 1440px landing grid. */
+.landing-page-shell .VPContent .container,
+.landing-page-shell .VPContent .content,
+.landing-page-shell .VPContent .content-container,
+.landing-page-shell .VPContent .main {
     max-width: none !important;
     width: 100%;
 }
 
-.landing-page-shell .content {
+.landing-page-shell .VPContent .content {
     padding: 0 !important;
 }
 
@@ -63,22 +80,59 @@
     display: none !important;
 }
 
+/* ---- header: same 1440px grid and hairline as the landing sections ---- */
 .landing-page-shell .VPNavBar {
-    height: 3rem;
     background: var(--lp-bg);
     backdrop-filter: none;
-    border-bottom: 1px solid var(--lp-hairline);
+}
+
+.landing-page-shell .VPNavBar .wrapper {
+    padding: 0;
+}
+
+.landing-page-shell .VPNavBar .container {
+    max-width: 1440px;
+    padding-inline: clamp(1.25rem, 4vw, 4rem);
 }
 
 .landing-page-shell .VPNavBar .content {
-    height: 3rem;
     font-family: var(--lp-sans);
 }
 
-.landing-page-shell .VPNavBar .search-box {
-    border-radius: 0;
+/* search trigger: flat Carbon field instead of the rounded VitePress pill */
+.landing-page-shell .VPNavBar .DocSearch-Button {
+    height: 2rem;
+    padding: 0 0.55rem 0 0.65rem;
     border: 1px solid var(--lp-hairline);
-    background: var(--lp-bg);
+    border-radius: 0;
+    background: transparent;
+    color: var(--lp-text-2);
+    font-family: var(--lp-mono);
+    transition:
+        background-color 100ms ease,
+        border-color 100ms ease;
+}
+
+.landing-page-shell .VPNavBar .DocSearch-Button:hover {
+    background: var(--lp-surface-2);
+    border-color: var(--lp-hairline-2);
+}
+
+.landing-page-shell .VPNavBar .DocSearch-Button-Placeholder {
+    padding: 0 0.5rem;
+    font-size: 0.8125rem;
+    letter-spacing: 0.02em;
+}
+
+.landing-page-shell .VPNavBar .DocSearch-Button-Keys {
+    min-width: auto;
+    padding: 0.2rem 0.375rem;
+    border: 1px solid var(--lp-hairline);
+    border-radius: 0;
+    color: var(--lp-text-3);
+    font-family: var(--lp-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
 }
 
 .landing-page-shell .VPFooter {
