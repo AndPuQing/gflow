@@ -99,6 +99,24 @@
     font-family: var(--lp-sans);
 }
 
+/* Safari clips the visible axis of `overflow-x: clip`, which cut the
+   language flyout off at the bar. Drop the full-bleed background trick
+   from .content-body (the bar itself already paints edge to edge) so the
+   nav can stay unclipped without a horizontal scrollbar. */
+.landing-page-shell .VPNav {
+    overflow: visible;
+}
+
+.landing-page-shell .VPNavBar .content-body {
+    margin-right: 0;
+    padding-right: 0;
+}
+
+/* Anchor flyout menus flush under the bar, fully visible. */
+.landing-page-shell .VPNavBar .VPFlyout .menu {
+    top: 100%;
+}
+
 /* search trigger: flat Carbon field instead of the rounded VitePress pill */
 .landing-page-shell .VPNavBar .DocSearch-Button {
     height: 2rem;
