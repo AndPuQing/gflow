@@ -1,6 +1,76 @@
 use super::*;
+use gflow::config::GpuAdmissionConfig;
+
+fn check_admission(
+    nvml: Option<&Nvml>,
+    index: u32,
+    limits: GpuAdmissionConfig,
+) -> Result<(), String> {
+    let sample = || {
+        let device = nvml
+            .context("NVML is unavailable")?
+            .device_by_index(index)?;
+        let utilization = device.utilization_rates()?.gpu;
+        let memory = device.memory_info()?;
+        Ok::<_, anyhow::Error>((utilization, memory.used, memory.total))
+    };
+    let (utilization, used, total) =
+        sample().map_err(|error| format!("gpu_admission_sample_failed: {error}"))?;
+    check_sample(utilization, used, total, limits)
+}
+
+fn check_sample(
+    utilization: u32,
+    used: u64,
+    total: u64,
+    limits: GpuAdmissionConfig,
+) -> Result<(), String> {
+    if total == 0 {
+        return Err("gpu_admission_sample_failed: zero total memory".into());
+    }
+    if utilization >= limits.max_utilization_percent
+        || u128::from(used) * 100 >= u128::from(total) * u128::from(limits.max_memory_used_percent)
+    {
+        return Err(format!(
+            "gpu_admission_threshold: utilization {utilization}% (limit {}%), memory {used}/{total} bytes (limit {}%)",
+            limits.max_utilization_percent, limits.max_memory_used_percent
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn strict_boundaries_and_missing_nvml() {
+        let limits = GpuAdmissionConfig {
+            max_utilization_percent: 50,
+            max_memory_used_percent: 60,
+        };
+        assert!(check_sample(49, 5999, 10000, limits).is_ok());
+        assert!(check_sample(50, 5999, 10000, limits).is_err());
+        assert!(check_sample(49, 6000, 10000, limits).is_err());
+        assert!(check_sample(0, 0, 0, limits).is_err());
+        assert!(check_admission(None, 0, limits).is_err());
+    }
+}
 
 impl SchedulerRuntime {
+    pub fn set_gpu_admission(&mut self, limits: GpuAdmissionConfig) {
+        self.gpu_admission = Some(limits);
+    }
+
+    pub(super) fn check_job_gpu_admission(&self, job: &Job) -> Result<(), String> {
+        if let (Some(limits), Some(indices)) = (self.gpu_admission, &job.gpu_ids) {
+            for &index in indices {
+                check_admission(self.nvml.as_ref(), index, limits)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn refresh_gpu_slots(&mut self) {
         let mut running_shared_gpu_indices = HashSet::new();
         let mut running_exclusive_gpu_indices = HashSet::new();
@@ -128,6 +198,14 @@ impl SchedulerRuntime {
                 tracing::warn!("Failed to query NVML device count during GPU refresh");
             }
             self.ignored_gpu_processes = active_ignored;
+        }
+        if let Some(limits) = self.gpu_admission {
+            for slot in self.scheduler.gpu_slots_mut().values_mut() {
+                if let Err(reason) = check_admission(self.nvml.as_ref(), slot.index, limits) {
+                    slot.available = false;
+                    slot.reason = Some(reason);
+                }
+            }
         }
     }
 

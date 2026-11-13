@@ -161,3 +161,20 @@ If shared jobs fail with OOM, verify `--gpu-memory` is set and sized appropriate
 - [Job Dependencies](./job-dependencies) - Workflow management
 - [Time Limits](./time-limits) - Job timeout management
 - [Quick Reference](../reference/quick-reference) - Command cheat sheet
+
+
+### Optional NVIDIA launch admission
+
+```toml
+[daemon.gpu_admission]
+max_utilization_percent = 50
+max_memory_used_percent = 60
+```
+
+Both measurements must be strictly below their limits. The daemon samples
+NVML before selecting devices and again before launching each job. Missing
+measurements keep GPU jobs queued. CPU-only jobs are unaffected. This policy
+uses device-wide measurements and applies at launch; it does not limit a
+running process. The existing rules for unmanaged processes still apply.
+Shared mode admits at most two jobs per device, subject to existing
+per-device memory requests.
