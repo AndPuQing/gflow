@@ -35,12 +35,16 @@ pub(super) async fn gpu_monitor_task(
     loop {
         interval.tick().await;
 
-        let info = {
+        let (info, retry_admission) = {
             let mut state_guard = state.write().await;
             state_guard.refresh_gpu_slots();
-            state_guard.info()
+            (state_guard.info(), state_guard.gpu_admission.is_some())
         };
 
+        // Retry even if availability did not change between monitor samples.
+        if retry_admission && info.gpus.iter().any(|gpu| gpu.available) {
+            event_bus.publish(SchedulerEvent::PeriodicHealthCheck);
+        }
         for gpu_info in &info.gpus {
             let previous_available = previous_gpu_states.get(&gpu_info.index).copied();
             if previous_available != Some(gpu_info.available) {

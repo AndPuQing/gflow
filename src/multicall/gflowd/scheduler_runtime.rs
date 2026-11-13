@@ -53,6 +53,7 @@ pub struct SchedulerRuntime {
     scheduler: Scheduler,
     projects_config: gflow::config::ProjectsConfig,
     nvml: Option<Nvml>,
+    gpu_admission: Option<gflow::config::GpuAdmissionConfig>,
     executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
     dirty: bool,                 // Tracks if state has changed since last save
     state_saver: Option<StateSaverHandle>, // Handle for async background state persistence
@@ -164,6 +165,7 @@ impl SchedulerRuntime {
             scheduler,
             projects_config,
             nvml,
+            gpu_admission: None,
             executor: executor_arc,
             dirty: false,
             state_saver: None,

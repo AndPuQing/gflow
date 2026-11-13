@@ -70,6 +70,14 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         config.projects.clone(),
         config.daemon.fair_share.clone(),
     )?;
+    if let Some(limits) = config.daemon.gpu_admission {
+        if !(1..=100).contains(&limits.max_utilization_percent)
+            || !(1..=100).contains(&limits.max_memory_used_percent)
+        {
+            anyhow::bail!("daemon.gpu_admission thresholds must be between 1 and 100");
+        }
+        scheduler_runtime.set_gpu_admission(limits);
+    }
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
     scheduler_runtime.set_quota_baseline(config.quota.clone());
 

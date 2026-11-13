@@ -284,7 +284,9 @@ impl Scheduler {
                     .into_iter()
                     .filter(|gpu| match gpu_sharing_mode {
                         GpuSharingMode::Shared => {
-                            if exclusive_gpu_occupancy.contains(gpu) {
+                            if exclusive_gpu_occupancy.contains(gpu)
+                                || shared_gpu_occupancy.get(gpu).copied().unwrap_or(0) >= 2
+                            {
                                 false
                             } else if let Some(requested_gpu_memory_mb) = requested_gpu_memory_mb {
                                 if let Some(total_gpu_memory_mb) = gpu_total_memory_mb.get(gpu) {

@@ -555,7 +555,10 @@ impl Scheduler {
                 return Some((group_id, old_state, false));
             }
 
-            if !old_state.can_transition_to(next) {
+            let unlaunched_gpu_retry = old_state == JobState::Running
+                && next == JobState::Queued
+                && reason == Some(JobStateReason::WaitingForGpu);
+            if !old_state.can_transition_to(next) && !unlaunched_gpu_retry {
                 tracing::error!(
                     "Job {} invalid transition: {} → {}",
                     job_id,
@@ -607,6 +610,33 @@ impl Scheduler {
         reason: Option<JobStateReason>,
     ) -> Option<bool> {
         self.transition_job_state_internal(job_id, next, reason, true)
+    }
+
+    /// Roll back a reservation when a final GPU sample rejects an unlaunched job.
+    pub fn defer_gpu_dispatch(&mut self, job_id: u32) -> bool {
+        if !self
+            .get_job_runtime(job_id)
+            .is_some_and(|rt| rt.state == JobState::Running)
+        {
+            return false;
+        }
+        if !self
+            .transition_job_state(
+                job_id,
+                JobState::Queued,
+                Some(JobStateReason::WaitingForGpu),
+            )
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if let Some(rt) = self.get_job_runtime_mut(job_id) {
+            rt.gpu_ids = None;
+            rt.started_at = None;
+            rt.reason = Some(Box::new(JobStateReason::WaitingForGpu));
+        }
+        self.refresh_available_memory();
+        true
     }
 
     /// Maintain the per-user / per-project running usage index used for O(1)

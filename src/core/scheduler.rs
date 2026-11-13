@@ -679,6 +679,43 @@ mod tests {
     }
 
     #[test]
+    fn third_shared_job_waits_and_deferred_launch_releases_its_slot() {
+        let mut scheduler = create_test_scheduler();
+        scheduler.gpu_slots.insert(
+            "GPU-0".into(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: Some(24000),
+                reason: None,
+            },
+        );
+        let ids: Vec<_> = (0..3)
+            .map(|_| {
+                scheduler
+                    .submit_job(
+                        JobBuilder::new()
+                            .submitted_by("alice")
+                            .run_dir("/tmp")
+                            .gpus(1)
+                            .shared(true)
+                            .gpu_memory_limit_mb(Some(2000))
+                            .build(),
+                    )
+                    .0
+            })
+            .collect();
+        let prepared = scheduler.prepare_jobs_for_execution();
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(scheduler.get_job(ids[2]).unwrap().state, JobState::Queued);
+        assert!(scheduler.defer_gpu_dispatch(prepared[0].id));
+        let deferred = scheduler.get_job(prepared[0].id).unwrap();
+        assert_eq!(deferred.state, JobState::Queued);
+        assert!(deferred.gpu_ids.is_none() && deferred.started_at.is_none());
+        assert_eq!(scheduler.prepare_jobs_for_execution().len(), 1);
+    }
+
+    #[test]
     fn test_exclusive_job_waits_when_shared_job_is_running() {
         let mut scheduler = create_test_scheduler();
         scheduler.gpu_slots.insert(

@@ -48,10 +48,19 @@ pub struct DaemonConfig {
     #[serde(default = "default_gpu_poll_interval_secs")]
     #[serde(skip_serializing_if = "is_default_gpu_poll_interval_secs")]
     pub gpu_poll_interval_secs: u64,
+    /// Optional strict GPU launch thresholds; absent preserves legacy admission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_admission: Option<GpuAdmissionConfig>,
     /// Fair-share scheduling settings.
     #[serde(default)]
     #[serde(skip_serializing_if = "FairShareConfig::is_default")]
     pub fair_share: FairShareConfig,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+pub struct GpuAdmissionConfig {
+    pub max_utilization_percent: u32,
+    pub max_memory_used_percent: u32,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -409,6 +418,7 @@ impl Default for DaemonConfig {
             gpus: None,
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             gpu_poll_interval_secs: default_gpu_poll_interval_secs(),
+            gpu_admission: None,
             fair_share: FairShareConfig::default(),
         }
     }

@@ -146,6 +146,11 @@ async fn scheduler_trigger_handler_with_debounce(
                             | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
                                 pending_schedule = true;
                             }
+                            SchedulerEvent::PeriodicHealthCheck => {
+                                if state.read().await.gpu_admission.is_some() {
+                                    pending_schedule = true;
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -179,6 +184,9 @@ pub(super) async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<Even
     // Step 1: Prepare jobs for execution (write lock - fast, no I/O)
     let jobs_to_execute = {
         let mut state_guard = state.write().await;
+        if state_guard.gpu_admission.is_some() {
+            state_guard.refresh_gpu_slots();
+        }
         let jobs = state_guard.scheduler.prepare_jobs_for_execution();
 
         // CRITICAL: Immediately refresh GPU slots after allocation to prevent race condition
@@ -240,6 +248,20 @@ pub(super) async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<Even
                 job.id,
                 Err("Job state changed before execution".to_string()),
             ));
+            continue;
+        }
+
+        // A reservation can wait on persistence or an earlier job's launch.
+        // Sample again at the last possible point before invoking the executor.
+        let admission = state.read().await.check_job_gpu_admission(job);
+        if let Err(reason) = admission {
+            let mut state_guard = state.write().await;
+            if state_guard.scheduler.defer_gpu_dispatch(job.id) {
+                tracing::info!(job_id = job.id, %reason, "GPU admission deferred launch");
+                state_guard.refresh_gpu_slots();
+                state_guard.mark_dirty();
+                state_guard.save_state_if_dirty().await;
+            }
             continue;
         }
 
