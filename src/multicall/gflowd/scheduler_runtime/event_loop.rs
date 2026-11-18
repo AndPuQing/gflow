@@ -156,7 +156,9 @@ async fn scheduler_trigger_handler_with_debounce(
                             | SchedulerEvent::JobTimedOut { .. }
                             | SchedulerEvent::GpuAvailabilityChanged { .. }
                             | SchedulerEvent::ManualGpuOverrideChanged { .. }
-                            | SchedulerEvent::MemoryAvailabilityChanged { .. } => {
+                            | SchedulerEvent::MemoryAvailabilityChanged { .. }
+                            | SchedulerEvent::PeriodicHealthCheck
+                            | SchedulerEvent::ReservationCancelled { .. } => {
                                 pending_schedule = true;
                             }
                             _ => {}
@@ -308,4 +310,106 @@ pub(super) async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<Even
 
     #[cfg(feature = "metrics")]
     gflow::metrics::observe_scheduler_latency("trigger_scheduling", started_at.elapsed());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gflow::core::reservation::{GpuReservation, GpuSpec, ReservationStatus};
+    use tokio::sync::mpsc;
+
+    struct RecordingExecutor(mpsc::UnboundedSender<u32>);
+
+    impl Executor for RecordingExecutor {
+        fn execute(&self, job: &Job) -> Result<()> {
+            self.0.send(job.id).context("Test executor receiver closed")
+        }
+    }
+
+    async fn assert_reservation_release_schedules_job(expires_after: Option<Duration>) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+        let mut runtime = SchedulerRuntime::with_state_path(
+            Box::new(RecordingExecutor(started_tx)),
+            temp_dir.path().to_path_buf(),
+            None,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        runtime.nvml = None;
+        runtime.scheduler.update_gpu_slots(HashMap::from([(
+            "test-gpu".into(),
+            GPUSlot {
+                index: 0,
+                available: true,
+                total_memory_mb: None,
+                reason: None,
+            },
+        )]));
+
+        let now = SystemTime::now();
+        let elapsed = Duration::from_secs(1);
+        let reservation_id = 1;
+        runtime.scheduler.reservations.push(GpuReservation {
+            id: reservation_id,
+            user: "alice".into(),
+            gpu_spec: GpuSpec::Indices(vec![0]),
+            start_time: now - elapsed,
+            duration: elapsed + expires_after.unwrap_or(Duration::from_secs(60)),
+            status: ReservationStatus::Active,
+            created_at: now - elapsed,
+            cancelled_at: None,
+        });
+        let (job_id, _) = runtime
+            .scheduler
+            .submit_job(Job::builder().gpus(1).submitted_by("bob").build());
+        assert!(runtime.scheduler.prepare_jobs_for_execution().is_empty());
+
+        let state = Arc::new(RwLock::new(runtime));
+        let events = Arc::new(EventBus::new(8));
+        let scheduler = tokio::spawn(scheduler_trigger_handler_with_debounce(
+            events.subscribe(),
+            Arc::clone(&state),
+            Arc::clone(&events),
+        ));
+        let timer = if expires_after.is_some() {
+            Some(tokio::spawn(
+                super::super::monitors::reservation_monitor_task(
+                    Arc::clone(&state),
+                    Arc::clone(&events),
+                    events.subscribe(),
+                ),
+            ))
+        } else {
+            state
+                .write()
+                .await
+                .cancel_reservation(reservation_id)
+                .unwrap();
+            events.publish(SchedulerEvent::ReservationCancelled { reservation_id });
+            None
+        };
+
+        let started = tokio::time::timeout(Duration::from_secs(3), started_rx.recv()).await;
+        scheduler.abort();
+        if let Some(timer) = timer {
+            timer.abort();
+        }
+        assert_eq!(
+            started.expect("Reservation release did not wake the scheduler"),
+            Some(job_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn reservation_expiry_wakes_scheduler() {
+        assert_reservation_release_schedules_job(Some(Duration::from_millis(500))).await;
+    }
+
+    #[tokio::test]
+    async fn reservation_cancellation_wakes_scheduler() {
+        assert_reservation_release_schedules_job(None).await;
+    }
 }

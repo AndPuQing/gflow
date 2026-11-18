@@ -111,30 +111,16 @@ impl GpuReservation {
     /// Returns `None` if the reservation is in a terminal state (Completed/Cancelled)
     /// or if the transition time is in the past.
     pub fn next_transition_time(&self, now: SystemTime) -> Option<SystemTime> {
+        self.transition_deadline()
+            .filter(|deadline| *deadline > now)
+    }
+
+    /// Return the deadline for the current state, even if it is overdue.
+    pub(crate) fn transition_deadline(&self) -> Option<SystemTime> {
         match self.status {
-            ReservationStatus::Pending => {
-                // Next transition: start_time (Pending → Active)
-                if self.start_time > now {
-                    Some(self.start_time)
-                } else {
-                    // Already past start time, should transition immediately
-                    None
-                }
-            }
-            ReservationStatus::Active => {
-                // Next transition: end_time (Active → Completed)
-                let end = self.end_time();
-                if end > now {
-                    Some(end)
-                } else {
-                    // Already past end time, should transition immediately
-                    None
-                }
-            }
-            ReservationStatus::Completed | ReservationStatus::Cancelled => {
-                // Terminal states, no future transitions
-                None
-            }
+            ReservationStatus::Pending => Some(self.start_time),
+            ReservationStatus::Active => Some(self.end_time()),
+            ReservationStatus::Completed | ReservationStatus::Cancelled => None,
         }
     }
 }

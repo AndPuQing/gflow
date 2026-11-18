@@ -490,10 +490,6 @@ pub(super) async fn reservation_monitor_task(
             );
             state_guard.mark_dirty();
         }
-        drop(state_guard);
-
-        // Trigger scheduling in case reservations changed
-        event_bus.publish(SchedulerEvent::PeriodicHealthCheck);
     }
 
     loop {
@@ -505,18 +501,22 @@ pub(super) async fn reservation_monitor_task(
 
         match next_transition {
             Some(deadline) => {
-                // Convert SystemTime to Instant for tokio
                 let now = std::time::SystemTime::now();
-                let sleep_duration = deadline
-                    .duration_since(now)
-                    .unwrap_or(Duration::from_secs(0));
+                let sleep_duration = deadline.duration_since(now).unwrap_or_default();
+                let wait_for_deadline = async {
+                    if !sleep_duration.is_zero() {
+                        tokio::time::sleep(sleep_duration).await;
+                    }
+                };
 
                 // Wait until the next transition or a reservation change event
                 tokio::select! {
-                    _ = tokio::time::sleep(sleep_duration) => {
+                    biased;
+                    _ = wait_for_deadline => {
                         // Transition time reached, update statuses
                         let mut state_guard = state.write().await;
                         state_guard.scheduler.update_reservation_statuses();
+                        state_guard.mark_dirty();
                         drop(state_guard);
                         event_bus.publish(SchedulerEvent::PeriodicHealthCheck);
                     }
@@ -564,15 +564,13 @@ pub(super) async fn reservation_monitor_task(
     }
 }
 
-/// Calculate the next reservation status transition time
+/// Find the earliest unprocessed transition, including overdue deadlines.
 fn calculate_next_reservation_transition(
     reservations: &[gflow::core::reservation::GpuReservation],
 ) -> Option<std::time::SystemTime> {
-    let now = std::time::SystemTime::now();
-
     reservations
         .iter()
-        .filter_map(|r| r.next_transition_time(now))
+        .filter_map(gflow::core::reservation::GpuReservation::transition_deadline)
         .min()
 }
 
@@ -709,10 +707,11 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_next_transition_ignores_past_times() {
+    fn test_calculate_next_transition_keeps_overdue_end_time() {
         let now = SystemTime::now();
-        let past_time = now - Duration::from_secs(3600); // 1 hour ago
-        let future_time = now + Duration::from_secs(3600); // 1 hour from now
+        let past_time = now - Duration::from_secs(3600);
+        let duration = Duration::from_secs(1800);
+        let future_time = now + Duration::from_secs(3600);
 
         let reservations = vec![
             GpuReservation {
@@ -720,8 +719,8 @@ mod tests {
                 user: "alice".into(),
                 gpu_spec: GpuSpec::Count(2),
                 start_time: past_time,
-                duration: Duration::from_secs(1800),
-                status: ReservationStatus::Pending,
+                duration,
+                status: ReservationStatus::Active,
                 created_at: now - Duration::from_secs(7200),
                 cancelled_at: None,
             },
@@ -738,8 +737,7 @@ mod tests {
         ];
 
         let result = calculate_next_reservation_transition(&reservations);
-        // Should ignore past time and return future_time
-        assert_eq!(result, Some(future_time));
+        assert_eq!(result, Some(past_time + duration));
     }
 
     #[test]
