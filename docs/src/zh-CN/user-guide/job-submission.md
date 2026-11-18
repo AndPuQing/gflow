@@ -22,6 +22,27 @@ gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
+## 闲时任务
+
+管理员可在守护进程的 `gflow.toml` 中设置每日闲时时段。时间使用配置中的
+`timezone`，未配置时使用守护进程的本地时区。结束时间早于开始时间表示跨午夜。
+
+```toml
+timezone = "Asia/Shanghai"
+
+[daemon.off_hours]
+start = "23:00"
+end = "07:00"
+```
+
+```bash
+gbatch --off-hours --gpus 1 --time 1:00:00 python train.py
+```
+
+普通任务优先调度，闲时任务使用剩余资源。闲时任务必须设置大于零的 `--time`，
+剩余时段要能容纳该时长和 30 秒的清理余量，否则队列显示 `OffHours` 等待。任务启动后
+运行到完成或超时，后来提交的任务不会抢占它。
+
 ## 提交命令
 
 ```bash
@@ -51,6 +72,7 @@ gbatch train.sh
 
 - `# GFLOW --gpus=<N>`
 - `# GFLOW --shared`
+- `# GFLOW --off-hours`
 - `# GFLOW --time=<TIME>`
 - `# GFLOW --memory=<LIMIT>`
 - `# GFLOW --gpu-memory=<LIMIT>`

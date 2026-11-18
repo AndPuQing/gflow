@@ -1,6 +1,7 @@
 use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 const ZOMBIE_STARTUP_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
@@ -330,6 +331,26 @@ pub(super) async fn begin_time_monitor_task(
                 }
             }
         }
+    }
+}
+
+/// Run a scheduling pass when the next off-hours window opens, even without new jobs.
+pub(super) async fn off_hours_monitor_task(
+    state: SharedState,
+    event_bus: Arc<EventBus>,
+    window: OffHoursWindow,
+    mut now: SystemTime,
+) {
+    while let Some(start) = window.next_start(now) {
+        loop {
+            let remaining = start.duration_since(SystemTime::now()).unwrap_or_default();
+            if remaining.is_zero() {
+                break;
+            }
+            tokio::time::sleep(remaining).await;
+        }
+        super::event_loop::trigger_scheduling(&state, &event_bus).await;
+        now = SystemTime::now();
     }
 }
 

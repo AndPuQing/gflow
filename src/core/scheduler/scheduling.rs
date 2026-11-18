@@ -126,6 +126,14 @@ impl Scheduler {
     /// scheduler.handle_execution_failures(&results);
     /// ```
     pub fn prepare_jobs_for_execution(&mut self) -> Vec<Job> {
+        self.prepare_jobs_for_execution_with_off_hours(None)
+    }
+
+    /// Prepare jobs with the time available for off-hours jobs in this window.
+    pub(crate) fn prepare_jobs_for_execution_with_off_hours(
+        &mut self,
+        off_hours_remaining: Option<Duration>,
+    ) -> Vec<Job> {
         // Update reservation statuses first
         self.update_reservation_statuses();
         // Recompute host RAM from currently running jobs before making new decisions.
@@ -167,7 +175,7 @@ impl Scheduler {
         }
 
         // Apply fair-share reordering. The ready heap orders jobs by static keys
-        // (priority, time bonus, FIFO) captured at enqueue time; fair-share is
+        // (regular jobs first, priority, time bonus, FIFO) captured at enqueue time; fair-share is
         // dynamic, so after draining the heap we recompute each user's current
         // factor and re-sort the feasible set. This only reorders jobs within a
         // priority band — hard constraints (group concurrency limits,
@@ -186,6 +194,19 @@ impl Scheduler {
             let Some(idx) = job_id.checked_sub(1).map(|x| x as usize) else {
                 continue;
             };
+
+            if let Some((spec, rt)) = self.get_job_parts(job_id) {
+                if spec.off_hours
+                    && !rt.time_limit.is_some_and(|limit| {
+                        !limit.is_zero()
+                            && off_hours_remaining.is_some_and(|remaining| limit <= remaining)
+                    })
+                {
+                    self.set_job_reason(job_id, Some(JobStateReason::WaitingForOffHours));
+                    self.enqueue_if_ready(job_id);
+                    continue;
+                }
+            }
 
             // First, do immutable checks using only runtime (hot data)
             let (
@@ -487,7 +508,8 @@ impl Scheduler {
             .collect()
     }
 
-    /// Composite ordering key for fair-share scheduling: priority band first,
+    /// Composite ordering key for fair-share scheduling: regular jobs first,
+    /// then priority band,
     /// then fair-share factor (higher = more underserved), then the existing
     /// time bonus and FIFO tie-breakers. The factor is quantized to an integer
     /// so the key stays `Ord` without a float-ordering dependency.
@@ -495,14 +517,20 @@ impl Scheduler {
         &self,
         job_id: u32,
         factors: &HashMap<CompactString, f64>,
-    ) -> (u8, u64, u32, std::cmp::Reverse<u32>) {
+    ) -> (bool, u8, u64, u32, std::cmp::Reverse<u32>) {
         let Some((spec, rt)) = self.get_job_parts(job_id) else {
-            return (0, 0, 0, std::cmp::Reverse(job_id));
+            return (false, 0, 0, 0, std::cmp::Reverse(job_id));
         };
         let factor = factors.get(&spec.submitted_by).copied().unwrap_or(1.0);
         let factor_q = (factor.clamp(0.0, 1.0) * 1_000_000_000.0) as u64;
         let time_bonus = Self::calculate_time_bonus(&rt.time_limit);
-        (rt.priority, factor_q, time_bonus, std::cmp::Reverse(job_id))
+        (
+            !spec.off_hours,
+            rt.priority,
+            factor_q,
+            time_bonus,
+            std::cmp::Reverse(job_id),
+        )
     }
 
     /// Phase 2: Execute jobs (call executor - can be done WITHOUT holding lock)

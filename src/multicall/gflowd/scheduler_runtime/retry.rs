@@ -61,6 +61,7 @@ impl SchedulerRuntime {
         builder = builder.priority(original_job.priority);
         builder = builder.conda_env(original_job.conda_env.as_ref().map(|s| s.to_string()));
         builder = builder.time_limit(original_job.time_limit);
+        builder = builder.off_hours(original_job.off_hours);
         builder = builder.memory_limit_mb(original_job.memory_limit_mb);
         builder = builder.gpu_memory_limit_mb(original_job.gpu_memory_limit_mb);
         builder = builder.depends_on_ids(depends_on_ids.clone());

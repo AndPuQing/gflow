@@ -57,6 +57,7 @@ pub(crate) struct DependencyRuntime {
 pub(crate) struct ReadyEntry {
     pub job_id: u32,
     pub epoch: u64,
+    pub off_hours: bool,
     pub priority: u8,
     pub time_bonus: u32,
 }
@@ -64,12 +65,14 @@ pub(crate) struct ReadyEntry {
 impl Ord for ReadyEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         (
+            !self.off_hours,
             self.priority,
             self.time_bonus,
             std::cmp::Reverse(self.job_id),
             self.epoch,
         )
             .cmp(&(
+                !other.off_hours,
                 other.priority,
                 other.time_bonus,
                 std::cmp::Reverse(other.job_id),
@@ -332,6 +335,59 @@ mod tests {
     }
 
     #[test]
+    fn off_hours_jobs_wait_for_time_and_yield_scheduling_priority() {
+        let time_limit = Duration::from_secs(3600);
+        for fair_share in [false, true] {
+            let mut scheduler = SchedulerBuilder::new()
+                .with_total_memory_mb(1024)
+                .with_fair_share(fair_share, DEFAULT_FAIR_SHARE_HALF_LIFE_SECS)
+                .build();
+            let (off_hours_id, _) = scheduler.submit_job(
+                JobBuilder::new()
+                    .off_hours(true)
+                    .time_limit(time_limit)
+                    .memory_limit_mb(1024)
+                    .priority(u8::MAX)
+                    .build(),
+            );
+
+            for remaining in [None, Some(time_limit - Duration::from_secs(1))] {
+                assert!(scheduler
+                    .prepare_jobs_for_execution_with_off_hours(remaining)
+                    .is_empty());
+                let job = scheduler.get_job(off_hours_id).unwrap();
+                assert_eq!(job.state, JobState::Queued);
+                assert_eq!(
+                    job.reason.as_deref(),
+                    Some(&JobStateReason::WaitingForOffHours)
+                );
+            }
+
+            let regular_job = JobBuilder::new().memory_limit_mb(1024).priority(0).build();
+            let (regular_id, _) = scheduler.submit_job(regular_job.clone());
+            let prepared = scheduler.prepare_jobs_for_execution_with_off_hours(Some(time_limit));
+            assert_eq!(prepared.len(), 1);
+            assert_eq!(prepared[0].id, regular_id);
+            scheduler.finish_job(regular_id).unwrap();
+
+            let prepared = scheduler.prepare_jobs_for_execution_with_off_hours(Some(time_limit));
+            assert_eq!(prepared.len(), 1);
+            assert_eq!(prepared[0].id, off_hours_id);
+
+            let (next_regular_id, _) = scheduler.submit_job(regular_job);
+            assert!(scheduler.prepare_jobs_for_execution().is_empty());
+            assert_eq!(
+                scheduler.get_job(off_hours_id).unwrap().state,
+                JobState::Running
+            );
+            assert_eq!(
+                scheduler.get_job(next_regular_id).unwrap().state,
+                JobState::Queued
+            );
+        }
+    }
+
+    #[test]
     fn test_submit_job_with_future_begin_time_stays_queued() {
         let mut scheduler = create_test_scheduler();
         let job = JobBuilder::new()
@@ -439,22 +495,31 @@ mod tests {
     }
 
     #[test]
-    fn test_scheduled_at_persists_through_serde_roundtrip() {
+    fn test_scheduling_options_persist_through_serde_roundtrip() {
         let at = SystemTime::now() + Duration::from_secs(3600);
         let job = JobBuilder::new()
             .submitted_by("test")
             .run_dir("/tmp")
             .scheduled_at(at)
+            .off_hours(true)
             .build();
 
         let json = serde_json::to_string(&job).unwrap();
         let deserialized: Job = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.scheduled_at, Some(at));
+        assert!(deserialized.off_hours);
+
+        let mut scheduler = create_test_scheduler();
+        let (job_id, _) = scheduler.submit_job(job);
+        let saved = rmp_serde::to_vec_named(&scheduler).unwrap();
+        let loaded: Scheduler = rmp_serde::from_slice(&saved).unwrap();
+        assert!(loaded.get_job(job_id).unwrap().off_hours);
 
         // Old persisted state without the field still deserializes.
         let old = r#"{"id":1,"gpus":0,"run_dir":"/tmp","priority":10,"submitted_by":"test","state":"Queued"}"#;
         let legacy: Job = serde_json::from_str(old).unwrap();
         assert_eq!(legacy.scheduled_at, None);
+        assert!(!legacy.off_hours);
     }
 
     #[test]

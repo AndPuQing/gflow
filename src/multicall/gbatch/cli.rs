@@ -99,6 +99,10 @@ pub struct AddArgs {
     #[arg(long, value_hint = clap::ValueHint::Other)]
     pub begin: Option<String>,
 
+    /// Run in the daemon's off-hours window, after regular jobs (requires a time limit)
+    #[arg(long)]
+    pub off_hours: bool,
+
     /// The conda environment to use
     #[arg(short, long, value_hint = clap::ValueHint::Other)]
     pub conda_env: Option<String>,
