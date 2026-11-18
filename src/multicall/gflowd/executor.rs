@@ -809,14 +809,32 @@ mod tests {
     #[test]
     fn tmux_batch_liveness_matches_full_session_names() {
         let prefix = format!("gflow-test-batch-liveness-{}", std::process::id());
-        let session = format!("{prefix}\nsibling");
-        let created = Command::new("tmux")
-            .args(["new-session", "-d", "-s", &session, "sleep", "20"])
-            .output();
-        if !created.is_ok_and(|output| output.status.success()) {
-            eprintln!("Skipping tmux batch liveness test: tmux not usable");
-            return;
-        }
+        let requested = format!("{prefix}\nsibling");
+        let created = match Command::new("tmux")
+            .args([
+                "new-session",
+                "-dP",
+                "-F",
+                "#{session_id}\t#{session_name}",
+                "-s",
+                &requested,
+                "sleep",
+                "20",
+            ])
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => {
+                eprintln!("Skipping tmux batch liveness test: tmux not usable");
+                return;
+            }
+        };
+        // Newer tmux releases escape control characters in stored names.
+        let created = std::str::from_utf8(&created.stdout).unwrap();
+        let (session_id, session_name) = created
+            .strip_suffix('\n')
+            .and_then(|line| line.split_once('\t'))
+            .expect("tmux should print the session ID and name");
 
         let mut jobs = [
             Job {
@@ -828,12 +846,16 @@ mod tests {
             Job {
                 id: 2,
                 state: JobState::Running,
-                run_name: Some(session.clone().into()),
+                run_name: Some(session_name.into()),
                 ..Job::default()
             },
         ];
         TmuxExecutor.annotate_liveness(&mut jobs);
-        gflow::tmux::kill_session(&session).unwrap();
+        let cleanup = Command::new("tmux")
+            .args(["kill-session", "-t", session_id])
+            .output()
+            .unwrap();
+        assert!(cleanup.status.success(), "{cleanup:?}");
 
         assert_eq!(jobs[0].alive, Some(false));
         assert_eq!(jobs[1].alive, Some(true));
