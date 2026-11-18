@@ -104,8 +104,12 @@ fn compute_stats(specs: &[JobSpec], runtimes: &[JobRuntime], params: StatsQuery)
         }
     }
 
-    stats.avg_wait_secs = (wait_count > 0).then(|| wait_total / wait_count as f64);
-    stats.avg_runtime_secs = (runtime_count > 0).then(|| runtime_total / runtime_count as f64);
+    if wait_count > 0 {
+        stats.avg_wait_secs = Some(wait_total / wait_count as f64);
+    }
+    if runtime_count > 0 {
+        stats.avg_runtime_secs = Some(runtime_total / runtime_count as f64);
+    }
     if stats.total_jobs > 0 {
         stats.avg_gpus_per_job = gpu_total / stats.total_jobs as f64;
     }
