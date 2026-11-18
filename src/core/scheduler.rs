@@ -1585,6 +1585,34 @@ mod tests {
     }
 
     #[test]
+    fn test_lowering_queued_job_priority_keeps_it_schedulable() {
+        let mut scheduler = SchedulerBuilder::new().with_total_memory_mb(1024).build();
+        let (job_id, _) = scheduler.submit_job(
+            JobBuilder::new()
+                .priority(200)
+                .memory_limit_mb(2048)
+                .build(),
+        );
+
+        assert!(scheduler.prepare_jobs_for_execution().is_empty());
+        let job = scheduler.get_job_runtime_mut(job_id).unwrap();
+        assert_eq!(
+            job.reason.as_deref(),
+            Some(&JobStateReason::WaitingForMemory)
+        );
+        job.priority = 1;
+        job.memory_limit_mb = Some(512);
+        scheduler.refresh_job_readiness(job_id);
+
+        let (higher_priority_id, _) =
+            scheduler.submit_job(JobBuilder::new().priority(100).memory_limit_mb(512).build());
+        let prepared = scheduler.prepare_jobs_for_execution();
+        let prepared_ids: Vec<_> = prepared.iter().map(|job| job.id).collect();
+
+        assert_eq!(prepared_ids, [higher_priority_id, job_id]);
+    }
+
+    #[test]
     fn test_unified_memory_combines_host_and_gpu_memory() {
         let mut scheduler = SchedulerBuilder::new()
             .with_executor(Box::new(MockExecutor {
