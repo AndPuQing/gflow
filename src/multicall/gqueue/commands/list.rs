@@ -1,5 +1,9 @@
 use anyhow::Result;
-use gflow::{client::Client, core::job::JobState, tmux::get_all_session_names};
+use gflow::{
+    client::{Client, ListJobsQuery},
+    core::job::JobState,
+    tmux::get_all_session_names,
+};
 
 mod display;
 mod output;
@@ -89,9 +93,38 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         None
     };
 
-    let mut jobs_vec = client
-        .list_jobs_with_query(states_filter, user_filter, None, None, created_after, None)
-        .await?;
+    let effective_limit = if options.all { 0 } else { options.limit };
+    let limit = effective_limit.unsigned_abs() as usize;
+    // Apply the limit on the server when its ID order and filters select the same jobs.
+    let page = if limit != 0
+        && options.sort.eq_ignore_ascii_case("id")
+        && options.jobs.is_none()
+        && options.names.is_none()
+        && options.project.is_none()
+        && !options.tmux
+    {
+        client
+            .list_jobs_with_total(ListJobsQuery {
+                state: states_filter.clone(),
+                user: user_filter.clone(),
+                limit: Some(limit),
+                created_after,
+                order: Some(if effective_limit < 0 { "desc" } else { "asc" }.into()),
+                ..Default::default()
+            })
+            .await?
+    } else {
+        None
+    };
+    let (mut jobs_vec, total_jobs) = match page {
+        Some((jobs, total)) => (jobs, Some(total)),
+        None => (
+            client
+                .list_jobs_with_query(states_filter, user_filter, None, None, created_after, None)
+                .await?,
+            None,
+        ),
+    };
 
     if let Some(job_ids) = options.jobs.as_deref() {
         let job_ids_vec: Vec<u32> = job_ids
@@ -161,37 +194,20 @@ async fn display_once(client: &Client, options: &ListOptions) -> Result<()> {
         )
     })?;
 
-    let effective_limit = if options.all { 0 } else { options.limit };
-    let mut limit_message = None;
-    if effective_limit != 0 {
-        let total_jobs = jobs_vec.len();
-
-        if effective_limit > 0 {
-            let limit_usize = effective_limit as usize;
-            if jobs_vec.len() > limit_usize {
-                jobs_vec.truncate(limit_usize);
-                limit_message = Some(format!(
-                    "Showing first {} of {} jobs (use --all or -n 0 to show all)",
-                    effective_limit, total_jobs
-                ));
-            }
+    let total_jobs = total_jobs.unwrap_or(jobs_vec.len());
+    if limit != 0 && total_jobs > limit {
+        let end = if effective_limit > 0 {
+            jobs_vec.truncate(limit);
+            "first"
         } else {
-            let limit_usize = (-effective_limit) as usize;
-            if jobs_vec.len() > limit_usize {
-                let start = jobs_vec.len() - limit_usize;
-                jobs_vec = jobs_vec.into_iter().skip(start).collect();
-                limit_message = Some(format!(
-                    "Showing last {} of {} jobs (use --all or -n 0 to show all)",
-                    limit_usize, total_jobs
-                ));
-            }
-        }
-    }
-
-    if let Some(msg) = limit_message {
+            let start = jobs_vec.len().saturating_sub(limit);
+            drop(jobs_vec.drain(..start));
+            "last"
+        };
         if output_format == OutputFormat::Table {
-            println!("{}", msg);
-            println!();
+            println!(
+                "Showing {end} {limit} of {total_jobs} jobs (use --all or -n 0 to show all)\n"
+            );
         }
     }
 

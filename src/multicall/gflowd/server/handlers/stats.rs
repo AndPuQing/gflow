@@ -5,53 +5,15 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use gflow::core::job::JobState;
-use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use gflow::client::{TopJob, UsageStats};
+use gflow::core::job::{JobRuntime, JobSpec, JobState};
+use serde::Deserialize;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[derive(Debug, Deserialize)]
 pub(in crate::multicall::gflowd::server) struct StatsQuery {
     user: Option<String>,
     since: Option<i64>, // Unix timestamp
-}
-
-#[derive(Debug, Serialize)]
-pub(in crate::multicall::gflowd::server) struct UsageStats {
-    pub user: Option<String>,
-    pub since: Option<u64>,
-
-    // Job counts
-    pub total_jobs: usize,
-    pub completed_jobs: usize,
-    pub failed_jobs: usize,
-    pub cancelled_jobs: usize,
-    pub timeout_jobs: usize,
-    pub running_jobs: usize,
-    pub queued_jobs: usize,
-
-    // Timing (seconds)
-    pub avg_wait_secs: Option<f64>,
-    pub avg_runtime_secs: Option<f64>,
-    pub total_gpu_hours: f64,
-
-    // GPU usage
-    pub jobs_with_gpus: usize,
-    pub avg_gpus_per_job: f64,
-    pub peak_gpu_usage: u32,
-
-    // Rates
-    pub success_rate: f64,
-
-    // Top jobs by runtime
-    pub top_jobs: Vec<TopJob>,
-}
-
-#[derive(Debug, Serialize)]
-pub(in crate::multicall::gflowd::server) struct TopJob {
-    pub id: u32,
-    pub name: Option<String>,
-    pub runtime_secs: f64,
-    pub gpus: u32,
 }
 
 #[axum::debug_handler]
@@ -60,152 +22,173 @@ pub(in crate::multicall::gflowd::server) async fn get_stats(
     Query(params): Query<StatsQuery>,
 ) -> impl IntoResponse {
     let scheduler = server_state.scheduler.read().await;
-    let jobs = scheduler.jobs();
-
-    let since_time: Option<SystemTime> = params
-        .since
-        .map(|secs| UNIX_EPOCH + Duration::from_secs(secs as u64));
-
-    let filtered: Vec<_> = jobs
-        .iter()
-        .filter(|j| {
-            // user filter
-            if let Some(ref u) = params.user {
-                if j.submitted_by.as_str() != u.as_str() {
-                    return false;
-                }
-            }
-            // time filter: use submitted_at
-            if let Some(since) = since_time {
-                if let Some(submitted) = j.submitted_at {
-                    if submitted < since {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            true
-        })
-        .collect();
-
-    let total_jobs = filtered.len();
-    let completed_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Finished)
-        .count();
-    let failed_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Failed)
-        .count();
-    let cancelled_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Cancelled)
-        .count();
-    let timeout_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Timeout)
-        .count();
-    let running_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Running)
-        .count();
-    let queued_jobs = filtered
-        .iter()
-        .filter(|j| j.state == JobState::Queued)
-        .count();
-
-    // Wait times (only jobs that have started)
-    let wait_times: Vec<f64> = filtered
-        .iter()
-        .filter_map(|j| j.wait_time().map(|d| d.as_secs_f64()))
-        .collect();
-    let avg_wait_secs = if wait_times.is_empty() {
-        None
-    } else {
-        Some(wait_times.iter().sum::<f64>() / wait_times.len() as f64)
-    };
-
-    // Runtimes (only finished/failed/timeout jobs for stable averages)
-    let runtimes: Vec<f64> = filtered
-        .iter()
-        .filter(|j| {
-            matches!(
-                j.state,
-                JobState::Finished | JobState::Failed | JobState::Timeout
-            )
-        })
-        .filter_map(|j| j.runtime().map(|d| d.as_secs_f64()))
-        .collect();
-    let avg_runtime_secs = if runtimes.is_empty() {
-        None
-    } else {
-        Some(runtimes.iter().sum::<f64>() / runtimes.len() as f64)
-    };
-
-    // GPU hours: sum of (gpus * runtime_hours) for all jobs with runtime
-    let total_gpu_hours: f64 = filtered
-        .iter()
-        .filter_map(|j| {
-            j.runtime()
-                .map(|rt| j.gpus as f64 * rt.as_secs_f64() / 3600.0)
-        })
-        .sum();
-
-    let jobs_with_gpus = filtered.iter().filter(|j| j.gpus > 0).count();
-    let avg_gpus_per_job = if total_jobs == 0 {
-        0.0
-    } else {
-        filtered.iter().map(|j| j.gpus as f64).sum::<f64>() / total_jobs as f64
-    };
-    let peak_gpu_usage = filtered.iter().map(|j| j.gpus).max().unwrap_or(0);
-
-    let terminal_jobs = completed_jobs + failed_jobs + cancelled_jobs + timeout_jobs;
-    let success_rate = if terminal_jobs == 0 {
-        0.0
-    } else {
-        completed_jobs as f64 / terminal_jobs as f64 * 100.0
-    };
-
-    // Top 5 jobs by runtime
-    let mut jobs_with_runtime: Vec<(&gflow::core::job::Job, std::time::Duration)> = filtered
-        .iter()
-        .filter_map(|j| j.runtime().map(|rt| (*j, rt)))
-        .collect();
-    jobs_with_runtime.sort_by_key(|b| std::cmp::Reverse(b.1));
-    let top_jobs: Vec<TopJob> = jobs_with_runtime
-        .iter()
-        .take(5)
-        .map(|(j, rt)| TopJob {
-            id: j.id,
-            name: j
-                .run_name
-                .as_ref()
-                .map(|s: &compact_str::CompactString| s.to_string()),
-            runtime_secs: rt.as_secs_f64(),
-            gpus: j.gpus,
-        })
-        .collect();
-
-    let stats = UsageStats {
-        user: params.user,
-        since: params.since.map(|s| s as u64),
-        total_jobs,
-        completed_jobs,
-        failed_jobs,
-        cancelled_jobs,
-        timeout_jobs,
-        running_jobs,
-        queued_jobs,
-        avg_wait_secs,
-        avg_runtime_secs,
-        total_gpu_hours,
-        jobs_with_gpus,
-        avg_gpus_per_job,
-        peak_gpu_usage,
-        success_rate,
-        top_jobs,
-    };
-
+    let stats = compute_stats(scheduler.job_specs(), scheduler.job_runtimes(), params);
     (StatusCode::OK, Json(stats))
+}
+
+fn compute_stats(specs: &[JobSpec], runtimes: &[JobRuntime], params: StatsQuery) -> UsageStats {
+    const TOP_JOB_COUNT: usize = 5;
+
+    let since = params.since.map(|secs| secs.max(0) as u64);
+    let cutoff = since.map(Duration::from_secs);
+    let mut stats = UsageStats {
+        user: params.user,
+        since,
+        ..UsageStats::default()
+    };
+
+    let mut wait_total = 0.0;
+    let mut wait_count = 0usize;
+    let mut runtime_total = 0.0;
+    let mut runtime_count = 0usize;
+    let mut gpu_total = 0.0;
+    let mut top_jobs: Vec<(&JobSpec, &JobRuntime, Duration)> = Vec::with_capacity(TOP_JOB_COUNT);
+
+    for (spec, rt) in specs.iter().zip(runtimes) {
+        if stats
+            .user
+            .as_deref()
+            .is_some_and(|user| spec.submitted_by != user)
+            || cutoff.is_some_and(|cutoff| {
+                spec.submitted_at
+                    .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+                    .is_none_or(|submitted| submitted < cutoff)
+            })
+        {
+            continue;
+        }
+
+        stats.total_jobs += 1;
+        match rt.state {
+            JobState::Finished => stats.completed_jobs += 1,
+            JobState::Failed => stats.failed_jobs += 1,
+            JobState::Cancelled => stats.cancelled_jobs += 1,
+            JobState::Timeout => stats.timeout_jobs += 1,
+            JobState::Running => stats.running_jobs += 1,
+            JobState::Queued => stats.queued_jobs += 1,
+            JobState::Hold => {}
+        }
+
+        stats.jobs_with_gpus += usize::from(rt.gpus > 0);
+        gpu_total += f64::from(rt.gpus);
+        stats.peak_gpu_usage = stats.peak_gpu_usage.max(rt.gpus);
+
+        if let Some(wait) = spec
+            .submitted_at
+            .zip(rt.started_at)
+            .and_then(|(submitted, started)| started.duration_since(submitted).ok())
+        {
+            wait_total += wait.as_secs_f64();
+            wait_count += 1;
+        }
+
+        if let Some(runtime) = rt.runtime() {
+            let runtime_secs = runtime.as_secs_f64();
+            stats.total_gpu_hours += f64::from(rt.gpus) * runtime_secs / 3600.0;
+            if matches!(
+                rt.state,
+                JobState::Finished | JobState::Failed | JobState::Timeout
+            ) {
+                runtime_total += runtime_secs;
+                runtime_count += 1;
+            }
+
+            // Equal runtimes keep their original job ID order.
+            let position = top_jobs.partition_point(|&(_, _, duration)| duration >= runtime);
+            if position < TOP_JOB_COUNT {
+                if top_jobs.len() == TOP_JOB_COUNT {
+                    top_jobs.pop();
+                }
+                top_jobs.insert(position, (spec, rt, runtime));
+            }
+        }
+    }
+
+    stats.avg_wait_secs = (wait_count > 0).then(|| wait_total / wait_count as f64);
+    stats.avg_runtime_secs = (runtime_count > 0).then(|| runtime_total / runtime_count as f64);
+    if stats.total_jobs > 0 {
+        stats.avg_gpus_per_job = gpu_total / stats.total_jobs as f64;
+    }
+
+    let terminal_jobs =
+        stats.completed_jobs + stats.failed_jobs + stats.cancelled_jobs + stats.timeout_jobs;
+    if terminal_jobs > 0 {
+        stats.success_rate = stats.completed_jobs as f64 / terminal_jobs as f64 * 100.0;
+    }
+    stats.top_jobs = top_jobs
+        .into_iter()
+        .map(|(spec, rt, duration)| TopJob {
+            id: rt.id,
+            name: spec.run_name.as_ref().map(ToString::to_string),
+            runtime_secs: duration.as_secs_f64(),
+            gpus: rt.gpus,
+        })
+        .collect();
+
+    stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stats_filter_by_user_and_time_and_keep_equal_runtime_jobs_in_id_order() {
+        let cutoff = UNIX_EPOCH + Duration::from_secs(100);
+        let records = [
+            ("alice", Some(cutoff), JobState::Finished, 10),
+            ("alice", Some(cutoff), JobState::Failed, 10),
+            ("alice", Some(cutoff), JobState::Cancelled, 30),
+            ("alice", Some(cutoff), JobState::Timeout, 10),
+            ("alice", Some(cutoff), JobState::Finished, 10),
+            ("alice", Some(cutoff), JobState::Finished, 10),
+            ("bob", Some(cutoff), JobState::Finished, 100),
+            ("alice", Some(UNIX_EPOCH), JobState::Finished, 100),
+            ("alice", None, JobState::Finished, 100),
+        ];
+        let (specs, runtimes): (Vec<_>, Vec<_>) = records
+            .into_iter()
+            .enumerate()
+            .map(|(index, (user, submitted_at, state, seconds))| {
+                let started_at = cutoff + Duration::from_secs(2);
+                (
+                    JobSpec {
+                        submitted_by: user.into(),
+                        submitted_at,
+                        ..JobSpec::default()
+                    },
+                    JobRuntime {
+                        id: index as u32 + 1,
+                        gpus: 2,
+                        state,
+                        started_at: Some(started_at),
+                        finished_at: Some(started_at + Duration::from_secs(seconds)),
+                        ..JobRuntime::default()
+                    },
+                )
+            })
+            .unzip();
+        let stats = compute_stats(
+            &specs,
+            &runtimes,
+            StatsQuery {
+                user: Some("alice".into()),
+                since: Some(100),
+            },
+        );
+
+        assert_eq!(stats.total_jobs, 6);
+        assert_eq!(stats.completed_jobs, 3);
+        assert_eq!(stats.failed_jobs, 1);
+        assert_eq!(stats.cancelled_jobs, 1);
+        assert_eq!(stats.timeout_jobs, 1);
+        assert_eq!(stats.avg_wait_secs, Some(2.0));
+        assert_eq!(stats.avg_runtime_secs, Some(10.0));
+        assert!((stats.total_gpu_hours - 160.0 / 3600.0).abs() < 1e-12);
+        assert_eq!(stats.success_rate, 50.0);
+        assert_eq!(
+            stats.top_jobs.iter().map(|job| job.id).collect::<Vec<_>>(),
+            [3, 1, 2, 4, 5]
+        );
+    }
 }

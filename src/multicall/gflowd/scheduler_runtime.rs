@@ -287,15 +287,6 @@ impl SchedulerRuntime {
         info
     }
 
-    /// Annotate a materialized job with a transient liveness hint (whether its
-    /// underlying process/session is still alive). Only meaningful for Running
-    /// jobs; the hint is display-only and never persisted.
-    pub fn annotate_liveness(&self, job: &mut Job) {
-        if job.state == JobState::Running {
-            job.alive = Some(self.executor.is_running(job.id, job.run_name.as_deref()));
-        }
-    }
-
     pub fn gpu_slots_count(&self) -> usize {
         self.scheduler.gpu_slots_count()
     }

@@ -1,5 +1,5 @@
 use gflow::config::{Config, DaemonConfig};
-use gflow::core::job::{JobBuilder, JobState, JobStateReason};
+use gflow::core::job::{Job, JobBuilder, JobState, JobStateReason};
 use gflow::tmux::{get_all_session_names, is_session_exist};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -771,6 +771,76 @@ async fn tmux_job_execution_writes_logs_and_auto_closes_session() {
     )
     .await;
     wait_for_tmux_session(&run_name, false, Duration::from_secs(10)).await;
+
+    sandbox.stop_daemon();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn job_pages_keep_filtered_total_and_gqueue_order() {
+    let Some(mut sandbox) = TestSandbox::new_direct("process") else {
+        return;
+    };
+    let history = [
+        ("alice", JobState::Finished, 0),
+        ("alice", JobState::Failed, 100),
+        ("bob", JobState::Finished, 100),
+        ("alice", JobState::Cancelled, 120),
+        ("alice", JobState::Timeout, 140),
+        ("alice", JobState::Hold, 160),
+    ];
+    let jobs: Vec<Job> = history
+        .into_iter()
+        .enumerate()
+        .map(|(index, (user, state, seconds))| Job {
+            id: index as u32 + 1,
+            state,
+            submitted_by: user.into(),
+            submitted_at: Some(std::time::UNIX_EPOCH + Duration::from_secs(seconds)),
+            ..Job::default()
+        })
+        .collect();
+    std::fs::write(
+        sandbox.data_dir().join("state.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "version": 4,
+            "next_job_id": jobs.len() + 1,
+            "jobs": jobs,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    sandbox.start_daemon();
+    wait_for_health_status(&sandbox.base_url(), StatusCode::OK, Duration::from_secs(15)).await;
+
+    let response = reqwest::get(format!(
+        "{}/jobs?state=Finished,Failed,Cancelled,Timeout&user=alice&created_after=100&limit=1&offset=1&order=desc&include_total=true",
+        sandbox.base_url()
+    ))
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap();
+    assert_eq!(response.headers().get("x-gflow-total-count").unwrap(), "3");
+    let page = response.json::<Vec<Job>>().await.unwrap();
+    assert_eq!(page.iter().map(|job| job.id).collect::<Vec<_>>(), [4]);
+
+    let gqueue = env!("CARGO_BIN_EXE_gqueue");
+    let args = ["--completed", "--user", "alice", "-n", "-2"];
+    let table = sandbox.run_bin(gqueue, args);
+    table.assert_success("gqueue --completed -n -2");
+    assert!(table.stdout.contains("Showing last 2 of 4 jobs"));
+
+    let output = sandbox.run_bin(gqueue, args.into_iter().chain(["--output", "json"]));
+    output.assert_success("gqueue --completed -n -2 --output json");
+    let payload: Value = serde_json::from_str(&output.stdout).unwrap();
+    let ids: Vec<_> = payload["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|job| job["id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, [4, 5]);
 
     sandbox.stop_daemon();
 }

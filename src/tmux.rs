@@ -186,13 +186,17 @@ pub fn tmux_available() -> bool {
 /// Get all existing tmux session names in a single call
 /// This is much more efficient than checking each session individually
 pub fn get_all_session_names() -> std::collections::HashSet<String> {
-    Tmux::with_command(tmux_interface::ListSessions::new().format("#{session_name}"))
+    // tmux reserves ':' for target delimiters. Use it to frame names that contain newlines.
+    Tmux::with_command(tmux_interface::ListSessions::new().format("#{session_name}:"))
         .output()
         .map(|output| {
             if output.success() {
                 let stdout_bytes = output.stdout();
                 let stdout_str = String::from_utf8_lossy(&stdout_bytes);
-                stdout_str.lines().map(|line| line.to_string()).collect()
+                stdout_str
+                    .split_terminator(":\n")
+                    .map(str::to_owned)
+                    .collect()
             } else {
                 std::collections::HashSet::new()
             }

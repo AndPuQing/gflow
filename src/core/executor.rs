@@ -1,4 +1,4 @@
-use crate::core::job::Job;
+use crate::core::job::{Job, JobState};
 use anyhow::Result;
 
 /// The result reported by an execution runner after the payload exits.
@@ -31,8 +31,8 @@ pub enum ExecutionStatus {
 /// process group (`setsid`) and redirects its stdio to the job log file; it is
 /// available as an opt-in via `[executor] type = "process"`.
 ///
-/// All methods other than `execute` have default no-op implementations so
-/// that mock executors used in tests only need to implement `execute`.
+/// All methods other than `execute` provide defaults so that mock executors
+/// used in tests only need to implement `execute`.
 pub trait Executor: Send + Sync {
     /// Start executing a job. Must return quickly (spawn, not wait).
     fn execute(&self, job: &Job) -> Result<()>;
@@ -71,6 +71,13 @@ pub trait Executor: Send + Sync {
     /// false-positive a running job as a zombie.
     fn is_running(&self, _job_id: u32, _run_name: Option<&str>) -> bool {
         true
+    }
+
+    /// Add display-only liveness hints to Running jobs in a response.
+    fn annotate_liveness(&self, jobs: &mut [Job]) {
+        for job in jobs.iter_mut().filter(|job| job.state == JobState::Running) {
+            job.alive = Some(self.is_running(job.id, job.run_name.as_deref()));
+        }
     }
 
     /// Return execution results that were recorded while the daemon was

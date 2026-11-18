@@ -2,11 +2,13 @@ use super::super::state::{reject_if_read_only, ServerState};
 use crate::multicall::gflowd::events::SchedulerEvent;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+use gflow::client::{ListJobsQuery, LIST_JOBS_TOTAL_HEADER};
 use gflow::core::job::{Job, JobRuntime, JobSpec, JobState};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[axum::debug_handler]
@@ -52,79 +54,78 @@ pub(in crate::multicall::gflowd::server) async fn list_ignored_gpu_processes(
     (StatusCode::OK, Json(processes))
 }
 
-#[derive(serde::Deserialize)]
-pub(in crate::multicall::gflowd::server) struct ListJobsQuery {
-    state: Option<String>,
-    user: Option<String>,
-    limit: Option<usize>,
-    offset: Option<usize>,
-    created_after: Option<i64>,
-    order: Option<String>,
+fn merge_job_ids<'a>(mut indexes: impl Iterator<Item = &'a [u32]>) -> Cow<'a, [u32]> {
+    let first = indexes.next().unwrap_or_default();
+    let Some(second) = indexes.next() else {
+        return Cow::Borrowed(first);
+    };
+
+    let mut ids = first.to_vec();
+    ids.extend_from_slice(second);
+    ids.extend(indexes.flatten().copied());
+    ids.sort_unstable();
+    ids.dedup();
+    Cow::Owned(ids)
 }
 
 #[axum::debug_handler]
 pub(in crate::multicall::gflowd::server) async fn list_jobs(
     State(server_state): State<ServerState>,
-    axum::extract::Query(params): axum::extract::Query<ListJobsQuery>,
-) -> impl IntoResponse {
-    let state = server_state.scheduler.read().await;
-
-    // Parse filters once before iteration
-    let state_filter: Option<Vec<JobState>> = params.state.as_ref().map(|states_str| {
-        states_str
-            .split(',')
-            .filter_map(|s| s.trim().parse().ok())
-            .collect()
-    });
-
-    let user_filter: Option<Vec<String>> = params
+    Query(params): Query<ListJobsQuery>,
+) -> Result<Response, StatusCode> {
+    let states: Vec<JobState> = params
+        .state
+        .iter()
+        .flat_map(|states| states.split(','))
+        .filter_map(|state| state.trim().parse().ok())
+        .collect();
+    let users: Vec<&str> = params
         .user
-        .as_ref()
-        .map(|users_str| users_str.split(',').map(|s| s.trim().to_string()).collect());
-
+        .iter()
+        .flat_map(|users| users.split(','))
+        .map(str::trim)
+        .collect();
     let time_filter = params.created_after.and_then(|secs| {
         use std::time::{Duration, UNIX_EPOCH};
         UNIX_EPOCH.checked_add(Duration::from_secs(secs.max(0) as u64))
     });
 
-    // Stream over split storage in the requested ID order and materialize only the requested page.
+    let state = server_state.scheduler.read().await;
+    let specs = state.job_specs();
+    let runtimes = state.job_runtimes();
+    // Use the smaller index when both filters are present.
+    let user_ids = users.iter().filter_map(|user| state.job_ids_by_user(user));
+    let state_ids = states
+        .iter()
+        .filter_map(|&state_name| state.job_ids_by_state(state_name));
+    let candidate_ids = match (users.is_empty(), states.is_empty()) {
+        (true, true) => None,
+        (false, true) => Some(merge_job_ids(user_ids)),
+        (true, false) => Some(merge_job_ids(state_ids)),
+        (false, false) => {
+            let user_count = user_ids.clone().map(|ids| ids.len()).sum::<usize>();
+            let state_count = state_ids.clone().map(|ids| ids.len()).sum::<usize>();
+            Some(if user_count <= state_count {
+                merge_job_ids(user_ids)
+            } else {
+                merge_job_ids(state_ids)
+            })
+        }
+    };
+
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(usize::MAX);
     let descending = params
         .order
         .as_deref()
         .is_some_and(|order| order.eq_ignore_ascii_case("desc"));
-
-    let mut matched = 0usize;
+    let mut matched = 0;
     let mut jobs = Vec::new();
-
-    let users = user_filter.as_ref().filter(|u| !u.is_empty());
-    let states = state_filter.as_ref().filter(|s| !s.is_empty());
-
-    let matches_filters = |spec: &JobSpec, rt: &JobRuntime| -> bool {
-        if let Some(ref states) = state_filter {
-            if !states.is_empty() && !states.contains(&rt.state) {
-                return false;
-            }
-        }
-
-        if let Some(ref users) = user_filter {
-            if !users.is_empty() && !users.iter().any(|u| u == spec.submitted_by.as_str()) {
-                return false;
-            }
-        }
-
-        if let Some(created_after) = time_filter {
-            if spec.submitted_at.is_none_or(|ts| ts < created_after) {
-                return false;
-            }
-        }
-
-        true
-    };
-
-    let mut collect_job = |spec: &JobSpec, rt: &JobRuntime| -> bool {
-        if !matches_filters(spec, rt) {
+    let mut collect_job = |(spec, rt): (&JobSpec, &JobRuntime)| {
+        if (!states.is_empty() && !states.contains(&rt.state))
+            || (!users.is_empty() && !users.contains(&spec.submitted_by.as_str()))
+            || time_filter.is_some_and(|cutoff| spec.submitted_at.is_none_or(|ts| ts < cutoff))
+        {
             return false;
         }
 
@@ -132,239 +133,55 @@ pub(in crate::multicall::gflowd::server) async fn list_jobs(
             jobs.push(Job::from_parts(spec.clone(), rt.clone()));
         }
         matched += 1;
-
-        jobs.len() >= limit
+        !params.include_total && jobs.len() >= limit
     };
 
-    // Choose the most selective index (user or state) when both filters are present.
-    //
-    // This keeps the hot path O(k) where k is the number of candidate jobs, instead of O(n)
-    // scanning all jobs.
-    enum CandidateSource {
-        User,
-        State,
-        ScanAll,
-    }
-
-    let source = match (users, states) {
-        (Some(users), Some(states)) => {
-            let user_count: usize = if users.len() == 1 {
-                state
-                    .job_ids_by_user(&users[0])
-                    .map(|v| v.len())
-                    .unwrap_or(0)
-            } else {
-                users
-                    .iter()
-                    .filter_map(|u| state.job_ids_by_user(u).map(|v| v.len()))
-                    .sum()
+    if let Some(ids) = candidate_ids {
+        let visit_id = |&id: &u32| {
+            let Some(index) = id.checked_sub(1).map(|index| index as usize) else {
+                return false;
             };
-
-            let state_count: usize = if states.len() == 1 {
-                state
-                    .job_ids_by_state(states[0])
-                    .map(|v| v.len())
-                    .unwrap_or(0)
-            } else {
-                states
-                    .iter()
-                    .filter_map(|s| state.job_ids_by_state(*s).map(|v| v.len()))
-                    .sum()
-            };
-
-            if user_count <= state_count {
-                CandidateSource::User
-            } else {
-                CandidateSource::State
-            }
+            specs
+                .get(index)
+                .zip(runtimes.get(index))
+                .is_some_and(&mut collect_job)
+        };
+        if descending {
+            ids.iter().rev().any(visit_id);
+        } else {
+            ids.iter().any(visit_id);
         }
-        (Some(_), None) => CandidateSource::User,
-        (None, Some(_)) => CandidateSource::State,
-        (None, None) => CandidateSource::ScanAll,
-    };
-
-    match source {
-        CandidateSource::User => {
-            let Some(users) = users else {
-                return (StatusCode::OK, Json(jobs));
-            };
-
-            if users.len() == 1 {
-                let Some(job_ids) = state.job_ids_by_user(&users[0]) else {
-                    return (StatusCode::OK, Json(jobs));
-                };
-
-                let mut visit_job_id = |job_id: u32| -> bool {
-                    let idx = match job_id.checked_sub(1) {
-                        Some(v) => v as usize,
-                        None => return false,
-                    };
-                    let (Some(spec), Some(rt)) =
-                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                    else {
-                        return false;
-                    };
-                    collect_job(spec, rt)
-                };
-
-                if descending {
-                    for &job_id in job_ids.iter().rev() {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                } else {
-                    for &job_id in job_ids {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                // Multi-user: merge candidate job ids (still usually much smaller than scanning all).
-                let mut job_ids = Vec::new();
-                for user in users {
-                    if let Some(user_ids) = state.job_ids_by_user(user) {
-                        job_ids.extend_from_slice(user_ids);
-                    }
-                }
-
-                job_ids.sort_unstable();
-                job_ids.dedup();
-
-                let mut visit_job_id = |job_id: u32| -> bool {
-                    let idx = match job_id.checked_sub(1) {
-                        Some(v) => v as usize,
-                        None => return false,
-                    };
-                    let (Some(spec), Some(rt)) =
-                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                    else {
-                        return false;
-                    };
-                    collect_job(spec, rt)
-                };
-
-                if descending {
-                    for job_id in job_ids.into_iter().rev() {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                } else {
-                    for job_id in job_ids {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        CandidateSource::State => {
-            let Some(states) = states else {
-                return (StatusCode::OK, Json(jobs));
-            };
-
-            if states.len() == 1 {
-                let Some(job_ids) = state.job_ids_by_state(states[0]) else {
-                    return (StatusCode::OK, Json(jobs));
-                };
-
-                let mut visit_job_id = |job_id: u32| -> bool {
-                    let idx = match job_id.checked_sub(1) {
-                        Some(v) => v as usize,
-                        None => return false,
-                    };
-                    let (Some(spec), Some(rt)) =
-                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                    else {
-                        return false;
-                    };
-                    collect_job(spec, rt)
-                };
-
-                if descending {
-                    for &job_id in job_ids.iter().rev() {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                } else {
-                    for &job_id in job_ids {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                // Multi-state: merge candidate job ids.
-                let mut job_ids = Vec::new();
-                for state_name in states {
-                    if let Some(state_ids) = state.job_ids_by_state(*state_name) {
-                        job_ids.extend_from_slice(state_ids);
-                    }
-                }
-
-                job_ids.sort_unstable();
-                job_ids.dedup();
-
-                let mut visit_job_id = |job_id: u32| -> bool {
-                    let idx = match job_id.checked_sub(1) {
-                        Some(v) => v as usize,
-                        None => return false,
-                    };
-                    let (Some(spec), Some(rt)) =
-                        (state.job_specs().get(idx), state.job_runtimes().get(idx))
-                    else {
-                        return false;
-                    };
-                    collect_job(spec, rt)
-                };
-
-                if descending {
-                    for job_id in job_ids.into_iter().rev() {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                } else {
-                    for job_id in job_ids {
-                        if visit_job_id(job_id) {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        CandidateSource::ScanAll => {
-            if descending {
-                for (spec, rt) in state
-                    .job_specs()
-                    .iter()
-                    .zip(state.job_runtimes().iter())
-                    .rev()
-                {
-                    if collect_job(spec, rt) {
-                        break;
-                    }
-                }
-            } else {
-                for (spec, rt) in state.job_specs().iter().zip(state.job_runtimes().iter()) {
-                    if collect_job(spec, rt) {
-                        break;
-                    }
-                }
-            }
+    } else {
+        let mut records = specs.iter().zip(runtimes);
+        if descending {
+            records.rev().any(collect_job);
+        } else {
+            records.any(collect_job);
         }
     }
 
-    // Attach a transient liveness hint (process/session alive) for Running
-    // jobs so clients can render an executor-appropriate indicator.
-    for job in &mut jobs {
-        state.annotate_liveness(job);
+    let executor = state.executor();
+    drop(state);
+    // Liveness is a display hint. Probe after snapshotting the page and releasing the lock.
+    if jobs.iter().any(|job| job.state == JobState::Running) {
+        jobs = tokio::task::spawn_blocking(move || {
+            executor.annotate_liveness(&mut jobs);
+            jobs
+        })
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Job liveness probe failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
-    (StatusCode::OK, Json(jobs))
+    let mut response = Json(jobs).into_response();
+    if params.include_total {
+        response
+            .headers_mut()
+            .insert(LIST_JOBS_TOTAL_HEADER, HeaderValue::from(matched));
+    }
+    Ok(response)
 }
 
 #[axum::debug_handler]
@@ -595,7 +412,9 @@ pub(in crate::multicall::gflowd::server) async fn get_job(
     let Some(mut job) = state.get_job(id) else {
         return Err(StatusCode::NOT_FOUND);
     };
-    state.annotate_liveness(&mut job);
+    let executor = state.executor();
+    drop(state);
+    executor.annotate_liveness(std::slice::from_mut(&mut job));
     Ok(Json(job))
 }
 
