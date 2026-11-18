@@ -153,10 +153,6 @@ impl Scheduler {
         let mut runnable_jobs = Vec::new();
         let mut seen_ready_jobs = HashSet::new();
         while let Some(entry) = self.ready_heap.pop() {
-            if !seen_ready_jobs.insert(entry.job_id) {
-                continue;
-            }
-
             let Some(rt) = self.get_job_runtime(entry.job_id) else {
                 continue;
             };
@@ -171,7 +167,10 @@ impl Scheduler {
                 continue;
             }
 
-            runnable_jobs.push(entry.job_id);
+            // A stale entry can sort ahead of the current one after a priority update.
+            if seen_ready_jobs.insert(entry.job_id) {
+                runnable_jobs.push(entry.job_id);
+            }
         }
 
         // Apply fair-share reordering. The ready heap orders jobs by static keys
