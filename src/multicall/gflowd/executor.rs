@@ -746,6 +746,29 @@ impl Executor for TmuxExecutor {
         run_name.map(gflow::tmux::is_session_exist).unwrap_or(false)
     }
 
+    fn annotate_liveness(&self, jobs: &mut [Job]) {
+        let mut running = jobs
+            .iter_mut()
+            .filter(|job| job.state == JobState::Running)
+            .peekable();
+        let Some(first) = running.next() else {
+            return;
+        };
+        if running.peek().is_none() {
+            first.alive = Some(self.is_running(first.id, first.run_name.as_deref()));
+            return;
+        }
+
+        let sessions = gflow::tmux::get_all_session_names();
+        for job in std::iter::once(first).chain(running) {
+            job.alive = Some(
+                job.run_name
+                    .as_deref()
+                    .is_some_and(|name| sessions.contains(name)),
+            );
+        }
+    }
+
     fn cleanup(&self, job: &Job) {
         let Some(run_name) = job.run_name.as_ref() else {
             return;
@@ -781,6 +804,61 @@ mod tests {
             run_dir: PathBuf::from("/tmp"),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn tmux_batch_liveness_matches_full_session_names() {
+        let prefix = format!("gflow-test-batch-liveness-{}", std::process::id());
+        let requested = format!("{prefix}\nsibling");
+        let created = match Command::new("tmux")
+            .args([
+                "new-session",
+                "-dP",
+                "-F",
+                "#{session_id}\t#{session_name}",
+                "-s",
+                &requested,
+                "sleep",
+                "20",
+            ])
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => {
+                eprintln!("Skipping tmux batch liveness test: tmux not usable");
+                return;
+            }
+        };
+        // Newer tmux releases escape control characters in stored names.
+        let created = std::str::from_utf8(&created.stdout).unwrap();
+        let (session_id, session_name) = created
+            .strip_suffix('\n')
+            .and_then(|line| line.split_once('\t'))
+            .expect("tmux should print the session ID and name");
+
+        let mut jobs = [
+            Job {
+                id: 1,
+                state: JobState::Running,
+                run_name: Some(prefix.into()),
+                ..Job::default()
+            },
+            Job {
+                id: 2,
+                state: JobState::Running,
+                run_name: Some(session_name.into()),
+                ..Job::default()
+            },
+        ];
+        TmuxExecutor.annotate_liveness(&mut jobs);
+        let cleanup = Command::new("tmux")
+            .args(["kill-session", "-t", session_id])
+            .output()
+            .unwrap();
+        assert!(cleanup.status.success(), "{cleanup:?}");
+
+        assert_eq!(jobs[0].alive, Some(false));
+        assert_eq!(jobs[1].alive, Some(true));
     }
 
     /// A process group may contain only zombies after its live processes are

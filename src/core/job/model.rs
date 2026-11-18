@@ -152,6 +152,22 @@ impl Default for JobRuntime {
     }
 }
 
+impl JobRuntime {
+    pub(crate) fn runtime(&self) -> Option<Duration> {
+        job_runtime(self.started_at, self.finished_at, self.state)
+    }
+}
+
+fn job_runtime(
+    started_at: Option<SystemTime>,
+    finished_at: Option<SystemTime>,
+    state: JobState,
+) -> Option<Duration> {
+    let started_at = started_at?;
+    let end = finished_at.or_else(|| (state == JobState::Running).then(SystemTime::now))?;
+    end.duration_since(started_at).ok()
+}
+
 /// JobView combines JobSpec and JobRuntime for API compatibility.
 /// This provides a unified view of job data for external interfaces.
 #[derive(Debug, Serialize, Clone)]
@@ -777,13 +793,7 @@ impl Job {
 
     /// Calculate runtime (time from start to finish, or current elapsed time if still running)
     pub fn runtime(&self) -> Option<Duration> {
-        match (self.started_at, self.finished_at) {
-            (Some(started), Some(finished)) => finished.duration_since(started).ok(),
-            (Some(started), None) if self.state == JobState::Running => {
-                SystemTime::now().duration_since(started).ok()
-            }
-            _ => None,
-        }
+        job_runtime(self.started_at, self.finished_at, self.state)
     }
 
     #[cfg(test)]

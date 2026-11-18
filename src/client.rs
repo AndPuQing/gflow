@@ -33,6 +33,20 @@ pub struct PaginatedJobsResponse {
     pub offset: usize,
 }
 
+pub(crate) const LIST_JOBS_TOTAL_HEADER: &str = "x-gflow-total-count";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct ListJobsQuery {
+    pub state: Option<String>,
+    pub user: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub created_after: Option<i64>,
+    pub order: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub include_total: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateJobRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -81,7 +95,7 @@ pub struct TopJob {
     pub gpus: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageStats {
     pub user: Option<String>,
     pub since: Option<u64>,
@@ -174,16 +188,12 @@ impl Client {
         Ok(jobs)
     }
 
-    /// List jobs with query parameters for database queries.
-    ///
-    /// This method queries from the database and supports:
+    /// List jobs using the daemon's query parameters:
     /// - State filtering (e.g., "Running,Finished")
     /// - User filtering (e.g., "user1,user2")
     /// - Pagination (limit and offset)
     /// - Time filtering (created_after timestamp)
     /// - Ordering (`asc` or `desc`)
-    ///
-    /// Returns all matching jobs from the database, not just in-memory jobs.
     pub async fn list_jobs_with_query(
         &self,
         states: Option<String>,
@@ -193,37 +203,16 @@ impl Client {
         created_after: Option<i64>,
         order: Option<String>,
     ) -> anyhow::Result<Vec<Job>> {
-        let mut request = self.client.get(format!("{}/jobs", self.base_url));
-
-        // Add query parameters if provided
-        let mut params = vec![];
-        if let Some(s) = states {
-            params.push(("state", s));
-        }
-        if let Some(u) = user {
-            params.push(("user", u));
-        }
-        if let Some(l) = limit {
-            params.push(("limit", l.to_string()));
-        }
-        if let Some(o) = offset {
-            params.push(("offset", o.to_string()));
-        }
-        if let Some(t) = created_after {
-            params.push(("created_after", t.to_string()));
-        }
-        if let Some(order) = order {
-            params.push(("order", order));
-        }
-
-        if !params.is_empty() {
-            request = request.query(&params);
-        }
-
-        let response = request.send().await.map_err(connection_error_context)?;
-
-        // Handle both direct Vec<Job> and paginated response
-        let response_text = response.text().await?;
+        let query = ListJobsQuery {
+            state: states,
+            user,
+            limit,
+            offset,
+            created_after,
+            order,
+            include_total: false,
+        };
+        let response_text = self.request_jobs(&query).await?.text().await?;
 
         // Try to parse as PaginatedJobsResponse first
         if let Ok(paginated) = serde_json::from_str::<PaginatedJobsResponse>(&response_text) {
@@ -233,6 +222,37 @@ impl Client {
             serde_json::from_str::<Vec<Job>>(&response_text)
                 .context("Failed to parse jobs from response")
         }
+    }
+
+    /// Request a page with its total match count. Older daemons omit the header.
+    pub(crate) async fn list_jobs_with_total(
+        &self,
+        mut query: ListJobsQuery,
+    ) -> anyhow::Result<Option<(Vec<Job>, usize)>> {
+        query.include_total = true;
+        let response = self.request_jobs(&query).await?.error_for_status()?;
+        let Some(total) = response.headers().get(LIST_JOBS_TOTAL_HEADER) else {
+            return Ok(None);
+        };
+        let total = total
+            .to_str()
+            .context("Invalid job count header")?
+            .parse::<usize>()
+            .context("Invalid job count header")?;
+        let jobs = response
+            .json::<Vec<Job>>()
+            .await
+            .context("Failed to parse jobs from response")?;
+        Ok(Some((jobs, total)))
+    }
+
+    async fn request_jobs(&self, query: &ListJobsQuery) -> anyhow::Result<reqwest::Response> {
+        self.client
+            .get(format!("{}/jobs", self.base_url))
+            .query(query)
+            .send()
+            .await
+            .map_err(connection_error_context)
     }
 
     pub async fn get_job(&self, job_id: u32) -> anyhow::Result<Option<Job>> {
@@ -1065,6 +1085,37 @@ mod tests {
             .expect("should list jobs");
 
         assert_eq!(jobs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_jobs_with_total_requires_daemon_support() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/jobs"))
+            .and(query_param("limit", "1"))
+            .and(query_param("order", "desc"))
+            .and(query_param("include_total", "true"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(PaginatedJobsResponse {
+                    jobs: vec![serde_json::from_value(job_json(1, "Finished")).unwrap()],
+                    total: 3,
+                    limit: 1,
+                    offset: 0,
+                }),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = client_for(&server)
+            .list_jobs_with_total(ListJobsQuery {
+                limit: Some(1),
+                order: Some("desc".into()),
+                ..ListJobsQuery::default()
+            })
+            .await
+            .unwrap();
+        assert!(result.is_none());
     }
 
     // ── get_job ────────────────────────────────────────────────────────────
