@@ -90,6 +90,10 @@ fn retry_hints_for_job(job: &Job, log_excerpt: Option<&str>) -> Vec<String> {
 
     match job.state {
         JobState::Queued => match job.reason.as_deref().map(ToString::to_string) {
+            Some(reason) if reason == "OffHours" => hints.push(
+                "wait for the daemon's off-hours window to have enough time for the job"
+                    .to_string(),
+            ),
             Some(reason) if reason.contains("Dependency") => hints.push(
                 "inspect dependency jobs before retrying or changing dependencies".to_string(),
             ),

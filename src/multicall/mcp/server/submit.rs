@@ -16,6 +16,12 @@ pub(super) fn build_submit_job(params: SubmitJobRequest) -> anyhow::Result<Job, 
     if params.shared.unwrap_or(false) && params.gpu_memory_limit_mb.is_none() {
         return Err("submit_job requires 'gpu_memory_limit_mb' when 'shared' is true".to_string());
     }
+    let off_hours = params.off_hours.unwrap_or(false);
+    if off_hours && params.time_limit_secs.unwrap_or_default() == 0 {
+        return Err(
+            "submit_job requires a positive 'time_limit_secs' when 'off_hours' is true".to_string(),
+        );
+    }
 
     let mut builder = JobBuilder::new()
         .gpus(params.gpus.unwrap_or(0))
@@ -32,6 +38,7 @@ pub(super) fn build_submit_job(params: SubmitJobRequest) -> anyhow::Result<Job, 
         )
         .auto_close_tmux(params.auto_close_tmux.unwrap_or(false))
         .shared(params.shared.unwrap_or(false))
+        .off_hours(off_hours)
         .max_concurrent(params.max_concurrent)
         .max_retries(params.max_retries.unwrap_or(0))
         .run_name(params.run_name)
@@ -211,6 +218,9 @@ fn preview_submit_warnings(job: &Job) -> Vec<String> {
     }
     if job.project.is_some() {
         warnings.push("project policy validation requires the daemon submit path".to_string());
+    }
+    if job.off_hours {
+        warnings.push("off-hours jobs require [daemon.off_hours] on the daemon".to_string());
     }
     warnings
 }

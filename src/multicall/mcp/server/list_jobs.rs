@@ -37,6 +37,7 @@ pub(super) fn serialize_list_job(job: Job, detail: ListJobsDetailInput) -> Value
             "name": job.run_name,
             "state": job.state,
             "reason": job.reason.as_deref().map(ToString::to_string),
+            "off_hours": job.off_hours,
             "gpus": job.gpus,
             "gpu_ids": job.gpu_ids,
             "user": job.submitted_by,

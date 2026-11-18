@@ -111,6 +111,8 @@ pub(super) struct SubmitJobRequest {
     pub auto_cancel_on_dependency_failure: Option<bool>,
     pub shared: Option<bool>,
     pub gpu_memory_limit_mb: Option<u64>,
+    /// Run in the daemon's daily off-hours window after regular jobs. Requires a positive `time_limit_secs`.
+    pub off_hours: Option<bool>,
     pub time_limit_secs: Option<u64>,
     pub memory_limit_mb: Option<u64>,
     pub submitted_by: Option<String>,

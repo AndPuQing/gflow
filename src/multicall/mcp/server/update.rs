@@ -111,25 +111,26 @@ pub(super) fn preview_update_job_output(
         "dry run does not validate dependency existence or circular dependency changes".to_string(),
     ];
 
-    if !matches!(job.state, JobState::Queued | JobState::Hold) {
-        return PreviewUpdateJobOutput {
-            dry_run: true,
-            ok: false,
-            job_id,
-            before: Some(before),
-            after: None,
-            updated_fields: Vec::new(),
-            error: Some(format!(
-                "Job {} is in state '{}' and cannot be updated. Only queued or held jobs can be updated.",
-                job_id, job.state
-            )),
-            warnings,
-        };
-    }
-
-    if job.gpu_sharing_mode == GpuSharingMode::Shared
+    let error = if !matches!(job.state, JobState::Queued | JobState::Hold) {
+        Some(format!(
+            "Job {} is in state '{}' and cannot be updated. Only queued or held jobs can be updated.",
+            job_id, job.state
+        ))
+    } else if job.gpu_sharing_mode == GpuSharingMode::Shared
         && matches!(request.gpu_memory_limit_mb, Some(None))
     {
+        Some("Shared jobs must keep a GPU memory limit (--gpu-memory / --max-gpu-mem).".to_string())
+    } else if job.off_hours
+        && request
+            .time_limit
+            .is_some_and(|limit| limit.is_none_or(|limit| limit.is_zero()))
+    {
+        Some("Off-hours jobs must keep a positive time_limit_secs.".to_string())
+    } else {
+        None
+    };
+
+    if let Some(error) = error {
         return PreviewUpdateJobOutput {
             dry_run: true,
             ok: false,
@@ -137,10 +138,7 @@ pub(super) fn preview_update_job_output(
             before: Some(before),
             after: None,
             updated_fields: Vec::new(),
-            error: Some(
-                "Shared jobs must keep a GPU memory limit (--gpu-memory / --max-gpu-mem)."
-                    .to_string(),
-            ),
+            error: Some(error),
             warnings,
         };
     }

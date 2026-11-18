@@ -64,6 +64,7 @@ fn submit_job_validation_rejects_shared_jobs_without_gpu_memory_limit() {
         auto_cancel_on_dependency_failure: None,
         shared: Some(true),
         gpu_memory_limit_mb: None,
+        off_hours: None,
         time_limit_secs: None,
         memory_limit_mb: None,
         submitted_by: None,
@@ -101,7 +102,8 @@ fn preview_submit_jobs_expands_without_assigning_job_ids() {
             auto_cancel_on_dependency_failure: None,
             shared: None,
             gpu_memory_limit_mb: None,
-            time_limit_secs: None,
+            off_hours: Some(true),
+            time_limit_secs: Some(3600),
             memory_limit_mb: None,
             submitted_by: Some("alice".to_string()),
             param: Some(vec!["lr=0.1,0.2".to_string()]),
@@ -125,7 +127,49 @@ fn preview_submit_jobs_expands_without_assigning_job_ids() {
     for result in output.jobs {
         assert!(result.ok);
         assert_eq!(result.input_index, 0);
-        assert_eq!(result.job.unwrap()["id"], 0);
+        let job = result.job.unwrap();
+        assert_eq!(job["id"], 0);
+        assert_eq!(job["off_hours"], true);
+        assert_eq!(job["time_limit"]["secs"], 3600);
+    }
+}
+
+#[test]
+fn off_hours_submission_preview_requires_positive_time_limit() {
+    let jobs = serde_json::from_value(serde_json::json!([
+        { "command": "true", "off_hours": true },
+        { "command": "true", "off_hours": true, "time_limit_secs": 0 }
+    ]))
+    .unwrap();
+
+    let output = preview_submit_jobs_output(jobs, 2);
+
+    assert!(!output.valid);
+    assert_eq!(output.jobs.len(), 2);
+    for result in output.jobs {
+        assert!(result.job.is_none());
+        assert!(result.error.unwrap().contains("positive 'time_limit_secs'"));
+    }
+}
+
+#[test]
+fn off_hours_update_preview_rejects_removing_time_limit() {
+    let job = JobBuilder::new()
+        .off_hours(true)
+        .time_limit(Duration::from_secs(3600))
+        .build();
+
+    for limit in [None, Some(Duration::ZERO)] {
+        let preview = preview_update_job_output(
+            job.clone(),
+            UpdateJobRequest {
+                time_limit: Some(limit),
+                ..Default::default()
+            },
+        );
+        assert!(!preview.ok);
+        assert!(preview.after.is_none());
+        assert!(preview.error.unwrap().contains("positive time_limit_secs"));
     }
 }
 
@@ -303,6 +347,7 @@ fn submit_job_maps_notifications_from_mcp_fields() {
         auto_cancel_on_dependency_failure: None,
         shared: None,
         gpu_memory_limit_mb: None,
+        off_hours: None,
         time_limit_secs: None,
         memory_limit_mb: None,
         submitted_by: None,
@@ -615,14 +660,16 @@ fn list_jobs_summary_is_compact() {
         .submitted_by("alice")
         .run_name(Some("exp-42".to_string()))
         .project(Some("vision".to_string()))
+        .off_hours(true)
         .gpus(2)
         .build();
     job.id = 42;
-    job.state = JobState::Running;
-    job.reason = Some(Box::new(JobStateReason::WaitingForResources));
+    job.reason = Some(Box::new(JobStateReason::WaitingForOffHours));
 
     let value = serialize_list_job(job, ListJobsDetailInput::Summary);
     let object = value.as_object().expect("summary should be an object");
+    assert_eq!(value["reason"], "OffHours");
+    assert_eq!(value["off_hours"], true);
 
     for field in [
         "id",
@@ -673,6 +720,7 @@ fn submit_jobs_expand_cli_style_param_combinations() {
         auto_cancel_on_dependency_failure: None,
         shared: None,
         gpu_memory_limit_mb: None,
+        off_hours: None,
         time_limit_secs: None,
         memory_limit_mb: None,
         submitted_by: None,
@@ -744,6 +792,7 @@ fn submit_jobs_reject_duplicate_keys_between_parameters_and_param() {
         auto_cancel_on_dependency_failure: None,
         shared: None,
         gpu_memory_limit_mb: None,
+        off_hours: None,
         time_limit_secs: None,
         memory_limit_mb: None,
         submitted_by: None,

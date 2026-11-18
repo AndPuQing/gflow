@@ -32,6 +32,20 @@ Use read-only and preview tools before mutating scheduler state:
 
 Agents should ask for explicit confirmation before calling any mutating tool unless the user has already requested that exact action. For failures, call `triage_job` first so the response includes job state, runtime, GPU assignment, recent log evidence, and retry hints.
 
+## Off-hours jobs
+
+Use `off_hours: true` and a positive `time_limit_secs` in `preview_submit_jobs` and `submit_jobs`.
+
+```json
+{
+  "jobs": [
+    { "command": "python train.py", "gpus": 1, "off_hours": true, "time_limit_secs": 3600 }
+  ]
+}
+```
+
+The daemon must have a daily off-hours window configured. `list_jobs` includes the `off_hours` flag and reports `OffHours` when a job is waiting for a window with enough time. [Off-hours scheduling](../user-guide/job-submission.md#off-hours-jobs)
+
 ## Claude Code
 
 User-scope configuration is recommended:

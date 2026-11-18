@@ -32,6 +32,20 @@ ginfo
 
 除非用户已经明确要求执行对应操作，agent 在调用任何会修改状态的工具前都应该先确认。排查失败任务时，先调用 `triage_job`，让回复包含任务状态、运行时间、GPU 分配、最近日志证据和重试建议。
 
+## 闲时任务
+
+调用 `preview_submit_jobs` 和 `submit_jobs` 时，用 `off_hours: true` 标记闲时任务，并提供大于零的 `time_limit_secs`。
+
+```json
+{
+  "jobs": [
+    { "command": "python train.py", "gpus": 1, "off_hours": true, "time_limit_secs": 3600 }
+  ]
+}
+```
+
+守护进程需要配置每日闲时时段。`list_jobs` 会显示 `off_hours` 标记，等待可容纳任务的闲时窗口时，排队原因显示为 `OffHours`。[闲时任务配置](../user-guide/job-submission.md#闲时任务)
+
 ## Claude Code
 
 推荐按用户级配置：
