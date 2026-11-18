@@ -120,6 +120,7 @@ pub(crate) fn build_redo_job(original_job: &Job, options: &RedoJobOptions) -> Jo
 
     let time_limit = options.time_limit_override.or(original_job.time_limit);
     builder = builder.time_limit(time_limit);
+    builder = builder.off_hours(original_job.off_hours);
 
     let memory_limit_mb = options
         .memory_limit_mb_override

@@ -1,5 +1,8 @@
 use super::*;
 
+const OFF_HOURS_REQUIRES_TIME_LIMIT: &str =
+    "Off-hours jobs require a positive time limit (--time).";
+
 impl SchedulerRuntime {
     /// Re-adopt persisted Running jobs before scheduling starts. A live runner
     /// remains Running; a durable result is finalized immediately; a missing
@@ -96,11 +99,21 @@ impl SchedulerRuntime {
         Ok(())
     }
 
-    fn validate_shared_job_requirements(job: &Job) -> Result<()> {
+    fn validate_job_requirements(&self, job: &Job) -> Result<()> {
         if job.gpu_sharing_mode == GpuSharingMode::Shared && job.gpu_memory_limit_mb.is_none() {
             anyhow::bail!(
                 "Shared jobs must include a GPU memory limit (--gpu-memory / --max-gpu-mem)."
             );
+        }
+        if job.off_hours {
+            if self.off_hours.is_none() {
+                bail!(
+                    "Off-hours scheduling is disabled. Configure [daemon.off_hours] on the daemon."
+                );
+            }
+            if job.time_limit.is_none_or(|limit| limit.is_zero()) {
+                bail!(OFF_HOURS_REQUIRES_TIME_LIMIT);
+            }
         }
         Ok(())
     }
@@ -197,7 +210,7 @@ impl SchedulerRuntime {
 
     pub async fn submit_job(&mut self, mut job: Job) -> Result<(u32, String, Job)> {
         self.normalize_and_validate_project(&mut job)?;
-        Self::validate_shared_job_requirements(&job)?;
+        self.validate_job_requirements(&job)?;
         self.check_queue_quota(&job, &HashMap::new(), &HashMap::new())?;
         let mut reserved_names = self.current_reserved_run_names();
         self.prepare_run_name(&mut job, self.scheduler.next_job_id(), &mut reserved_names);
@@ -230,7 +243,7 @@ impl SchedulerRuntime {
         let mut project_pending_bias: HashMap<CompactString, usize> = HashMap::new();
         for (next_job_id, mut job) in (self.scheduler.next_job_id()..).zip(jobs) {
             self.normalize_and_validate_project(&mut job)?;
-            Self::validate_shared_job_requirements(&job)?;
+            self.validate_job_requirements(&job)?;
             self.check_queue_quota(&job, &user_pending_bias, &project_pending_bias)?;
             *user_pending_bias
                 .entry(job.submitted_by.clone())
@@ -394,8 +407,8 @@ impl SchedulerRuntime {
         let new_deps = request.depends_on_ids.as_deref();
         self.scheduler.validate_job_update(job_id, new_deps)?;
 
-        // Enforce shared-job invariant before mutating state.
-        if let Some((_spec, rt)) = self.scheduler.get_job_parts(job_id) {
+        // Keep required limits when updating a shared or off-hours job.
+        if let Some((spec, rt)) = self.scheduler.get_job_parts(job_id) {
             if rt.gpu_sharing_mode == GpuSharingMode::Shared
                 && matches!(request.gpu_memory_limit_mb, Some(None))
             {
@@ -403,6 +416,13 @@ impl SchedulerRuntime {
                     "Shared jobs must keep a GPU memory limit (--gpu-memory / --max-gpu-mem)."
                         .to_string(),
                 );
+            }
+            if spec.off_hours
+                && request
+                    .time_limit
+                    .is_some_and(|limit| limit.is_none_or(|limit| limit.is_zero()))
+            {
+                return Err(OFF_HOURS_REQUIRES_TIME_LIMIT.to_string());
             }
         }
 

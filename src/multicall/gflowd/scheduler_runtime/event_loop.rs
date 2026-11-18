@@ -1,6 +1,7 @@
 use super::super::events::{EventBus, EventEnvelope, SchedulerEvent};
 use super::*;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tracing::Instrument;
 
 /// Event-driven scheduling loop
@@ -18,7 +19,7 @@ pub async fn run_event_driven(
     };
 
     // Spawn all event handlers and monitors
-    let handles = vec![
+    let mut handles = vec![
         // Scheduler trigger handler with debouncing
         tokio::spawn(
             scheduler_trigger_handler_with_debounce(
@@ -94,6 +95,18 @@ pub async fn run_event_driven(
                 .instrument(tracing::info_span!("metrics_updater_task")),
         ),
     ];
+
+    if let Some(window) = shared_state.read().await.off_hours {
+        handles.push(tokio::spawn(
+            super::monitors::off_hours_monitor_task(
+                Arc::clone(&shared_state),
+                Arc::clone(&event_bus),
+                window,
+                SystemTime::now(),
+            )
+            .instrument(tracing::info_span!("off_hours_monitor_task")),
+        ));
+    }
 
     for outcome in recovery_outcomes {
         event_bus.publish(SchedulerEvent::JobCompleted {
@@ -179,7 +192,12 @@ pub(super) async fn trigger_scheduling(state: &SharedState, event_bus: &Arc<Even
     // Step 1: Prepare jobs for execution (write lock - fast, no I/O)
     let jobs_to_execute = {
         let mut state_guard = state.write().await;
-        let jobs = state_guard.scheduler.prepare_jobs_for_execution();
+        let off_hours_remaining = state_guard
+            .off_hours
+            .and_then(|window| window.remaining(SystemTime::now()));
+        let jobs = state_guard
+            .scheduler
+            .prepare_jobs_for_execution_with_off_hours(off_hours_remaining);
 
         // CRITICAL: Immediately refresh GPU slots after allocation to prevent race condition
         // This ensures that if another scheduling trigger happens before the periodic

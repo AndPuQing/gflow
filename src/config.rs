@@ -52,6 +52,15 @@ pub struct DaemonConfig {
     #[serde(default)]
     #[serde(skip_serializing_if = "FairShareConfig::is_default")]
     pub fair_share: FairShareConfig,
+    /// Daily window in which off-hours jobs may start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_hours: Option<OffHoursConfig>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct OffHoursConfig {
+    pub start: String,
+    pub end: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -410,6 +419,7 @@ impl Default for DaemonConfig {
             gpu_allocation_strategy: GpuAllocationStrategy::default(),
             gpu_poll_interval_secs: default_gpu_poll_interval_secs(),
             fair_share: FairShareConfig::default(),
+            off_hours: None,
         }
     }
 }

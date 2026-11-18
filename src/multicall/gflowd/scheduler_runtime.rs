@@ -2,6 +2,7 @@ mod event_loop;
 mod gpu;
 mod jobs;
 mod monitors;
+mod off_hours;
 mod persistence;
 mod retry;
 mod serialization;
@@ -19,6 +20,7 @@ use gflow::core::info::IgnoredGpuProcess;
 use gflow::core::job::{GpuSharingMode, Job, JobSpec, JobState};
 use gflow::core::scheduler::{Scheduler, SchedulerBuilder};
 use nvml_wrapper::Nvml;
+use off_hours::OffHoursWindow;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -52,6 +54,7 @@ impl Executor for ArcExecutorWrapper {
 pub struct SchedulerRuntime {
     scheduler: Scheduler,
     projects_config: gflow::config::ProjectsConfig,
+    off_hours: Option<OffHoursWindow>,
     nvml: Option<Nvml>,
     executor: Arc<dyn Executor>, // Shared executor for lock-free job execution
     dirty: bool,                 // Tracks if state has changed since last save
@@ -163,6 +166,7 @@ impl SchedulerRuntime {
         let mut runtime = Self {
             scheduler,
             projects_config,
+            off_hours: None,
             nvml,
             executor: executor_arc,
             dirty: false,
@@ -179,6 +183,16 @@ impl SchedulerRuntime {
         runtime.load_state();
         runtime.init_journal();
         Ok(runtime)
+    }
+
+    pub(super) fn configure_off_hours(&mut self, config: &gflow::config::Config) -> Result<()> {
+        self.off_hours = config
+            .daemon
+            .off_hours
+            .as_ref()
+            .map(|window| OffHoursWindow::new(window, config.timezone.as_deref()))
+            .transpose()?;
+        Ok(())
     }
 
     pub fn state_writable(&self) -> bool {

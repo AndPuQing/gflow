@@ -70,6 +70,7 @@ pub async fn run(config: gflow::config::Config) -> anyhow::Result<()> {
         config.projects.clone(),
         config.daemon.fair_share.clone(),
     )?;
+    scheduler_runtime.configure_off_hours(&config)?;
     scheduler_runtime.set_state_saver(state_saver_handle.clone());
     scheduler_runtime.set_quota_baseline(config.quota.clone());
 

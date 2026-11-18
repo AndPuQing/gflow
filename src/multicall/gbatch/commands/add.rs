@@ -463,7 +463,7 @@ async fn build_job(
     client: &Client,
     stdin_content: Option<&String>,
 ) -> Result<Job> {
-    let mut builder = Job::builder();
+    let mut builder = Job::builder().off_hours(args.off_hours);
     let run_dir = std::env::current_dir().context("Failed to get current directory")?;
     builder = builder.run_dir(run_dir);
     builder = builder.task_id(task_id);
@@ -538,6 +538,7 @@ async fn build_job(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.shared(args.shared || script_args.shared);
+        builder = builder.off_hours(args.off_hours || script_args.off_hours);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, Some(&script_args)));
         builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
@@ -594,6 +595,7 @@ async fn build_job(
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.shared(args.shared || script_args.shared);
+            builder = builder.off_hours(args.off_hours || script_args.off_hours);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
@@ -680,7 +682,7 @@ async fn build_job_with_params(
     client: &Client,
     stdin_content: Option<&String>,
 ) -> Result<Job> {
-    let mut builder = Job::builder();
+    let mut builder = Job::builder().off_hours(args.off_hours);
     let run_dir = std::env::current_dir().context("Failed to get current directory")?;
     builder = builder.run_dir(run_dir);
     // Parameters are for array-like submissions but without task_id
@@ -764,6 +766,7 @@ async fn build_job_with_params(
         builder = builder.script(temp_script);
         builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
         builder = builder.shared(args.shared || script_args.shared);
+        builder = builder.off_hours(args.off_hours || script_args.off_hours);
         builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
         builder = builder.project(resolve_project(args, Some(&script_args)));
         builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
@@ -820,6 +823,7 @@ async fn build_job_with_params(
             builder = builder.script(script_path);
             builder = builder.gpus(args.gpus.or(script_args.gpus).unwrap_or(0));
             builder = builder.shared(args.shared || script_args.shared);
+            builder = builder.off_hours(args.off_hours || script_args.off_hours);
             builder = builder.priority(args.priority.or(script_args.priority).unwrap_or(10));
             builder = builder.notifications(resolve_job_notifications(args, Some(&script_args))?);
             builder = builder.conda_env(args.conda_env.clone().or(script_args.conda_env));
@@ -916,6 +920,7 @@ fn parse_script_content_for_args(content: &str) -> Result<cli::AddArgs> {
         return Ok(cli::AddArgs {
             script_or_command: vec![],
             begin: None,
+            off_hours: false,
             conda_env: None,
             gpus: None,
             shared: false,
@@ -1059,6 +1064,7 @@ mod tests {
         let args = cli::AddArgs {
             script_or_command: vec!["python".to_string(), "train.py".to_string()],
             begin: None,
+            off_hours: false,
             conda_env: None,
             gpus: None,
             shared: false,

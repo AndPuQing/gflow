@@ -56,6 +56,9 @@ pub struct JobSpec {
     // execution until this wall-clock time has passed.
     #[serde(default)]
     pub scheduled_at: Option<SystemTime>,
+    /// Use only the daemon's off-hours window, after regular jobs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub off_hours: bool,
 }
 
 impl Default for JobSpec {
@@ -81,6 +84,7 @@ impl Default for JobSpec {
             dependency_mode: None,
             auto_cancel_on_dependency_failure: true,
             scheduled_at: None,
+            off_hours: false,
         }
     }
 }
@@ -243,6 +247,8 @@ pub struct Job {
     /// Do-not-start-before time (`--begin`); None means start as soon as possible.
     #[serde(default)]
     pub scheduled_at: Option<SystemTime>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub off_hours: bool,
 }
 
 #[derive(Default)]
@@ -274,6 +280,7 @@ pub struct JobBuilder {
     notifications: Option<JobNotifications>,
     gpu_sharing_mode: Option<GpuSharingMode>,
     scheduled_at: Option<SystemTime>,
+    off_hours: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
@@ -479,6 +486,11 @@ impl JobBuilder {
         self
     }
 
+    pub fn off_hours(mut self, off_hours: bool) -> Self {
+        self.off_hours = off_hours;
+        self
+    }
+
     pub fn build(self) -> Job {
         Job {
             id: 0,
@@ -520,6 +532,7 @@ impl JobBuilder {
             reason: None,
             alive: None,
             scheduled_at: self.scheduled_at,
+            off_hours: self.off_hours,
         }
     }
 }
@@ -562,6 +575,7 @@ impl Default for Job {
             reason: None,
             alive: None,
             scheduled_at: None,
+            off_hours: false,
         }
     }
 }
@@ -609,6 +623,7 @@ impl Job {
             reason: runtime.reason,
             alive: None,
             scheduled_at: spec.scheduled_at,
+            off_hours: spec.off_hours,
         }
     }
 
@@ -635,6 +650,7 @@ impl Job {
             dependency_mode: self.dependency_mode,
             auto_cancel_on_dependency_failure: self.auto_cancel_on_dependency_failure,
             scheduled_at: self.scheduled_at,
+            off_hours: self.off_hours,
         };
 
         let runtime = JobRuntime {

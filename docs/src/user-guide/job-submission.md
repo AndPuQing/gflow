@@ -22,6 +22,30 @@ gbatch --max-retries 2 python train.py
 gbatch --notify-email alice@example.com --notify-on job_failed,job_timeout python train.py
 ```
 
+## Off-hours Jobs
+
+Administrators can enable a daily scheduling window in the daemon's `gflow.toml`.
+Times use the configured `timezone` or the daemon's local timezone. An end time
+earlier than the start time ends the window on the following day.
+
+```toml
+timezone = "Asia/Shanghai"
+
+[daemon.off_hours]
+start = "23:00"
+end = "07:00"
+```
+
+```bash
+gbatch --off-hours --gpus 1 --time 1:00:00 python train.py
+```
+
+Regular jobs are scheduled first regardless of their numeric priority. An
+off-hours job must declare a positive `--time` and can start once its time limit
+and a 30-second cleanup margin fit in the remaining window. The queue shows
+`OffHours` while it waits for a window with enough time. Once started, the job
+runs to completion or its usual timeout. Later arrivals do not preempt it.
+
 ## Submit a Command
 
 ```bash
@@ -51,6 +75,7 @@ Only a small subset of options are parsed from scripts:
 
 - `# GFLOW --gpus=<N>`
 - `# GFLOW --shared`
+- `# GFLOW --off-hours`
 - `# GFLOW --time=<TIME>`
 - `# GFLOW --memory=<LIMIT>`
 - `# GFLOW --gpu-memory=<LIMIT>`

@@ -82,6 +82,7 @@ pub enum JobStateReason {
     CancelledByUser,
     DependencyFailed(u32),
     SystemError(CompactString),
+    WaitingForOffHours,
 }
 
 impl fmt::Display for JobStateReason {
@@ -89,6 +90,7 @@ impl fmt::Display for JobStateReason {
         match self {
             JobStateReason::JobHeldUser => write!(f, "JobHeldUser"),
             JobStateReason::WaitingForStartTime => write!(f, "BeginTime"),
+            JobStateReason::WaitingForOffHours => write!(f, "OffHours"),
             JobStateReason::WaitingForDependency => write!(f, "Dependency"),
             JobStateReason::WaitingForResources => write!(f, "Resources"),
             JobStateReason::WaitingForGpu => write!(f, "Resources"),

@@ -131,7 +131,7 @@ impl Scheduler {
     }
 
     pub(super) fn enqueue_if_ready(&mut self, job_id: u32) {
-        let Some(rt) = self.get_job_runtime(job_id) else {
+        let Some((spec, rt)) = self.get_job_parts(job_id) else {
             return;
         };
         if rt.state != JobState::Queued {
@@ -154,6 +154,7 @@ impl Scheduler {
         self.ready_heap.push(ReadyEntry {
             job_id,
             epoch: dep_rt.ready_epoch,
+            off_hours: spec.off_hours,
             priority: rt.priority,
             time_bonus: Self::calculate_time_bonus(&rt.time_limit),
         });
