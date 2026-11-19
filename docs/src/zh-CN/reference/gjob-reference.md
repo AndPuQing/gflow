@@ -112,6 +112,7 @@ gjob release <job_ids> --at <time>
 ### `gjob show <job_ids>`
 
 显示任务详细信息，包括资源、依赖、时间信息和 tmux 会话名。
+调度器记录了状态原因时，`Reason` 会显示在 `State` 下方。
 
 别名：`gjob s`
 

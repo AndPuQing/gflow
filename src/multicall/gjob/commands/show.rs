@@ -1,7 +1,8 @@
 use anyhow::Result;
-use gflow::core::job::Job;
+use gflow::core::job::{Job, JobStateReason};
 use gflow::utils::{parse_job_ids, substitute_parameters};
 use gflow::{print_field, print_optional_field};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -29,6 +30,7 @@ fn print_job_details(job: &Job) {
     println!("Job Details:");
     print_field!("ID", "{}", job.id);
     print_field!("State", "{} ({})", job.state, job.state.short_form());
+    print_optional_field!("Reason", job.reason, |reason| format_job_reason(reason));
     print_field!("Priority", "{}", job.priority);
     if job.off_hours {
         print_field!("OffHours", "yes");
@@ -175,6 +177,24 @@ fn print_job_details(job: &Job) {
         } else {
             print_field!("Started", "{}", format_time(started_at));
         }
+    }
+}
+
+fn format_job_reason(reason: &JobStateReason) -> Cow<'_, str> {
+    match reason {
+        JobStateReason::JobHeldUser => "Held by user".into(),
+        JobStateReason::WaitingForStartTime => "Waiting for scheduled start time".into(),
+        JobStateReason::WaitingForDependency => "Waiting for dependency".into(),
+        JobStateReason::WaitingForResources => "Waiting for resources".into(),
+        JobStateReason::WaitingForGpu => "Waiting for GPU".into(),
+        JobStateReason::WaitingForMemory => "Waiting for memory".into(),
+        JobStateReason::WaitingForQuota => "Waiting for quota".into(),
+        JobStateReason::WaitingForOffHours => "Waiting for off-hours window".into(),
+        JobStateReason::CancelledByUser => "Cancelled by user".into(),
+        JobStateReason::DependencyFailed(job_id) => {
+            format!("Dependency job {job_id} failed").into()
+        }
+        JobStateReason::SystemError(message) => format!("System error ({message})").into(),
     }
 }
 
