@@ -113,6 +113,7 @@ and becomes schedulable when the time arrives. `--at` accepts `HH:MM[:SS]`,
 ### `gjob show <job_ids>`
 
 Show detailed job information including resources, dependencies, timing, and tmux session name.
+When the scheduler records a state reason, `Reason` appears directly below `State`.
 
 Alias: `gjob s`
 
