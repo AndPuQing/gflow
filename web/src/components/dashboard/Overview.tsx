@@ -1,6 +1,7 @@
 import { Activity, CheckCircle2, Cpu, Timer } from "lucide-react"
 
 import type { DashboardData } from "@/hooks/useDashboard"
+import { gpuSlotStatus } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -14,9 +15,10 @@ const metricAccent = {
 type MetricTone = keyof typeof metricAccent
 
 export function Overview({ data }: { data: DashboardData }) {
-  const available = data.info.gpus?.filter((gpu) => gpu.available).length ?? 0
-  const total = data.info.gpus?.length ?? 0
-  const busy = Math.max(total - available, 0)
+  const allowed = data.info.allowed_gpu_indices == null ? null : new Set(data.info.allowed_gpu_indices)
+  const statuses = (data.info.gpus ?? []).map((gpu) => gpuSlotStatus(gpu, allowed))
+  const available = statuses.filter((status) => status === "Available").length
+  const busy = statuses.filter((status) => status === "Busy").length
   const completed = data.stats.completed_jobs
   const problemJobs =
     data.stats.failed_jobs + data.stats.cancelled_jobs + data.stats.timeout_jobs
@@ -40,7 +42,7 @@ export function Overview({ data }: { data: DashboardData }) {
       <MetricCard
         icon={Cpu}
         label="GPU Slots"
-        value={`${available}/${total}`}
+        value={`${available}/${statuses.length}`}
         detail={`${busy} busy · ${data.stats.peak_gpu_usage} peak request`}
         tone="amber"
       />

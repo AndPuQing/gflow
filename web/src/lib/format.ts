@@ -1,4 +1,13 @@
-import type { ApiDuration, ApiTime, Job } from "@/api"
+import type { ApiDuration, ApiTime, GpuInfo, Job } from "@/api"
+
+export type GpuSlotStatus = "Available" | "Busy" | "Blocked" | "Unavailable"
+
+export function gpuSlotStatus(gpu: GpuInfo, allowed: ReadonlySet<number> | null): GpuSlotStatus {
+  if (allowed && !allowed.has(gpu.index)) return "Blocked"
+  if (gpu.available) return "Available"
+  if (gpu.reason === "nvml_query_failed") return "Unavailable"
+  return "Busy"
+}
 
 export function formatGpuRequest(gpus?: number) {
   const count = gpus ?? 0
